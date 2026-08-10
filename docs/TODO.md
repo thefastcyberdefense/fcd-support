@@ -10,12 +10,13 @@
 
 ## Current Readiness
 
-- Project state: Phase 0 decisions remain open; a limited local Phase 1 security-core checkpoint is in progress by explicit project-owner direction.
-- Application code: strict TypeScript scaffold, configuration/logging, Meta verification/signature admission, and channel normalizers implemented locally.
-- Server deployment: not authorized.
+- Project state: the local Phase 2 durable-ingestion checkpoint is complete and awaiting project-owner gate review; unrelated Phase 0 policy and external-readiness decisions remain open.
+- Application code: strict TypeScript scaffold, privacy-safe logging, Meta verification/signature admission, independent channel normalization, and PostgreSQL-backed durable receipt are implemented locally.
+- Server deployment: not authorized; only the approved isolated test-only PostgreSQL service has been created on the Ubuntu Docker server.
 - Meta test-asset connection: not authorized yet.
 - Production WhatsApp changes: prohibited unless a separate production plan and explicit approval are provided.
 - Sequence exception recorded 2026-08-11: the project owner waived a separate Phase 1 planning document and authorized reversible, external-service-free local implementation from the revised plan. This does not close unresolved Phase 0 policy decisions or authorize Phase 2, deployment, public ingress, Meta assets, or production work.
+- Sequence exception extended 2026-08-11: the project owner authorized continued development through Phases 1–5 and approved an isolated test-only PostgreSQL environment on `192.168.10.40`. Phase 0 decisions remain provisional and must be closed on demand before dependent production behavior is approved. This does not authorize application deployment, existing-container changes, public ingress, Meta assets, live data, or production-number work.
 
 ## Phase 0 — Preflight And Decisions
 
@@ -23,10 +24,10 @@
 |---|---|---|---|---|---|---|
 | P0-001 | Audit the original plan for missing gates, unsafe ordering, and ambiguous requirements | None | Codex | COMPLETE | Approved sequencing design and revised plan committed | None |
 | P0-002 | Approve the gate-driven phase sequence and tracker model | P0-001 | Project owner | COMPLETE | Approval recorded in project conversation | None |
-| P0-003 | Select pinned Node.js, package-manager, framework, database, migration, validation, test, lint, and format tooling | P0-002 | Codex + project owner | PENDING | Decision record includes exact versions and rationale | None |
+| P0-003 | Select pinned Node.js, package-manager, framework, database, migration, validation, test, lint, and format tooling | P0-002 | Codex + project owner | COMPLETE | `docs/decisions/0001-runtime-and-toolchain.md` records exact versions, rationale, and test-only boundaries | None |
 | P0-004 | Define the sanitized fixture policy and prohibited fixture/log fields | P0-002 | Codex | PENDING | Reviewed policy names allowed synthetic identifiers and redaction rules | None |
-| P0-005 | Define webhook body limit, acknowledgement deadline, invalid-signature response, duplicate response, stale-event response, and unsupported-event response | P0-002 | Codex + project owner | PENDING | Decision matrix covers WhatsApp and Messenger | None |
-| P0-006 | Define channel-specific idempotency keys and event-time rules | P0-005 | Codex | PENDING | Matrix covers messages, echoes, and status events without assuming a universal delivery ID | None |
+| P0-005 | Define webhook body limit, acknowledgement deadline, invalid-signature response, duplicate response, stale-event response, and unsupported-event response | P0-002 | Codex + project owner | COMPLETE | `docs/architecture/webhook-admission.md` defines order, limits, timing, HTTP, persistence, and side-effect outcomes | None |
+| P0-006 | Define channel-specific idempotency keys and event-time rules | P0-005 | Codex | COMPLETE | `docs/architecture/webhook-admission.md` defines message, echo, status, fallback, staleness, future-skew, and ordering rules | None |
 | P0-007 | Define Messenger human-reply detection and pause behavior | P0-002 | Codex | PENDING | `message_echoes` mapping and loop-prevention rules documented | None |
 | P0-008 | Define WhatsApp test-number behavior separately from coexistence/manual-app echo behavior | P0-002 | Codex + project owner | PENDING | Channel matrix clearly marks coexistence assumptions as test-gated | None |
 | P0-009 | Approve lifecycle anchors for 60-day casual chats and 12-month unconverted leads | P0-002 | Project owner | PENDING | Exact start/end timestamps and reclassification behavior documented | Policy decision |
@@ -49,8 +50,8 @@
 | P1-002 | Scaffold strict TypeScript tooling and secret-free CI | P1-001 | Codex | IN PROGRESS | Local `npm run check` passes; least-privilege CI workflow exists; first remote CI run is pending | None |
 | P1-003 | Implement validated configuration and privacy-safe logging test-first | P1-002 | Codex | COMPLETE | Configuration, allowlist, and webhook log privacy tests pass | None |
 | P1-004 | Implement Meta GET verification test-first | P1-002 | Codex | COMPLETE | Challenge success and rejection matrix tests pass | None |
-| P1-005 | Implement raw-body signature verification and payload limits test-first | P1-002 | Codex | IN PROGRESS | Core and malformed UTF-8 tests pass; final P0-005 response-policy approval remains | None |
-| P1-006 | Implement WhatsApp and Messenger envelope normalizers test-first | P1-004, P1-005 | Codex | IN PROGRESS | Sanitized normalizer tests pass; idempotency and unsupported-event outcomes remain provisional pending P0-005/P0-006 | None |
+| P1-005 | Implement raw-body signature verification and payload limits test-first | P1-002 | Codex | COMPLETE | Raw-byte HMAC, limit, malformed UTF-8, malformed JSON, and rejection tests pass against the documented response policy | None |
+| P1-006 | Implement WhatsApp and Messenger envelope normalizers test-first | P1-004, P1-005 | Codex | COMPLETE | Sanitized normalizer tests preserve valid siblings beside unsupported and malformed items with documented keys | None |
 | P1-007 | Prove route and HTTP-method isolation | P1-004 through P1-006 | Codex | COMPLETE | Unapproved paths and GET-adjacent standard methods, including implicit `HEAD`, return `404` | None |
 | P1-GATE | Review Phase 1 evidence | P1-002 through P1-007 | Project owner | BLOCKED | Local gate passes; first remote CI run and project-owner review remain | Explicit review |
 
@@ -58,12 +59,12 @@
 
 | ID | Task | Depends On | Owner | Status | Evidence / Completion Rule | Approval Boundary |
 |---|---|---|---|---|---|---|
-| P2-001 | Write and approve the Phase 2 test-first implementation plan | P1-GATE | Codex + project owner | BLOCKED | Committed implementation plan | Explicit review |
-| P2-002 | Add pinned local PostgreSQL and migration tooling | P2-001 | Codex | BLOCKED | Clean apply and upgrade tests pass | Local Docker only |
-| P2-003 | Implement atomic receipt/event persistence and channel-specific unique keys | P2-002 | Codex | BLOCKED | Duplicate and rollback integration tests pass | None |
-| P2-004 | Implement acknowledgement and asynchronous processing boundary | P2-003 | Codex | BLOCKED | Durable-before-success and database-outage tests pass | None |
-| P2-005 | Implement stale, unsupported, concurrent, restart, and out-of-order handling | P2-003, P2-004 | Codex | BLOCKED | Integration suite proves no duplicate side effects | None |
-| P2-GATE | Review Phase 2 evidence | P2-002 through P2-005 | Project owner | BLOCKED | Phase 2 exit gate passes | Explicit review |
+| P2-001 | Write and approve the Phase 2 test-first implementation plan | P1-GATE | Codex + project owner | COMPLETE | Separate plan waived by project owner; approved scope is `docs/PLAN.md` Phase 2 plus this tracker | Explicit review |
+| P2-002 | Add pinned local PostgreSQL and migration tooling | P2-001 | Codex | COMPLETE | PostgreSQL `18.4`, `pg` `8.22.0`, and `node-pg-migrate` `9.0.0`; guarded randomized-schema apply, rollback, and reapply tests pass | Isolated test Docker approved |
+| P2-003 | Implement atomic receipt/event persistence and channel-specific unique keys | P2-002 | Codex | COMPLETE | Real PostgreSQL duplicate, logical-retry, concurrency, constraint, and transaction-rollback tests pass | None |
+| P2-004 | Implement acknowledgement and asynchronous processing boundary | P2-003 | Codex | COMPLETE | Durable-before-`200`, unavailable-database `503`, held-lock timeout, and privacy-safe pool-error tests pass | None |
+| P2-005 | Implement stale, unsupported, concurrent, restart, and out-of-order handling | P2-003, P2-004 | Codex | COMPLETE | 17 integration tests prove minimal rejected records and no duplicate effects across retries, restart, concurrency, malformed siblings, and ordering | None |
+| P2-GATE | Review Phase 2 evidence | P2-002 through P2-005 | Project owner | PENDING | `npm run check` passes 48 tests and build; guarded real-PostgreSQL suite passes 17 tests; owner review remains | Explicit review |
 
 ## Phase 3 — Conversation And Data Policy
 

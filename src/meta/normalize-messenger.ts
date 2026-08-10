@@ -21,15 +21,15 @@ const messagingEventSchema = z
 const envelopeSchema = z
   .object({
     object: z.literal('page'),
-    entry: z.array(
-      z
-        .object({
-          id: z.string(),
-          messaging: z.array(messagingEventSchema),
-          time: z.number(),
-        })
-        .loose(),
-    ),
+    entry: z.array(z.unknown()),
+  })
+  .loose();
+
+const entrySchema = z
+  .object({
+    id: z.string(),
+    messaging: z.array(z.unknown()),
+    time: z.number(),
   })
   .loose();
 
@@ -53,8 +53,30 @@ export function normalizeMessengerWebhook(payload: unknown): readonly Normalized
 
   const events: NormalizedMetaEvent[] = [];
 
-  for (const entry of parsed.data.entry) {
-    for (const messagingEvent of entry.messaging) {
+  for (const entryInput of parsed.data.entry) {
+    const parsedEntry = entrySchema.safeParse(entryInput);
+    if (!parsedEntry.success) {
+      events.push({
+        kind: 'unsupported',
+        channel: 'messenger',
+        reasonCode: 'invalid_messenger_entry',
+      });
+      continue;
+    }
+
+    const entry = parsedEntry.data;
+    for (const messagingEventInput of entry.messaging) {
+      const parsedMessagingEvent = messagingEventSchema.safeParse(messagingEventInput);
+      if (!parsedMessagingEvent.success) {
+        events.push({
+          kind: 'unsupported',
+          channel: 'messenger',
+          reasonCode: 'invalid_messaging_event',
+        });
+        continue;
+      }
+
+      const messagingEvent = parsedMessagingEvent.data;
       const message = messagingEvent.message;
       if (message?.text === undefined) {
         events.push({

@@ -1,4 +1,5 @@
 export type SafeLogEvent =
+  | 'database_pool_error'
   | 'meta_verification_accepted'
   | 'meta_verification_rejected'
   | 'meta_webhook_accepted'
@@ -35,6 +36,7 @@ interface CreateSafeLoggerOptions {
 type LogLevel = 'error' | 'info' | 'warn';
 
 const safeEvents = new Set<SafeLogEvent>([
+  'database_pool_error',
   'meta_verification_accepted',
   'meta_verification_rejected',
   'meta_webhook_accepted',

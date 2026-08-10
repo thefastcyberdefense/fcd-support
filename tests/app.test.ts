@@ -1,4 +1,4 @@
-import { createHmac } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, test } from 'vitest';
@@ -39,11 +39,11 @@ function createTestApp(options?: { readonly rejectReceipt?: boolean }): {
   const app = buildApp({
     metaAppSecret: 'test_app_secret',
     metaVerifyToken: 'test_verify_token',
-    receiptSink: (events) => {
+    receiptSink: (receipt) => {
       if (options?.rejectReceipt === true) {
         return Promise.reject(new Error('synthetic receipt failure'));
       }
-      received.push([...events]);
+      received.push([...receipt.events]);
       return Promise.resolve();
     },
   });
@@ -197,6 +197,47 @@ describe('Meta webhook HTTP boundary', () => {
     expect(response.statusCode).toBe(503);
   });
 
+  test('submits a payload fingerprint and receipt time to the durable sink', async () => {
+    const receipts: unknown[] = [];
+    const receivedAt = new Date('2026-08-11T01:00:00.000Z');
+    const rawBody = JSON.stringify({ object: 'unknown', entry: [] });
+    const app = buildApp({
+      metaAppSecret: 'test_app_secret',
+      metaVerifyToken: 'test_verify_token',
+      now: () => receivedAt,
+      receiptSink: (receipt) => {
+        receipts.push(receipt);
+        return Promise.resolve();
+      },
+    });
+    apps.push(app);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/webhooks/meta',
+      headers: {
+        'content-type': 'application/json',
+        'x-hub-signature-256': sign(rawBody),
+      },
+      payload: rawBody,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(receipts).toEqual([
+      {
+        events: [
+          {
+            kind: 'unsupported',
+            channel: 'unknown',
+            reasonCode: 'unsupported_meta_object',
+          },
+        ],
+        payloadSha256: createHash('sha256').update(rawBody).digest('hex'),
+        receivedAt,
+      },
+    ]);
+  });
+
   test('logs admission outcomes without secrets, signatures, or customer content', async () => {
     const lines: string[] = [];
     const logger = createSafeLogger({ write: (line) => lines.push(line) });
@@ -225,8 +266,8 @@ describe('Meta webhook HTTP boundary', () => {
       logger,
       metaAppSecret: 'test_app_secret',
       metaVerifyToken: 'test_verify_token',
-      receiptSink: (events) => {
-        received.push([...events]);
+      receiptSink: (receipt) => {
+        received.push([...receipt.events]);
         return Promise.resolve();
       },
     });

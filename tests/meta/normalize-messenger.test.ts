@@ -105,4 +105,51 @@ describe('normalizeMessengerWebhook', () => {
       },
     ]);
   });
+
+  test('preserves a valid Messenger sibling when another item is malformed', () => {
+    const events = normalizeMessengerWebhook({
+      object: 'page',
+      entry: [
+        {
+          id: 'PAGE_TEST',
+          time: 1786400000000,
+          messaging: [
+            {
+              sender: {},
+              recipient: { id: 'PAGE_TEST' },
+              timestamp: 1786400000000,
+              message: { mid: 'm_TEST_malformed', text: 'Synthetic malformed item' },
+            },
+            {
+              sender: { id: 'PSID_TEST_customer' },
+              recipient: { id: 'PAGE_TEST' },
+              timestamp: 1786400001000,
+              message: {
+                mid: 'm_TEST_valid_after_malformed',
+                text: 'Synthetic valid sibling',
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(events).toEqual([
+      {
+        kind: 'unsupported',
+        channel: 'messenger',
+        reasonCode: 'invalid_messaging_event',
+      },
+      {
+        kind: 'customer_message',
+        channel: 'messenger',
+        channelAccountId: 'PAGE_TEST',
+        contactId: 'PSID_TEST_customer',
+        externalMessageId: 'm_TEST_valid_after_malformed',
+        idempotencyKey: 'messenger:message:PAGE_TEST:m_TEST_valid_after_malformed',
+        occurredAt: new Date('2026-08-10T22:13:21.000Z'),
+        text: 'Synthetic valid sibling',
+      },
+    ]);
+  });
 });

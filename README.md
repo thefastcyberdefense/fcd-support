@@ -4,11 +4,13 @@ Self-hosted WhatsApp and Messenger customer-support automation for Fast Cyber De
 
 ## Current Status
 
-The planning audit is complete, the decision tracker is active, and the local Phase 1 webhook security core is in progress. Nothing has been deployed or connected to Meta assets.
+The planning audit and local Phase 1 security core are complete. Phase 2 durable-ingestion work passes against an isolated test-only PostgreSQL service on the Ubuntu Docker server. The application has not been deployed or connected to Meta assets.
 
 - [Delivery plan](docs/PLAN.md)
 - [Task and decision tracker](docs/TODO.md)
 - [Sequencing design](docs/superpowers/specs/2026-08-11-project-sequencing-design.md)
+- [Runtime and toolchain decision](docs/decisions/0001-runtime-and-toolchain.md)
+- [Webhook admission contract](docs/architecture/webhook-admission.md)
 - [Project context and confirmed infrastructure](docs/PROJECT_CONTEXT.md)
 - [Repository instructions](AGENTS.md)
 - [New-chat handover prompt](docs/HANDOVER_PROMPT.md)
@@ -37,8 +39,11 @@ Use Node.js `24.18.0` and npm `11.16.0`, then run:
 ```text
 npm ci
 npm run check
+npm run test:integration
 npm run build
 npm start
 ```
 
-Copy `.env.example` to an ignored `.env` and supply local synthetic credentials before starting. The Phase 1 runtime binds to `127.0.0.1` by default. Until Phase 2 adds PostgreSQL-backed durable receipt, signed POST webhooks intentionally return `503`; the service never acknowledges unpersisted work as successful.
+Copy `.env.example` to an ignored `.env` and supply local synthetic credentials before starting. The runtime binds to `127.0.0.1` by default. `DATABASE_URL` must point to a migrated PostgreSQL database for signed POST webhooks to be accepted; without durable storage they intentionally return `503`.
+
+Integration tests require `TEST_DATABASE_URL` to name the exact `fcd_support_test` database and `ALLOW_DESTRUCTIVE_DATABASE_TESTS=fcd-support-test-only`. The guard rejects any other database before connecting, and every suite creates and removes only its own randomized schema. Tests use synthetic data. The approved test Compose service is defined in `infra/compose.test.yml`; it is isolated from existing services and publishes no host port. Do not reuse its trust-authentication configuration for production.

@@ -10,21 +10,27 @@
   "scripts": {
     "build": "tsc --project tsconfig.build.json",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build",
+    "db:migrate": "node-pg-migrate up --migrations-dir migrations --migrations-table pgmigrations --database-url-var DATABASE_URL",
+    "db:migrate:down": "node-pg-migrate down --migrations-dir migrations --migrations-table pgmigrations --database-url-var DATABASE_URL",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
     "start": "node dist/main.js",
     "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "fastify": "5.10.0",
+    "node-pg-migrate": "9.0.0",
+    "pg": "8.22.0",
     "zod": "4.4.3"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
     "@types/node": "24.13.3",
+    "@types/pg": "8.21.0",
     "@vitest/coverage-v8": "4.1.10",
     "eslint": "10.8.0",
     "prettier": "3.9.6",

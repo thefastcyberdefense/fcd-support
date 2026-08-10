@@ -24,27 +24,29 @@ const statusSchema = z
 const envelopeSchema = z
   .object({
     object: z.literal('whatsapp_business_account'),
-    entry: z.array(
-      z
-        .object({
-          changes: z.array(
-            z
-              .object({
-                field: z.string(),
-                value: z
-                  .object({
-                    messages: z.array(messageSchema).optional(),
-                    metadata: z.object({ phone_number_id: z.string() }).loose(),
-                    statuses: z.array(statusSchema).optional(),
-                  })
-                  .loose(),
-              })
-              .loose(),
-          ),
-          id: z.string(),
-        })
-        .loose(),
-    ),
+    entry: z.array(z.unknown()),
+  })
+  .loose();
+
+const entrySchema = z
+  .object({
+    changes: z.array(z.unknown()),
+    id: z.string(),
+  })
+  .loose();
+
+const changeSchema = z
+  .object({
+    field: z.string(),
+    value: z.unknown(),
+  })
+  .loose();
+
+const messagesValueSchema = z
+  .object({
+    messages: z.array(z.unknown()).optional(),
+    metadata: z.object({ phone_number_id: z.string() }).loose(),
+    statuses: z.array(z.unknown()).optional(),
   })
   .loose();
 
@@ -75,8 +77,29 @@ export function normalizeWhatsAppWebhook(payload: unknown): readonly NormalizedM
 
   const events: NormalizedMetaEvent[] = [];
 
-  for (const entry of parsed.data.entry) {
-    for (const change of entry.changes) {
+  for (const entryInput of parsed.data.entry) {
+    const parsedEntry = entrySchema.safeParse(entryInput);
+    if (!parsedEntry.success) {
+      events.push({
+        kind: 'unsupported',
+        channel: 'whatsapp',
+        reasonCode: 'invalid_whatsapp_entry',
+      });
+      continue;
+    }
+
+    for (const changeInput of parsedEntry.data.changes) {
+      const parsedChange = changeSchema.safeParse(changeInput);
+      if (!parsedChange.success) {
+        events.push({
+          kind: 'unsupported',
+          channel: 'whatsapp',
+          reasonCode: 'invalid_whatsapp_change',
+        });
+        continue;
+      }
+
+      const change = parsedChange.data;
       if (change.field !== 'messages') {
         events.push({
           kind: 'unsupported',
@@ -86,9 +109,30 @@ export function normalizeWhatsAppWebhook(payload: unknown): readonly NormalizedM
         continue;
       }
 
-      const channelAccountId = change.value.metadata.phone_number_id;
+      const parsedValue = messagesValueSchema.safeParse(change.value);
+      if (!parsedValue.success) {
+        events.push({
+          kind: 'unsupported',
+          channel: 'whatsapp',
+          reasonCode: 'invalid_messages_change',
+        });
+        continue;
+      }
 
-      for (const message of change.value.messages ?? []) {
+      const channelAccountId = parsedValue.data.metadata.phone_number_id;
+
+      for (const messageInput of parsedValue.data.messages ?? []) {
+        const parsedMessage = messageSchema.safeParse(messageInput);
+        if (!parsedMessage.success) {
+          events.push({
+            kind: 'unsupported',
+            channel: 'whatsapp',
+            reasonCode: 'invalid_message_item',
+          });
+          continue;
+        }
+
+        const message = parsedMessage.data;
         if (message.type !== 'text' || message.text === undefined) {
           events.push({
             kind: 'unsupported',
@@ -120,7 +164,18 @@ export function normalizeWhatsAppWebhook(payload: unknown): readonly NormalizedM
         });
       }
 
-      for (const status of change.value.statuses ?? []) {
+      for (const statusInput of parsedValue.data.statuses ?? []) {
+        const parsedStatus = statusSchema.safeParse(statusInput);
+        if (!parsedStatus.success) {
+          events.push({
+            kind: 'unsupported',
+            channel: 'whatsapp',
+            reasonCode: 'invalid_status_item',
+          });
+          continue;
+        }
+
+        const status = parsedStatus.data;
         if (!supportedStatuses.has(status.status as NormalizedMessageStatus['status'])) {
           events.push({
             kind: 'unsupported',

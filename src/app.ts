@@ -1,12 +1,13 @@
+import { createHash } from 'node:crypto';
 import { TextDecoder } from 'node:util';
 
 import Fastify, { type FastifyInstance } from 'fastify';
 
 import { noopSafeLogger, type SafeLogger } from './logging.js';
-import type { NormalizedMetaEvent } from './meta/normalized-event.js';
 import { normalizeMetaWebhook } from './meta/normalize-webhook.js';
 import { verifyMetaSignature } from './meta/verify-signature.js';
 import { verifyMetaSubscription } from './meta/verify-subscription.js';
+import type { WebhookReceiptSink } from './receipts/webhook-receipt.js';
 
 const META_WEBHOOK_BODY_LIMIT_BYTES = 256 * 1024;
 const strictUtf8Decoder = new TextDecoder('utf-8', { fatal: true });
@@ -15,7 +16,8 @@ export interface BuildAppOptions {
   readonly logger?: SafeLogger;
   readonly metaAppSecret: string;
   readonly metaVerifyToken: string;
-  readonly receiptSink: (events: readonly NormalizedMetaEvent[]) => Promise<void>;
+  readonly now?: () => Date;
+  readonly receiptSink: WebhookReceiptSink;
 }
 
 function readSignatureHeader(value: string | string[] | undefined): string | undefined {
@@ -23,6 +25,7 @@ function readSignatureHeader(value: string | string[] | undefined): string | und
 }
 
 export function buildApp(options: BuildAppOptions): FastifyInstance {
+  const now = options.now ?? (() => new Date());
   const safeLogger = options.logger ?? noopSafeLogger;
   const app = Fastify({
     bodyLimit: META_WEBHOOK_BODY_LIMIT_BYTES,
@@ -100,7 +103,11 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
     const events = normalizeMetaWebhook(payload);
 
     try {
-      await options.receiptSink(events);
+      await options.receiptSink({
+        events,
+        payloadSha256: createHash('sha256').update(request.body).digest('hex'),
+        receivedAt: now(),
+      });
     } catch {
       safeLogger.error('meta_webhook_rejected', {
         reason: 'receipt_unavailable',

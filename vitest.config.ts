@@ -8,6 +8,7 @@ export default defineConfig({
       reporter: ['text', 'json-summary'],
     },
     environment: 'node',
+    exclude: ['tests/integration/**'],
     include: ['tests/**/*.test.ts'],
     restoreMocks: true,
   },

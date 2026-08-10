@@ -1,14 +1,17 @@
 import type { FastifyInstance } from 'fastify';
+import pg from 'pg';
 
 import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
 import { noopSafeLogger, type SafeLogger } from './logging.js';
-import type { NormalizedMetaEvent } from './meta/normalized-event.js';
+import { PostgresReceiptStore } from './persistence/postgres-receipt-store.js';
+import type { WebhookReceiptSink } from './receipts/webhook-receipt.js';
 
 export interface CreateRuntimeOptions {
   readonly environment: Readonly<Record<string, string | undefined>>;
   readonly logger?: SafeLogger;
-  readonly receiptSink?: (events: readonly NormalizedMetaEvent[]) => Promise<void>;
+  readonly poolFactory?: (configuration: pg.PoolConfig) => pg.Pool;
+  readonly receiptSink?: WebhookReceiptSink;
 }
 
 export interface AppRuntime {
@@ -23,12 +26,39 @@ function unavailableReceiptSink(): Promise<void> {
 export function createRuntime(options: CreateRuntimeOptions): AppRuntime {
   const config = loadConfig(options.environment);
   const logger = options.logger ?? noopSafeLogger;
+  const pool =
+    options.receiptSink === undefined && config.databaseUrl !== undefined
+      ? (options.poolFactory ?? ((configuration) => new pg.Pool(configuration)))({
+          connectionString: config.databaseUrl,
+          connectionTimeoutMillis: 750,
+          idleTimeoutMillis: 30_000,
+          idle_in_transaction_session_timeout: 4_000,
+          lock_timeout: 750,
+          max: 10,
+          query_timeout: 4_000,
+          statement_timeout: 3_000,
+        })
+      : undefined;
+  pool?.on('error', () => {
+    logger.error('database_pool_error');
+  });
+  const postgresStore = pool === undefined ? undefined : new PostgresReceiptStore(pool);
   const app = buildApp({
     logger,
     metaAppSecret: config.metaAppSecret,
     metaVerifyToken: config.metaVerifyToken,
-    receiptSink: options.receiptSink ?? unavailableReceiptSink,
+    receiptSink:
+      options.receiptSink ??
+      (postgresStore === undefined
+        ? unavailableReceiptSink
+        : async (receipt) => postgresStore.store(receipt)),
   });
+
+  if (pool !== undefined) {
+    app.addHook('onClose', async () => {
+      await pool.end();
+    });
+  }
 
   return {
     app,

@@ -1,0 +1,31 @@
+name: fcd-support-test
+
+services:
+  postgres:
+    image: postgres:18.4@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636
+    environment:
+      POSTGRES_DB: fcd_support_test
+      POSTGRES_HOST_AUTH_METHOD: trust
+      POSTGRES_USER: fcd_support_test
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U fcd_support_test -d fcd_support_test']
+      interval: 2s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    networks:
+      - data
+    volumes:
+      - postgres_test_data:/var/lib/postgresql
+    restart: 'no'
+    security_opt:
+      - no-new-privileges:true
+    cpus: 1.0
+    mem_limit: 1g
+
+networks:
+  data:
+    internal: true
+
+volumes:
+  postgres_test_data:

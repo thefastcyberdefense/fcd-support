@@ -119,4 +119,56 @@ describe('normalizeWhatsAppWebhook', () => {
       },
     ]);
   });
+
+  test('preserves a valid WhatsApp sibling when another item is malformed', () => {
+    const events = normalizeWhatsAppWebhook({
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          id: 'WABA_TEST',
+          changes: [
+            {
+              field: 'messages',
+              value: {
+                metadata: { phone_number_id: 'PHONE_TEST' },
+                messages: [
+                  {
+                    id: 'wamid.TEST_malformed',
+                    timestamp: '1786400000',
+                    type: 'text',
+                    text: { body: 'Synthetic malformed item' },
+                  },
+                  {
+                    from: '15550000001',
+                    id: 'wamid.TEST_valid_after_malformed',
+                    timestamp: '1786400001',
+                    type: 'text',
+                    text: { body: 'Synthetic valid sibling' },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(events).toEqual([
+      {
+        kind: 'unsupported',
+        channel: 'whatsapp',
+        reasonCode: 'invalid_message_item',
+      },
+      {
+        kind: 'customer_message',
+        channel: 'whatsapp',
+        channelAccountId: 'PHONE_TEST',
+        contactId: '15550000001',
+        externalMessageId: 'wamid.TEST_valid_after_malformed',
+        idempotencyKey: 'whatsapp:message:wamid.TEST_valid_after_malformed',
+        occurredAt: new Date('2026-08-10T22:13:21.000Z'),
+        text: 'Synthetic valid sibling',
+      },
+    ]);
+  });
 });

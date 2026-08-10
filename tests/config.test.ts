@@ -27,6 +27,24 @@ describe('startup configuration', () => {
     ).toMatchObject({ host: '0.0.0.0', port: 8080 });
   });
 
+  test('accepts only PostgreSQL database URLs', () => {
+    expect(
+      loadConfig({
+        ...validEnvironment,
+        DATABASE_URL: 'postgresql://synthetic_user@127.0.0.1:5432/synthetic_database',
+      }),
+    ).toMatchObject({
+      databaseUrl: 'postgresql://synthetic_user@127.0.0.1:5432/synthetic_database',
+    });
+
+    expect(() =>
+      loadConfig({
+        ...validEnvironment,
+        DATABASE_URL: 'https://example.invalid/not-a-database',
+      }),
+    ).toThrow('Invalid configuration: DATABASE_URL');
+  });
+
   test('reports missing setting names without environment values', () => {
     expect(() => loadConfig({})).toThrow(
       'Invalid configuration: META_APP_SECRET, META_VERIFY_TOKEN',

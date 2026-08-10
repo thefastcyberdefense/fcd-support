@@ -1,8 +1,10 @@
 import { createHmac } from 'node:crypto';
 
 import type { FastifyInstance } from 'fastify';
+import pg from 'pg';
 import { afterEach, describe, expect, test } from 'vitest';
 
+import { createSafeLogger } from '../src/logging.js';
 import { createRuntime } from '../src/runtime.js';
 
 const apps: FastifyInstance[] = [];
@@ -41,5 +43,26 @@ describe('local runtime', () => {
     expect(() => createRuntime({ environment: {} })).toThrow(
       'Invalid configuration: META_APP_SECRET, META_VERIFY_TOKEN',
     );
+  });
+
+  test('handles idle database pool errors without exposing error details', () => {
+    const lines: string[] = [];
+    const logger = createSafeLogger({ write: (line) => lines.push(line) });
+    const pool = new pg.Pool({ max: 1 });
+    const runtime = createRuntime({
+      environment: {
+        ...environment,
+        DATABASE_URL: 'postgresql://synthetic@127.0.0.1:5432/synthetic_database',
+      },
+      logger,
+      poolFactory: () => pool,
+    });
+    apps.push(runtime.app);
+
+    pool.emit('error', new Error('SYNTHETIC_DATABASE_DETAIL_MUST_NOT_APPEAR'));
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('"event":"database_pool_error"');
+    expect(lines[0]).not.toContain('SYNTHETIC_DATABASE_DETAIL_MUST_NOT_APPEAR');
   });
 });
