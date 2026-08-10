@@ -46,6 +46,7 @@ All secret values are intentionally absent from this repository. Create them dur
 ## Launch Blockers
 
 - The application stack does not exist yet.
+- Phase 0 decisions and the Phase 1 test-first implementation plan have not passed review. Track them in `docs/TODO.md`.
 - Meta test-number and Messenger permission flows have not been validated.
 - WhatsApp coexistence for the production number has not been confirmed.
 - The dedicated Manifest Harness/API routing has not been tested from the application network.
@@ -56,6 +57,7 @@ All secret values are intentionally absent from this repository. Create them dur
 
 1. Read `docs/PLAN.md`, `AGENTS.md`, and this file.
 2. Inspect Git status and preserve unrelated changes.
-3. Confirm the current Manifest Harness configuration and Meta test assets without exposing secrets.
-4. Scaffold the application and tests locally before modifying the server.
-5. Deploy to the test-number environment only after local validation.
+3. Read `docs/TODO.md` and select the first unblocked task whose dependencies are complete.
+4. Confirm the current Manifest Harness configuration and Meta test assets only when the tracker calls for a read-only inventory, without exposing secrets or modifying production assets.
+5. Complete the Phase 0 gate and approve the Phase 1 test-first implementation plan before scaffolding.
+6. Deploy to the test-number environment only after all local phase gates pass and the exact external actions receive approval.

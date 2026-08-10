@@ -2,8 +2,9 @@
 
 ## Start Here
 
-- Read `docs/PLAN.md` and `docs/PROJECT_CONTEXT.md` before changing code or infrastructure.
+- Read `docs/PLAN.md`, `docs/TODO.md`, and `docs/PROJECT_CONTEXT.md` before changing code or infrastructure.
 - Treat this repository as pre-implementation until the Phase 0 checks in `docs/PLAN.md` pass.
+- Select work from the first unblocked tracker row whose dependencies and approval boundary are satisfied.
 - Preserve the existing production WhatsApp Business account. Use a Meta test number first and do not unlink, migrate, or re-register the production number without explicit approval.
 
 ## Security Boundaries

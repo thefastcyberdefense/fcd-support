@@ -1,0 +1,141 @@
+# Fast Cyber Defense Support Task Tracker
+
+## How To Use This Tracker
+
+- Status values: `COMPLETE`, `IN PROGRESS`, `PENDING`, `BLOCKED`, `DEFERRED`.
+- A task becomes `COMPLETE` only when its evidence exists and contains no secrets or customer data.
+- “Operator approval” means approval is required immediately before the external action; approval of this document does not pre-authorize that action.
+- Add implementation-task links and verification commands as phase-specific plans are approved.
+- `docs/PLAN.md` defines phase scope and gates; this file records execution state and decisions.
+
+## Current Readiness
+
+- Project state: planning and Phase 0 preflight.
+- Application code: not started.
+- Server deployment: not authorized.
+- Meta test-asset connection: not authorized yet.
+- Production WhatsApp changes: prohibited unless a separate production plan and explicit approval are provided.
+
+## Phase 0 — Preflight And Decisions
+
+| ID | Task / Decision | Depends On | Owner | Status | Evidence / Completion Rule | Approval Boundary |
+|---|---|---|---|---|---|---|
+| P0-001 | Audit the original plan for missing gates, unsafe ordering, and ambiguous requirements | None | Codex | COMPLETE | Approved sequencing design and revised plan committed | None |
+| P0-002 | Approve the gate-driven phase sequence and tracker model | P0-001 | Project owner | COMPLETE | Approval recorded in project conversation | None |
+| P0-003 | Select pinned Node.js, package-manager, framework, database, migration, validation, test, lint, and format tooling | P0-002 | Codex + project owner | PENDING | Decision record includes exact versions and rationale | None |
+| P0-004 | Define the sanitized fixture policy and prohibited fixture/log fields | P0-002 | Codex | PENDING | Reviewed policy names allowed synthetic identifiers and redaction rules | None |
+| P0-005 | Define webhook body limit, acknowledgement deadline, invalid-signature response, duplicate response, stale-event response, and unsupported-event response | P0-002 | Codex + project owner | PENDING | Decision matrix covers WhatsApp and Messenger | None |
+| P0-006 | Define channel-specific idempotency keys and event-time rules | P0-005 | Codex | PENDING | Matrix covers messages, echoes, and status events without assuming a universal delivery ID | None |
+| P0-007 | Define Messenger human-reply detection and pause behavior | P0-002 | Codex | PENDING | `message_echoes` mapping and loop-prevention rules documented | None |
+| P0-008 | Define WhatsApp test-number behavior separately from coexistence/manual-app echo behavior | P0-002 | Codex + project owner | PENDING | Channel matrix clearly marks coexistence assumptions as test-gated | None |
+| P0-009 | Approve lifecycle anchors for 60-day casual chats and 12-month unconverted leads | P0-002 | Project owner | PENDING | Exact start/end timestamps and reclassification behavior documented | Policy decision |
+| P0-010 | Define active-client retention period and responsible legal/business owner | P0-002 | Project owner | BLOCKED | Written period, justification, and review owner | Policy decision |
+| P0-011 | Define deletion verification and the minimal opt-out suppression record | P0-009 | Project owner + Codex | PENDING | Verified-request workflow and retained fields/period documented | Policy decision |
+| P0-012 | Define deletion behavior for Manifest recordings and restored backups | P0-011 | Codex + project owner | PENDING | Restore-safe deletion design and test evidence requirements documented | Policy decision |
+| P0-013 | Inventory the dedicated Manifest Harness configuration without recording endpoint keys, provider secrets, or request bodies | P0-002 | Operator | PENDING | Sanitized checklist confirms harness name, `auto`, provider scope, limits, recording mode, and network reachability target | Read-only external access |
+| P0-014 | Inventory Meta test app, WhatsApp test number, Messenger test Page, permissions, and current Graph API version without recording identifiers or tokens | P0-002 | Operator | PENDING | Sanitized readiness checklist; production number not opened or modified | Read-only external access |
+| P0-015 | Audit whether any existing n8n workflow depends on its public API | P0-002 | Operator | PENDING | Sanitized dependency count and disposition; no workflow payloads exported | Read-only server access |
+| P0-016 | Confirm Cloudflare zone access exists without creating DNS or a tunnel | P0-002 | Operator | PENDING | Sanitized readiness result only | Read-only external access |
+| P0-017 | Create the public-webhook and internal-service threat model | P0-004, P0-005, P0-006 | Codex | PENDING | Reviewed threat model covers trust boundaries, secrets, data stores, backups, and failure modes | None |
+| P0-018 | Create the complete local and test-asset acceptance matrix | P0-005 through P0-012, P0-017 | Codex | PENDING | Every validation gate in `AGENTS.md` maps to test method and evidence | None |
+| P0-GATE | Review Phase 0 evidence and authorize Phase 1 implementation planning | P0-003 through P0-018 | Project owner | BLOCKED | No unresolved Phase 0 dependency that changes Phase 1 design | Explicit review |
+
+## Phase 1 — Local Scaffold And Webhook Security Core
+
+| ID | Task | Depends On | Owner | Status | Evidence / Completion Rule | Approval Boundary |
+|---|---|---|---|---|---|---|
+| P1-001 | Write and approve the Phase 1 test-first implementation plan | P0-GATE | Codex + project owner | BLOCKED | Committed implementation plan | Explicit review |
+| P1-002 | Scaffold strict TypeScript tooling and secret-free CI | P1-001 | Codex | BLOCKED | Lint, format-check, type-check, and empty test suite pass | None |
+| P1-003 | Implement validated configuration and privacy-safe logging test-first | P1-002 | Codex | BLOCKED | Tests prove secrets and customer content are excluded | None |
+| P1-004 | Implement Meta GET verification test-first | P1-002 | Codex | BLOCKED | Success and failure matrix passes | None |
+| P1-005 | Implement raw-body signature verification and payload limits test-first | P1-002 | Codex | BLOCKED | Valid, invalid, altered, Unicode, malformed, and oversized tests pass | None |
+| P1-006 | Implement WhatsApp and Messenger envelope normalizers test-first | P1-004, P1-005 | Codex | BLOCKED | Sanitized contract fixtures and unknown-event tests pass | None |
+| P1-007 | Prove route and HTTP-method isolation | P1-004 through P1-006 | Codex | BLOCKED | Only the approved GET/POST route is reachable | None |
+| P1-GATE | Review Phase 1 evidence | P1-002 through P1-007 | Project owner | BLOCKED | Phase 1 exit gate in `docs/PLAN.md` passes | Explicit review |
+
+## Phase 2 — Durable Ingestion And Idempotency
+
+| ID | Task | Depends On | Owner | Status | Evidence / Completion Rule | Approval Boundary |
+|---|---|---|---|---|---|---|
+| P2-001 | Write and approve the Phase 2 test-first implementation plan | P1-GATE | Codex + project owner | BLOCKED | Committed implementation plan | Explicit review |
+| P2-002 | Add pinned local PostgreSQL and migration tooling | P2-001 | Codex | BLOCKED | Clean apply and upgrade tests pass | Local Docker only |
+| P2-003 | Implement atomic receipt/event persistence and channel-specific unique keys | P2-002 | Codex | BLOCKED | Duplicate and rollback integration tests pass | None |
+| P2-004 | Implement acknowledgement and asynchronous processing boundary | P2-003 | Codex | BLOCKED | Durable-before-success and database-outage tests pass | None |
+| P2-005 | Implement stale, unsupported, concurrent, restart, and out-of-order handling | P2-003, P2-004 | Codex | BLOCKED | Integration suite proves no duplicate side effects | None |
+| P2-GATE | Review Phase 2 evidence | P2-002 through P2-005 | Project owner | BLOCKED | Phase 2 exit gate passes | Explicit review |
+
+## Phase 3 — Conversation And Data Policy
+
+| ID | Task | Depends On | Owner | Status | Evidence / Completion Rule | Approval Boundary |
+|---|---|---|---|---|---|---|
+| P3-001 | Write and approve the Phase 3 test-first implementation plan | P2-GATE | Codex + project owner | BLOCKED | Committed implementation plan | Explicit review |
+| P3-002 | Implement conversation and channel-identity state | P3-001 | Codex | BLOCKED | State transition tests pass | None |
+| P3-003 | Implement 24-hour human pause, race checks, expiry, and private resume | P3-002 | Codex | BLOCKED | Takeover and concurrency tests pass | None |
+| P3-004 | Implement consent grant, revoke, blank, category, and channel rules | P3-002 | Codex | BLOCKED | Consent matrix passes; blank is always false | None |
+| P3-005 | Implement retention classification and boundary jobs | P3-002, P0-009, P0-010 | Codex | BLOCKED | Boundary and reclassification tests pass | None |
+| P3-006 | Implement verified deletion, suppression, and restored-backup enforcement | P3-004, P3-005, P0-011, P0-012 | Codex | BLOCKED | Repeat deletion and restore tests pass | None |
+| P3-GATE | Review Phase 3 evidence | P3-002 through P3-006 | Project owner | BLOCKED | Phase 3 exit gate passes | Explicit review |
+
+## Phase 4 — Approved Knowledge And Manifest
+
+| ID | Task | Depends On | Owner | Status | Evidence / Completion Rule | Approval Boundary |
+|---|---|---|---|---|---|---|
+| P4-001 | Write and approve the Phase 4 test-first implementation plan | P3-GATE | Codex + project owner | BLOCKED | Committed implementation plan | Explicit review |
+| P4-002 | Implement reviewed knowledge states, provenance, and manual publication | P4-001 | Codex | BLOCKED | Unapproved content cannot answer users | None |
+| P4-003 | Implement FAQ-first resolution and sensitive-data redaction | P4-002 | Codex | BLOCKED | FAQ precedence and redaction tests pass | None |
+| P4-004 | Implement the tool-free `fcd-support` Manifest client using `model: "auto"` | P4-003, P0-013 | Codex | BLOCKED | Contract tests inspect requests without live credentials | None |
+| P4-005 | Implement limits, timeouts, safe failure, and escalation outcomes | P4-004 | Codex | BLOCKED | Provider outage/fallback tests pass | None |
+| P4-006 | Build and approve the English/Bangla evaluation set and threshold | P4-002 | Project owner + Codex | BLOCKED | Human-reviewed evaluation contains synthetic prompts only | Content review |
+| P4-GATE | Review Phase 4 evidence | P4-002 through P4-006 | Project owner | BLOCKED | Phase 4 exit gate passes | Explicit review |
+
+## Phase 5 — Outbound Messaging
+
+| ID | Task | Depends On | Owner | Status | Evidence / Completion Rule | Approval Boundary |
+|---|---|---|---|---|---|---|
+| P5-001 | Write and approve the Phase 5 test-first implementation plan | P4-GATE | Codex + project owner | BLOCKED | Committed implementation plan | Explicit review |
+| P5-002 | Implement PostgreSQL outbox states, leases, retries, and terminal failure | P5-001 | Codex | BLOCKED | Crash and duplicate-worker tests pass | None |
+| P5-003 | Implement WhatsApp and Messenger provider contracts with local HTTP fakes | P5-002 | Codex | BLOCKED | Adapter contract tests pass | None |
+| P5-004 | Enforce service-window, template, pause, deletion, suppression, and consent checks before send | P5-002, P3-GATE | Codex | BLOCKED | Eligibility and race tests pass | None |
+| P5-005 | Implement rate limits and idempotent provider-status correlation | P5-003, P5-004 | Codex | BLOCKED | Rate and out-of-order status tests pass | None |
+| P5-GATE | Review Phase 5 evidence | P5-002 through P5-005 | Project owner | BLOCKED | Phase 5 exit gate passes | Explicit review |
+
+## Phase 6 — Hardened Local Operations
+
+| ID | Task | Depends On | Owner | Status | Evidence / Completion Rule | Approval Boundary |
+|---|---|---|---|---|---|---|
+| P6-001 | Write and approve the Phase 6 implementation plan | P5-GATE | Codex + project owner | BLOCKED | Committed implementation plan | Explicit review |
+| P6-002 | Create pinned, non-root, read-only-compatible container images and Compose services | P6-001 | Codex | BLOCKED | Build and hardening checks pass | Local Docker only |
+| P6-003 | Implement least-privilege ingress, data, and Manifest network attachments | P6-002, P0-013 | Codex | BLOCKED | Network reachability matrix passes | Local Docker only |
+| P6-004 | Implement migration, rollback, encrypted backup, retention, and isolated restore procedures | P6-002, P3-006 | Codex | BLOCKED | Restore and post-restore deletion tests pass | Local Docker only |
+| P6-005 | Implement private health checks and privacy-safe alerts independent of n8n | P6-002 | Codex | BLOCKED | Failure injection produces sanitized alerts | None |
+| P6-006 | Implement authenticated, idempotent private n8n notification integration | P6-005, P0-015 | Codex | BLOCKED | Local fake contract passes; n8n owns no state | None |
+| P6-GATE | Review Phase 6 evidence | P6-002 through P6-006 | Project owner | BLOCKED | Phase 6 exit gate passes | Explicit review |
+
+## Phase 7 — Test Assets
+
+| ID | Task | Depends On | Owner | Status | Evidence / Completion Rule | Approval Boundary |
+|---|---|---|---|---|---|---|
+| P7-001 | Approve the exact test deployment runbook | P6-GATE, P0-013 through P0-016 | Project owner | BLOCKED | Runbook lists exact non-production targets and rollback | Explicit external-action approval |
+| P7-002 | Deploy to the local Ubuntu server test stack | P7-001 | Operator + Codex | BLOCKED | Sanitized health evidence; no production assets | Server mutation approval |
+| P7-003 | Create test tunnel/DNS with two paths and a catch-all 404 | P7-001 | Operator + Codex | BLOCKED | Ingress validation and negative-route tests pass | Public DNS/tunnel approval |
+| P7-004 | Connect only the WhatsApp test number and Messenger test Page | P7-002, P7-003 | Operator | BLOCKED | Sanitized subscription evidence | Meta test-asset approval |
+| P7-005 | Execute the full acceptance matrix, outage tests, restart tests, and manual-echo tests | P7-004 | Codex + operator | BLOCKED | Sanitized signed test report | Test assets only |
+| P7-GATE | Review test-asset evidence | P7-005 | Project owner | BLOCKED | Every required gate passes or has approved disposition | Explicit review |
+
+## Phase 8 — Production Readiness
+
+| ID | Task | Depends On | Owner | Status | Evidence / Completion Rule | Approval Boundary |
+|---|---|---|---|---|---|---|
+| P8-001 | Approve privacy, AI-assistance, retention, deletion, consent, and escalation wording | P7-GATE | Project owner | BLOCKED | Published wording approved before production | Legal/business approval |
+| P8-002 | Confirm Meta app review, permissions, token rotation, Graph API support, and operational owners | P7-GATE | Operator | BLOCKED | Sanitized readiness checklist | Read-only external access |
+| P8-003 | Check production-number coexistence eligibility without changing the number | P7-GATE | Operator | BLOCKED | Eligibility result recorded; no onboarding action | Explicit read-only approval |
+| P8-004 | Confirm manual-app reply mirroring can provide the tested human-pause signal | P8-003 | Operator + Codex | BLOCKED | Test evidence or explicit no-go | No production mutation |
+| P8-005 | Complete n8n dependency, backup ownership, alert ownership, and manual coverage review | P7-GATE | Project owner + operator | BLOCKED | Operational responsibility matrix approved | None |
+| P8-GATE | Record production readiness as go-to-separate-plan or no-go | P8-001 through P8-005 | Project owner | BLOCKED | Signed-off decision record | Does not authorize production |
+
+## Production Promotion — Outside Current Authorization
+
+| ID | Task | Depends On | Owner | Status | Evidence / Completion Rule | Approval Boundary |
+|---|---|---|---|---|---|---|
+| PROD-001 | Write and review a production promotion and rollback plan | P8-GATE | Codex + project owner | BLOCKED | Separate committed runbook | Explicit review |
+| PROD-002 | Execute any production Meta, DNS, server, or customer-data action | PROD-001 | Operator | BLOCKED | Exact action approved immediately before execution | Explicit production approval |

@@ -4,9 +4,11 @@ Self-hosted WhatsApp and Messenger customer-support automation for Fast Cyber De
 
 ## Current Status
 
-Planning and repository handoff are complete. Implementation has not started.
+The planning audit is complete and the Phase 0 decision tracker is active. Implementation has not started.
 
-- [Implementation plan](docs/PLAN.md)
+- [Delivery plan](docs/PLAN.md)
+- [Task and decision tracker](docs/TODO.md)
+- [Sequencing design](docs/superpowers/specs/2026-08-11-project-sequencing-design.md)
 - [Project context and confirmed infrastructure](docs/PROJECT_CONTEXT.md)
 - [Repository instructions](AGENTS.md)
 - [New-chat handover prompt](docs/HANDOVER_PROMPT.md)
@@ -26,3 +28,4 @@ Planning and repository handoff are complete. Implementation has not started.
 - Blank consent never authorizes marketing.
 - The assistant does not request credentials, OTPs, payment data, or sensitive incident evidence.
 - Secrets and customer data never belong in Git.
+- Passing a phase never authorizes public DNS, Meta asset changes, server deployment, or production-number work unless the tracker names and records that approval.
