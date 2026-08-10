@@ -1,0 +1,42 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+
+# Dependencies and build output
+node_modules/
+dist/
+build/
+.cache/
+coverage/
+.turbo/
+
+# Runtime data
+data/
+logs/
+recordings/
+backups/
+exports/
+*.log
+*.sql
+*.sql.gz
+*.dump
+*.backup
+
+# Tests and tooling
+test-results/
+playwright-report/
+.nyc_output/
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
+
