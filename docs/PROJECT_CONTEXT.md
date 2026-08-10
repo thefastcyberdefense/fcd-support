@@ -45,8 +45,8 @@ All secret values are intentionally absent from this repository. Create them dur
 
 ## Launch Blockers
 
-- The application stack does not exist yet.
-- Phase 0 decisions and the Phase 1 test-first implementation plan have not passed review. Track them in `docs/TODO.md`.
+- A local Phase 1 security-core scaffold exists, but it has no PostgreSQL-backed durable receipt sink and is not deployable.
+- Phase 0 decisions remain open. The project owner authorized a limited, reversible, external-service-free Phase 1 checkpoint from the revised plan; the exception and provisional contracts are tracked in `docs/TODO.md`.
 - Meta test-number and Messenger permission flows have not been validated.
 - WhatsApp coexistence for the production number has not been confirmed.
 - The dedicated Manifest Harness/API routing has not been tested from the application network.
@@ -59,5 +59,5 @@ All secret values are intentionally absent from this repository. Create them dur
 2. Inspect Git status and preserve unrelated changes.
 3. Read `docs/TODO.md` and select the first unblocked task whose dependencies are complete.
 4. Confirm the current Manifest Harness configuration and Meta test assets only when the tracker calls for a read-only inventory, without exposing secrets or modifying production assets.
-5. Complete the Phase 0 gate and approve the Phase 1 test-first implementation plan before scaffolding.
+5. Keep unresolved Phase 0 policy-dependent behavior provisional and do not advance to Phase 2 until the formal gates in `docs/TODO.md` pass.
 6. Deploy to the test-number environment only after all local phase gates pass and the exact external actions receive approval.

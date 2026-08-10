@@ -4,7 +4,7 @@ Self-hosted WhatsApp and Messenger customer-support automation for Fast Cyber De
 
 ## Current Status
 
-The planning audit is complete and the Phase 0 decision tracker is active. Implementation has not started.
+The planning audit is complete, the decision tracker is active, and the local Phase 1 webhook security core is in progress. Nothing has been deployed or connected to Meta assets.
 
 - [Delivery plan](docs/PLAN.md)
 - [Task and decision tracker](docs/TODO.md)
@@ -29,3 +29,16 @@ The planning audit is complete and the Phase 0 decision tracker is active. Imple
 - The assistant does not request credentials, OTPs, payment data, or sensitive incident evidence.
 - Secrets and customer data never belong in Git.
 - Passing a phase never authorizes public DNS, Meta asset changes, server deployment, or production-number work unless the tracker names and records that approval.
+
+## Local Development
+
+Use Node.js `24.18.0` and npm `11.16.0`, then run:
+
+```text
+npm ci
+npm run check
+npm run build
+npm start
+```
+
+Copy `.env.example` to an ignored `.env` and supply local synthetic credentials before starting. The Phase 1 runtime binds to `127.0.0.1` by default. Until Phase 2 adds PostgreSQL-backed durable receipt, signed POST webhooks intentionally return `503`; the service never acknowledges unpersisted work as successful.

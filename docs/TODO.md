@@ -10,11 +10,12 @@
 
 ## Current Readiness
 
-- Project state: planning and Phase 0 preflight.
-- Application code: not started.
+- Project state: Phase 0 decisions remain open; a limited local Phase 1 security-core checkpoint is in progress by explicit project-owner direction.
+- Application code: strict TypeScript scaffold, configuration/logging, Meta verification/signature admission, and channel normalizers implemented locally.
 - Server deployment: not authorized.
 - Meta test-asset connection: not authorized yet.
 - Production WhatsApp changes: prohibited unless a separate production plan and explicit approval are provided.
+- Sequence exception recorded 2026-08-11: the project owner waived a separate Phase 1 planning document and authorized reversible, external-service-free local implementation from the revised plan. This does not close unresolved Phase 0 policy decisions or authorize Phase 2, deployment, public ingress, Meta assets, or production work.
 
 ## Phase 0 — Preflight And Decisions
 
@@ -44,14 +45,14 @@
 
 | ID | Task | Depends On | Owner | Status | Evidence / Completion Rule | Approval Boundary |
 |---|---|---|---|---|---|---|
-| P1-001 | Write and approve the Phase 1 test-first implementation plan | P0-GATE | Codex + project owner | BLOCKED | Committed implementation plan | Explicit review |
-| P1-002 | Scaffold strict TypeScript tooling and secret-free CI | P1-001 | Codex | BLOCKED | Lint, format-check, type-check, and empty test suite pass | None |
-| P1-003 | Implement validated configuration and privacy-safe logging test-first | P1-002 | Codex | BLOCKED | Tests prove secrets and customer content are excluded | None |
-| P1-004 | Implement Meta GET verification test-first | P1-002 | Codex | BLOCKED | Success and failure matrix passes | None |
-| P1-005 | Implement raw-body signature verification and payload limits test-first | P1-002 | Codex | BLOCKED | Valid, invalid, altered, Unicode, malformed, and oversized tests pass | None |
-| P1-006 | Implement WhatsApp and Messenger envelope normalizers test-first | P1-004, P1-005 | Codex | BLOCKED | Sanitized contract fixtures and unknown-event tests pass | None |
-| P1-007 | Prove route and HTTP-method isolation | P1-004 through P1-006 | Codex | BLOCKED | Only the approved GET/POST route is reachable | None |
-| P1-GATE | Review Phase 1 evidence | P1-002 through P1-007 | Project owner | BLOCKED | Phase 1 exit gate in `docs/PLAN.md` passes | Explicit review |
+| P1-001 | Write and approve the Phase 1 test-first implementation plan | P0-GATE | Codex + project owner | COMPLETE | Separate plan waived by project owner; approved scope is `docs/PLAN.md` Phase 1 plus this tracker | Explicit review |
+| P1-002 | Scaffold strict TypeScript tooling and secret-free CI | P1-001 | Codex | IN PROGRESS | Local `npm run check` passes; least-privilege CI workflow exists; first remote CI run is pending | None |
+| P1-003 | Implement validated configuration and privacy-safe logging test-first | P1-002 | Codex | COMPLETE | Configuration, allowlist, and webhook log privacy tests pass | None |
+| P1-004 | Implement Meta GET verification test-first | P1-002 | Codex | COMPLETE | Challenge success and rejection matrix tests pass | None |
+| P1-005 | Implement raw-body signature verification and payload limits test-first | P1-002 | Codex | IN PROGRESS | Core and malformed UTF-8 tests pass; final P0-005 response-policy approval remains | None |
+| P1-006 | Implement WhatsApp and Messenger envelope normalizers test-first | P1-004, P1-005 | Codex | IN PROGRESS | Sanitized normalizer tests pass; idempotency and unsupported-event outcomes remain provisional pending P0-005/P0-006 | None |
+| P1-007 | Prove route and HTTP-method isolation | P1-004 through P1-006 | Codex | COMPLETE | Unapproved paths and GET-adjacent standard methods, including implicit `HEAD`, return `404` | None |
+| P1-GATE | Review Phase 1 evidence | P1-002 through P1-007 | Project owner | BLOCKED | Local gate passes; first remote CI run and project-owner review remain | Explicit review |
 
 ## Phase 2 — Durable Ingestion And Idempotency
 
