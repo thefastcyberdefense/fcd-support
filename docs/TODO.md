@@ -10,13 +10,14 @@
 
 ## Current Readiness
 
-- Project state: the local Phase 2 durable-ingestion checkpoint is complete and awaiting project-owner gate review; unrelated Phase 0 policy and external-readiness decisions remain open.
+- Project state: the project owner approved the Phase 2 gate and the staged Phase 3A design; its written specification awaits review before implementation planning. Unrelated Phase 0 policy and external-readiness decisions remain open.
 - Application code: strict TypeScript scaffold, privacy-safe logging, Meta verification/signature admission, independent channel normalization, and PostgreSQL-backed durable receipt are implemented locally.
 - Server deployment: not authorized; only the approved isolated test-only PostgreSQL service has been created on the Ubuntu Docker server.
 - Meta test-asset connection: not authorized yet.
 - Production WhatsApp changes: prohibited unless a separate production plan and explicit approval are provided.
 - Sequence exception recorded 2026-08-11: the project owner waived a separate Phase 1 planning document and authorized reversible, external-service-free local implementation from the revised plan. This does not close unresolved Phase 0 policy decisions or authorize Phase 2, deployment, public ingress, Meta assets, or production work.
 - Sequence exception extended 2026-08-11: the project owner authorized continued development through Phases 1–5 and approved an isolated test-only PostgreSQL environment on `192.168.10.40`. Phase 0 decisions remain provisional and must be closed on demand before dependent production behavior is approved. This does not authorize application deployment, existing-container changes, public ingress, Meta assets, live data, or production-number work.
+- Repository workflow approved 2026-08-11: Windows `J:\DevDrive\fcd-support` is the authoring/commit/push source. During separately approved test deployment, Ubuntu pulls an exact committed revision from GitHub; source is not copied or edited ad hoc on the server.
 
 ## Phase 0 — Preflight And Decisions
 
@@ -64,13 +65,13 @@
 | P2-003 | Implement atomic receipt/event persistence and channel-specific unique keys | P2-002 | Codex | COMPLETE | Real PostgreSQL duplicate, logical-retry, concurrency, constraint, and transaction-rollback tests pass | None |
 | P2-004 | Implement acknowledgement and asynchronous processing boundary | P2-003 | Codex | COMPLETE | Durable-before-`200`, unavailable-database `503`, held-lock timeout, and privacy-safe pool-error tests pass | None |
 | P2-005 | Implement stale, unsupported, concurrent, restart, and out-of-order handling | P2-003, P2-004 | Codex | COMPLETE | 17 integration tests prove minimal rejected records and no duplicate effects across retries, restart, concurrency, malformed siblings, and ordering | None |
-| P2-GATE | Review Phase 2 evidence | P2-002 through P2-005 | Project owner | PENDING | `npm run check` passes 48 tests and build; guarded real-PostgreSQL suite passes 17 tests; owner review remains | Explicit review |
+| P2-GATE | Review Phase 2 evidence | P2-002 through P2-005 | Project owner | COMPLETE | Project owner approved proceeding to Phase 3 on 2026-08-11 after 48 local tests, 17 guarded PostgreSQL tests, and independent review | Explicit review |
 
 ## Phase 3 — Conversation And Data Policy
 
 | ID | Task | Depends On | Owner | Status | Evidence / Completion Rule | Approval Boundary |
 |---|---|---|---|---|---|---|
-| P3-001 | Write and approve the Phase 3 test-first implementation plan | P2-GATE | Codex + project owner | BLOCKED | Committed implementation plan | Explicit review |
+| P3-001 | Write and approve the Phase 3 test-first implementation plan | P2-GATE | Codex + project owner | IN PROGRESS | `docs/superpowers/specs/2026-08-11-phase-3a-policy-core-design.md` written; project-owner spec review and implementation plan remain | Explicit review |
 | P3-002 | Implement conversation and channel-identity state | P3-001 | Codex | BLOCKED | State transition tests pass | None |
 | P3-003 | Implement 24-hour human pause, race checks, expiry, and private resume | P3-002 | Codex | BLOCKED | Takeover and concurrency tests pass | None |
 | P3-004 | Implement consent grant, revoke, blank, category, and channel rules | P3-002 | Codex | BLOCKED | Consent matrix passes; blank is always false | None |

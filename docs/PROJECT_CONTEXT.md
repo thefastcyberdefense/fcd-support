@@ -33,6 +33,7 @@ Last reviewed: 2026-08-11 (Asia/Dhaka)
 - Remote repository: `https://github.com/thefastcyberdefense/fcd-support`
 - Proposed server directory: `/home/redwan/apps/fcd-support`
 - Public hostname: a dedicated subdomain of `fastcyberdefense.com`, exposing only Meta webhook verification and delivery paths.
+- Windows is the only source-authoring, commit, and push host. During an approved test-deployment gate, Ubuntu pulls the exact committed revision from GitHub; do not copy or edit application source directly on the server.
 
 ## External Prerequisites
 
@@ -45,8 +46,8 @@ All secret values are intentionally absent from this repository. Create them dur
 
 ## Launch Blockers
 
-- A local Phase 1 security-core scaffold exists, but it has no PostgreSQL-backed durable receipt sink and is not deployable.
-- Phase 0 decisions remain open. The project owner authorized a limited, reversible, external-service-free Phase 1 checkpoint from the revised plan; the exception and provisional contracts are tracked in `docs/TODO.md`.
+- Local Phase 1 and Phase 2 code exists, including PostgreSQL-backed durable receipt, but no application deployment has been approved.
+- Phase 0 policy and external-readiness decisions remain open. The project owner authorized reversible local development through Phase 5; exceptions and provisional contracts are tracked in `docs/TODO.md`.
 - Meta test-number and Messenger permission flows have not been validated.
 - WhatsApp coexistence for the production number has not been confirmed.
 - The dedicated Manifest Harness/API routing has not been tested from the application network.
