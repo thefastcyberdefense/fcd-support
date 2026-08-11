@@ -921,6 +921,8 @@ describe('PostgresConversationEventProcessor', () => {
          conversations.ai_paused_until = source_event.occurred_at + interval '24 hours'
            as exact_deadline,
          pause.effective_at = source_event.occurred_at as exact_effective_at,
+         pause.resulting_pause_until = conversations.ai_paused_until
+           as exact_resulting_pause_until,
          conversations.row_version,
          application.outcome as application_outcome
        from conversations
@@ -936,6 +938,7 @@ describe('PostgresConversationEventProcessor', () => {
         application_outcome: 'business_echo_paused',
         exact_deadline: true,
         exact_effective_at: true,
+        exact_resulting_pause_until: true,
         row_version: '3',
       },
     ]);

@@ -24,8 +24,8 @@ interface EventApplicationRow {
   readonly outcome: EventApplicationOutcome;
 }
 
-interface PauseDeadlineRow {
-  readonly ai_paused_until: Date;
+interface UpdatedConversationRow {
+  readonly id: string;
 }
 
 export class InvalidPendingWebhookEventError extends Error {
@@ -193,7 +193,7 @@ export class PostgresConversationEventProcessor {
          values ($1, $2, 'business_echo_paused')`,
         [event.id, conversation.conversationId],
       );
-      const updated = await client.query<PauseDeadlineRow>(
+      const updated = await client.query<UpdatedConversationRow>(
         `update conversations
          set ai_paused_until = greatest(
                coalesce(
@@ -211,21 +211,22 @@ export class PostgresConversationEventProcessor {
          from webhook_events as source_event
          where conversations.id = $1
            and source_event.id = $2
-         returning conversations.ai_paused_until`,
+         returning conversations.id`,
         [conversation.conversationId, event.id],
       );
-      const pauseUntil = updated.rows[0]?.ai_paused_until;
-      if (pauseUntil === undefined) {
-        throw new Error('Conversation pause update returned no deadline');
+      if (updated.rows[0]?.id === undefined) {
+        throw new Error('Conversation pause update returned no identifier');
       }
       await client.query(
         `insert into human_pause_events
            (conversation_id, source_webhook_event_id, action, effective_at,
             resulting_pause_until, actor_kind)
-         select $1, $2, 'pause', occurred_at, $3, 'business_echo'
-         from webhook_events
-         where id = $2`,
-        [conversation.conversationId, event.id, pauseUntil],
+         select conversations.id, source_event.id, 'pause', source_event.occurred_at,
+                conversations.ai_paused_until, 'business_echo'
+         from conversations
+         join webhook_events as source_event on source_event.id = $2
+         where conversations.id = $1`,
+        [conversation.conversationId, event.id],
       );
       await insertPolicyAuditOutcome(client, {
         channelIdentityId: identityId,
