@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import pg from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vitest';
 
@@ -6,14 +8,18 @@ import { insertSyntheticPendingEvent } from './policy-fixtures.js';
 import { createIsolatedTestDatabase, type IsolatedTestDatabase } from './test-database.js';
 
 let disposeDatabase: (() => Promise<void>) | undefined;
+let databaseConnectionString: string;
 let pool: pg.Pool;
+let testSchema: string;
 
 beforeAll(async () => {
   const database: IsolatedTestDatabase = await createIsolatedTestDatabase(
     'postgres_conversation_event_processor',
   );
+  databaseConnectionString = database.connectionString;
   disposeDatabase = database.dispose;
   pool = database.pool;
+  testSchema = database.schema;
 });
 
 beforeEach(async () => {
@@ -29,6 +35,86 @@ beforeEach(async () => {
 afterAll(async () => {
   await disposeDatabase?.();
 });
+
+async function prepareResumedConversationEcho(input: {
+  readonly echoOccurredAt: string;
+  readonly fixtureKey: string;
+  readonly resumeAt: string;
+}): Promise<{
+  readonly conversationId: string;
+  readonly echoEventId: string;
+  readonly processor: PostgresConversationEventProcessor;
+}> {
+  const processor = new PostgresConversationEventProcessor(pool);
+  const customerEventId = await insertSyntheticPendingEvent(pool, {
+    channel: 'messenger',
+    channelAccountId: `PAGE_TEST_${input.fixtureKey}`,
+    contactId: `PSID_TEST_${input.fixtureKey}`,
+    eventKind: 'customer_message',
+    fixtureKey: `${input.fixtureKey}-customer`,
+    messageText: 'Synthetic provider-time conversation seed',
+    occurredAt: new Date('2026-08-11T08:00:00.000Z'),
+  });
+  const customerResult = await processor.processEvent(customerEventId);
+  if (customerResult.status !== 'applied' || customerResult.conversationId === undefined) {
+    throw new Error('Synthetic provider-time seed was not applied');
+  }
+
+  await pool.query(
+    `update conversations
+     set ai_paused_until = null,
+         last_authorized_resume_at = $2::timestamptz,
+         updated_at = $2::timestamptz,
+         row_version = row_version + 1
+     where id = $1`,
+    [customerResult.conversationId, input.resumeAt],
+  );
+  const echoEventId = await insertSyntheticPendingEvent(pool, {
+    channel: 'messenger',
+    channelAccountId: `PAGE_TEST_${input.fixtureKey}`,
+    contactId: `PSID_TEST_${input.fixtureKey}`,
+    eventKind: 'business_message_echo',
+    fixtureKey: `${input.fixtureKey}-echo`,
+    messageText: 'Synthetic provider-time echo',
+    occurredAt: new Date(input.echoOccurredAt),
+  });
+  await pool.query(`update webhook_events set occurred_at = $2::timestamptz where id = $1`, [
+    echoEventId,
+    input.echoOccurredAt,
+  ]);
+
+  return { conversationId: customerResult.conversationId, echoEventId, processor };
+}
+
+async function waitForDatabaseLockWaiters(
+  applicationName: string,
+  expectedCount: number,
+): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  let observed = { active: 0, waiting: 0 };
+
+  while (Date.now() < deadline) {
+    const activity = await pool.query<{
+      readonly active: number;
+      readonly waiting: number;
+    }>(
+      `select
+         count(*) filter (where state = 'active')::int as active,
+         count(*) filter (where state = 'active' and wait_event_type = 'Lock')::int as waiting
+       from pg_stat_activity
+       where application_name = $1`,
+      [applicationName],
+    );
+    observed = activity.rows[0] ?? observed;
+    if (observed.active === expectedCount && observed.waiting === expectedCount) {
+      return;
+    }
+  }
+
+  throw new Error(
+    `Synthetic contention barrier observed ${String(observed.waiting)}/${String(observed.active)} lock waiters`,
+  );
+}
 
 describe('PostgresConversationEventProcessor', () => {
   test('applies a customer message to bounded policy state without copying its text', async () => {
@@ -106,6 +192,76 @@ describe('PostgresConversationEventProcessor', () => {
     expect(stored.rows[0]?.conversation_id).toMatch(/^\d+$/);
   });
 
+  test('processes named and next events without permission to read message text', async () => {
+    const namedEventId = await insertSyntheticPendingEvent(pool, {
+      channel: 'messenger',
+      channelAccountId: 'PAGE_TEST_minimized_named',
+      contactId: 'PSID_TEST_minimized_named',
+      eventKind: 'customer_message',
+      fixtureKey: 'minimized-named',
+      messageText: 'Synthetic content excluded from the named policy query',
+      occurredAt: new Date('2026-08-11T01:10:00.000Z'),
+    });
+    const nextEventId = await insertSyntheticPendingEvent(pool, {
+      channel: 'whatsapp',
+      channelAccountId: 'PHONE_TEST_minimized_next',
+      contactId: 'CONTACT_TEST_minimized_next',
+      eventKind: 'customer_message',
+      fixtureKey: 'minimized-next',
+      messageText: 'Synthetic content excluded from the next policy query',
+      occurredAt: new Date('2026-08-11T01:20:00.000Z'),
+    });
+    const restrictedRole = `synthetic_policy_${randomUUID().replaceAll('-', '')}`;
+    const currentUser = await pool.query<{ readonly current_user: string }>(`select current_user`);
+    const owner = currentUser.rows[0]?.current_user;
+    if (owner === undefined || !/^[a-zA-Z0-9_]+$/.test(owner)) {
+      throw new Error('Synthetic role setup could not identify a safe database owner');
+    }
+
+    await pool.query(
+      `create role "${restrictedRole}" nologin;
+       grant "${restrictedRole}" to "${owner}";
+       grant usage on schema "${testSchema}" to "${restrictedRole}";
+       grant select
+         (id, admission_outcome, channel, channel_account_id, contact_id,
+          event_kind, occurred_at, created_at),
+         update (admission_outcome)
+         on webhook_events to "${restrictedRole}";
+       grant select, insert, update on
+         contacts, channel_identities, conversations, webhook_event_applications,
+         human_pause_events, policy_audit_outcomes
+         to "${restrictedRole}";
+       grant usage, select on all sequences in schema "${testSchema}"
+         to "${restrictedRole}"`,
+    );
+    const restrictedUrl = new URL(databaseConnectionString);
+    const connectionOptions = restrictedUrl.searchParams.get('options') ?? '';
+    restrictedUrl.searchParams.set(
+      'options',
+      `${connectionOptions} -c role=${restrictedRole}`.trim(),
+    );
+    const restrictedPool = new pg.Pool({ connectionString: restrictedUrl.toString(), max: 1 });
+
+    try {
+      const processor = new PostgresConversationEventProcessor(restrictedPool);
+      await expect(processor.processEvent(namedEventId)).resolves.toMatchObject({
+        eventId: namedEventId,
+        status: 'applied',
+      });
+      await expect(processor.processNext()).resolves.toMatchObject({
+        eventId: nextEventId,
+        status: 'applied',
+      });
+    } finally {
+      await restrictedPool.end();
+      await pool.query(
+        `drop owned by "${restrictedRole}";
+         revoke "${restrictedRole}" from "${owner}";
+         drop role "${restrictedRole}"`,
+      );
+    }
+  });
+
   test('returns the existing application when the same event is replayed', async () => {
     const webhookEventId = await insertSyntheticPendingEvent(pool, {
       channel: 'messenger',
@@ -136,6 +292,64 @@ describe('PostgresConversationEventProcessor', () => {
     expect(counts.rows).toEqual([{ applications: 1, audits: 1 }]);
   });
 
+  test('replaying the same echo cannot mutate its pause application', async () => {
+    const echoEventId = await insertSyntheticPendingEvent(pool, {
+      channel: 'messenger',
+      channelAccountId: 'PAGE_TEST_echo_replay',
+      contactId: 'PSID_TEST_echo_replay',
+      eventKind: 'business_message_echo',
+      fixtureKey: 'echo-replay',
+      messageText: 'Synthetic replayed echo',
+      occurredAt: new Date('2026-08-11T02:05:00.000Z'),
+    });
+    const processor = new PostgresConversationEventProcessor(pool);
+    const first = await processor.processEvent(echoEventId);
+    expect(first).toMatchObject({ outcome: 'business_echo_paused', status: 'applied' });
+    const conversationId = first.status === 'applied' ? first.conversationId : undefined;
+    const beforeReplay = await pool.query(
+      `select ai_paused_until, row_version,
+              (select count(*)::int
+               from human_pause_events
+               where source_webhook_event_id = $2) as pause_history_count,
+              (select count(*)::int
+               from webhook_event_applications
+               where webhook_event_id = $2) as application_count
+       from conversations
+       where id = $1`,
+      [conversationId, echoEventId],
+    );
+
+    const replay = await processor.processEvent(echoEventId);
+
+    expect(replay).toEqual({
+      conversationId,
+      eventId: echoEventId,
+      outcome: 'business_echo_paused',
+      status: 'already_applied',
+    });
+    expect(beforeReplay.rows).toEqual([
+      {
+        ai_paused_until: new Date('2026-08-12T02:05:00.000Z'),
+        application_count: 1,
+        pause_history_count: 1,
+        row_version: '2',
+      },
+    ]);
+    const afterReplay = await pool.query(
+      `select ai_paused_until, row_version,
+              (select count(*)::int
+               from human_pause_events
+               where source_webhook_event_id = $2) as pause_history_count,
+              (select count(*)::int
+               from webhook_event_applications
+               where webhook_event_id = $2) as application_count
+       from conversations
+       where id = $1`,
+      [conversationId, echoEventId],
+    );
+    expect(afterReplay.rows).toEqual(beforeReplay.rows);
+  });
+
   test('serializes concurrent named processing into one state transition', async () => {
     const webhookEventId = await insertSyntheticPendingEvent(pool, {
       channel: 'whatsapp',
@@ -146,11 +360,60 @@ describe('PostgresConversationEventProcessor', () => {
       messageText: 'Synthetic concurrent application',
       occurredAt: new Date('2026-08-11T02:10:00.000Z'),
     });
-    const processor = new PostgresConversationEventProcessor(pool);
-
-    const results = await Promise.all(
-      Array.from({ length: 8 }, async () => processor.processEvent(webhookEventId)),
+    const applicationName = `synthetic_policy_contention_${randomUUID().replaceAll('-', '')}`;
+    const contentionPool = new pg.Pool({
+      application_name: applicationName,
+      connectionString: databaseConnectionString,
+      max: 8,
+    });
+    const prewarmedClients = await Promise.all(
+      Array.from({ length: 8 }, async () => contentionPool.connect()),
     );
+    for (const client of prewarmedClients) {
+      client.release();
+    }
+    const processor = new PostgresConversationEventProcessor(contentionPool);
+    const blocker = await pool.connect();
+    const advisoryLockKey = 4_204_001;
+    let blockerTransactionOpen = false;
+    let calls: ReturnType<PostgresConversationEventProcessor['processEvent']>[] = [];
+    let results: Awaited<ReturnType<PostgresConversationEventProcessor['processEvent']>>[];
+
+    try {
+      await pool.query(
+        `create function synthetic_hold_event_application()
+         returns trigger language plpgsql as $$
+         begin
+           perform pg_advisory_xact_lock(4204001);
+           return new;
+         end;
+         $$;
+         create trigger synthetic_hold_event_application
+           before insert on webhook_event_applications
+           for each row execute function synthetic_hold_event_application()`,
+      );
+      await blocker.query('begin');
+      blockerTransactionOpen = true;
+      await blocker.query(`select pg_advisory_xact_lock($1)`, [advisoryLockKey]);
+
+      calls = Array.from({ length: 8 }, () => processor.processEvent(webhookEventId));
+      await waitForDatabaseLockWaiters(applicationName, 8);
+      await blocker.query('commit');
+      blockerTransactionOpen = false;
+      results = await Promise.all(calls);
+    } finally {
+      if (blockerTransactionOpen) {
+        await blocker.query('rollback');
+      }
+      await Promise.allSettled(calls);
+      blocker.release();
+      await contentionPool.end();
+      await pool.query(
+        `drop trigger if exists synthetic_hold_event_application
+           on webhook_event_applications;
+         drop function if exists synthetic_hold_event_application()`,
+      );
+    }
 
     expect(results.filter((result) => result.status === 'applied')).toHaveLength(1);
     expect(results.filter((result) => result.status === 'already_applied')).toHaveLength(7);
@@ -303,6 +566,61 @@ describe('PostgresConversationEventProcessor', () => {
       status: 'applied',
     });
     await expect(processor.processNext()).resolves.toEqual({ status: 'no_pending_event' });
+  });
+
+  test('claims the next row while the oldest pending row is locked by another caller', async () => {
+    const oldestEventId = await insertSyntheticPendingEvent(pool, {
+      channel: 'messenger',
+      channelAccountId: 'PAGE_TEST_skip_locked',
+      contactId: 'PSID_TEST_skip_locked_oldest',
+      createdAt: new Date('2026-08-11T02:31:00.000Z'),
+      eventKind: 'customer_message',
+      fixtureKey: 'skip-locked-oldest',
+      messageText: 'Synthetic locked oldest event',
+      occurredAt: new Date('2026-08-11T02:31:00.000Z'),
+    });
+    const nextEventId = await insertSyntheticPendingEvent(pool, {
+      channel: 'messenger',
+      channelAccountId: 'PAGE_TEST_skip_locked',
+      contactId: 'PSID_TEST_skip_locked-next',
+      createdAt: new Date('2026-08-11T02:32:00.000Z'),
+      eventKind: 'customer_message',
+      fixtureKey: 'skip-locked-next',
+      messageText: 'Synthetic next claim event',
+      occurredAt: new Date('2026-08-11T02:32:00.000Z'),
+    });
+    const oldestLocker = await pool.connect();
+    let lockerTransactionOpen = false;
+
+    try {
+      await oldestLocker.query('begin');
+      lockerTransactionOpen = true;
+      await oldestLocker.query(`select id from webhook_events where id = $1 for update`, [
+        oldestEventId,
+      ]);
+
+      const claimed = await new PostgresConversationEventProcessor(pool).processNext();
+
+      expect(claimed).toMatchObject({ eventId: nextEventId, status: 'applied' });
+      const whileLocked = await pool.query(
+        `select webhook_event_id from webhook_event_applications order by webhook_event_id`,
+      );
+      expect(whileLocked.rows).toEqual([{ webhook_event_id: nextEventId }]);
+      await oldestLocker.query('commit');
+      lockerTransactionOpen = false;
+    } finally {
+      if (lockerTransactionOpen) {
+        await oldestLocker.query('rollback');
+      }
+      oldestLocker.release();
+    }
+
+    await expect(new PostgresConversationEventProcessor(pool).processNext()).resolves.toMatchObject(
+      {
+        eventId: oldestEventId,
+        status: 'applied',
+      },
+    );
   });
 
   test('a new processor instance returns the application committed by the first instance', async () => {
@@ -521,41 +839,13 @@ describe('PostgresConversationEventProcessor', () => {
     ]);
   });
 
-  test('ignores an echo at the authorized resume boundary without changing conversation state', async () => {
-    const processor = new PostgresConversationEventProcessor(pool);
-    const customerEventId = await insertSyntheticPendingEvent(pool, {
-      channel: 'messenger',
-      channelAccountId: 'PAGE_TEST_echo_resume_boundary',
-      contactId: 'PSID_TEST_echo_resume_boundary',
-      eventKind: 'customer_message',
-      fixtureKey: 'echo-resume-customer',
-      messageText: 'Synthetic resume-boundary seed',
-      occurredAt: new Date('2026-08-11T08:00:00.000Z'),
+  test('ignores a provider echo older than a non-null authorized resume', async () => {
+    const { conversationId, echoEventId, processor } = await prepareResumedConversationEcho({
+      echoOccurredAt: '2026-08-11T09:00:00.000499+00:00',
+      fixtureKey: 'echo-resume-older',
+      resumeAt: '2026-08-11T09:00:00.000500+00:00',
     });
-    const customerResult = await processor.processEvent(customerEventId);
-    expect(customerResult.status).toBe('applied');
-    await pool.query(
-      `update conversations
-       set ai_paused_until = null,
-           last_authorized_resume_at = $2,
-           updated_at = $2,
-           row_version = row_version + 1
-       where id = $1`,
-      [
-        customerResult.status === 'applied' ? customerResult.conversationId : undefined,
-        new Date('2026-08-11T09:00:00.000Z'),
-      ],
-    );
-    const before = await pool.query(`select * from conversations`);
-    const echoEventId = await insertSyntheticPendingEvent(pool, {
-      channel: 'messenger',
-      channelAccountId: 'PAGE_TEST_echo_resume_boundary',
-      contactId: 'PSID_TEST_echo_resume_boundary',
-      eventKind: 'business_message_echo',
-      fixtureKey: 'echo-resume-boundary',
-      messageText: 'Synthetic boundary echo',
-      occurredAt: new Date('2026-08-11T09:00:00.000Z'),
-    });
+    const before = await pool.query(`select * from conversations where id = $1`, [conversationId]);
 
     const result = await processor.processEvent(echoEventId);
 
@@ -564,11 +854,35 @@ describe('PostgresConversationEventProcessor', () => {
       outcome: 'business_echo_ignored_before_resume',
       status: 'applied',
     });
-    const after = await pool.query(`select * from conversations`);
+    const after = await pool.query(`select * from conversations where id = $1`, [conversationId]);
+    expect(after.rows).toEqual(before.rows);
+    const pauses = await pool.query(
+      `select count(*)::int as count from human_pause_events where conversation_id = $1`,
+      [conversationId],
+    );
+    expect(pauses.rows).toEqual([{ count: 0 }]);
+  });
+
+  test('ignores a provider echo equal to a non-null authorized resume', async () => {
+    const { conversationId, echoEventId, processor } = await prepareResumedConversationEcho({
+      echoOccurredAt: '2026-08-11T09:00:00.000500+00:00',
+      fixtureKey: 'echo-resume-equal',
+      resumeAt: '2026-08-11T09:00:00.000500+00:00',
+    });
+    const before = await pool.query(`select * from conversations where id = $1`, [conversationId]);
+
+    const result = await processor.processEvent(echoEventId);
+
+    expect(result).toMatchObject({
+      eventId: echoEventId,
+      outcome: 'business_echo_ignored_before_resume',
+      status: 'applied',
+    });
+    const after = await pool.query(`select * from conversations where id = $1`, [conversationId]);
     expect(after.rows).toEqual(before.rows);
     const outcomes = await pool.query(
       `select
-         (select count(*)::int from human_pause_events) as pauses,
+         (select count(*)::int from human_pause_events where conversation_id = $2) as pauses,
          application.outcome as application_outcome,
          audit.outcome as audit_outcome,
          audit.reason_code
@@ -576,7 +890,7 @@ describe('PostgresConversationEventProcessor', () => {
        join policy_audit_outcomes as audit
          on audit.related_webhook_event_id = application.webhook_event_id
        where application.webhook_event_id = $1`,
-      [echoEventId],
+      [echoEventId, conversationId],
     );
     expect(outcomes.rows).toEqual([
       {
@@ -584,6 +898,45 @@ describe('PostgresConversationEventProcessor', () => {
         audit_outcome: 'ignored',
         pauses: 0,
         reason_code: 'echo_not_later_than_resume',
+      },
+    ]);
+  });
+
+  test('pauses for a provider echo one microsecond later than an authorized resume', async () => {
+    const { conversationId, echoEventId, processor } = await prepareResumedConversationEcho({
+      echoOccurredAt: '2026-08-11T09:00:00.000501+00:00',
+      fixtureKey: 'echo-resume-later',
+      resumeAt: '2026-08-11T09:00:00.000500+00:00',
+    });
+
+    const result = await processor.processEvent(echoEventId);
+
+    expect(result).toMatchObject({
+      eventId: echoEventId,
+      outcome: 'business_echo_paused',
+      status: 'applied',
+    });
+    const state = await pool.query(
+      `select
+         conversations.ai_paused_until = source_event.occurred_at + interval '24 hours'
+           as exact_deadline,
+         pause.effective_at = source_event.occurred_at as exact_effective_at,
+         conversations.row_version,
+         application.outcome as application_outcome
+       from conversations
+       join human_pause_events as pause on pause.conversation_id = conversations.id
+       join webhook_event_applications as application
+         on application.webhook_event_id = pause.source_webhook_event_id
+       join webhook_events as source_event on source_event.id = pause.source_webhook_event_id
+       where conversations.id = $1`,
+      [conversationId],
+    );
+    expect(state.rows).toEqual([
+      {
+        application_outcome: 'business_echo_paused',
+        exact_deadline: true,
+        exact_effective_at: true,
+        row_version: '3',
       },
     ]);
   });

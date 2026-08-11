@@ -45,7 +45,7 @@ export interface ResolvedPolicyState {
 
 export interface LockedConversationState {
   readonly conversationId: string;
-  readonly lastAuthorizedResumeAt: Date | null;
+  readonly eventOccurredAfterAuthorizedResume: boolean;
 }
 
 interface IdentifierRow {
@@ -144,22 +144,27 @@ export async function lockOrCreateConversation(
   client: pg.PoolClient,
   identityId: string,
   occurredAt: Date,
+  webhookEventId: string,
 ): Promise<LockedConversationState> {
   const existing = await client.query<{
+    readonly event_occurred_after_authorized_resume: boolean;
     readonly id: string;
-    readonly last_authorized_resume_at: Date | null;
   }>(
-    `select id, last_authorized_resume_at
+    `select conversations.id,
+            conversations.last_authorized_resume_at is null
+              or source_event.occurred_at > conversations.last_authorized_resume_at
+              as event_occurred_after_authorized_resume
      from conversations
-     where channel_identity_id = $1
-     for update`,
-    [identityId],
+     join webhook_events as source_event on source_event.id = $2
+     where conversations.channel_identity_id = $1
+     for update of conversations`,
+    [identityId, webhookEventId],
   );
   const conversation = existing.rows[0];
   if (conversation !== undefined) {
     return {
       conversationId: conversation.id,
-      lastAuthorizedResumeAt: conversation.last_authorized_resume_at,
+      eventOccurredAfterAuthorizedResume: conversation.event_occurred_after_authorized_resume,
     };
   }
 
@@ -174,7 +179,7 @@ export async function lockOrCreateConversation(
     throw new Error('Conversation insert returned no identifier');
   }
 
-  return { conversationId, lastAuthorizedResumeAt: null };
+  return { conversationId, eventOccurredAfterAuthorizedResume: true };
 }
 
 export async function insertPolicyAuditOutcome(

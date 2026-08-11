@@ -76,7 +76,11 @@ export class PostgresConversationEventProcessor {
   public async processEvent(webhookEventId: string): Promise<EventProcessResult> {
     return withBoundedTransaction(this.pool, async (client) => {
       const selected = await client.query<WebhookEventRow>(
-        `select * from webhook_events where id = $1 for update`,
+        `select id, admission_outcome, channel, channel_account_id,
+                contact_id, event_kind, occurred_at
+         from webhook_events
+         where id = $1
+         for update`,
         [webhookEventId],
       );
       const event = selected.rows[0];
@@ -91,7 +95,10 @@ export class PostgresConversationEventProcessor {
   public async processNext(): Promise<EventProcessResult> {
     return withBoundedTransaction(this.pool, async (client) => {
       const selected = await client.query<WebhookEventRow>(
-        `select webhook_events.*
+        `select webhook_events.id, webhook_events.admission_outcome,
+                webhook_events.channel, webhook_events.channel_account_id,
+                webhook_events.contact_id, webhook_events.event_kind,
+                webhook_events.occurred_at
          from webhook_events
          left join webhook_event_applications
            on webhook_event_applications.webhook_event_id = webhook_events.id
@@ -153,12 +160,10 @@ export class PostgresConversationEventProcessor {
         client,
         identityId,
         normalized.occurredAt,
+        event.id,
       );
 
-      if (
-        conversation.lastAuthorizedResumeAt !== null &&
-        normalized.occurredAt.getTime() <= conversation.lastAuthorizedResumeAt.getTime()
-      ) {
+      if (!conversation.eventOccurredAfterAuthorizedResume) {
         await client.query(
           `insert into webhook_event_applications
              (webhook_event_id, conversation_id, outcome)
@@ -191,15 +196,23 @@ export class PostgresConversationEventProcessor {
       const updated = await client.query<PauseDeadlineRow>(
         `update conversations
          set ai_paused_until = greatest(
-               coalesce(ai_paused_until, $2::timestamptz + interval '24 hours'),
-               $2::timestamptz + interval '24 hours'
+               coalesce(
+                 conversations.ai_paused_until,
+                 source_event.occurred_at + interval '24 hours'
+               ),
+               source_event.occurred_at + interval '24 hours'
              ),
-             last_activity_at = greatest(last_activity_at, $2::timestamptz),
+             last_activity_at = greatest(
+               conversations.last_activity_at,
+               source_event.occurred_at
+             ),
              updated_at = now(),
              row_version = row_version + 1
-         where id = $1
-         returning ai_paused_until`,
-        [conversation.conversationId, normalized.occurredAt],
+         from webhook_events as source_event
+         where conversations.id = $1
+           and source_event.id = $2
+         returning conversations.ai_paused_until`,
+        [conversation.conversationId, event.id],
       );
       const pauseUntil = updated.rows[0]?.ai_paused_until;
       if (pauseUntil === undefined) {
@@ -209,8 +222,10 @@ export class PostgresConversationEventProcessor {
         `insert into human_pause_events
            (conversation_id, source_webhook_event_id, action, effective_at,
             resulting_pause_until, actor_kind)
-         values ($1, $2, 'pause', $3, $4, 'business_echo')`,
-        [conversation.conversationId, event.id, normalized.occurredAt, pauseUntil],
+         select $1, $2, 'pause', occurred_at, $3, 'business_echo'
+         from webhook_events
+         where id = $2`,
+        [conversation.conversationId, event.id, pauseUntil],
       );
       await insertPolicyAuditOutcome(client, {
         channelIdentityId: identityId,
