@@ -544,6 +544,52 @@ describe('Phase 2 database migrations', () => {
       secondLocker.release();
       secondContender.release();
     }
+
+    const referenceHoldsLockEventId = await insertPendingEvent(
+      'synthetic:race:reference-holds-lock',
+    );
+    const referenceLocker = await pool.connect();
+    const staleContender = await pool.connect();
+    try {
+      await referenceLocker.query('begin');
+      await insertApplication(referenceLocker, referenceHoldsLockEventId);
+      const referenceBackend = await referenceLocker.query<{ readonly pid: number }>(
+        `select pg_backend_pid() as pid`,
+      );
+      const staleBackend = await staleContender.query<{ readonly pid: number }>(
+        `select pg_backend_pid() as pid`,
+      );
+      const referencePid = referenceBackend.rows[0]?.pid;
+      const stalePid = staleBackend.rows[0]?.pid;
+      expect(referencePid).toBeDefined();
+      expect(stalePid).toBeDefined();
+
+      const staleOutcome = staleContender
+        .query(`update webhook_events set admission_outcome = 'stale' where id = $1`, [
+          referenceHoldsLockEventId,
+        ])
+        .then(
+          () => undefined,
+          (error: unknown) => error,
+        );
+      let blockedByReference = false;
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        const blocking = await pool.query<{ readonly blocking_pid: number }>(
+          `select unnest(pg_blocking_pids($1)) as blocking_pid`,
+          [stalePid],
+        );
+        blockedByReference = blocking.rows.some((row) => row.blocking_pid === referencePid);
+        if (blockedByReference) break;
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      expect(blockedByReference).toBe(true);
+      await referenceLocker.query('commit');
+      await expect(staleOutcome).resolves.toMatchObject({ code: '23514' });
+    } finally {
+      await referenceLocker.query('rollback').catch(() => undefined);
+      referenceLocker.release();
+      staleContender.release();
+    }
   });
 
   test('reject a non-null resume deadline after a later pause or resume supersedes it', async () => {
