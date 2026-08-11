@@ -10,7 +10,7 @@
 
 ## Current Readiness
 
-- Project state: the project owner approved the Phase 2 gate and the staged Phase 3A design; its written specification awaits review before implementation planning. Unrelated Phase 0 policy and external-readiness decisions remain open.
+- Project state: the project owner approved the Phase 2 gate and staged Phase 3A design. The test-first Phase 3A implementation plan is ready for project-owner execution-method review; unrelated Phase 0 policy and external-readiness decisions remain open.
 - Application code: strict TypeScript scaffold, privacy-safe logging, Meta verification/signature admission, independent channel normalization, and PostgreSQL-backed durable receipt are implemented locally.
 - Server deployment: not authorized; only the approved isolated test-only PostgreSQL service has been created on the Ubuntu Docker server.
 - Meta test-asset connection: not authorized yet.
@@ -71,7 +71,7 @@
 
 | ID | Task | Depends On | Owner | Status | Evidence / Completion Rule | Approval Boundary |
 |---|---|---|---|---|---|---|
-| P3-001 | Write and approve the Phase 3 test-first implementation plan | P2-GATE | Codex + project owner | IN PROGRESS | `docs/superpowers/specs/2026-08-11-phase-3a-policy-core-design.md` written; project-owner spec review and implementation plan remain | Explicit review |
+| P3-001 | Write and approve the Phase 3 test-first implementation plan | P2-GATE | Codex + project owner | IN PROGRESS | Approved design: `docs/superpowers/specs/2026-08-11-phase-3a-policy-core-design.md`; execution plan ready at `docs/superpowers/plans/2026-08-11-phase-3a-policy-core.md` and awaits project-owner execution-method review | Explicit review |
 | P3-002 | Implement conversation and channel-identity state | P3-001 | Codex | BLOCKED | State transition tests pass | None |
 | P3-003 | Implement 24-hour human pause, race checks, expiry, and private resume | P3-002 | Codex | BLOCKED | Takeover and concurrency tests pass | None |
 | P3-004 | Implement consent grant, revoke, blank, category, and channel rules | P3-002 | Codex | BLOCKED | Consent matrix passes; blank is always false | None |
