@@ -2,6 +2,7 @@ import type pg from 'pg';
 
 import type { NormalizedMetaEvent } from '../meta/normalized-event.js';
 import type { WebhookReceiptInput } from '../receipts/webhook-receipt.js';
+import { withBoundedTransaction } from './postgres-transaction.js';
 
 export interface StoreWebhookReceiptResult {
   readonly insertedEventCount: number;
@@ -60,16 +61,7 @@ export class PostgresReceiptStore {
   public constructor(private readonly pool: pg.Pool) {}
 
   public async store(input: WebhookReceiptInput): Promise<StoreWebhookReceiptResult> {
-    const client = await this.pool.connect();
-    let destroyClient = false;
-
-    try {
-      await client.query('begin');
-      await client.query(
-        `set local lock_timeout = '750ms';
-         set local statement_timeout = '3000ms';
-         set local transaction_timeout = '3500ms'`,
-      );
+    return withBoundedTransaction(this.pool, async (client) => {
       const receipt = await client.query<ReceiptRow>(
         `insert into webhook_receipts (payload_sha256, received_at, event_count)
          values ($1, $2, $3)
@@ -92,7 +84,6 @@ export class PostgresReceiptStore {
           throw new Error('Duplicate receipt could not be resolved');
         }
 
-        await client.query('commit');
         return {
           insertedEventCount: 0,
           outcome: 'duplicate',
@@ -121,15 +112,6 @@ export class PostgresReceiptStore {
         outcome: insertedEventCount === 0 && input.events.length > 0 ? 'duplicate' : 'accepted',
         receiptId,
       };
-    } catch (error) {
-      try {
-        await client.query('rollback');
-      } catch {
-        destroyClient = true;
-      }
-      throw error;
-    } finally {
-      client.release(destroyClient);
-    }
+    });
   }
 }
