@@ -269,6 +269,202 @@ describe('Phase 2 database migrations', () => {
     ).rejects.toMatchObject({ code: '23503' });
   });
 
+  test('reject non-pending webhook events from every Phase 3A event reference', async () => {
+    const contact = await pool.query<{ readonly id: string }>(
+      `insert into contacts default values returning id`,
+    );
+    const identity = await pool.query<{ readonly id: string }>(
+      `insert into channel_identities
+         (contact_id, channel, channel_account_id, external_contact_id, first_seen_at, last_seen_at)
+       values ($1, 'messenger', 'synthetic-boundary-account', 'synthetic-boundary-contact', now(), now())
+       returning id`,
+      [contact.rows[0]?.id],
+    );
+    const conversation = await pool.query<{ readonly id: string }>(
+      `insert into conversations (channel_identity_id, created_at, last_activity_at)
+       values ($1, now(), now())
+       returning id`,
+      [identity.rows[0]?.id],
+    );
+    const receipt = await pool.query<{ readonly id: string }>(
+      `insert into webhook_receipts (payload_sha256, event_count)
+       values ($1, 4)
+       returning id`,
+      ['d'.repeat(64)],
+    );
+
+    const insertStaleEvent = async (idempotencyKey: string, eventKind: string) => {
+      const event = await pool.query<{ readonly id: string }>(
+        `insert into webhook_events
+           (receipt_id, idempotency_key, channel, event_kind, occurred_at, admission_outcome)
+         values ($1, $2, 'messenger', $3, '2026-01-02T00:00:00Z', 'stale')
+         returning id`,
+        [receipt.rows[0]?.id, idempotencyKey, eventKind],
+      );
+      return event.rows[0]?.id;
+    };
+
+    const applicationEventId = await insertStaleEvent(
+      'synthetic:boundary:application',
+      'customer_message',
+    );
+    await expect(
+      pool.query(
+        `insert into webhook_event_applications (webhook_event_id, conversation_id, outcome)
+         values ($1, $2, 'customer_message_applied')`,
+        [applicationEventId, conversation.rows[0]?.id],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+
+    const pauseEventId = await insertStaleEvent(
+      'synthetic:boundary:pause',
+      'business_message_echo',
+    );
+    await expect(
+      pool.query(
+        `insert into human_pause_events
+           (conversation_id, source_webhook_event_id, action, effective_at, resulting_pause_until, actor_kind)
+         values ($1, $2, 'pause', '2026-01-02T00:00:00Z', '2026-01-03T00:00:00Z', 'business_echo')`,
+        [conversation.rows[0]?.id, pauseEventId],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+
+    const consentEventId = await insertStaleEvent('synthetic:boundary:consent', 'customer_message');
+    await expect(
+      pool.query(
+        `insert into consent_events
+           (channel_identity_id, category, action, wording, wording_version, source, source_at, idempotency_key, source_webhook_event_id)
+         values ($1, 'marketing', 'grant', 'Synthetic approved consent wording', 'v1', 'customer_message', '2026-01-02T00:00:00Z', 'synthetic-boundary-consent', $2)`,
+        [identity.rows[0]?.id, consentEventId],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+
+    const auditEventId = await insertStaleEvent('synthetic:boundary:audit', 'message_status');
+    await expect(
+      pool.query(
+        `insert into policy_audit_outcomes
+           (decision_type, outcome, reason_code, related_webhook_event_id, evaluated_at)
+         values ('event_application', 'ignored', 'message_status_ignored', $1, now())`,
+        [auditEventId],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+  });
+
+  test('allow a resume deadline when a later authoritative echo remains', async () => {
+    const contact = await pool.query<{ readonly id: string }>(
+      `insert into contacts default values returning id`,
+    );
+    const identity = await pool.query<{ readonly id: string }>(
+      `insert into channel_identities
+         (contact_id, channel, channel_account_id, external_contact_id, first_seen_at, last_seen_at)
+       values ($1, 'messenger', 'synthetic-resume-account', 'synthetic-resume-contact', now(), now())
+       returning id`,
+      [contact.rows[0]?.id],
+    );
+    const conversation = await pool.query<{ readonly id: string }>(
+      `insert into conversations (channel_identity_id, created_at, last_activity_at)
+       values ($1, now(), now())
+       returning id`,
+      [identity.rows[0]?.id],
+    );
+    const receipt = await pool.query<{ readonly id: string }>(
+      `insert into webhook_receipts (payload_sha256, event_count)
+       values ($1, 1)
+       returning id`,
+      ['e'.repeat(64)],
+    );
+    const echoEvent = await pool.query<{ readonly id: string }>(
+      `insert into webhook_events
+         (receipt_id, idempotency_key, channel, event_kind, occurred_at, admission_outcome)
+       values ($1, 'synthetic:resume:echo', 'messenger', 'business_message_echo', '2026-01-02T00:00:00Z', 'pending')
+       returning id`,
+      [receipt.rows[0]?.id],
+    );
+    const echoEventId = echoEvent.rows[0]?.id;
+    await pool.query(
+      `insert into webhook_event_applications (webhook_event_id, conversation_id, outcome)
+       values ($1, $2, 'business_echo_paused')`,
+      [echoEventId, conversation.rows[0]?.id],
+    );
+    await pool.query(
+      `insert into human_pause_events
+         (conversation_id, source_webhook_event_id, action, effective_at, resulting_pause_until, actor_kind)
+       values ($1, $2, 'pause', '2026-01-02T00:00:00Z', '2026-01-03T00:00:00Z', 'business_echo')`,
+      [conversation.rows[0]?.id, echoEventId],
+    );
+
+    await expect(
+      pool.query(
+        `insert into human_pause_events
+           (conversation_id, action, effective_at, resulting_pause_until, actor_kind, reviewer_reference, reviewer_request_key)
+         values ($1, 'resume', '2026-01-01T00:00:00Z', '2026-01-03T00:00:00Z', 'reviewer', 'synthetic-reviewer', 'synthetic-resume-authoritative')`,
+        [conversation.rows[0]?.id],
+      ),
+    ).resolves.toMatchObject({ rowCount: 1 });
+  });
+
+  test('reject a business-echo pause without an authoritative application', async () => {
+    const contact = await pool.query<{ readonly id: string }>(
+      `insert into contacts default values returning id`,
+    );
+    const identity = await pool.query<{ readonly id: string }>(
+      `insert into channel_identities
+         (contact_id, channel, channel_account_id, external_contact_id, first_seen_at, last_seen_at)
+       values ($1, 'messenger', 'synthetic-unapplied-account', 'synthetic-unapplied-contact', now(), now())
+       returning id`,
+      [contact.rows[0]?.id],
+    );
+    const conversation = await pool.query<{ readonly id: string }>(
+      `insert into conversations (channel_identity_id, created_at, last_activity_at)
+       values ($1, now(), now())
+       returning id`,
+      [identity.rows[0]?.id],
+    );
+    const receipt = await pool.query<{ readonly id: string }>(
+      `insert into webhook_receipts (payload_sha256, event_count)
+       values ($1, 1)
+       returning id`,
+      ['f'.repeat(64)],
+    );
+    const echoEvent = await pool.query<{ readonly id: string }>(
+      `insert into webhook_events
+         (receipt_id, idempotency_key, channel, event_kind, occurred_at, admission_outcome)
+       values ($1, 'synthetic:unapplied:echo', 'messenger', 'business_message_echo', '2026-01-02T00:00:00Z', 'pending')
+       returning id`,
+      [receipt.rows[0]?.id],
+    );
+
+    await expect(
+      pool.query(
+        `insert into human_pause_events
+           (conversation_id, source_webhook_event_id, action, effective_at, resulting_pause_until, actor_kind)
+         values ($1, $2, 'pause', '2026-01-02T00:00:00Z', '2026-01-03T00:00:00Z', 'business_echo')`,
+        [conversation.rows[0]?.id, echoEvent.rows[0]?.id],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+  });
+
+  test('prevent an authoritative echo application from being invalidated', async () => {
+    const authoritativeApplication = await pool.query<{ readonly webhook_event_id: string }>(
+      `select webhook_event_id
+       from webhook_event_applications
+       where outcome = 'business_echo_paused'
+       order by webhook_event_id desc
+       limit 1`,
+    );
+    const webhookEventId = authoritativeApplication.rows[0]?.webhook_event_id;
+    expect(webhookEventId).toBeDefined();
+
+    await expect(
+      pool.query(
+        `update webhook_event_applications
+         set outcome = 'business_echo_ignored_before_resume'
+         where webhook_event_id = $1`,
+        [webhookEventId],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+  });
+
   test('roll back and reapply the Phase 2 and Phase 3A migrations', async () => {
     await runMigrations('down', 2);
 
