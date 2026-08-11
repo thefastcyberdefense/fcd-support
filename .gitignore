@@ -30,6 +30,7 @@ exports/
 *.backup
 
 # Tests and tooling
+.worktrees/
 test-results/
 playwright-report/
 .nyc_output/
