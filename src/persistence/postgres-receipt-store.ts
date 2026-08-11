@@ -106,7 +106,6 @@ export class PostgresReceiptStore {
         insertedEventCount += insertedEvent.rowCount ?? 0;
       }
 
-      await client.query('commit');
       return {
         insertedEventCount,
         outcome: insertedEventCount === 0 && input.events.length > 0 ? 'duplicate' : 'accepted',

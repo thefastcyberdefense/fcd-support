@@ -7,14 +7,23 @@ import { createIsolatedTestDatabase, type IsolatedTestDatabase } from './test-da
 
 let disposeDatabase: (() => Promise<void>) | undefined;
 let pool: pg.Pool;
+let transactionNotices: string[] = [];
 
 beforeAll(async () => {
   const database: IsolatedTestDatabase = await createIsolatedTestDatabase('postgres_receipt_store');
   disposeDatabase = database.dispose;
   pool = database.pool;
+  pool.on('connect', (client) => {
+    client.on('notice', (notice) => {
+      if (notice.message !== undefined) {
+        transactionNotices.push(notice.message);
+      }
+    });
+  });
 });
 
 beforeEach(async () => {
+  transactionNotices = [];
   await pool.query('truncate table webhook_events, webhook_receipts restart identity cascade');
 });
 
@@ -114,6 +123,31 @@ describe('PostgresReceiptStore', () => {
          (select count(*)::int from webhook_events) as events`,
     );
     expect(counts.rows).toEqual([{ receipts: 1, events: 1 }]);
+  });
+
+  test('does not emit a transaction warning while handling an exact delivery retry', async () => {
+    const store = new PostgresReceiptStore(pool);
+    const input = {
+      events: [
+        {
+          kind: 'customer_message' as const,
+          channel: 'messenger' as const,
+          channelAccountId: 'PAGE_TEST_transaction_owner',
+          contactId: 'PSID_TEST_transaction_owner',
+          externalMessageId: 'm_TEST_transaction_owner',
+          idempotencyKey: 'messenger:message:PAGE_TEST_transaction_owner:m_TEST_transaction_owner',
+          occurredAt: new Date('2026-08-11T00:02:00.000Z'),
+          text: 'Synthetic duplicate delivery transaction ownership',
+        },
+      ],
+      payloadSha256: '7'.repeat(64),
+      receivedAt: new Date('2026-08-11T00:02:30.000Z'),
+    };
+
+    await store.store(input);
+    await store.store(input);
+
+    expect(transactionNotices).toEqual([]);
   });
 
   test('deduplicates the same logical event across different delivery payloads', async () => {
