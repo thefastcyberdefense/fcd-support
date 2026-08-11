@@ -465,6 +465,145 @@ describe('Phase 2 database migrations', () => {
     ).rejects.toMatchObject({ code: '23514' });
   });
 
+  test('serializes pending admission against a concurrent stale transition in both lock orders', async () => {
+    const contact = await pool.query<{ readonly id: string }>(
+      `insert into contacts default values returning id`,
+    );
+    const identity = await pool.query<{ readonly id: string }>(
+      `insert into channel_identities
+         (contact_id, channel, channel_account_id, external_contact_id, first_seen_at, last_seen_at)
+       values ($1, 'messenger', 'synthetic-race-account', 'synthetic-race-contact', now(), now())
+       returning id`,
+      [contact.rows[0]?.id],
+    );
+    const conversation = await pool.query<{ readonly id: string }>(
+      `insert into conversations (channel_identity_id, created_at, last_activity_at)
+       values ($1, now(), now())
+       returning id`,
+      [identity.rows[0]?.id],
+    );
+    const receipt = await pool.query<{ readonly id: string }>(
+      `insert into webhook_receipts (payload_sha256, event_count)
+       values ($1, 2)
+       returning id`,
+      ['1'.repeat(64)],
+    );
+    const insertPendingEvent = async (idempotencyKey: string) => {
+      const event = await pool.query<{ readonly id: string }>(
+        `insert into webhook_events
+           (receipt_id, idempotency_key, channel, event_kind, admission_outcome)
+         values ($1, $2, 'messenger', 'customer_message', 'pending')
+         returning id`,
+        [receipt.rows[0]?.id, idempotencyKey],
+      );
+      return event.rows[0]?.id;
+    };
+    const insertApplication = (client: pg.PoolClient, eventId: string | undefined) =>
+      client.query(
+        `insert into webhook_event_applications (webhook_event_id, conversation_id, outcome)
+         values ($1, $2, 'customer_message_applied')`,
+        [eventId, conversation.rows[0]?.id],
+      );
+
+    const referenceFirstEventId = await insertPendingEvent('synthetic:race:reference-first');
+    const firstLocker = await pool.connect();
+    const firstContender = await pool.connect();
+    try {
+      await firstLocker.query('begin');
+      await firstLocker.query(`select id from webhook_events where id = $1 for update`, [
+        referenceFirstEventId,
+      ]);
+      const referenceAttempt = insertApplication(firstContender, referenceFirstEventId);
+      await expect(
+        firstLocker.query(`update webhook_events set admission_outcome = 'stale' where id = $1`, [
+          referenceFirstEventId,
+        ]),
+      ).resolves.toMatchObject({ rowCount: 1 });
+      await firstLocker.query('commit');
+      await expect(referenceAttempt).rejects.toMatchObject({ code: '23514' });
+    } finally {
+      await firstLocker.query('rollback').catch(() => undefined);
+      firstLocker.release();
+      firstContender.release();
+    }
+
+    const staleFirstEventId = await insertPendingEvent('synthetic:race:stale-first');
+    const secondLocker = await pool.connect();
+    const secondContender = await pool.connect();
+    try {
+      await secondLocker.query('begin');
+      await secondLocker.query(
+        `update webhook_events set admission_outcome = 'stale' where id = $1`,
+        [staleFirstEventId],
+      );
+      const referenceAttempt = insertApplication(secondContender, staleFirstEventId);
+      await secondLocker.query('commit');
+      await expect(referenceAttempt).rejects.toMatchObject({ code: '23514' });
+    } finally {
+      await secondLocker.query('rollback').catch(() => undefined);
+      secondLocker.release();
+      secondContender.release();
+    }
+  });
+
+  test('reject a non-null resume deadline after a later pause or resume supersedes it', async () => {
+    const state = await pool.query<{
+      readonly conversation_id: string;
+      readonly receipt_id: string;
+    }>(
+      `select conversations.id as conversation_id, webhook_events.receipt_id
+       from conversations
+       join channel_identities on channel_identities.id = conversations.channel_identity_id
+       join webhook_events on webhook_events.idempotency_key = 'synthetic:resume:echo'
+       where channel_identities.channel_account_id = 'synthetic-resume-account'`,
+    );
+    const conversationId = state.rows[0]?.conversation_id;
+    const receiptId = state.rows[0]?.receipt_id;
+    expect(conversationId).toBeDefined();
+    expect(receiptId).toBeDefined();
+    const laterEcho = await pool.query<{ readonly id: string }>(
+      `insert into webhook_events
+         (receipt_id, idempotency_key, channel, event_kind, occurred_at, admission_outcome)
+       values ($1, 'synthetic:resume:later-echo', 'messenger', 'business_message_echo', '2026-01-04T00:00:00Z', 'pending')
+       returning id`,
+      [receiptId],
+    );
+    const laterEchoId = laterEcho.rows[0]?.id;
+    await pool.query(
+      `insert into webhook_event_applications (webhook_event_id, conversation_id, outcome)
+       values ($1, $2, 'business_echo_paused')`,
+      [laterEchoId, conversationId],
+    );
+    await pool.query(
+      `insert into human_pause_events
+         (conversation_id, source_webhook_event_id, action, effective_at, resulting_pause_until, actor_kind)
+       values ($1, $2, 'pause', '2026-01-04T00:00:00Z', '2026-01-05T00:00:00Z', 'business_echo')`,
+      [conversationId, laterEchoId],
+    );
+    await expect(
+      pool.query(
+        `insert into human_pause_events
+           (conversation_id, action, effective_at, resulting_pause_until, actor_kind, reviewer_reference, reviewer_request_key)
+         values ($1, 'resume', '2025-12-31T00:00:00Z', '2026-01-03T00:00:00Z', 'reviewer', 'synthetic-reviewer', 'synthetic-resume-superseded-pause')`,
+        [conversationId],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+    await pool.query(
+      `insert into human_pause_events
+         (conversation_id, action, effective_at, actor_kind, reviewer_reference, reviewer_request_key)
+       values ($1, 'resume', '2026-01-06T00:00:00Z', 'reviewer', 'synthetic-reviewer', 'synthetic-resume-later')`,
+      [conversationId],
+    );
+    await expect(
+      pool.query(
+        `insert into human_pause_events
+           (conversation_id, action, effective_at, resulting_pause_until, actor_kind, reviewer_reference, reviewer_request_key)
+         values ($1, 'resume', '2025-12-30T00:00:00Z', '2026-01-03T00:00:00Z', 'reviewer', 'synthetic-reviewer', 'synthetic-resume-superseded-resume')`,
+        [conversationId],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+  });
+
   test('roll back and reapply the Phase 2 and Phase 3A migrations', async () => {
     await runMigrations('down', 2);
 

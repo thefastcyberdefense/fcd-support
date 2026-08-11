@@ -113,6 +113,14 @@ export function up(pgm: MigrationBuilder): void {
           and source_event.occurred_at = later_echo.effective_at
           and application.conversation_id = new.conversation_id
           and application.outcome = 'business_echo_paused'
+          and later_echo.id = (
+            select current_state.id
+            from human_pause_events as current_state
+            where current_state.conversation_id = new.conversation_id
+              and current_state.effective_at > new.effective_at
+            order by current_state.effective_at desc, current_state.id desc
+            limit 1
+          )
       ) then
         raise exception using errcode = '23514', message = 'resume pause deadline lacks a later echo';
       end if;
@@ -186,19 +194,17 @@ export function up(pgm: MigrationBuilder): void {
     as $$
     declare
       event_id bigint;
+      event_admission_outcome text;
     begin
       event_id := (to_jsonb(new) ->> tg_argv[0])::bigint;
 
-      if event_id is not null and exists (
-        select 1
-        from webhook_events
-        where id = event_id
-      ) and not exists (
-        select 1
-        from webhook_events
-        where id = event_id
-          and admission_outcome = 'pending'
-      ) then
+      select admission_outcome
+      into event_admission_outcome
+      from webhook_events
+      where id = event_id
+      for update;
+
+      if found and event_admission_outcome <> 'pending' then
         raise exception using errcode = '23514', message = 'Phase 3A state requires a pending webhook event';
       end if;
 
@@ -219,18 +225,28 @@ export function up(pgm: MigrationBuilder): void {
       before insert or update on policy_audit_outcomes
       for each row execute function enforce_pending_phase_3a_event_reference('related_webhook_event_id');
 
-    create function enforce_human_pause_events_append_only()
+    create function enforce_human_pause_source_stability()
     returns trigger
     language plpgsql
     as $$
     begin
-      raise exception using errcode = '23514', message = 'human pause events are append-only';
+      if old.source_webhook_event_id is not null and (
+        new.source_webhook_event_id is distinct from old.source_webhook_event_id
+        or new.action is distinct from old.action
+        or new.actor_kind is distinct from old.actor_kind
+        or new.effective_at is distinct from old.effective_at
+        or new.resulting_pause_until is distinct from old.resulting_pause_until
+      ) then
+        raise exception using errcode = '23514', message = 'authoritative pause reference is immutable';
+      end if;
+
+      return new;
     end;
     $$;
 
-    create trigger human_pause_events_append_only
-      before update or delete on human_pause_events
-      for each row execute function enforce_human_pause_events_append_only();
+    create trigger human_pause_events_source_stability
+      before update on human_pause_events
+      for each row execute function enforce_human_pause_source_stability();
 
     create function enforce_authoritative_echo_application_stability()
     returns trigger
@@ -300,7 +316,7 @@ export function down(pgm: MigrationBuilder): void {
   pgm.sql(`
     drop trigger webhook_events_phase_3a_stability on webhook_events;
     drop trigger webhook_event_applications_authoritative_stability on webhook_event_applications;
-    drop trigger human_pause_events_append_only on human_pause_events;
+    drop trigger human_pause_events_source_stability on human_pause_events;
     drop trigger a_policy_audit_outcomes_pending_event on policy_audit_outcomes;
     drop trigger a_consent_events_pending_event on consent_events;
     drop trigger a_human_pause_events_pending_event on human_pause_events;
@@ -308,7 +324,7 @@ export function down(pgm: MigrationBuilder): void {
     drop trigger b_human_pause_events_authority on human_pause_events;
     drop function enforce_phase_3a_event_stability();
     drop function enforce_authoritative_echo_application_stability();
-    drop function enforce_human_pause_events_append_only();
+    drop function enforce_human_pause_source_stability();
     drop function enforce_pending_phase_3a_event_reference();
     drop function enforce_human_pause_authority();
     drop table policy_audit_outcomes;
