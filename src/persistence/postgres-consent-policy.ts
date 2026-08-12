@@ -84,6 +84,16 @@ export class PostgresConsentPolicy {
     const categoryIsValid = categoryPattern.test(normalizedCategory);
 
     return withBoundedTransaction(this.pool, async (client) => {
+      if (!categoryIsValid) {
+        await insertPolicyAuditOutcome(client, {
+          decisionType: 'marketing_eligibility',
+          evaluatedAt,
+          outcome: 'denied',
+          reasonCode: 'consent_missing',
+        });
+        return { eligible: false, reason: 'consent_missing' };
+      }
+
       const selected = await client.query<IdentityRow>(
         `select id
          from channel_identities
@@ -105,16 +115,6 @@ export class PostgresConsentPolicy {
           reasonCode: 'identity_not_found',
         });
         return { eligible: false, reason: 'identity_not_found' };
-      }
-      if (!categoryIsValid) {
-        await insertPolicyAuditOutcome(client, {
-          channelIdentityId: identityId,
-          decisionType: 'marketing_eligibility',
-          evaluatedAt,
-          outcome: 'denied',
-          reasonCode: 'consent_missing',
-        });
-        return { eligible: false, reason: 'consent_missing' };
       }
 
       const latest = await client.query<ConsentActionRow>(
@@ -225,7 +225,8 @@ export class PostgresConsentPolicy {
              and source_event.event_kind = 'customer_message'
              and source_event.occurred_at = $2::timestamptz
              and application.outcome = 'customer_message_applied'
-             and conversations.channel_identity_id = $3`,
+             and conversations.channel_identity_id = $3
+           for update of source_event, application, conversations`,
           [command.sourceWebhookEventId, command.sourceAt, identityId],
         );
         if (source.rows[0] === undefined) {

@@ -257,8 +257,10 @@ export function up(pgm: MigrationBuilder): void {
         select 1
         from human_pause_events
         where source_webhook_event_id = old.webhook_event_id
+        union all
+        select 1 from consent_events where source_webhook_event_id = old.webhook_event_id
       ) then
-        raise exception using errcode = '23514', message = 'authoritative echo application is immutable';
+        raise exception using errcode = '23514', message = 'authoritative event application is immutable';
       end if;
 
       return new;
@@ -290,6 +292,8 @@ export function up(pgm: MigrationBuilder): void {
         (new.event_kind is distinct from old.event_kind or new.occurred_at is distinct from old.occurred_at)
         and exists (
           select 1 from human_pause_events where source_webhook_event_id = old.id
+          union all
+          select 1 from consent_events where source_webhook_event_id = old.id
         )
       ) then
         raise exception using errcode = '23514', message = 'referenced webhook event is immutable';
@@ -303,6 +307,32 @@ export function up(pgm: MigrationBuilder): void {
       before update on webhook_events
       for each row execute function enforce_phase_3a_event_stability();
 
+    create function enforce_authoritative_conversation_stability()
+    returns trigger
+    language plpgsql
+    as $$
+    begin
+      if (
+        tg_op = 'DELETE'
+        or new.channel_identity_id is distinct from old.channel_identity_id
+      ) and exists (
+        select 1
+        from webhook_event_applications as application
+        join consent_events as consent
+          on consent.source_webhook_event_id = application.webhook_event_id
+        where application.conversation_id = old.id
+      ) then
+        raise exception using errcode = '23514', message = 'authoritative consent conversation is immutable';
+      end if;
+
+      return case when tg_op = 'DELETE' then old else new end;
+    end;
+    $$;
+
+    create trigger conversations_authoritative_stability
+      before update of channel_identity_id or delete on conversations
+      for each row execute function enforce_authoritative_conversation_stability();
+
     create index human_pause_events_conversation_effective_idx
       on human_pause_events (conversation_id, effective_at desc, id desc);
     create index consent_events_identity_category_latest_idx
@@ -314,6 +344,7 @@ export function up(pgm: MigrationBuilder): void {
 
 export function down(pgm: MigrationBuilder): void {
   pgm.sql(`
+    drop trigger conversations_authoritative_stability on conversations;
     drop trigger webhook_events_phase_3a_stability on webhook_events;
     drop trigger webhook_event_applications_authoritative_stability on webhook_event_applications;
     drop trigger human_pause_events_source_stability on human_pause_events;
@@ -322,6 +353,7 @@ export function down(pgm: MigrationBuilder): void {
     drop trigger a_human_pause_events_pending_event on human_pause_events;
     drop trigger a_webhook_event_applications_pending_event on webhook_event_applications;
     drop trigger b_human_pause_events_authority on human_pause_events;
+    drop function enforce_authoritative_conversation_stability();
     drop function enforce_phase_3a_event_stability();
     drop function enforce_authoritative_echo_application_stability();
     drop function enforce_human_pause_source_stability();

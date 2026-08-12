@@ -137,7 +137,7 @@ async function waitForConsentLockWaiters(
   applicationNames: readonly string[],
   expectedCount: number,
 ): Promise<void> {
-  const deadline = performance.now() + 700;
+  const deadline = performance.now() + 200;
   let observed = 0;
   while (performance.now() < deadline) {
     const activity = await pool.query<{ readonly waiting: number }>(
@@ -210,6 +210,163 @@ async function runConcurrentConsentKeyReuse(input: {
   }
 }
 
+interface SourceInvalidationCase {
+  readonly label: string;
+  readonly expectedCode: '23503' | '23514';
+  readonly sql: string;
+  readonly values: (input: {
+    readonly conversationId: string;
+    readonly eventId: string;
+    readonly replacementIdentityId: string;
+  }) => readonly string[];
+}
+
+const sourceInvalidationCases: readonly SourceInvalidationCase[] = [
+  {
+    label: 'application outcome update',
+    expectedCode: '23514',
+    sql: `update webhook_event_applications
+          set outcome = 'business_echo_paused'
+          where webhook_event_id = $1`,
+    values: ({ eventId }) => [eventId],
+  },
+  {
+    label: 'application deletion',
+    expectedCode: '23514',
+    sql: `delete from webhook_event_applications where webhook_event_id = $1`,
+    values: ({ eventId }) => [eventId],
+  },
+  {
+    label: 'event kind update',
+    expectedCode: '23514',
+    sql: `update webhook_events set event_kind = 'business_message_echo' where id = $1`,
+    values: ({ eventId }) => [eventId],
+  },
+  {
+    label: 'event deletion',
+    expectedCode: '23503',
+    sql: `delete from webhook_events where id = $1`,
+    values: ({ eventId }) => [eventId],
+  },
+  {
+    label: 'mapped conversation identity update',
+    expectedCode: '23514',
+    sql: `update conversations set channel_identity_id = $2 where id = $1`,
+    values: ({ conversationId, replacementIdentityId }) => [conversationId, replacementIdentityId],
+  },
+  {
+    label: 'mapped conversation deletion',
+    expectedCode: '23514',
+    sql: `delete from conversations where id = $1`,
+    values: ({ conversationId }) => [conversationId],
+  },
+];
+
+function settled<T>(promise: Promise<T>): Promise<PromiseSettledResult<T>> {
+  return promise.then(
+    (value): PromiseFulfilledResult<T> => ({ status: 'fulfilled', value }),
+    (reason: unknown): PromiseRejectedResult => ({ status: 'rejected', reason }),
+  );
+}
+
+async function runConcurrentSourceInvalidation(sourceInvalidation: SourceInvalidationCase) {
+  const fixtureKey = `source-lock-${sourceInvalidation.label.replaceAll(' ', '-')}`;
+  const sourceAt = new Date('2026-08-11T14:20:00.123Z');
+  const { eventId, identity } = await createCustomerIdentity({ fixtureKey, occurredAt: sourceAt });
+  const identityId = await identityDatabaseId(identity);
+  const sourceMapping = await pool.query<{ readonly conversation_id: string }>(
+    `select conversation_id from webhook_event_applications where webhook_event_id = $1`,
+    [eventId],
+  );
+  const conversationId = sourceMapping.rows[0]?.conversation_id;
+  if (conversationId === undefined) throw new Error('Synthetic source conversation was not mapped');
+  const replacement = await pool.query<{ readonly id: string }>(
+    `with replacement_contact as (
+       insert into contacts (created_at, updated_at) values ($1, $1) returning id
+     )
+     insert into channel_identities
+       (contact_id, channel, channel_account_id, external_contact_id, first_seen_at, last_seen_at)
+     select id, 'messenger', $2, $3, $1, $1 from replacement_contact
+     returning id`,
+    [sourceAt, `PAGE_TEST_${fixtureKey}_replacement`, `PSID_TEST_${fixtureKey}_replacement`],
+  );
+  const replacementIdentityId = replacement.rows[0]?.id;
+  if (replacementIdentityId === undefined)
+    throw new Error('Synthetic replacement identity missing');
+
+  const applicationKey = sourceInvalidation.label.replaceAll(' ', '_');
+  const recorderName = `consent_source_${applicationKey}_record`;
+  const invalidatorName = `consent_source_${applicationKey}_invalidate`;
+  const recorderPool = new pg.Pool({
+    application_name: recorderName,
+    connectionString: databaseConnectionString,
+    connectionTimeoutMillis: 5_000,
+    max: 1,
+  });
+  const invalidatorPool = new pg.Pool({
+    application_name: invalidatorName,
+    connectionString: databaseConnectionString,
+    connectionTimeoutMillis: 5_000,
+    max: 1,
+  });
+  const holder = await pool.connect();
+  const advisoryKey = 6_200_061;
+  let holderOpen = false;
+  let recordPromise: Promise<PromiseSettledResult<unknown>> | undefined;
+  let invalidationPromise: Promise<PromiseSettledResult<unknown>> | undefined;
+
+  try {
+    await pool.query(`
+      create function synthetic_block_consent_source_insert()
+      returns trigger language plpgsql as $$
+      begin
+        perform pg_advisory_xact_lock(${String(advisoryKey)}::bigint);
+        return new;
+      end;
+      $$;
+      create trigger synthetic_block_consent_source_insert
+        before insert on consent_events
+        for each row execute function synthetic_block_consent_source_insert();
+    `);
+    await holder.query('begin');
+    holderOpen = true;
+    await holder.query(`select pg_advisory_xact_lock($1::bigint)`, [advisoryKey]);
+
+    recordPromise = settled(
+      new PostgresConsentPolicy(recorderPool).recordCustomerCommand(
+        customerCommand({ eventId, fixtureKey, identity, sourceAt }),
+      ),
+    );
+    await waitForConsentLockWaiters([recorderName], 1);
+
+    invalidationPromise = settled(
+      invalidatorPool.query(sourceInvalidation.sql, [
+        ...sourceInvalidation.values({ conversationId, eventId, replacementIdentityId }),
+      ]),
+    );
+    await waitForConsentLockWaiters([invalidatorName], 1);
+
+    await holder.query('commit');
+    holderOpen = false;
+    const [recordResult, invalidationResult] = await Promise.all([
+      recordPromise,
+      invalidationPromise,
+    ]);
+    return { conversationId, eventId, identityId, invalidationResult, recordResult, sourceAt };
+  } finally {
+    if (holderOpen) await holder.query('rollback');
+    holder.release();
+    await Promise.allSettled(
+      [recordPromise, invalidationPromise].filter((value) => value !== undefined),
+    );
+    await pool.query(`
+      drop trigger if exists synthetic_block_consent_source_insert on consent_events;
+      drop function if exists synthetic_block_consent_source_insert();
+    `);
+    await Promise.all([recorderPool.end(), invalidatorPool.end()]);
+  }
+}
+
 describe('PostgresConsentPolicy missing and blank consent', () => {
   test('denies an existing identity with no consent', async () => {
     const { identity } = await createCustomerIdentity({ fixtureKey: 'missing-consent' });
@@ -233,6 +390,35 @@ describe('PostgresConsentPolicy missing and blank consent', () => {
     );
 
     expect(result).toEqual({ eligible: false, reason: 'identity_not_found' });
+  });
+
+  test('denies an invalid category as missing consent even when the identity does not exist', async () => {
+    const evaluatedAt = new Date('2026-08-11T12:05:00.000Z');
+
+    const result = await new PostgresConsentPolicy(pool).evaluateMarketingEligibility(
+      {
+        channel: 'messenger',
+        channelAccountId: 'PAGE_TEST_invalid_category_missing_identity',
+        externalContactId: 'PSID_TEST_invalid_category_missing_identity',
+      },
+      'Security Updates',
+      evaluatedAt,
+    );
+
+    expect(result).toEqual({ eligible: false, reason: 'consent_missing' });
+    const audit = await pool.query(
+      `select outcome, reason_code, channel_identity_id, evaluated_at
+       from policy_audit_outcomes
+       where decision_type = 'marketing_eligibility'`,
+    );
+    expect(audit.rows).toEqual([
+      {
+        outcome: 'denied',
+        reason_code: 'consent_missing',
+        channel_identity_id: null,
+        evaluated_at: evaluatedAt,
+      },
+    ]);
   });
 
   test('denies a blank category without querying consent rows', async () => {
@@ -480,26 +666,72 @@ describe('PostgresConsentPolicy consent recording', () => {
     const command = customerCommand({ eventId, fixtureKey: 'replay-source-binding', identity });
     const policy = new PostgresConsentPolicy(pool);
     await policy.recordCustomerCommand(command);
-    const invalidated = await pool.query(
-      `update webhook_event_applications
-       set outcome = 'business_echo_paused'
-       where webhook_event_id = $1`,
-      [eventId],
-    );
-    expect(invalidated.rowCount).toBe(1);
-    const applications = await pool.query<{ readonly outcome: string }>(
-      `select outcome from webhook_event_applications where webhook_event_id = $1`,
-      [eventId],
-    );
-    expect(applications.rows).toEqual([{ outcome: 'business_echo_paused' }]);
-    const beforeReplay = await readConsentMutationState();
 
-    await expect(policy.recordCustomerCommand(command)).rejects.toMatchObject({
-      name: 'PolicyRecordNotFoundError',
-    });
+    await pool.query(
+      `alter table webhook_event_applications
+       disable trigger webhook_event_applications_authoritative_stability`,
+    );
+    try {
+      const invalidated = await pool.query(
+        `update webhook_event_applications
+         set outcome = 'business_echo_paused'
+         where webhook_event_id = $1`,
+        [eventId],
+      );
+      expect(invalidated.rowCount).toBe(1);
+      const beforeReplay = await readConsentMutationState();
 
-    expect((await readConsentMutationState()).rows).toEqual(beforeReplay.rows);
+      await expect(policy.recordCustomerCommand(command)).rejects.toMatchObject({
+        name: 'PolicyRecordNotFoundError',
+      });
+
+      expect((await readConsentMutationState()).rows).toEqual(beforeReplay.rows);
+    } finally {
+      await pool.query(
+        `alter table webhook_event_applications
+         enable trigger webhook_event_applications_authoritative_stability`,
+      );
+    }
   });
+
+  test.each(sourceInvalidationCases)(
+    'locks the source during concurrent $label and preserves its authority',
+    async (sourceInvalidation) => {
+      const result = await runConcurrentSourceInvalidation(sourceInvalidation);
+
+      expect(result.recordResult).toMatchObject({
+        status: 'fulfilled',
+        value: { status: 'applied' },
+      });
+      expect(result.invalidationResult).toMatchObject({
+        status: 'rejected',
+        reason: { code: sourceInvalidation.expectedCode },
+      });
+      const source = await pool.query(
+        `select source_event.event_kind, source_event.occurred_at,
+                application.outcome, application.conversation_id,
+                conversations.channel_identity_id
+         from webhook_events as source_event
+         join webhook_event_applications as application
+           on application.webhook_event_id = source_event.id
+         join conversations on conversations.id = application.conversation_id
+         where source_event.id = $1`,
+        [result.eventId],
+      );
+      expect(source.rows).toEqual([
+        {
+          event_kind: 'customer_message',
+          occurred_at: result.sourceAt,
+          outcome: 'customer_message_applied',
+          conversation_id: result.conversationId,
+          channel_identity_id: result.identityId,
+        },
+      ]);
+      const state = await readConsentMutationState();
+      expect(state.rows[0]?.consent).toHaveLength(1);
+      expect(state.rows[0]?.audits).toHaveLength(1);
+    },
+  );
 
   test('every material idempotency-key mismatch is a conflict without mutation', async () => {
     const sourceAt = new Date('2026-08-11T14:30:00.000Z');
@@ -840,6 +1072,54 @@ describe('PostgresConsentPolicy marketing eligibility', () => {
         related_webhook_event_id: null,
       },
     ]);
+  });
+
+  test('does not share consent with another contact under the same channel account', async () => {
+    const channelAccountId = 'PAGE_TEST_external_contact_scope';
+    const grantedIdentity: ChannelIdentitySelector = {
+      channel: 'messenger',
+      channelAccountId,
+      externalContactId: 'PSID_TEST_external_contact_granted',
+    };
+    const otherIdentity: ChannelIdentitySelector = {
+      ...grantedIdentity,
+      externalContactId: 'PSID_TEST_external_contact_other',
+    };
+    const sourceAt = new Date('2026-08-11T15:20:00.000Z');
+    const { eventId } = await createCustomerIdentity({
+      fixtureKey: 'external-contact-granted',
+      identity: grantedIdentity,
+      occurredAt: sourceAt,
+    });
+    await createCustomerIdentity({
+      fixtureKey: 'external-contact-other',
+      identity: otherIdentity,
+      occurredAt: sourceAt,
+    });
+    const policy = new PostgresConsentPolicy(pool);
+    await policy.recordCustomerCommand(
+      customerCommand({
+        eventId,
+        fixtureKey: 'external-contact-granted',
+        identity: grantedIdentity,
+        sourceAt,
+      }),
+    );
+
+    await expect(
+      policy.evaluateMarketingEligibility(
+        grantedIdentity,
+        'security_updates',
+        new Date('2026-08-11T15:21:00.000Z'),
+      ),
+    ).resolves.toEqual({ eligible: true, reason: 'consent_latest_grant' });
+    await expect(
+      policy.evaluateMarketingEligibility(
+        otherIdentity,
+        'security_updates',
+        new Date('2026-08-11T15:22:00.000Z'),
+      ),
+    ).resolves.toEqual({ eligible: false, reason: 'consent_missing' });
   });
 
   test.each([
