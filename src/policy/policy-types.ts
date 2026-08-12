@@ -26,6 +26,29 @@ export type EventProcessResult =
   | { readonly status: 'not_processable' }
   | { readonly status: 'no_pending_event' };
 
+export interface ReplyEligibility {
+  readonly eligible: boolean;
+  readonly reason: 'pause_active' | 'pause_inactive';
+}
+
+export interface AuthorizedResumeInput {
+  readonly conversationId: string;
+  readonly effectiveAt: Date;
+  readonly requestKey: string;
+}
+
+export type AuthorizedResumeResult =
+  | {
+      readonly status: 'applied';
+      readonly conversationId: string;
+      readonly aiPausedUntil: Date | null;
+    }
+  | {
+      readonly status: 'duplicate';
+      readonly conversationId: string;
+      readonly aiPausedUntil: Date | null;
+    };
+
 export interface ReviewerPrincipal {
   readonly reviewerRef: string;
   readonly roles: readonly string[];
