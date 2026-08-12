@@ -7,6 +7,7 @@ import { createIsolatedTestDatabase, type IsolatedTestDatabase } from './test-da
 
 let disposeDatabase: (() => Promise<void>) | undefined;
 let pool: pg.Pool;
+let captureTransactionNotices = false;
 let transactionNotices: string[] = [];
 
 beforeAll(async () => {
@@ -15,7 +16,7 @@ beforeAll(async () => {
   pool = database.pool;
   pool.on('connect', (client) => {
     client.on('notice', (notice) => {
-      if (notice.message !== undefined) {
+      if (captureTransactionNotices && notice.message !== undefined) {
         transactionNotices.push(notice.message);
       }
     });
@@ -144,8 +145,14 @@ describe('PostgresReceiptStore', () => {
       receivedAt: new Date('2026-08-11T00:02:30.000Z'),
     };
 
-    await store.store(input);
-    await store.store(input);
+    transactionNotices = [];
+    captureTransactionNotices = true;
+    try {
+      await store.store(input);
+      await store.store(input);
+    } finally {
+      captureTransactionNotices = false;
+    }
 
     expect(transactionNotices).toEqual([]);
   });

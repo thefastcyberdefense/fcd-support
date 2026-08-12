@@ -192,6 +192,63 @@ describe('PostgresConversationEventProcessor', () => {
     expect(stored.rows[0]?.conversation_id).toMatch(/^\d+$/);
   });
 
+  test('preserves identity and conversation timestamp bounds when customer events arrive out of order', async () => {
+    const laterEventId = await insertSyntheticPendingEvent(pool, {
+      channel: 'messenger',
+      channelAccountId: 'PAGE_TEST_out_of_order_customer',
+      contactId: 'PSID_TEST_out_of_order_customer',
+      createdAt: new Date('2026-08-11T05:00:00.000Z'),
+      eventKind: 'customer_message',
+      fixtureKey: 'out-of-order-customer-later',
+      messageText: 'Synthetic later customer event',
+      occurredAt: new Date('2026-08-11T05:00:00.000Z'),
+    });
+    const earlierEventId = await insertSyntheticPendingEvent(pool, {
+      channel: 'messenger',
+      channelAccountId: 'PAGE_TEST_out_of_order_customer',
+      contactId: 'PSID_TEST_out_of_order_customer',
+      createdAt: new Date('2026-08-11T06:00:00.000Z'),
+      eventKind: 'customer_message',
+      fixtureKey: 'out-of-order-customer-earlier',
+      messageText: 'Synthetic delayed earlier customer event',
+      occurredAt: new Date('2026-08-11T03:00:00.000Z'),
+    });
+    const processor = new PostgresConversationEventProcessor(pool);
+
+    const later = await processor.processEvent(laterEventId);
+    const earlier = await processor.processEvent(earlierEventId);
+    if (later.status !== 'applied' || later.conversationId === undefined) {
+      throw new Error('Synthetic later customer event was not applied');
+    }
+
+    expect(later).toMatchObject({ outcome: 'customer_message_applied', status: 'applied' });
+    expect(earlier).toMatchObject({
+      conversationId: later.conversationId,
+      outcome: 'customer_message_applied',
+      status: 'applied',
+    });
+    const state = await pool.query(
+      `select identity.first_seen_at, identity.last_seen_at,
+              conversation.created_at, conversation.last_activity_at,
+              conversation.row_version
+       from channel_identities as identity
+       join conversations as conversation
+         on conversation.channel_identity_id = identity.id
+       where identity.channel = 'messenger'
+         and identity.channel_account_id = 'PAGE_TEST_out_of_order_customer'
+         and identity.external_contact_id = 'PSID_TEST_out_of_order_customer'`,
+    );
+    expect(state.rows).toEqual([
+      {
+        created_at: new Date('2026-08-11T05:00:00.000Z'),
+        first_seen_at: new Date('2026-08-11T03:00:00.000Z'),
+        last_activity_at: new Date('2026-08-11T05:00:00.000Z'),
+        last_seen_at: new Date('2026-08-11T05:00:00.000Z'),
+        row_version: '2',
+      },
+    ]);
+  });
+
   test('processes named and next events without permission to read message text', async () => {
     const namedEventId = await insertSyntheticPendingEvent(pool, {
       channel: 'messenger',
