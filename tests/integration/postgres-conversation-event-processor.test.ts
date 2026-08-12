@@ -89,8 +89,9 @@ async function prepareResumedConversationEcho(input: {
 async function waitForDatabaseLockWaiters(
   applicationName: string,
   expectedCount: number,
+  observationWindowMs = 2_000,
 ): Promise<void> {
-  const deadline = Date.now() + 2_000;
+  const deadline = Date.now() + observationWindowMs;
   let observed = { active: 0, waiting: 0 };
 
   while (Date.now() < deadline) {
@@ -418,7 +419,7 @@ describe('PostgresConversationEventProcessor', () => {
       occurredAt: new Date('2026-08-11T02:10:00.000Z'),
     });
     const applicationName = `synthetic_policy_contention_${randomUUID().replaceAll('-', '')}`;
-    const contentionCallerCount = 2;
+    const contentionCallerCount = 8;
     const contentionPool = new pg.Pool({
       application_name: applicationName,
       connectionString: databaseConnectionString,
@@ -433,33 +434,41 @@ describe('PostgresConversationEventProcessor', () => {
     const processor = new PostgresConversationEventProcessor(contentionPool);
     const blocker = await pool.connect();
     const advisoryLockKey = 4_204_001;
+    let leaderCall: ReturnType<PostgresConversationEventProcessor['processEvent']> | undefined;
     let blockerTransactionOpen = false;
     let calls: ReturnType<PostgresConversationEventProcessor['processEvent']>[] = [];
+    const followerCalls = () =>
+      Array.from({ length: contentionCallerCount - 1 }, () =>
+        processor.processEvent(webhookEventId),
+      );
     let results: Awaited<ReturnType<PostgresConversationEventProcessor['processEvent']>>[];
 
     try {
       await pool.query(
-        `create function synthetic_hold_event_application()
-         returns trigger language plpgsql as $$
+        `create function synthetic_hold_event_selection()
+         returns boolean language plpgsql volatile as $$
          begin
-           perform pg_advisory_xact_lock(4204001);
-           return new;
+           perform pg_advisory_xact_lock_shared(4204001);
+           return true;
          end;
          $$;
-         create trigger synthetic_hold_event_application
-           before insert on webhook_event_applications
-           for each row execute function synthetic_hold_event_application()`,
+         alter table webhook_events rename to synthetic_webhook_events_base;
+         create view webhook_events as
+           select * from synthetic_webhook_events_base
+           where synthetic_hold_event_selection()`,
       );
       await blocker.query('begin');
       blockerTransactionOpen = true;
       await blocker.query(`select pg_advisory_xact_lock($1)`, [advisoryLockKey]);
 
-      calls = Array.from({ length: contentionCallerCount }, () =>
-        processor.processEvent(webhookEventId),
-      );
-      await waitForDatabaseLockWaiters(applicationName, contentionCallerCount);
+      leaderCall = processor.processEvent(webhookEventId);
+      calls = [leaderCall];
+      await waitForDatabaseLockWaiters(applicationName, 1, 250);
       await blocker.query('commit');
       blockerTransactionOpen = false;
+      calls.push(...followerCalls());
+      expect(calls).toHaveLength(contentionCallerCount);
+      await waitForDatabaseLockWaiters(applicationName, contentionCallerCount - 1, 250);
       results = await Promise.all(calls);
     } finally {
       if (blockerTransactionOpen) {
@@ -469,9 +478,9 @@ describe('PostgresConversationEventProcessor', () => {
       blocker.release();
       await contentionPool.end();
       await pool.query(
-        `drop trigger if exists synthetic_hold_event_application
-           on webhook_event_applications;
-         drop function if exists synthetic_hold_event_application()`,
+        `drop view if exists webhook_events;
+         alter table synthetic_webhook_events_base rename to webhook_events;
+         drop function if exists synthetic_hold_event_selection()`,
       );
     }
 
