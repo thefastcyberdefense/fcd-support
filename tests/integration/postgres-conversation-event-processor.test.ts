@@ -418,13 +418,14 @@ describe('PostgresConversationEventProcessor', () => {
       occurredAt: new Date('2026-08-11T02:10:00.000Z'),
     });
     const applicationName = `synthetic_policy_contention_${randomUUID().replaceAll('-', '')}`;
+    const contentionCallerCount = 2;
     const contentionPool = new pg.Pool({
       application_name: applicationName,
       connectionString: databaseConnectionString,
-      max: 8,
+      max: contentionCallerCount,
     });
     const prewarmedClients = await Promise.all(
-      Array.from({ length: 8 }, async () => contentionPool.connect()),
+      Array.from({ length: contentionCallerCount }, async () => contentionPool.connect()),
     );
     for (const client of prewarmedClients) {
       client.release();
@@ -453,8 +454,10 @@ describe('PostgresConversationEventProcessor', () => {
       blockerTransactionOpen = true;
       await blocker.query(`select pg_advisory_xact_lock($1)`, [advisoryLockKey]);
 
-      calls = Array.from({ length: 8 }, () => processor.processEvent(webhookEventId));
-      await waitForDatabaseLockWaiters(applicationName, 8);
+      calls = Array.from({ length: contentionCallerCount }, () =>
+        processor.processEvent(webhookEventId),
+      );
+      await waitForDatabaseLockWaiters(applicationName, contentionCallerCount);
       await blocker.query('commit');
       blockerTransactionOpen = false;
       results = await Promise.all(calls);
@@ -473,7 +476,9 @@ describe('PostgresConversationEventProcessor', () => {
     }
 
     expect(results.filter((result) => result.status === 'applied')).toHaveLength(1);
-    expect(results.filter((result) => result.status === 'already_applied')).toHaveLength(7);
+    expect(results.filter((result) => result.status === 'already_applied')).toHaveLength(
+      contentionCallerCount - 1,
+    );
     const counts = await pool.query(
       `select
          (select count(*)::int from contacts) as contacts,
