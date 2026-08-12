@@ -650,6 +650,129 @@ describe('Phase 2 database migrations', () => {
     ).rejects.toMatchObject({ code: '23514' });
   });
 
+  test('reject direct consent history updates and deletes without mutating the row', async () => {
+    const contact = await pool.query<{ readonly id: string }>(
+      `insert into contacts default values returning id`,
+    );
+    const identity = await pool.query<{ readonly id: string }>(
+      `insert into channel_identities
+         (contact_id, channel, channel_account_id, external_contact_id, first_seen_at, last_seen_at)
+       values ($1, 'messenger', 'synthetic-append-consent-account', 'synthetic-append-consent-contact', now(), now())
+       returning id`,
+      [contact.rows[0]?.id],
+    );
+    const consent = await pool.query<{ readonly id: string }>(
+      `insert into consent_events
+         (channel_identity_id, category, action, wording, wording_version, source, source_at, idempotency_key)
+       values ($1, 'marketing', 'grant', 'Synthetic approved consent wording', 'v1', 'reviewer_recorded', '2026-01-02T00:00:00Z', 'synthetic-append-consent')
+       returning id`,
+      [identity.rows[0]?.id],
+    );
+    const consentId = consent.rows[0]?.id;
+    expect(consentId).toBeDefined();
+
+    const updateError = await pool
+      .query(`update consent_events set action = 'revoke' where id = $1`, [consentId])
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    const deleteError = await pool
+      .query(`delete from consent_events where id = $1`, [consentId])
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+    expect([updateError, deleteError]).toEqual([
+      expect.objectContaining({ code: '23514' }),
+      expect.objectContaining({ code: '23514' }),
+    ]);
+    const unchanged = await pool.query<{
+      readonly action: string;
+      readonly id: string;
+      readonly idempotency_key: string;
+    }>(
+      `select id, action, idempotency_key
+       from consent_events
+       where id = $1`,
+      [consentId],
+    );
+    expect(unchanged.rows).toEqual([
+      {
+        action: 'grant',
+        id: consentId,
+        idempotency_key: 'synthetic-append-consent',
+      },
+    ]);
+  });
+
+  test('reject direct human-pause history updates and deletes without mutating the row', async () => {
+    const contact = await pool.query<{ readonly id: string }>(
+      `insert into contacts default values returning id`,
+    );
+    const identity = await pool.query<{ readonly id: string }>(
+      `insert into channel_identities
+         (contact_id, channel, channel_account_id, external_contact_id, first_seen_at, last_seen_at)
+       values ($1, 'messenger', 'synthetic-append-pause-account', 'synthetic-append-pause-contact', now(), now())
+       returning id`,
+      [contact.rows[0]?.id],
+    );
+    const conversation = await pool.query<{ readonly id: string }>(
+      `insert into conversations (channel_identity_id, created_at, last_activity_at)
+       values ($1, now(), now())
+       returning id`,
+      [identity.rows[0]?.id],
+    );
+    const pause = await pool.query<{ readonly id: string }>(
+      `insert into human_pause_events
+         (conversation_id, action, effective_at, actor_kind, reviewer_reference, reviewer_request_key)
+       values ($1, 'resume', '2026-01-02T00:00:00Z', 'reviewer', 'synthetic-reviewer', 'synthetic-append-pause')
+       returning id`,
+      [conversation.rows[0]?.id],
+    );
+    const pauseId = pause.rows[0]?.id;
+    expect(pauseId).toBeDefined();
+
+    const updateError = await pool
+      .query(`update human_pause_events set reviewer_reference = $1 where id = $2`, [
+        'synthetic-reviewer-changed',
+        pauseId,
+      ])
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    const deleteError = await pool
+      .query(`delete from human_pause_events where id = $1`, [pauseId])
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+    expect([updateError, deleteError]).toEqual([
+      expect.objectContaining({ code: '23514' }),
+      expect.objectContaining({ code: '23514' }),
+    ]);
+    const unchanged = await pool.query<{
+      readonly id: string;
+      readonly reviewer_reference: string;
+      readonly reviewer_request_key: string;
+    }>(
+      `select id, reviewer_reference, reviewer_request_key
+       from human_pause_events
+       where id = $1`,
+      [pauseId],
+    );
+    expect(unchanged.rows).toEqual([
+      {
+        id: pauseId,
+        reviewer_reference: 'synthetic-reviewer',
+        reviewer_request_key: 'synthetic-append-pause',
+      },
+    ]);
+  });
+
   test('roll back and reapply the Phase 2 and Phase 3A migrations', async () => {
     await runMigrations('down', 2);
 

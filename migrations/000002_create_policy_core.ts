@@ -155,6 +155,25 @@ export function up(pgm: MigrationBuilder): void {
       )
     );
 
+    create function reject_phase_3a_history_mutation()
+    returns trigger
+    language plpgsql
+    as $$
+    begin
+      raise exception using
+        errcode = '23514',
+        message = 'Phase 3A history is append-only';
+      return null;
+    end;
+    $$;
+
+    create trigger a_human_pause_events_append_only
+      before update or delete on human_pause_events
+      for each row execute function reject_phase_3a_history_mutation();
+    create trigger a_consent_events_append_only
+      before update or delete on consent_events
+      for each row execute function reject_phase_3a_history_mutation();
+
     create table policy_audit_outcomes (
       id bigint generated always as identity primary key,
       decision_type text not null check (decision_type in (
@@ -344,6 +363,8 @@ export function up(pgm: MigrationBuilder): void {
 
 export function down(pgm: MigrationBuilder): void {
   pgm.sql(`
+    drop trigger a_consent_events_append_only on consent_events;
+    drop trigger a_human_pause_events_append_only on human_pause_events;
     drop trigger conversations_authoritative_stability on conversations;
     drop trigger webhook_events_phase_3a_stability on webhook_events;
     drop trigger webhook_event_applications_authoritative_stability on webhook_event_applications;
@@ -353,6 +374,7 @@ export function down(pgm: MigrationBuilder): void {
     drop trigger a_human_pause_events_pending_event on human_pause_events;
     drop trigger a_webhook_event_applications_pending_event on webhook_event_applications;
     drop trigger b_human_pause_events_authority on human_pause_events;
+    drop function reject_phase_3a_history_mutation();
     drop function enforce_authoritative_conversation_stability();
     drop function enforce_phase_3a_event_stability();
     drop function enforce_authoritative_echo_application_stability();
