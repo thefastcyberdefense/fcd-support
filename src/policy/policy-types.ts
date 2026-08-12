@@ -74,3 +74,13 @@ export interface ReviewerRecordedConsentCommand extends ConsentCommandBase {
 }
 
 export type ConsentCommand = CustomerMessageConsentCommand | ReviewerRecordedConsentCommand;
+
+export type ConsentRecordResult =
+  | { readonly status: 'applied'; readonly consentEventId: string }
+  | { readonly status: 'duplicate'; readonly consentEventId: string };
+
+export interface MarketingEligibility {
+  readonly eligible: boolean;
+  readonly reason:
+    'consent_latest_grant' | 'consent_latest_revoke' | 'consent_missing' | 'identity_not_found';
+}
