@@ -10,8 +10,8 @@
 
 ## Current Readiness
 
-- Project state: the project owner approved the Phase 2 gate and staged Phase 3A design. The test-first Phase 3A implementation plan is ready for project-owner execution-method review; unrelated Phase 0 policy and external-readiness decisions remain open.
-- Application code: strict TypeScript scaffold, privacy-safe logging, Meta verification/signature admission, independent channel normalization, and PostgreSQL-backed durable receipt are implemented locally.
+- Project state: the Phase 3A conversation, takeover, and consent policy core is locally complete under the approved design and test-first plan. Full Phase 3 is incomplete: retention, deletion, and the Phase 3 gate remain blocked by unresolved lifecycle decisions; unrelated Phase 0 policy and external-readiness decisions also remain open.
+- Application code: strict TypeScript scaffold, privacy-safe logging, Meta verification/signature admission, independent channel normalization, PostgreSQL-backed durable receipt, and the Phase 3A policy core are implemented locally. Final local verification passes 76 tests and the guarded synthetic PostgreSQL suite passes 119 tests.
 - Server deployment: not authorized; only the approved isolated test-only PostgreSQL service has been created on the Ubuntu Docker server.
 - Meta test-asset connection: not authorized yet.
 - Production WhatsApp changes: prohibited unless a separate production plan and explicit approval are provided.
@@ -71,13 +71,13 @@
 
 | ID | Task | Depends On | Owner | Status | Evidence / Completion Rule | Approval Boundary |
 |---|---|---|---|---|---|---|
-| P3-001 | Write and approve the Phase 3 test-first implementation plan | P2-GATE | Codex + project owner | IN PROGRESS | Approved design: `docs/superpowers/specs/2026-08-11-phase-3a-policy-core-design.md`; execution plan ready at `docs/superpowers/plans/2026-08-11-phase-3a-policy-core.md` and awaits project-owner execution-method review | Explicit review |
-| P3-002 | Implement conversation and channel-identity state | P3-001 | Codex | BLOCKED | State transition tests pass | None |
-| P3-003 | Implement 24-hour human pause, race checks, expiry, and private resume | P3-002 | Codex | BLOCKED | Takeover and concurrency tests pass | None |
-| P3-004 | Implement consent grant, revoke, blank, category, and channel rules | P3-002 | Codex | BLOCKED | Consent matrix passes; blank is always false | None |
-| P3-005 | Implement retention classification and boundary jobs | P3-002, P0-009, P0-010 | Codex | BLOCKED | Boundary and reclassification tests pass | None |
-| P3-006 | Implement verified deletion, suppression, and restored-backup enforcement | P3-004, P3-005, P0-011, P0-012 | Codex | BLOCKED | Repeat deletion and restore tests pass | None |
-| P3-GATE | Review Phase 3 evidence | P3-002 through P3-006 | Project owner | BLOCKED | Phase 3 exit gate passes | Explicit review |
+| P3-001 | Write and approve the Phase 3 test-first implementation plan | P2-GATE | Codex + project owner | COMPLETE | Approved design: `docs/superpowers/specs/2026-08-11-phase-3a-policy-core-design.md`; executed plan: `docs/superpowers/plans/2026-08-11-phase-3a-policy-core.md`; final local gate passes 76 tests and guarded synthetic PostgreSQL verification passes 119 tests | Explicit review |
+| P3-002 | Implement conversation and channel-identity state | P3-001 | Codex | COMPLETE | 19 guarded event-processor tests plus migration coverage prove exact identity boundaries, deterministic timestamps, exactly-once application, concurrency, restart, and rollback within the 119-test PostgreSQL suite | None |
+| P3-003 | Implement 24-hour human pause, race checks, expiry, and private resume | P3-002 | Codex | COMPLETE | 31 guarded takeover-policy tests prove provider-time deadlines, boundary checks, replay, authorization, resume/echo races, and rollback within the 119-test PostgreSQL suite | None |
+| P3-004 | Implement consent grant, revoke, blank, category, and channel rules | P3-002 | Codex | COMPLETE | 42 guarded consent-policy tests prove exact identity/channel/category scope, grant/revoke ordering, replay, concurrency, rollback, and absent or blank consent is always false within the 119-test PostgreSQL suite | None |
+| P3-005 | Implement retention classification and boundary jobs | P3-002, P0-009, P0-010 | Codex | BLOCKED | Blocked by unapproved lifecycle anchors and active-client retention ownership in P0-009 and P0-010; no retention behavior implemented | None |
+| P3-006 | Implement verified deletion, suppression, and restored-backup enforcement | P3-004, P3-005, P0-011, P0-012 | Codex | BLOCKED | Blocked by P3-005 and unresolved deletion, suppression, recording, and restored-backup decisions in P0-011 and P0-012; no deletion behavior implemented | None |
+| P3-GATE | Review Phase 3 evidence | P3-002 through P3-006 | Project owner | BLOCKED | Phase 3A is locally complete, but the full Phase 3 exit gate remains blocked by P3-005 and P3-006 | Explicit review |
 
 ## Phase 4 — Approved Knowledge And Manifest
 
