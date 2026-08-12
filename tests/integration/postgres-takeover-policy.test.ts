@@ -105,7 +105,7 @@ async function insertProviderPrecisionEcho(
 }
 
 async function waitForDatabaseLockWaiter(applicationName: string): Promise<void> {
-  const deadline = performance.now() + 500;
+  const deadline = performance.now() + 250;
   let observedWaiting = 0;
 
   while (performance.now() < deadline) {
@@ -183,7 +183,7 @@ async function runTimestampOrderedRace(input: {
     await holder.query('commit');
     holderTransactionOpen = false;
     const heldForMilliseconds = performance.now() - heldAt;
-    expect(heldForMilliseconds).toBeLessThan(750);
+    expect(heldForMilliseconds).toBeLessThan(650);
     const [firstResult, secondResult] = await Promise.all([firstPromise, secondPromise]);
     return {
       conversationId,
@@ -198,6 +198,88 @@ async function runTimestampOrderedRace(input: {
     await Promise.allSettled(
       [firstPromise, secondPromise].filter(
         (operation): operation is Promise<unknown> => operation !== undefined,
+      ),
+    );
+    await Promise.all([firstPool.end(), secondPool.end()]);
+  }
+}
+
+interface ConcurrentResumeAttempt {
+  readonly conversationId: string;
+  readonly effectiveAt: Date;
+  readonly principal: unknown;
+  readonly requestKey: string;
+}
+
+function captureSettlement<T>(operation: Promise<T>): Promise<PromiseSettledResult<T>> {
+  return operation.then(
+    (value) => ({ status: 'fulfilled', value }),
+    (reason: unknown) => ({ reason, status: 'rejected' }),
+  );
+}
+
+async function runConcurrentResumeKeyRace(input: {
+  readonly first: ConcurrentResumeAttempt;
+  readonly fixtureKey: string;
+  readonly second: ConcurrentResumeAttempt;
+}) {
+  const firstApplicationName = `takeover_${input.fixtureKey}_first`;
+  const secondApplicationName = `takeover_${input.fixtureKey}_second`;
+  const firstPool = new pg.Pool({
+    application_name: firstApplicationName,
+    connectionString: databaseConnectionString,
+    connectionTimeoutMillis: 5_000,
+    max: 1,
+  });
+  const secondPool = new pg.Pool({
+    application_name: secondApplicationName,
+    connectionString: databaseConnectionString,
+    connectionTimeoutMillis: 5_000,
+    max: 1,
+  });
+  const holder = await pool.connect();
+  let holderTransactionOpen = false;
+  let firstPromise: Promise<PromiseSettledResult<unknown>> | undefined;
+  let secondPromise: Promise<PromiseSettledResult<unknown>> | undefined;
+  const startResume = (attempt: ConcurrentResumeAttempt, operationPool: pg.Pool) =>
+    captureSettlement(
+      new PostgresTakeoverPolicy(operationPool).resume(
+        {
+          conversationId: attempt.conversationId,
+          effectiveAt: attempt.effectiveAt,
+          requestKey: attempt.requestKey,
+        },
+        attempt.principal,
+      ),
+    );
+
+  try {
+    await holder.query('begin');
+    holderTransactionOpen = true;
+    await holder.query(`select id from conversations where id = $1 for update`, [
+      input.first.conversationId,
+    ]);
+    const heldAt = performance.now();
+
+    firstPromise = startResume(input.first, firstPool);
+    await waitForDatabaseLockWaiter(firstApplicationName);
+    secondPromise = startResume(input.second, secondPool);
+    await waitForDatabaseLockWaiter(secondApplicationName);
+
+    await holder.query('commit');
+    holderTransactionOpen = false;
+    expect(performance.now() - heldAt).toBeLessThan(650);
+
+    const [firstResult, secondResult] = await Promise.all([firstPromise, secondPromise]);
+    return { firstResult, secondResult };
+  } finally {
+    if (holderTransactionOpen) {
+      await holder.query('rollback');
+    }
+    holder.release();
+    await Promise.all(
+      [firstPromise, secondPromise].filter(
+        (operation): operation is Promise<PromiseSettledResult<unknown>> => operation !== undefined,
       ),
     );
     await Promise.all([firstPool.end(), secondPool.end()]);
@@ -480,6 +562,164 @@ describe('PostgresTakeoverPolicy', () => {
     const afterDuplicate = await readTakeoverMutationState();
     expect(afterDuplicate.rows).toEqual(afterApplied.rows);
   });
+
+  test('classifies concurrent exact normalized request-key material as applied then duplicate', async () => {
+    const { conversationId } = await createPausedConversation(
+      'resume-concurrent-exact',
+      new Date('2026-08-11T08:40:00.000Z'),
+    );
+    const effectiveAt = new Date('2026-08-11T09:00:00.000Z');
+    const raced = await runConcurrentResumeKeyRace({
+      first: {
+        conversationId,
+        effectiveAt,
+        principal: {
+          reviewerRef: '  reviewer-opaque-42  ',
+          roles: supportReviewer.roles,
+        },
+        requestKey: '  resume-concurrent-exact  ',
+      },
+      fixtureKey: 'resume_key_exact',
+      second: {
+        conversationId,
+        effectiveAt,
+        principal: supportReviewer,
+        requestKey: 'resume-concurrent-exact',
+      },
+    });
+
+    expect(raced.firstResult).toEqual({
+      status: 'fulfilled',
+      value: { aiPausedUntil: null, conversationId, status: 'applied' },
+    });
+    expect(raced.secondResult).toEqual({
+      status: 'fulfilled',
+      value: { aiPausedUntil: null, conversationId, status: 'duplicate' },
+    });
+
+    const state = await pool.query(
+      `select conversations.ai_paused_until, conversations.last_authorized_resume_at,
+              conversations.row_version,
+              (select count(*)::int from human_pause_events as history
+               where history.conversation_id = conversations.id
+                 and history.action = 'resume') as resumes,
+              (select min(reviewer_reference) from human_pause_events as history
+               where history.conversation_id = conversations.id
+                 and history.action = 'resume') as reviewer_reference,
+              (select min(reviewer_request_key) from human_pause_events as history
+               where history.conversation_id = conversations.id
+                 and history.action = 'resume') as reviewer_request_key,
+              (select count(*)::int from policy_audit_outcomes as audit
+               where audit.conversation_id = conversations.id
+                 and audit.decision_type = 'authorized_resume') as audits
+       from conversations
+       where conversations.id = $1`,
+      [conversationId],
+    );
+    expect(state.rows).toEqual([
+      {
+        ai_paused_until: null,
+        audits: 1,
+        last_authorized_resume_at: effectiveAt,
+        resumes: 1,
+        reviewer_reference: 'reviewer-opaque-42',
+        reviewer_request_key: 'resume-concurrent-exact',
+        row_version: '3',
+      },
+    ]);
+  });
+
+  test.each(['conversation', 'reviewer', 'effective timestamp'] as const)(
+    'classifies concurrent normalized request-key reuse with a different %s as a policy conflict',
+    async (changedMaterial) => {
+      const fixtureKey = changedMaterial.replace(' ', '-');
+      const first = await createPausedConversation(
+        `resume-concurrent-conflict-${fixtureKey}-first`,
+        new Date('2026-08-11T09:10:00.000Z'),
+      );
+      const second = await createPausedConversation(
+        `resume-concurrent-conflict-${fixtureKey}-second`,
+        new Date('2026-08-11T09:15:00.000Z'),
+      );
+      const firstEffectiveAt = new Date('2026-08-11T09:30:00.000Z');
+      const normalizedRequestKey = `resume-concurrent-conflict-${fixtureKey}`;
+      const raced = await runConcurrentResumeKeyRace({
+        first: {
+          conversationId: first.conversationId,
+          effectiveAt: firstEffectiveAt,
+          principal: supportReviewer,
+          requestKey: `  ${normalizedRequestKey}  `,
+        },
+        fixtureKey: `resume_key_conflict_${fixtureKey}`,
+        second: {
+          conversationId:
+            changedMaterial === 'conversation' ? second.conversationId : first.conversationId,
+          effectiveAt:
+            changedMaterial === 'effective timestamp'
+              ? new Date('2026-08-11T09:30:00.001Z')
+              : firstEffectiveAt,
+          principal:
+            changedMaterial === 'reviewer'
+              ? { reviewerRef: 'reviewer-opaque-other', roles: ['support_reviewer'] }
+              : { reviewerRef: '  reviewer-opaque-42  ', roles: supportReviewer.roles },
+          requestKey: normalizedRequestKey,
+        },
+      });
+
+      expect(raced.firstResult).toEqual({
+        status: 'fulfilled',
+        value: {
+          aiPausedUntil: null,
+          conversationId: first.conversationId,
+          status: 'applied',
+        },
+      });
+      expect(raced.secondResult.status).toBe('rejected');
+      if (raced.secondResult.status !== 'rejected') {
+        throw new Error('Synthetic conflicting resume unexpectedly fulfilled');
+      }
+      expect(raced.secondResult.reason).toMatchObject({
+        name: 'PolicyIdempotencyConflictError',
+      });
+      expect(raced.secondResult.reason).not.toMatchObject({ code: '23505' });
+
+      const mutations = await pool.query(
+        `select
+           (select count(*)::int from human_pause_events
+            where action = 'resume' and reviewer_request_key = $1) as resumes,
+           (select min(conversation_id)::text from human_pause_events
+            where action = 'resume' and reviewer_request_key = $1) as resumed_conversation_id,
+           (select count(*)::int from policy_audit_outcomes
+            where decision_type = 'authorized_resume') as audits`,
+        [normalizedRequestKey],
+      );
+      expect(mutations.rows).toEqual([
+        { audits: 1, resumed_conversation_id: first.conversationId, resumes: 1 },
+      ]);
+
+      const conversations = await pool.query(
+        `select id, ai_paused_until, last_authorized_resume_at, row_version
+         from conversations
+         where id = any($1::bigint[])
+         order by id`,
+        [[first.conversationId, second.conversationId]],
+      );
+      expect(conversations.rows).toEqual([
+        {
+          ai_paused_until: null,
+          id: first.conversationId,
+          last_authorized_resume_at: firstEffectiveAt,
+          row_version: '3',
+        },
+        {
+          ai_paused_until: new Date('2026-08-12T09:15:00.000Z'),
+          id: second.conversationId,
+          last_authorized_resume_at: null,
+          row_version: '2',
+        },
+      ]);
+    },
+  );
 
   test.each(['conversation', 'reviewer', 'effective timestamp'] as const)(
     'rejects request-key reuse with a different %s without mutation',

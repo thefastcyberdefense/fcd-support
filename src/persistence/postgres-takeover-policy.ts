@@ -105,6 +105,10 @@ export class PostgresTakeoverPolicy {
     const reviewer = requireSupportReviewer(principal);
 
     return withBoundedTransaction(this.pool, async (client) => {
+      await client.query(`select pg_advisory_xact_lock(hashtextextended($1::text, 0::bigint))`, [
+        requestKey,
+      ]);
+
       const existing = await client.query<ExistingResumeRow>(
         `select history.conversation_id,
                 history.resulting_pause_until as ai_paused_until,
