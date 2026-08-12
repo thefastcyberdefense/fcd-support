@@ -12,6 +12,7 @@
 
 - Project state: the Phase 3A conversation, takeover, and consent policy core is locally complete under the approved design and test-first plan. Full Phase 3 is incomplete: retention, deletion, and the Phase 3 gate remain blocked by unresolved lifecycle decisions; unrelated Phase 0 policy and external-readiness decisions also remain open.
 - Application code: strict TypeScript scaffold, privacy-safe logging, Meta verification/signature admission, independent channel normalization, PostgreSQL-backed durable receipt, and the Phase 3A policy core are implemented locally. Final local verification passes 76 tests and the guarded synthetic PostgreSQL suite passes 119 tests.
+- Final Phase 3A evidence sequence recorded 2026-08-12: tracked test revision `ad1c8df` passed `npm run check` (76 local tests plus formatting, lint, strict type checking, and build), the guarded sequential synthetic PostgreSQL suite (119 tests), privacy/scope scans, `git diff --check`, and clean tracked status; this evidence-only tracker update was made afterward.
 - Server deployment: not authorized; only the approved isolated test-only PostgreSQL service has been created on the Ubuntu Docker server.
 - Meta test-asset connection: not authorized yet.
 - Production WhatsApp changes: prohibited unless a separate production plan and explicit approval are provided.
@@ -71,7 +72,7 @@
 
 | ID | Task | Depends On | Owner | Status | Evidence / Completion Rule | Approval Boundary |
 |---|---|---|---|---|---|---|
-| P3-001 | Write and approve the Phase 3 test-first implementation plan | P2-GATE | Codex + project owner | COMPLETE | Approved design: `docs/superpowers/specs/2026-08-11-phase-3a-policy-core-design.md`; executed plan: `docs/superpowers/plans/2026-08-11-phase-3a-policy-core.md`; final local gate passes 76 tests and guarded synthetic PostgreSQL verification passes 119 tests | Explicit review |
+| P3-001 | Write and approve the Phase 3 test-first implementation plan | P2-GATE | Codex + project owner | COMPLETE | Approved design: `docs/superpowers/specs/2026-08-11-phase-3a-policy-core-design.md`; executed plan: `docs/superpowers/plans/2026-08-11-phase-3a-policy-core.md`; tracked test revision `ad1c8df` passed the final 76-test local gate, 119-test guarded synthetic PostgreSQL gate, privacy/scope scans, and clean diff/status before this evidence update | Explicit review |
 | P3-002 | Implement conversation and channel-identity state | P3-001 | Codex | COMPLETE | 19 guarded event-processor tests plus migration coverage prove exact identity boundaries, deterministic timestamps, exactly-once application, concurrency, restart, and rollback within the 119-test PostgreSQL suite | None |
 | P3-003 | Implement 24-hour human pause, race checks, expiry, and private resume | P3-002 | Codex | COMPLETE | 31 guarded takeover-policy tests prove provider-time deadlines, boundary checks, replay, authorization, resume/echo races, and rollback within the 119-test PostgreSQL suite | None |
 | P3-004 | Implement consent grant, revoke, blank, category, and channel rules | P3-002 | Codex | COMPLETE | 42 guarded consent-policy tests prove exact identity/channel/category scope, grant/revoke ordering, replay, concurrency, rollback, and absent or blank consent is always false within the 119-test PostgreSQL suite | None |
