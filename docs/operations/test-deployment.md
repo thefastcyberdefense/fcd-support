@@ -61,7 +61,7 @@ git fetch origin main
 git cat-file -e "${FCD_APPROVED_REVISION}^{commit}"
 git checkout --detach "$FCD_APPROVED_REVISION"
 ./scripts/configure-test-runtime.sh
-./scripts/start-cloudflared.sh --replace-existing
+./scripts/start-cloudflared.sh --replace-existing "$FCD_APPROVED_REVISION"
 ./scripts/deploy-test.sh "$FCD_APPROVED_REVISION"
 ```
 
@@ -139,7 +139,7 @@ Do not delete `fcd-support-postgres-data` as a rollback step. Database down migr
 2. Clone the GitHub repository to `/home/redwan/apps/fcd-support`, fetch the full approved commit, and check it out detached as shown above.
 3. Create `/home/redwan/.config/fcd-support` as the deployment user with mode `700`.
 4. Transfer `runtime.env` and `cloudflared.token` through a separate encrypted operator-controlled channel; set each file to mode `600`. Never put either file in Git.
-5. Run `./scripts/start-cloudflared.sh` to create and health-check the dedicated hardened tunnel container. On a known legacy container, review it first and use `--replace-existing` to retain a stopped rollback copy rather than deleting it.
+5. Run `./scripts/start-cloudflared.sh "$FCD_APPROVED_REVISION"` to create and health-check the SHA-tagged hardened tunnel container. On a known legacy container, review it first and use `--replace-existing "$FCD_APPROVED_REVISION"` to retain a stopped rollback copy rather than deleting it.
 6. Run `./scripts/configure-test-runtime.sh` and `./scripts/deploy-test.sh "$FCD_APPROVED_REVISION"`.
 7. Run `./scripts/verify-test-deployment.sh "$FCD_APPROVED_REVISION"` before changing any Meta callback or subscription.
 

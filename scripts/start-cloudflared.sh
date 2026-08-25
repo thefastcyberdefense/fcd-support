@@ -10,11 +10,29 @@ case "${1:-}" in
     ;;
 esac
 
+APPROVED_REVISION="${1:-}"
+if [[ ! "$APPROVED_REVISION" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "Revision argument must be the full approved 40-character Git revision." >&2
+  exit 1
+fi
+shift
+
 TUNNEL_CONTAINER="fcd-support-cloudflared"
 TOKEN_FILE="${1:-/home/redwan/.config/fcd-support/cloudflared.token}"
-CLOUDFLARED_IMAGE="fcd-support-cloudflared:0aa26e284f05e6c77ae375b8c9c11d9"
-EXPECTED_COMMAND="tunnel --no-autoupdate --metrics 0.0.0.0:2000 run --token-file /run/secrets/cloudflared-token"
+CLOUDFLARED_IMAGE="fcd-support-cloudflared:$APPROVED_REVISION"
+EXPECTED_COMMAND="tunnel --no-autoupdate --metrics 127.0.0.1:2000 run --token-file /run/secrets/cloudflared-token"
 EXPECTED_HEALTH='["CMD","cloudflared","tunnel","--metrics","127.0.0.1:2000","ready"]'
+
+current_revision="$(git -C "$REPOSITORY_ROOT" rev-parse HEAD)"
+if [[ "$current_revision" != "$APPROVED_REVISION" ]]; then
+  echo "Checked-out revision does not match the approved tunnel revision." >&2
+  exit 1
+fi
+
+if [[ -n "$(git -C "$REPOSITORY_ROOT" status --porcelain --untracked-files=all)" ]]; then
+  echo "Repository contains uncommitted or untracked files; refusing to build or validate the tunnel." >&2
+  exit 1
+fi
 
 if [[ ! -f "$TOKEN_FILE" || "$(stat -c '%a' "$TOKEN_FILE")" != "600" ]]; then
   echo "Protected Cloudflare token file is missing or not mode 600." >&2
@@ -31,6 +49,7 @@ if [[ "$MODE" == "validate-only" ]]; then
   fi
 else
   docker build --pull \
+    --build-arg "VCS_REF=$APPROVED_REVISION" \
     --file "$REPOSITORY_ROOT/Dockerfile.cloudflared" \
     --tag "$CLOUDFLARED_IMAGE" \
     "$REPOSITORY_ROOT" >/dev/null
@@ -44,6 +63,7 @@ validate_contract() {
   local health_test
 
   [[ "$(docker container inspect --format '{{.Image}}' "$TUNNEL_CONTAINER")" == "$EXPECTED_IMAGE_ID" ]] || return 1
+  [[ "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$CLOUDFLARED_IMAGE")" == "$APPROVED_REVISION" ]] || return 1
   [[ "$(docker container inspect --format '{{.Config.User}}' "$TUNNEL_CONTAINER")" == "$EXPECTED_USER" ]] || return 1
   [[ "$(docker container inspect --format '{{.HostConfig.ReadonlyRootfs}}' "$TUNNEL_CONTAINER")" == "true" ]] || return 1
   [[ "$(docker container inspect --format '{{.HostConfig.Privileged}}' "$TUNNEL_CONTAINER")" == "false" ]] || return 1
@@ -78,6 +98,7 @@ wait_until_healthy() {
 create_tunnel() {
   docker run --detach \
     --name "$TUNNEL_CONTAINER" \
+    --network bridge \
     --restart unless-stopped \
     --read-only \
     --user "$EXPECTED_USER" \
@@ -88,7 +109,7 @@ create_tunnel() {
     --pids-limit 100 \
     --mount "type=bind,source=$TOKEN_FILE,target=/run/secrets/cloudflared-token,readonly" \
     "$CLOUDFLARED_IMAGE" \
-    tunnel --no-autoupdate --metrics 0.0.0.0:2000 run \
+    tunnel --no-autoupdate --metrics 127.0.0.1:2000 run \
     --token-file /run/secrets/cloudflared-token >/dev/null
 }
 

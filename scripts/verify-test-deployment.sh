@@ -137,7 +137,8 @@ if [[ -z "$verify_token" ]]; then
 fi
 
 
-"$REPOSITORY_ROOT/scripts/start-cloudflared.sh" --validate-only
+tunnel_revision="$(git -C "$REPOSITORY_ROOT" rev-parse HEAD)"
+"$REPOSITORY_ROOT/scripts/start-cloudflared.sh" --validate-only "$tunnel_revision"
 compose config --quiet
 api_id="$(compose ps --quiet fcd-support-api)"
 postgres_id="$(compose ps --quiet postgres)"

@@ -52,7 +52,7 @@ describe('test deployment contract', () => {
     expect(deploy).toContain('docker network connect');
     expect(deploy).toContain('config --quiet');
     expect(deploy).toContain('run --rm migrate');
-    expect(deploy).toContain('start-cloudflared.sh" --validate-only');
+    expect(deploy).toContain('start-cloudflared.sh" --validate-only "$APPROVED_REVISION"');
     expect(deploy).not.toContain('set -x');
 
     expect(verify).toContain('https://meta.fastcyberdefense.com/webhooks/meta');
@@ -77,12 +77,19 @@ describe('test deployment contract', () => {
     expect(rollback).not.toContain('migrate down');
     expect(tunnelDockerfile).toContain('cloudflare/cloudflared:latest@sha256:');
     expect(tunnelDockerfile).toContain('HEALTHCHECK');
+    expect(tunnelDockerfile).toContain('ARG VCS_REF');
+    expect(tunnelDockerfile).toContain('org.opencontainers.image.revision');
     expect(tunnelDockerfile).toContain('127.0.0.1:2000", "ready"');
     expect(tunnel).toContain('validate_contract');
     expect(tunnel).toContain('--replace-existing');
+    expect(tunnel).toContain('status --porcelain --untracked-files=all');
+    expect(tunnel).toContain('fcd-support-cloudflared:$APPROVED_REVISION');
+    expect(tunnel).toContain('--build-arg "VCS_REF=$APPROVED_REVISION"');
+    expect(tunnel).toContain('--network bridge');
     expect(tunnel).toContain('--cpus 0.25');
     expect(tunnel).toContain('--memory 128m');
     expect(stop).toContain('com.docker.compose.project=fcd-support');
+    expect(stop).toContain('if ! container_output="$(docker ps');
     expect(stop).not.toContain('--env-file');
     expect(tunnel).toContain('cloudflared-token');
 

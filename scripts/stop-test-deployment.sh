@@ -3,12 +3,18 @@ set -Eeuo pipefail
 
 stop_service() {
   local service="$1"
+  local container_output
   local -a container_ids=()
-  mapfile -t container_ids < <(docker ps --quiet \
-    --filter 'label=com.docker.compose.project=fcd-support' \
-    --filter "label=com.docker.compose.service=$service")
 
-  if (( ${#container_ids[@]} > 0 )); then
+  if ! container_output="$(docker ps --quiet \
+    --filter 'label=com.docker.compose.project=fcd-support' \
+    --filter "label=com.docker.compose.service=$service")"; then
+    echo "Failed to query Docker containers for $service." >&2
+    exit 1
+  fi
+
+  if [[ -n "$container_output" ]]; then
+    mapfile -t container_ids <<< "$container_output"
     docker stop "${container_ids[@]}" >/dev/null
   fi
 }
