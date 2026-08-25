@@ -12,6 +12,7 @@ The planning audit and local Phase 1 security core are complete. Phase 2 durable
 - [Runtime and toolchain decision](docs/decisions/0001-runtime-and-toolchain.md)
 - [Webhook admission contract](docs/architecture/webhook-admission.md)
 - [Project context and confirmed infrastructure](docs/PROJECT_CONTEXT.md)
+- [Approved test webhook deployment runbook](docs/operations/test-deployment.md)
 - [Repository instructions](AGENTS.md)
 - [New-chat handover prompt](docs/HANDOVER_PROMPT.md)
 

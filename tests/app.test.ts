@@ -325,4 +325,13 @@ describe('Meta webhook HTTP boundary', () => {
 
     expect(await injectMethodStatus(app, method, url)).toBe(404);
   });
+
+  test('marks application-generated 404s so ingress isolation can detect misrouting', async () => {
+    const { app } = createTestApp();
+
+    const response = await app.inject({ method: 'GET', url: '/health' });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.headers['x-fcd-route-scope']).toBe('application');
+  });
 });
