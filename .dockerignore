@@ -1,0 +1,17 @@
+.git
+.github
+.worktrees
+.env
+.env.*
+!.env.example
+KeePassXC
+*.kdbx
+node_modules
+dist
+coverage
+data
+logs
+backups
+docs
+tests
+*.log

@@ -19,6 +19,7 @@
 - Sequence exception recorded 2026-08-11: the project owner waived a separate Phase 1 planning document and authorized reversible, external-service-free local implementation from the revised plan. This does not close unresolved Phase 0 policy decisions or authorize Phase 2, deployment, public ingress, Meta assets, or production work.
 - Sequence exception extended 2026-08-11: the project owner authorized continued development through Phases 1–5 and approved an isolated test-only PostgreSQL environment on `192.168.10.40`. Phase 0 decisions remain provisional and must be closed on demand before dependent production behavior is approved. This does not authorize application deployment, existing-container changes, public ingress, Meta assets, live data, or production-number work.
 - Repository workflow approved 2026-08-11: Windows `J:\DevDrive\fcd-support` is the authoring/commit/push source. During separately approved test deployment, Ubuntu pulls an exact committed revision from GitHub; source is not copied or edited ad hoc on the server.
+- Narrow test-webhook deployment exception approved 2026-08-25: deploy the admission-only API on internal port `3003`, attach it and the dedicated tunnel to private `fcd-support-ingress`, verify the exact public callback and negative path, and connect only the Meta test number and Messenger test Page. This exception injects no outbound, n8n, or Manifest credentials, does not complete Phase 6 or Phase 7, and does not authorize production WhatsApp or production Page changes.
 
 ## Phase 0 — Preflight And Decisions
 
