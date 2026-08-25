@@ -90,6 +90,8 @@ if [[ "$(docker container inspect --format '{{.State.Running}}' "$TUNNEL_CONTAIN
   exit 1
 fi
 
+"$REPOSITORY_ROOT/scripts/start-cloudflared.sh" --validate-only
+
 if ! docker container inspect --format '{{json .NetworkSettings.Networks}}' "$TUNNEL_CONTAINER" \
   | grep -q "\"$INGRESS_NETWORK\""; then
   docker network connect "$INGRESS_NETWORK" "$TUNNEL_CONTAINER"

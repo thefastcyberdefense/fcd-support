@@ -61,10 +61,13 @@ git fetch origin main
 git cat-file -e "${FCD_APPROVED_REVISION}^{commit}"
 git checkout --detach "$FCD_APPROVED_REVISION"
 ./scripts/configure-test-runtime.sh
+./scripts/start-cloudflared.sh --replace-existing
 ./scripts/deploy-test.sh "$FCD_APPROVED_REVISION"
 ```
 
 `deploy-test.sh` refuses a short SHA, a mismatched `HEAD`, or a dirty/untracked source tree. It builds and retains `fcd-support-api:<full-git-sha>` and verifies the same immutable revision label before starting it.
+The tunnel command builds a pinned project image with a real `/ready` health check. If a legacy same-purpose container does not meet the non-root, read-only, token-file, capability, restart, resource-limit, health, mount, command, and port contract, `--replace-existing` retains it as a stopped rollback container and restores it automatically if the hardened replacement fails.
+
 
 The script is idempotent for one approved revision. It:
 
@@ -88,7 +91,7 @@ The verifier proves:
 
 - the running image tag and embedded revision match the approved commit;
 - the API and database are healthy and neither publishes a host port;
-- both dedicated networks are internal and container memberships are exact;
+- both dedicated networks are internal, their endpoint sets are exact, and unrelated containers are rejected;
 - the tunnel cannot share the data or Manifest networks;
 - the public callback returns an exact challenge for the protected token;
 - `https://meta.fastcyberdefense.com/health` returns an ingress-level `404`, not the application-marked `404` that would reveal an overbroad route;
@@ -116,7 +119,7 @@ The always-safe rollback is an outage: stop the test API and database while pres
 
 ```bash
 cd /home/redwan/apps/fcd-support
-./scripts/stop-test-deployment.sh "$FCD_APPROVED_REVISION"
+./scripts/stop-test-deployment.sh
 ```
 
 Application rollback is available only when the exact earlier SHA-tagged image was retained and its schema compatibility has been reviewed. Run this from the current reviewed operations checkout; do not check out an older commit just to find an older script.
@@ -136,7 +139,7 @@ Do not delete `fcd-support-postgres-data` as a rollback step. Database down migr
 2. Clone the GitHub repository to `/home/redwan/apps/fcd-support`, fetch the full approved commit, and check it out detached as shown above.
 3. Create `/home/redwan/.config/fcd-support` as the deployment user with mode `700`.
 4. Transfer `runtime.env` and `cloudflared.token` through a separate encrypted operator-controlled channel; set each file to mode `600`. Never put either file in Git.
-5. Run `./scripts/start-cloudflared.sh` to create or validate the dedicated pinned tunnel container. The script refuses to replace a differently configured existing container.
+5. Run `./scripts/start-cloudflared.sh` to create and health-check the dedicated hardened tunnel container. On a known legacy container, review it first and use `--replace-existing` to retain a stopped rollback copy rather than deleting it.
 6. Run `./scripts/configure-test-runtime.sh` and `./scripts/deploy-test.sh "$FCD_APPROVED_REVISION"`.
 7. Run `./scripts/verify-test-deployment.sh "$FCD_APPROVED_REVISION"` before changing any Meta callback or subscription.
 

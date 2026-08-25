@@ -52,12 +52,14 @@ describe('test deployment contract', () => {
     expect(deploy).toContain('docker network connect');
     expect(deploy).toContain('config --quiet');
     expect(deploy).toContain('run --rm migrate');
+    expect(deploy).toContain('start-cloudflared.sh" --validate-only');
     expect(deploy).not.toContain('set -x');
 
     expect(verify).toContain('https://meta.fastcyberdefense.com/webhooks/meta');
     expect(verify).toContain('https://meta.fastcyberdefense.com/health');
     expect(verify).toContain('x-fcd-route-scope');
     expect(verify).toContain('assert_only_networks');
+    expect(verify).toContain('assert_network_endpoints');
     expect(verify).toContain('mnfst_internal');
     expect(verify).toContain('Running API image does not match');
     expect(verify).not.toContain('set -x');
@@ -66,12 +68,22 @@ describe('test deployment contract', () => {
   test('provides retained-image rollback and repeatable server migration', () => {
     const rollback = readProjectFile('scripts/rollback-test.sh');
     const tunnel = readProjectFile('scripts/start-cloudflared.sh');
+    const tunnelDockerfile = readProjectFile('Dockerfile.cloudflared');
+    const stop = readProjectFile('scripts/stop-test-deployment.sh');
     const runbook = readProjectFile('docs/operations/test-deployment.md');
 
     expect(rollback).toContain('--confirm-schema-compatible');
     expect(rollback).toContain('--no-build');
     expect(rollback).not.toContain('migrate down');
-    expect(tunnel).toContain('cloudflare/cloudflared:latest@sha256:');
+    expect(tunnelDockerfile).toContain('cloudflare/cloudflared:latest@sha256:');
+    expect(tunnelDockerfile).toContain('HEALTHCHECK');
+    expect(tunnelDockerfile).toContain('127.0.0.1:2000", "ready"');
+    expect(tunnel).toContain('validate_contract');
+    expect(tunnel).toContain('--replace-existing');
+    expect(tunnel).toContain('--cpus 0.25');
+    expect(tunnel).toContain('--memory 128m');
+    expect(stop).toContain('com.docker.compose.project=fcd-support');
+    expect(stop).not.toContain('--env-file');
     expect(tunnel).toContain('cloudflared-token');
 
     expect(runbook).toContain('/home/redwan/.config/fcd-support/runtime.env');

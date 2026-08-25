@@ -1,21 +1,19 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-REPOSITORY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APPROVED_REVISION="${1:-}"
-ENV_FILE="${2:-/home/redwan/.config/fcd-support/runtime.env}"
+stop_service() {
+  local service="$1"
+  local -a container_ids=()
+  mapfile -t container_ids < <(docker ps --quiet \
+    --filter 'label=com.docker.compose.project=fcd-support' \
+    --filter "label=com.docker.compose.service=$service")
 
-if [[ ! "$APPROVED_REVISION" =~ ^[0-9a-f]{40}$ ]]; then
-  echo "First argument must be the full deployed 40-character Git revision." >&2
-  exit 1
-fi
+  if (( ${#container_ids[@]} > 0 )); then
+    docker stop "${container_ids[@]}" >/dev/null
+  fi
+}
 
-export FCD_SUPPORT_REVISION="$APPROVED_REVISION"
-export FCD_SUPPORT_IMAGE="fcd-support-api:$APPROVED_REVISION"
+stop_service fcd-support-api
+stop_service postgres
 
-docker compose \
-  --env-file "$ENV_FILE" \
-  --file "$REPOSITORY_ROOT/infra/compose.deploy.yml" \
-  down --remove-orphans
-
-echo "Stopped the test API and PostgreSQL. The database volume, retained images, and tunnel were preserved."
+echo "Stopped the test API and PostgreSQL. The database volume, containers, retained images, networks, and tunnel were preserved."

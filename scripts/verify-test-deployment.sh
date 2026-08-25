@@ -76,6 +76,50 @@ assert_only_networks() {
   done
 }
 
+network_endpoint_ids() {
+  docker network inspect \
+    --format '{{range $id, $_ := .Containers}}{{$id}}{{"\n"}}{{end}}' \
+    "$1"
+}
+
+assert_network_endpoints() {
+  local network="$1"
+  shift
+  local actual
+  local allowed
+  local expected
+  local found
+
+  while IFS= read -r actual; do
+    [[ -z "$actual" ]] && continue
+    allowed=false
+    for expected in "$@"; do
+      if [[ "$actual" == "$expected" ]]; then
+        allowed=true
+        break
+      fi
+    done
+    if [[ "$allowed" != "true" ]]; then
+      echo "$network has an unexpected container endpoint." >&2
+      exit 1
+    fi
+  done < <(network_endpoint_ids "$network")
+
+  for expected in "$@"; do
+    found=false
+    while IFS= read -r actual; do
+      if [[ "$actual" == "$expected" ]]; then
+        found=true
+        break
+      fi
+    done < <(network_endpoint_ids "$network")
+    if [[ "$found" != "true" ]]; then
+      echo "$network is missing a required container endpoint." >&2
+      exit 1
+    fi
+  done
+}
+
 if [[ ! -f "$ENV_FILE" ]]; then
   echo "Runtime environment file not found: $ENV_FILE" >&2
   exit 1
@@ -92,9 +136,12 @@ if [[ -z "$verify_token" ]]; then
   exit 1
 fi
 
+
+"$REPOSITORY_ROOT/scripts/start-cloudflared.sh" --validate-only
 compose config --quiet
 api_id="$(compose ps --quiet fcd-support-api)"
 postgres_id="$(compose ps --quiet postgres)"
+tunnel_id="$(docker container inspect --format '{{.Id}}' "$TUNNEL_CONTAINER")"
 
 if [[ -z "$api_id" || -z "$postgres_id" ]]; then
   echo "The API or PostgreSQL container is not running." >&2
@@ -136,6 +183,8 @@ done
 
 assert_only_networks "$api_id" "$DATA_NETWORK" "$INGRESS_NETWORK"
 assert_only_networks "$postgres_id" "$DATA_NETWORK"
+assert_network_endpoints "$DATA_NETWORK" "$api_id" "$postgres_id"
+assert_network_endpoints "$INGRESS_NETWORK" "$api_id" "$tunnel_id"
 
 if ! is_attached "$TUNNEL_CONTAINER" "$INGRESS_NETWORK"; then
   echo "$TUNNEL_CONTAINER is not attached to $INGRESS_NETWORK." >&2
@@ -182,8 +231,13 @@ escape_curl_config() {
 public_output=""
 public_status=""
 for _ in $(seq 1 15); do
-  public_output="$(curl --config "$curl_config" --write-out $'\n%{http_code}')"
-  public_status="${public_output##*$'\n'}"
+  if public_output="$(curl --connect-timeout 5 --max-time 15 \
+    --config "$curl_config" --write-out $'\n%{http_code}')"; then
+    public_status="${public_output##*$'\n'}"
+  else
+    public_output=""
+    public_status="transport_error"
+  fi
   if [[ "$public_status" == "200" ]]; then
     break
   fi
@@ -196,7 +250,8 @@ if [[ "$public_status" != "200" || "$public_body" != "$challenge" ]]; then
   exit 1
 fi
 
-negative_status="$(curl --silent --show-error --output /dev/null \
+negative_status="$(curl --connect-timeout 5 --max-time 15 \
+  --silent --show-error --output /dev/null \
   --dump-header "$negative_headers" --write-out '%{http_code}' "$NEGATIVE_URL")"
 if [[ "$negative_status" != "404" ]]; then
   echo "Non-webhook public path must return 404; received HTTP $negative_status." >&2
@@ -208,7 +263,8 @@ if grep -qi '^x-fcd-route-scope:[[:space:]]*application' "$negative_headers"; th
   exit 1
 fi
 
-unsigned_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+unsigned_status="$(curl --connect-timeout 5 --max-time 15 \
+  --silent --show-error --output /dev/null --write-out '%{http_code}' \
   --header 'Content-Type: application/json' \
   --data '{"object":"page","entry":[]}' \
   "$CALLBACK_URL")"
