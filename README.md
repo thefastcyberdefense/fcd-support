@@ -4,7 +4,7 @@ Self-hosted WhatsApp and Messenger customer-support automation for Fast Cyber De
 
 ## Current Status
 
-The planning audit and local Phase 1 security core are complete. Phase 2 durable-ingestion work passes against an isolated test-only PostgreSQL service on the Ubuntu Docker server. The application has not been deployed or connected to Meta assets.
+The narrow admission-only test service is deployed on the Ubuntu Docker server at approved revision `407a3d19e6e5fffc6f1cd28c15dd5249a7533309`. Its restricted public callback and negative-path checks pass; Meta dashboard verification and test-asset subscriptions still require the operator steps in the deployment runbook. This is not a production deployment.
 
 - [Delivery plan](docs/PLAN.md)
 - [Task and decision tracker](docs/TODO.md)
