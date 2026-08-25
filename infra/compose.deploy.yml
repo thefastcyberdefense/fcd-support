@@ -45,10 +45,12 @@ services:
           memory: 256M
 
   migrate:
-    image: fcd-support-api:local
+    image: ${FCD_SUPPORT_IMAGE:?FCD_SUPPORT_IMAGE must be set}
     build:
       context: ..
       dockerfile: Dockerfile
+      args:
+        VCS_REF: ${FCD_SUPPORT_REVISION:?FCD_SUPPORT_REVISION must be set}
     <<: *api-security
     restart: 'no'
     environment:
@@ -69,10 +71,12 @@ services:
       - data
 
   fcd-support-api:
-    image: fcd-support-api:local
+    image: ${FCD_SUPPORT_IMAGE:?FCD_SUPPORT_IMAGE must be set}
     build:
       context: ..
       dockerfile: Dockerfile
+      args:
+        VCS_REF: ${FCD_SUPPORT_REVISION:?FCD_SUPPORT_REVISION must be set}
     <<: *api-security
     restart: unless-stopped
     environment:
@@ -103,7 +107,7 @@ services:
     networks:
       - data
       - ingress
-      - manifest
+      # Manifest remains disconnected until its later integration gate.
     deploy:
       resources:
         limits:
@@ -119,9 +123,9 @@ networks:
   ingress:
     name: fcd-support-ingress
     external: true
-  manifest:
-    name: mnfst_internal
-    external: true
+  # The Manifest network is intentionally absent from this webhook-only stack.
+  # A separately reviewed integration profile will add it when model calls are
+  # implemented and tested.
 
 volumes:
   postgres-data:

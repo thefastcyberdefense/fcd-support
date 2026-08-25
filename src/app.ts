@@ -42,6 +42,14 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
     },
   );
 
+  app.setNotFoundHandler(async (_request, reply) => {
+    return reply
+      .header('x-fcd-route-scope', 'application')
+      .code(404)
+      .type('text/plain')
+      .send('Not Found');
+  });
+
   app.get('/webhooks/meta', async (request, reply) => {
     const query = request.query as Readonly<Record<string, unknown>>;
     const result = verifyMetaSubscription(query, options.metaVerifyToken);

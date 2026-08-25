@@ -2,14 +2,11 @@
 set -Eeuo pipefail
 
 REPOSITORY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ENV_FILE="${1:-/home/redwan/.config/fcd-support/runtime.env}"
+APPROVED_REVISION="${1:-}"
+ENV_FILE="${2:-/home/redwan/.config/fcd-support/runtime.env}"
 COMPOSE_FILE="$REPOSITORY_ROOT/infra/compose.deploy.yml"
 INGRESS_NETWORK="fcd-support-ingress"
 TUNNEL_CONTAINER="fcd-support-cloudflared"
-
-compose() {
-  docker compose --env-file "$ENV_FILE" --file "$COMPOSE_FILE" "$@"
-}
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -32,8 +29,32 @@ require_setting() {
   fi
 }
 
-require_command docker
-require_command awk
+for command in awk docker git grep seq stat; do
+  require_command "$command"
+done
+
+if [[ ! "$APPROVED_REVISION" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "First argument must be the full approved 40-character Git revision." >&2
+  exit 1
+fi
+
+current_revision="$(git -C "$REPOSITORY_ROOT" rev-parse HEAD)"
+if [[ "$current_revision" != "$APPROVED_REVISION" ]]; then
+  echo "Checked-out revision does not match the approved revision; refusing to deploy." >&2
+  exit 1
+fi
+
+if [[ -n "$(git -C "$REPOSITORY_ROOT" status --porcelain --untracked-files=all)" ]]; then
+  echo "Repository contains uncommitted or untracked files; refusing to deploy." >&2
+  exit 1
+fi
+
+export FCD_SUPPORT_REVISION="$APPROVED_REVISION"
+export FCD_SUPPORT_IMAGE="fcd-support-api:$APPROVED_REVISION"
+
+compose() {
+  docker compose --env-file "$ENV_FILE" --file "$COMPOSE_FILE" "$@"
+}
 
 if [[ ! -f "$ENV_FILE" ]]; then
   echo "Runtime environment file not found: $ENV_FILE" >&2
@@ -64,6 +85,11 @@ if ! docker container inspect "$TUNNEL_CONTAINER" >/dev/null 2>&1; then
   exit 1
 fi
 
+if [[ "$(docker container inspect --format '{{.State.Running}}' "$TUNNEL_CONTAINER")" != "true" ]]; then
+  echo "Tunnel container is not running: $TUNNEL_CONTAINER" >&2
+  exit 1
+fi
+
 if ! docker container inspect --format '{{json .NetworkSettings.Networks}}' "$TUNNEL_CONTAINER" \
   | grep -q "\"$INGRESS_NETWORK\""; then
   docker network connect "$INGRESS_NETWORK" "$TUNNEL_CONTAINER"
@@ -72,7 +98,14 @@ fi
 
 compose config --quiet
 compose pull postgres
-compose build fcd-support-api
+compose build --pull fcd-support-api
+
+image_revision="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$FCD_SUPPORT_IMAGE")"
+if [[ "$image_revision" != "$APPROVED_REVISION" ]]; then
+  echo "Built image revision label does not match the approved revision." >&2
+  exit 1
+fi
+
 compose up --detach postgres
 
 postgres_id="$(compose ps --quiet postgres)"
@@ -89,7 +122,7 @@ if [[ "$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{
 fi
 
 compose run --rm migrate
-compose up --detach --no-deps fcd-support-api
+compose up --detach --no-deps --no-build fcd-support-api
 
 api_id="$(compose ps --quiet fcd-support-api)"
 for _ in $(seq 1 30); do
@@ -104,6 +137,6 @@ if [[ "$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{
   exit 1
 fi
 
-"$REPOSITORY_ROOT/scripts/verify-test-deployment.sh" "$ENV_FILE"
+"$REPOSITORY_ROOT/scripts/verify-test-deployment.sh" "$APPROVED_REVISION" "$ENV_FILE"
 
-echo "Test webhook deployment is ready."
+echo "Test webhook deployment is ready at approved revision ${APPROVED_REVISION:0:12}."

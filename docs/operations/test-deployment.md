@@ -2,7 +2,7 @@
 
 This runbook deploys only the signed Meta webhook admission service on the Ubuntu Docker host. It is a narrow, explicitly approved test exception; it does not complete the Phase 6 or Phase 7 gates.
 
-The test container cannot send WhatsApp or Messenger messages, call n8n, or call Manifest. Those credentials are deliberately not injected. The production WhatsApp number and production Facebook Page must remain untouched.
+The test container cannot send WhatsApp or Messenger messages, call n8n, or call Manifest. Those credentials are deliberately not injected, and the API is not attached to the Manifest network. The production WhatsApp number and production Facebook Page must remain untouched.
 
 ## Public and private boundaries
 
@@ -14,8 +14,6 @@ Meta
   -> fcd-support-api:3003
   -> fcd-support-data (internal Docker network)
   -> PostgreSQL
-
-fcd-support-api -> mnfst_internal (attached for later private validation; no key is injected)
 ```
 
 No API or database port is published on the Ubuntu host. The Cloudflare route must use:
@@ -42,46 +40,58 @@ Before deployment, confirm these settings are nonblank in `runtime.env` without 
 - `META_APP_SECRET`
 - `META_VERIFY_TOKEN`
 
-The test deployment does not require `META_PAGE_ACCESS_TOKEN` or a WhatsApp access token.
+The test deployment does not require `META_PAGE_ACCESS_TOKEN`, a WhatsApp access token, a Manifest key, or an n8n secret.
 
-## Deploy or update
+## Deploy or update an exact revision
 
-On Windows, test, commit, and push the intended revision. On Ubuntu, deploy only that committed revision:
+On Windows, run the full local gate, commit, merge, push `main`, and record the full approved commit:
 
-```bash
-cd /home/redwan/apps/fcd-support
-git fetch origin
-git pull --ff-only origin main
-./scripts/configure-test-runtime.sh
-./scripts/deploy-test.sh
+```powershell
+npm ci
+npm run check
+git rev-parse HEAD
 ```
 
-`deploy-test.sh` is idempotent. It:
-
-1. validates the protected runtime file;
-2. creates the private attachable `fcd-support-ingress` network if absent;
-3. attaches `fcd-support-cloudflared` without recreating it;
-4. validates the Compose model without printing interpolated secrets;
-5. pulls the pinned PostgreSQL image and builds the pinned API image;
-6. starts PostgreSQL and applies migrations;
-7. starts the API on container port `3003` with no host port;
-8. runs local topology and public-path verification.
-
-Run the checks again at any time:
+On Ubuntu, replace the placeholder with that exact 40-character commit. Do not derive the approval value from whatever `main` happens to contain later.
 
 ```bash
 cd /home/redwan/apps/fcd-support
-./scripts/verify-test-deployment.sh
+FCD_APPROVED_REVISION='<FULL_40_CHARACTER_APPROVED_COMMIT>'
+git fetch origin main
+git cat-file -e "${FCD_APPROVED_REVISION}^{commit}"
+git checkout --detach "$FCD_APPROVED_REVISION"
+./scripts/configure-test-runtime.sh
+./scripts/deploy-test.sh "$FCD_APPROVED_REVISION"
+```
+
+`deploy-test.sh` refuses a short SHA, a mismatched `HEAD`, or a dirty/untracked source tree. It builds and retains `fcd-support-api:<full-git-sha>` and verifies the same immutable revision label before starting it.
+
+The script is idempotent for one approved revision. It:
+
+1. validates the protected runtime file and exact Git state;
+2. creates the private attachable `fcd-support-ingress` network if absent;
+3. attaches the running `fcd-support-cloudflared` without recreating it;
+4. validates the Compose model without printing interpolated secrets;
+5. pulls pinned base images and builds the SHA-tagged API image;
+6. starts PostgreSQL and applies forward migrations;
+7. starts the API on container port `3003` with no host port;
+8. runs image, topology, public-path, and signature-rejection verification.
+
+Run the checks again at any time, supplying the deployed revision:
+
+```bash
+cd /home/redwan/apps/fcd-support
+./scripts/verify-test-deployment.sh "$FCD_APPROVED_REVISION"
 ```
 
 The verifier proves:
 
-- the API and database are healthy;
-- neither publishes a host port;
-- the tunnel and API share only the private ingress network;
-- PostgreSQL is absent from the ingress network;
+- the running image tag and embedded revision match the approved commit;
+- the API and database are healthy and neither publishes a host port;
+- both dedicated networks are internal and container memberships are exact;
+- the tunnel cannot share the data or Manifest networks;
 - the public callback returns an exact challenge for the protected token;
-- `https://meta.fastcyberdefense.com/health` returns `404`;
+- `https://meta.fastcyberdefense.com/health` returns an ingress-level `404`, not the application-marked `404` that would reveal an overbroad route;
 - an unsigned public webhook event returns `401`.
 
 The script never prints the verification token.
@@ -102,27 +112,35 @@ App development mode may deliver only test events and events from people with an
 
 ## Rollback
 
-Stop the test API and database while preserving the PostgreSQL volume and the independently managed tunnel:
+The always-safe rollback is an outage: stop the test API and database while preserving the PostgreSQL volume, SHA-tagged images, and independently managed tunnel.
 
 ```bash
 cd /home/redwan/apps/fcd-support
-./scripts/stop-test-deployment.sh
+./scripts/stop-test-deployment.sh "$FCD_APPROVED_REVISION"
 ```
 
-To roll application code back, identify a previously tested commit on Windows, push that state through the normal reviewed Git workflow, pull it with `--ff-only` on Ubuntu, and run `./scripts/deploy-test.sh` again.
+Application rollback is available only when the exact earlier SHA-tagged image was retained and its schema compatibility has been reviewed. Run this from the current reviewed operations checkout; do not check out an older commit just to find an older script.
 
-Do not run database migration rollback against retained data without a reviewed migration-specific procedure. Do not delete `fcd-support-postgres-data` as a rollback step.
+```bash
+FCD_ROLLBACK_REVISION='<FULL_RETAINED_COMPATIBLE_COMMIT>'
+./scripts/rollback-test.sh "$FCD_ROLLBACK_REVISION" --confirm-schema-compatible
+```
+
+The rollback script never rebuilds an old revision, never runs a down migration, and refuses an image whose embedded revision does not match. If compatibility is uncertain or no earlier image exists, use the safe stop procedure.
+
+Do not delete `fcd-support-postgres-data` as a rollback step. Database down migrations require a separate migration-specific review.
 
 ## Move to another server
 
-1. Install Docker Engine, the Compose plugin, Git, and the Cloudflare tunnel container on the new Ubuntu host.
-2. Clone the GitHub repository to `/home/redwan/apps/fcd-support` and check out the exact reviewed commit.
+1. Install Docker Engine, the Compose plugin, and Git on the new Ubuntu host.
+2. Clone the GitHub repository to `/home/redwan/apps/fcd-support`, fetch the full approved commit, and check it out detached as shown above.
 3. Create `/home/redwan/.config/fcd-support` as the deployment user with mode `700`.
 4. Transfer `runtime.env` and `cloudflared.token` through a separate encrypted operator-controlled channel; set each file to mode `600`. Never put either file in Git.
-5. Ensure the existing Manifest deployment exposes the external Docker network `mnfst_internal` if model-path testing will be performed later.
-6. Start the dedicated `fcd-support-cloudflared` container using its protected token file and the existing pinned-image procedure.
-7. Run `./scripts/configure-test-runtime.sh` and `./scripts/deploy-test.sh`.
-8. Run `./scripts/verify-test-deployment.sh` before changing any Meta callback or subscription.
+5. Run `./scripts/start-cloudflared.sh` to create or validate the dedicated pinned tunnel container. The script refuses to replace a differently configured existing container.
+6. Run `./scripts/configure-test-runtime.sh` and `./scripts/deploy-test.sh "$FCD_APPROVED_REVISION"`.
+7. Run `./scripts/verify-test-deployment.sh "$FCD_APPROVED_REVISION"` before changing any Meta callback or subscription.
+
+This webhook-only stack does not require `mnfst_internal`. Manifest networking belongs to a later reviewed integration profile when tool-free model calls are implemented and tested.
 
 Moving an existing database is intentionally not automated by this test runbook. Encrypted backup, isolated restore, and deletion-ledger reapplication remain blocked Phase 6 work. Until those gates pass, use an empty test database on a replacement host or obtain separate approval for a reviewed data-migration procedure.
 
