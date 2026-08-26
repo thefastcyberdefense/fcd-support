@@ -180,6 +180,25 @@ This evidence validates the admission-only deployment. It does not validate
 outbound replies, app review, live permissions, production assets, Manifest, n8n,
 or customer traffic.
 
+### Operator test follow-up
+
+At 2026-08-26 19:13–19:15 `Asia/Dhaka` (UTC+06:00), the operator repeated
+the post-redeployment channel checks with synthetic text:
+
+- Meta's v26.0 webhook tester received `200` with one normalized event. Durable
+  counts proved the fixed sample was an idempotent logical retry rather than a
+  second event.
+- One role-scoped Messenger customer event and its manual Page-reply echo were
+  accepted and stored as pending events.
+- The admission-only runtime did not apply the echo to Phase 3 policy state, so
+  this evidence proves echo ingestion but not the 24-hour pause workflow.
+- A device-originated message sent to the WhatsApp test number did not produce an
+  accepted WhatsApp webhook or durable event in the correlated test window. Live
+  device delivery therefore remains unproven while the app is unpublished.
+
+No message text, channel identifiers, access material, or screenshots are stored
+in the repository.
+
 ## Rollback
 
 The always-safe rollback is an outage: stop the test API and database while preserving the PostgreSQL volume, SHA-tagged images, and independently managed tunnel.

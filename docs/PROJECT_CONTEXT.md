@@ -47,8 +47,8 @@ All secret values are intentionally absent from this repository. Create them dur
 ## Test-Asset Status
 
 - The Meta development app, WhatsApp test number, and Messenger test Page are connected to the verified callback; production assets remain untouched.
-- Messenger role-scoped test delivery and WhatsApp v26.0 synthetic incoming/status delivery have reached durable ingestion.
-- The app remains unpublished. A real device-originated WhatsApp reply has not yet reached the callback, so real delivery and production permissions remain unproven.
+- Messenger role-scoped customer delivery, a manual Page-reply echo, and WhatsApp v26.0 synthetic incoming/status delivery have reached durable ingestion. The admission-only runtime does not yet apply the echo to policy state.
+- The app remains unpublished. A real device-originated WhatsApp message sent during the 2026-08-26 post-redeployment check did not reach the callback, so real delivery and production permissions remain unproven.
 - The deployed admission-only normalizer accepts phone-unavailable v26 text messages through a namespaced user identity and deliberately leaves contact-card content unsupported. A signed public-callback smoke test and exact retry passed at revision `207a5e6357c1e1a7c75918793262d835574d898d`.
 
 ## Launch Blockers
