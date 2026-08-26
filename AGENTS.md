@@ -22,6 +22,7 @@
 - Use the dedicated Manifest Harness and API configuration named `fcd-support`; request model `auto` through that harness only.
 - Pin container images and production dependencies. Run containers as non-root with read-only filesystems where compatible, explicit health checks, and CPU/memory limits.
 - Keep changes focused on the approved plan. Document any change to retention, consent, public exposure, Meta onboarding, or production-number behavior before implementation.
+- Follow `docs/SYNTHETIC_FIXTURE_POLICY.md` for every fixture, seed, example, evaluation prompt, diagnostic artifact, and evidence update.
 
 ## Validation Gates
 

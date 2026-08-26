@@ -14,6 +14,7 @@ The narrow admission-only test service is deployed on the Ubuntu Docker server a
 - [Project context and confirmed infrastructure](docs/PROJECT_CONTEXT.md)
 - [Approved test webhook deployment runbook](docs/operations/test-deployment.md)
 - [Repository instructions](AGENTS.md)
+- [Synthetic fixture and evidence policy](docs/SYNTHETIC_FIXTURE_POLICY.md)
 - [New-chat handover prompt](docs/HANDOVER_PROMPT.md)
 
 ## Intended Runtime
