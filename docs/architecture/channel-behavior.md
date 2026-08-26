@@ -1,8 +1,8 @@
 # Meta Channel Behavior Contract
 
-Status: Messenger behavior approved by the project owner on 2026-08-26 and
-documented under tracker row `P0-007`. WhatsApp coexistence and manual-app echo
-behavior remains deliberately unresolved under `P0-008`.
+Status: Messenger behavior and the WhatsApp test-number/coexistence separation
+were approved by the project owner on 2026-08-26 and documented under tracker
+rows `P0-007` and `P0-008`. Coexistence capability remains test-gated.
 
 ## Purpose And Scope
 
@@ -116,16 +116,90 @@ runtime is admission-only and does not run the asynchronous Phase 3 processor,
 so that evidence proves echo detection and durable ingestion, not live
 echo-to-pause application.
 
-## Deferred WhatsApp Boundary
+## WhatsApp Test-Number And Coexistence Boundary
 
-Messenger `message_echoes` behavior is not evidence for WhatsApp. WhatsApp test
-number delivery and production coexistence/manual-app echo behavior use
-different contracts. Their mapping, evidence requirements, and pause behavior
-remain pending under `P0-008`; no production-number assumption is created by
-this document.
+Messenger `message_echoes` behavior is not evidence for WhatsApp. The standard
+Cloud API test number and a production number using WhatsApp Business App
+coexistence have separate capabilities and evidence requirements.
+
+### Standard Cloud API And Test-Number Mapping
+
+A standard WhatsApp webhook uses `object: "whatsapp_business_account"`, one or
+more `entry[].changes[]` items, and `field: "messages"`. Each supported item is
+normalized independently:
+
+| WhatsApp input | Normalized result | Policy effect |
+|---|---|---|
+| Inbound text in `value.messages[]` | `customer_message` | May enter later reply policy after durable admission |
+| `sent`, `delivered`, `read`, or `failed` item in `value.statuses[]` | `message_status` | Updates only correlated outbound delivery state; never proves a staff reply and never pauses AI |
+| Unsupported message type, malformed item, or unknown change field | `unsupported` | No model, outbound, consent, or takeover side effect |
+
+For inbound text, `value.metadata.phone_number_id` scopes the business channel
+identity and `messages[].id` supplies the provider message identity. A non-empty
+`messages[].from` remains the preferred customer identity. When v26 omits it
+and supplies `messages[].from_user_id`, the namespaced
+`user_id:<from_user_id>` identity is used. Statuses use their provider message
+ID, recipient identity, status, and timestamp as defined by the webhook
+admission contract.
+
+The Meta-hosted test number validates standard Cloud API callback admission,
+normalization, and status handling. It does not run the production WhatsApp
+Business App and cannot prove coexistence, manual-app reply mirroring, history
+synchronization, or production-number eligibility.
+
+### Coexistence And Manual-App Echo Gate
+
+A coexistence-specific manual-app signal such as `smb_message_echoes` is an
+unproven optional input. It must remain `unsupported` until all of these
+conditions are satisfied:
+
+1. Meta's current official contract or a signed, sanitized capture from an
+   approved non-production coexistence asset proves the exact envelope, author
+   identity, contact identity, provider message identity, and timestamp.
+2. Sanitized fixtures cover valid, malformed, duplicate, stale, future-skewed,
+   batched, and out-of-order forms without customer data.
+3. Tests prove channel-specific idempotency and that valid siblings survive an
+   unsupported or malformed sibling.
+4. Tests distinguish a staff-authored WhatsApp Business App message from a
+   service-originated Cloud API message using durable provider identifiers,
+   never text, display names, timing guesses, or process memory.
+5. The test-asset acceptance record proves the signal arrives after an actual
+   manual reply and that an exact retry causes no second side effect.
+
+Once those gates pass, an uncorrelated, proven manual-app echo may normalize to
+`business_message_echo` and use the same PostgreSQL-backed 24-hour pause rules
+as Messenger: provider event time sets the deadline, duplicates do not extend
+it, older events cannot reverse a later resume, and a genuinely later staff
+reply starts a new pause.
+
+A WhatsApp echo correlated to an authoritative service outbound intent is a
+self-echo. It may update outbound correlation or delivery evidence but never
+pauses AI and never creates another reply. A standard `statuses[]` item is also
+not a human-reply signal.
+
+### Evidence And Production Stop Rule
+
+On 2026-08-26, Meta's v26.0 webhook tester proved signed synthetic inbound and
+status delivery to the restricted callback. A signed current-time synthetic
+v26 text event also proved phone-unavailable `user_id:` normalization and exact
+retry deduplication. A real device-originated message to the Meta test number
+did not reach the callback while the app remained unpublished. These results
+prove only the behaviors named here; they do not prove live customer delivery,
+coexistence, or manual-app echo behavior.
+
+Production-number coexistence eligibility is a later read-only Phase 8 check.
+No production number may be changed, linked, unlinked, migrated, registered, or
+subscribed to obtain this evidence. If coexistence is unavailable, or if a
+manual WhatsApp Business App reply cannot produce the tested takeover signal,
+production-number work stops and requires a separate migration or operating
+model decision.
 
 ## Primary Platform Reference
 
 - [Meta Messenger Platform webhook collection](https://www.postman.com/meta/messenger-platform-api/folder/22794852-b5d97624-14d8-4e67-a2e4-529add49ca58)
   describes Page webhook envelopes, the `messages` and `message_echoes` fields,
   signatures, retry behavior, and timestamp ordering.
+- [Meta WhatsApp Business Platform webhook payload reference](https://www.postman.com/meta/whatsapp-business-platform/folder/vzaxn16/webhook-payload-reference)
+  describes the standard WhatsApp Business Account envelope, `messages` field,
+  inbound messages, and outbound status updates. It is not treated as evidence
+  of coexistence-specific manual-app echoes.
