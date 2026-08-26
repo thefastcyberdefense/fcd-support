@@ -4,7 +4,8 @@ import type { NormalizedMetaEvent, NormalizedMessageStatus } from './normalized-
 
 const messageSchema = z
   .object({
-    from: z.string(),
+    from: z.string().min(1).optional(),
+    from_user_id: z.string().min(1).optional(),
     id: z.string(),
     text: z.object({ body: z.string() }).optional(),
     timestamp: z.string(),
@@ -133,6 +134,17 @@ export function normalizeWhatsAppWebhook(payload: unknown): readonly NormalizedM
         }
 
         const message = parsedMessage.data;
+        const contactId =
+          message.from ??
+          (message.from_user_id === undefined ? undefined : `user_id:${message.from_user_id}`);
+        if (contactId === undefined) {
+          events.push({
+            kind: 'unsupported',
+            channel: 'whatsapp',
+            reasonCode: 'invalid_message_item',
+          });
+          continue;
+        }
         if (message.type !== 'text' || message.text === undefined) {
           events.push({
             kind: 'unsupported',
@@ -156,7 +168,7 @@ export function normalizeWhatsAppWebhook(payload: unknown): readonly NormalizedM
           kind: 'customer_message',
           channel: 'whatsapp',
           channelAccountId,
-          contactId: message.from,
+          contactId,
           externalMessageId: message.id,
           idempotencyKey: `whatsapp:message:${message.id}`,
           occurredAt,
