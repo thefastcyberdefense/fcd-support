@@ -78,9 +78,17 @@ describe('normalizeWhatsAppWebhook', () => {
               value: {
                 messaging_product: 'whatsapp',
                 metadata: { phone_number_id: 'PHONE_TEST' },
+                contacts: [
+                  {
+                    profile: { username: '@synthetic_username' },
+                    user_id: 'US.TEST_USER_001',
+                    parent_user_id: 'US.TEST_PARENT_001',
+                  },
+                ],
                 messages: [
                   {
                     from_user_id: 'US.TEST_USER_001',
+                    from_parent_user_id: 'US.TEST_PARENT_001',
                     id: 'wamid.TEST_user_id_only',
                     timestamp: '1786400000',
                     type: 'text',

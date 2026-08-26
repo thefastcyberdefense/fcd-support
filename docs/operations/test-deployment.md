@@ -122,6 +122,19 @@ The following non-secret evidence was recorded on 2026-08-26 in `Asia/Dhaka`
   certificates disabled.
 - The WhatsApp test number and Messenger test Page were subscribed. No production
   number or production Page was connected.
+- The WhatsApp webhook field inventory contains `messages`. The Messenger test-Page
+  inventory contains 22 fields: `business_integrity`, `inbox_labels`,
+  `marketing_message_delivery_failed`, `message_deliveries`, `message_echoes`,
+  `message_edits`, `message_reactions`, `message_reads`,
+  `message_template_status_update`, `messages`, `messaging_customer_information`,
+  `messaging_feedback`, `messaging_handovers`,
+  `messaging_in_thread_lead_form_submit`, `messaging_integrity`, `messaging_optins`,
+  `messaging_optouts`, `messaging_policy_enforcement`, `messaging_postbacks`,
+  `messaging_referrals`, `response_feedback`, and `standby`. This deliberately broad
+  subscription is test-only and does not pre-authorize the same production fields.
+- Access remains development-mode and role-scoped. `pages_messaging` live access
+  and app review are not complete. Exact token permission scopes and access levels
+  still require a separate read-only inspection; token values are never recorded.
 - A Messenger role-scoped test message reached durable ingestion.
 - WhatsApp webhook-field v26.0 synthetic delivery succeeded for a baseline
   phone-based incoming text at 09:40:12; `sent`, `delivered`, and `read` statuses at
