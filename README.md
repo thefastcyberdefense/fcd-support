@@ -4,7 +4,7 @@ Self-hosted WhatsApp and Messenger customer-support automation for Fast Cyber De
 
 ## Current Status
 
-The narrow admission-only test service is deployed on the Ubuntu Docker server at approved revision `407a3d19e6e5fffc6f1cd28c15dd5249a7533309`. Its restricted public callback, negative-path checks, Meta callback verification, WhatsApp test-number subscription, and Messenger test-Page subscription pass. Meta v26.0 synthetic webhook tests exposed a phone-unavailable identity variant that is now covered by local normalizer tests. This is not a production deployment, and production Meta assets remain untouched.
+The narrow admission-only test service is deployed on the Ubuntu Docker server at approved revision `207a5e6357c1e1a7c75918793262d835574d898d`. Its restricted public callback, negative-path checks, Meta callback verification, WhatsApp test-number subscription, and Messenger test-Page subscription pass. A signed v26 phone-unavailable identity smoke test and its exact retry passed after the 2026-08-26 redeployment. This is not a production deployment, and production Meta assets remain untouched.
 
 - [Delivery plan](docs/PLAN.md)
 - [Task and decision tracker](docs/TODO.md)

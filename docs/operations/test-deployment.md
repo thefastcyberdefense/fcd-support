@@ -156,6 +156,30 @@ remained unpublished. Synthetic delivery proves callback admission, not live app
 permissions or production readiness. Do not publish the app solely to bypass this
 development-mode limitation.
 
+### Redeployment verification
+
+At 2026-08-26 10:53:07 `Asia/Dhaka` (UTC+06:00), the server was verified at
+exact revision `207a5e6357c1e1a7c75918793262d835574d898d` after a fresh Windows
+gate passed formatting, lint, strict type checking, 84 tests, and build.
+
+- No migration, infrastructure, deployment-script, or container-definition file
+  changed from the previously deployed revision. PostgreSQL remained healthy and
+  no migration was required.
+- The hardened tunnel was rebuilt at the exact revision. The previous container
+  was retained stopped for rollback, and the replacement passed its non-root,
+  read-only, resource, mount, command, and readiness contract.
+- The repository verifier confirmed exact private network endpoints, no API or
+  database host ports, public callback challenge success, ingress-only `404` for
+  a non-webhook path, and `401` for an unsigned event.
+- One signed, current-time, fully synthetic v26 phone-unavailable text event sent
+  through the public callback normalized to a pending WhatsApp customer message
+  with a `user_id:` contact namespace. Replaying the exact signed payload returned
+  success and left the logical event count at one.
+
+This evidence validates the admission-only deployment. It does not validate
+outbound replies, app review, live permissions, production assets, Manifest, n8n,
+or customer traffic.
+
 ## Rollback
 
 The always-safe rollback is an outage: stop the test API and database while preserving the PostgreSQL volume, SHA-tagged images, and independently managed tunnel.
