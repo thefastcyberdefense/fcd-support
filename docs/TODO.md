@@ -50,13 +50,13 @@
 | ID | Task | Depends On | Owner | Status | Evidence / Completion Rule | Approval Boundary |
 |---|---|---|---|---|---|---|
 | P1-001 | Write and approve the Phase 1 test-first implementation plan | P0-GATE | Codex + project owner | COMPLETE | Separate plan waived by project owner; approved scope is `docs/PLAN.md` Phase 1 plus this tracker | Explicit review |
-| P1-002 | Scaffold strict TypeScript tooling and secret-free CI | P1-001 | Codex | IN PROGRESS | Local `npm run check` passes; least-privilege CI workflow exists; first remote CI run is pending | None |
+| P1-002 | Scaffold strict TypeScript tooling and secret-free CI | P1-001 | Codex | COMPLETE | Local `npm run check` passes; the least-privilege CI workflow completed successfully on GitHub `main` at revision `739d76597cb290ece7aa08cd5a2878ab81c3846e` | None |
 | P1-003 | Implement validated configuration and privacy-safe logging test-first | P1-002 | Codex | COMPLETE | Configuration, allowlist, and webhook log privacy tests pass | None |
 | P1-004 | Implement Meta GET verification test-first | P1-002 | Codex | COMPLETE | Challenge success and rejection matrix tests pass | None |
 | P1-005 | Implement raw-body signature verification and payload limits test-first | P1-002 | Codex | COMPLETE | Raw-byte HMAC, limit, malformed UTF-8, malformed JSON, and rejection tests pass against the documented response policy | None |
 | P1-006 | Implement WhatsApp and Messenger envelope normalizers test-first | P1-004, P1-005 | Codex | COMPLETE | Sanitized normalizer tests preserve valid siblings, accept v26 phone-unavailable text identities under `user_id:`, preserve phone-first identity, and keep contact cards unsupported | None |
 | P1-007 | Prove route and HTTP-method isolation | P1-004 through P1-006 | Codex | COMPLETE | Unapproved paths and GET-adjacent standard methods, including implicit `HEAD`, return `404` | None |
-| P1-GATE | Review Phase 1 evidence | P1-002 through P1-007 | Project owner | BLOCKED | Local gate passes; first remote CI run and project-owner review remain | Explicit review |
+| P1-GATE | Review Phase 1 evidence | P1-002 through P1-007 | Project owner | BLOCKED | Local and GitHub CI gates pass; project-owner review remains | Explicit review |
 
 ## Phase 2 — Durable Ingestion And Idempotency
 
