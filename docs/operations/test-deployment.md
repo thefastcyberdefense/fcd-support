@@ -113,6 +113,36 @@ Select **Verify and save**. Then retry subscriptions for the dedicated WhatsApp 
 
 App development mode may deliver only test events and events from people with an app role. Publishing and production permissions are separate later gates.
 
+## Sanitized Meta Test Evidence
+
+The following non-secret evidence was recorded on 2026-08-26 in `Asia/Dhaka`
+(UTC+06:00):
+
+- WhatsApp and Messenger accepted the shared callback verification, with client
+  certificates disabled.
+- The WhatsApp test number and Messenger test Page were subscribed. No production
+  number or production Page was connected.
+- A Messenger role-scoped test message reached durable ingestion.
+- WhatsApp webhook-field v26.0 synthetic delivery succeeded for a baseline
+  phone-based incoming text at 09:40:12; `sent`, `delivered`, and `read` statuses at
+  09:51:15, 09:51:32, and 09:51:47; an exact `sent` retry at 09:53:22; a
+  phone-plus-user identity at 09:54:56; a phone-unavailable user identity at
+  09:55:50; and a contact-card message at 09:57:00.
+- The exact retry did not increase durable receipt or normalized-event counts.
+  The phone-unavailable and contact-card samples exposed unsupported outcomes in
+  the deployed admission revision; local normalizer coverage now accepts the
+  phone-unavailable text identity while deliberately retaining the contact-card
+  boundary.
+- After this sequence, sanitized durable counts were eight receipts, one pending
+  Messenger customer message, one stale WhatsApp customer message, three pending
+  WhatsApp status events, and two unsupported WhatsApp events. Meta's fixed sample
+  timestamp caused the stale classification; it was not a delivery failure.
+
+A real device-originated WhatsApp reply did not reach the callback while the app
+remained unpublished. Synthetic delivery proves callback admission, not live app
+permissions or production readiness. Do not publish the app solely to bypass this
+development-mode limitation.
+
 ## Rollback
 
 The always-safe rollback is an outage: stop the test API and database while preserving the PostgreSQL volume, SHA-tagged images, and independently managed tunnel.

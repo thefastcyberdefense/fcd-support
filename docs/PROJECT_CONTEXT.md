@@ -1,6 +1,6 @@
 # Project Context
 
-Last reviewed: 2026-08-11 (Asia/Dhaka)
+Last reviewed: 2026-08-26 (Asia/Dhaka)
 
 ## Confirmed Decisions
 
@@ -25,7 +25,7 @@ Last reviewed: 2026-08-11 (Asia/Dhaka)
 - n8n `2.33.6`: LAN-bound on port `5678`, with external runners. Its public API was enabled during the audit and must be checked for dependencies before disabling.
 - OpenClaw and Hermes are already configured but are explicitly outside this application's public execution path.
 - UFW and Docker ingress rules are intended to allow LAN access only. Do not add a public router port forward.
-- `fastcyberdefense.com` already uses Cloudflare nameservers. `cloudflared` was not installed on the server at the time of the audit.
+- `fastcyberdefense.com` uses Cloudflare nameservers. A dedicated project tunnel container now exposes only the exact Meta webhook path to the internal admission-only API; health, database, n8n, Manifest, OmniRoute, and other paths remain private.
 
 ## Planned Deployment
 
@@ -44,11 +44,18 @@ Last reviewed: 2026-08-11 (Asia/Dhaka)
 
 All secret values are intentionally absent from this repository. Create them during implementation and store them only in protected runtime secret files.
 
+## Test-Asset Status
+
+- The Meta development app, WhatsApp test number, and Messenger test Page are connected to the verified callback; production assets remain untouched.
+- Messenger role-scoped test delivery and WhatsApp v26.0 synthetic incoming/status delivery have reached durable ingestion.
+- The app remains unpublished. A real device-originated WhatsApp reply has not yet reached the callback, so real delivery and production permissions remain unproven.
+- The local normalizer accepts phone-unavailable v26 text messages through a namespaced user identity and deliberately leaves contact-card content unsupported.
+
 ## Launch Blockers
 
-- Local Phase 1 and Phase 2 code exists, including PostgreSQL-backed durable receipt, but no application deployment has been approved.
+- The admission-only test deployment is approved and running under a narrow exception. Outbound messaging, models, n8n actions, live customer data, and production deployment remain unauthorized.
 - Phase 0 policy and external-readiness decisions remain open. The project owner authorized reversible local development through Phase 5; exceptions and provisional contracts are tracked in `docs/TODO.md`.
-- Meta test-number and Messenger permission flows have not been validated.
+- Meta test callback and subscription flows are validated only for development-mode test assets. App review, live permissions, and production assets remain unvalidated.
 - WhatsApp coexistence for the production number has not been confirmed.
 - The dedicated Manifest Harness/API routing has not been tested from the application network.
 - Website privacy and support wording must disclose AI assistance, external inference, retention, deletion, and marketing consent before production launch.

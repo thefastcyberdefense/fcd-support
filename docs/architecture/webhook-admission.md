@@ -66,6 +66,19 @@ adapter; current unsupported Messenger items receive only the minimal unsupporte
 key. Its canonical hash may contain documented identifiers, kind, and timestamp,
 but never user content.
 
+## WhatsApp v26 Identity Compatibility
+
+For an inbound text message, a non-empty `messages[].from` phone identity remains
+authoritative. When v26 omits that field but provides a non-empty
+`messages[].from_user_id`, the normalizer uses `user_id:<from_user_id>` as the
+contact identity. The prefix prevents a provider user ID from colliding with a
+phone-based identity. When both forms are present, the phone identity wins so an
+existing conversation is not split.
+
+Profile usernames and parent-user identifiers are not persisted by this mapping.
+Contact-card messages remain unsupported and their embedded contact details are
+not emitted as normalized event fields.
+
 `webhook_receipts.payload_sha256` rejects exact delivery retries. The unique
 `webhook_events.idempotency_key` rejects logical event retries across different
 payloads. Both constraints are authoritative under concurrent delivery.
