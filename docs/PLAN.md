@@ -62,7 +62,8 @@ Remove architectural ambiguity and define verifiable policies before application
 
 Gate record: `docs/reviews/phase-0-gate.md`. Threat evidence:
 `docs/security/threat-model.md`. Acceptance evidence:
-`docs/testing/acceptance-matrix.md`.
+`docs/testing/acceptance-matrix.md`. Validation record:
+`docs/reviews/phase-0-gate-validation.md`.
 
 ## Phase 1: Local Scaffold And Webhook Security Core
 

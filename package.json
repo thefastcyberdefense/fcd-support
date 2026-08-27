@@ -9,7 +9,7 @@
   "packageManager": "npm@11.16.0",
   "scripts": {
     "build": "tsc --project tsconfig.build.json",
-    "check": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build",
+    "check": "npm run validate:phase0 && npm run format:check && npm run lint && npm run typecheck && npm test && npm run build",
     "db:migrate": "node-pg-migrate up --migrations-dir migrations --migrations-table pgmigrations --database-url-var DATABASE_URL",
     "db:migrate:down": "node-pg-migrate down --migrations-dir migrations --migrations-table pgmigrations --database-url-var DATABASE_URL",
     "format": "prettier --write .",
@@ -19,7 +19,8 @@
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "validate:phase0": "node scripts/validate-phase0-gate.ts"
   },
   "dependencies": {
     "fastify": "5.10.0",

@@ -24,6 +24,7 @@
   },
   "include": [
     "migrations/**/*.ts",
+    "scripts/**/*.ts",
     "src/**/*.ts",
     "tests/**/*.ts",
     "vitest.config.ts",

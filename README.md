@@ -14,6 +14,7 @@ The narrow admission-only test service is deployed on the Ubuntu Docker server a
 - [Threat model](docs/security/threat-model.md)
 - [Acceptance matrix](docs/testing/acceptance-matrix.md)
 - [Phase 0 gate review](docs/reviews/phase-0-gate.md)
+- [Phase 0 gate validation](docs/reviews/phase-0-gate-validation.md)
 - [Project context and confirmed infrastructure](docs/PROJECT_CONTEXT.md)
 - [Approved test webhook deployment runbook](docs/operations/test-deployment.md)
 - [Repository instructions](AGENTS.md)

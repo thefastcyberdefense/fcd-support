@@ -2,6 +2,12 @@
 
 Decision: **PASS — Phase 1 implementation planning authorized**
 
+Authority scope: planning_only
+
+Production action authorization: false
+
+Validation record: `docs/reviews/phase-0-gate-validation.md`
+
 Reviewed: 2026-08-27 (Asia/Dhaka)
 
 Authority: the project owner explicitly directed completion of `P0-017` →
