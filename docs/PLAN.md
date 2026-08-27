@@ -17,7 +17,7 @@ The service will be a dedicated, self-hosted TypeScript application for WhatsApp
 - PostgreSQL is authoritative for receipts, events, conversations, pauses, consent, retention, deletion, and outbound work.
 - Models receive no tools. Approved FAQ and business facts take precedence over generation.
 - Marketing requires explicit consent for the exact channel and category. Missing or blank consent always means ineligible and is not configurable.
-- Casual chats are retained for 60 days, unconverted leads for 12 months, and human replies pause AI for 24 hours unless an authorized reviewer resumes it earlier.
+- Casual chats are retained for 60 days from the latest qualifying human-authored event, unconverted leads for 12 calendar months from the latest qualifying lead interaction, and active-client support content throughout the documented relationship plus 24 calendar months after its documented end. Human replies pause AI for 24 hours unless an authorized reviewer resumes it earlier.
 - Every behavior change follows test-first development. No external deployment or live-asset connection occurs merely because local tests pass.
 
 ## Delivery Method
@@ -47,7 +47,10 @@ Remove architectural ambiguity and define verifiable policies before application
 - Define webhook admission precisely: maximum encoded body size, raw-body HMAC verification, constant-time comparison, schema parsing, per-channel normalization, event-time policy, durable receipt, duplicate outcome, acknowledgement outcome, and asynchronous processing.
 - Define stable, channel-specific idempotency keys. Do not assume Meta supplies one universal delivery identifier.
 - Define how stale, duplicated, malformed, unsupported, and out-of-order events are acknowledged and audited without causing repeated side effects or retry storms.
-- Approve the lifecycle policy for deletion verification, suppression records, Manifest recordings, backup restores, and active-client retention. Production remains blocked until the active-client retention period and legal/business owner are explicit.
+- Apply lifecycle precedence `active_client > unconverted_lead > casual_chat`. Record append-only reclassification events; AI replies, provider statuses, duplicates, retries, consent bookkeeping, and unresponded marketing sends never extend retention.
+- Retain casual chats for 60 days from the latest qualifying customer or proven human-agent message, unconverted leads for 12 calendar months from the latest qualifying lead interaction, and active-client support content through the relationship plus 24 calendar months after its documented end or final paid service completion, whichever is later. The Fast Cyber Defense Managing Director/business-owner role owns the policy and reviews active-client classifications annually.
+- Verify deletion through the same channel with an explicit phrase or known name plus authorized human review; never request a password, OTP, payment credential, or secret. Retain only the approved HMAC-keyed suppression or restore tombstone fields.
+- Disable Manifest message-body recording before customer/model traffic. Restore backups only in isolation, reapply all unexpired deletion tombstones, and refuse promotion until post-restore deletion verification passes.
 - Create a privacy-safe fixture policy and acceptance matrix covering security, replay, concurrency, bilingual quality, takeover, consent, retention, deletion, restore, and model/provider failure.
 - Create a threat model for the public webhook boundary, outbound provider calls, internal networks, secrets, PostgreSQL, backups, and operational interfaces.
 
@@ -113,8 +116,8 @@ Make every decision to respond, pause, retain, market, or delete deterministic a
 - Make inbound human/business echo events pause AI for 24 hours. Re-check the pause immediately before creating and immediately before sending an outbound reply to prevent races.
 - Keep resume controls LAN-only and authenticated; do not expose them through the public tunnel.
 - Record consent category, channel, exact wording/version, source, timestamp, and revocation. Missing or blank consent is always ineligible.
-- Enforce 60-day casual-chat and 12-month unconverted-lead retention from the approved lifecycle anchor.
-- Implement verified deletion with idempotent live-data erasure, approved minimal suppression, Manifest-recording cleanup, and a restore-safe deletion ledger or equivalent approved mechanism.
+- Enforce 60-day casual-chat, 12-calendar-month unconverted-lead, and active-relationship-plus-24-calendar-month client retention from the qualifying anchors in `docs/architecture/data-lifecycle.md`. Automated, duplicate, retry, consent-only, and status activity never moves an anchor.
+- Implement verified same-channel, human-reviewed deletion with idempotent live-data erasure, HMAC-keyed minimal suppression, Manifest-recording cleanup, and restore-safe tombstones. A password, OTP, payment credential, or secret is never a deletion verifier.
 - Apply retention and deletion through repeatable jobs whose dry-run output contains counts only, never customer content.
 
 ### Exit Gate
@@ -135,7 +138,7 @@ Answer approved facts deterministically and use the dedicated Manifest Harness o
 - Resolve approved FAQ and business facts before any model request.
 - Redact credentials, OTPs, payment data, authentication material, and sensitive incident evidence before inference.
 - Call only the dedicated `fcd-support` OpenAI-compatible endpoint with `model: "auto"`, no tools, bounded timeouts, output limits, and application-level per-contact limits.
-- Treat Manifest request recordings as customer data and implement the approved recording/retention setting.
+- Treat Manifest request recordings as customer data, disable message-body recording before customer/model traffic, and keep the model path closed if recordings cannot be bounded and erased for verified deletion.
 - On gateway, model, or provider failure, avoid fabricated answers; return the approved safe response and create an escalation outcome when policy requires it.
 - Build a reviewed English/Bangla evaluation set for FAQ accuracy, language matching, refusal boundaries, incident escalation, and unsupported claims.
 
@@ -179,7 +182,7 @@ Produce a reproducible, private, recoverable Docker deployment without exposing 
 - Keep application health, metrics, migrations, and reviewer controls private.
 - Validate forward migrations, backup-before-migration behavior, rollback procedures, and restoration into an isolated database.
 - Create encrypted backups on the approved schedule without unbounded startup copies; retain 45 daily and 6 monthly archives. Perform and record quarterly restore tests.
-- Reapply the deletion ledger or approved equivalent after restore before the restored system can serve traffic.
+- Reapply every unexpired deletion tombstone after an isolated restore and refuse to attach the restored database to the application until content-free deletion verification passes.
 - Add privacy-safe health monitoring for the API, database, tunnel, and Manifest path. Health alerting must not depend solely on n8n.
 - Keep n8n private and use authenticated, idempotent notification calls only. Do not disable its existing API until a dependency audit passes.
 
