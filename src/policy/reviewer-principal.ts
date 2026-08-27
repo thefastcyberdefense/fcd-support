@@ -14,11 +14,28 @@ export class PolicyAuthorizationError extends Error {
   }
 }
 
+export class PolicyOwnerAuthorizationError extends Error {
+  public constructor() {
+    super('Policy owner role required');
+    this.name = 'PolicyOwnerAuthorizationError';
+  }
+}
+
 export function requireSupportReviewer(input: unknown): ReviewerPrincipal {
   const principal = reviewerPrincipalSchema.parse(input);
 
   if (!principal.roles.includes('support_reviewer')) {
     throw new PolicyAuthorizationError();
+  }
+
+  return principal;
+}
+
+export function requirePolicyOwner(input: unknown): ReviewerPrincipal {
+  const principal = reviewerPrincipalSchema.parse(input);
+
+  if (!principal.roles.includes('policy_owner')) {
+    throw new PolicyOwnerAuthorizationError();
   }
 
   return principal;

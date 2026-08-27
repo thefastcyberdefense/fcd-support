@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
-import { requireSupportReviewer } from '../../src/policy/reviewer-principal.js';
+import { requirePolicyOwner, requireSupportReviewer } from '../../src/policy/reviewer-principal.js';
 
 describe('support reviewer principal validation', () => {
   test('accepts a trimmed opaque reviewer reference with the support reviewer role', () => {
@@ -57,6 +57,44 @@ describe('support reviewer principal validation', () => {
         reviewerRef: 'reviewer-42',
         roles: ['support_reviewer'],
         token: 'synthetic-value',
+      }),
+    ).toThrow();
+  });
+});
+
+describe('policy owner principal validation', () => {
+  test('accepts a trimmed opaque reviewer reference with the policy owner role', () => {
+    expect(
+      requirePolicyOwner({
+        reviewerRef: '  policy-owner-42  ',
+        roles: ['support_reviewer', 'policy_owner'],
+      }),
+    ).toEqual({
+      reviewerRef: 'policy-owner-42',
+      roles: ['support_reviewer', 'policy_owner'],
+    });
+  });
+
+  test('rejects a valid support reviewer without the policy owner role', () => {
+    expect(() =>
+      requirePolicyOwner({ reviewerRef: 'reviewer-42', roles: ['support_reviewer'] }),
+    ).toThrow('Policy owner role required');
+  });
+
+  test('does not accept or return credential-shaped policy owner fields', () => {
+    const principal = requirePolicyOwner({
+      reviewerRef: 'policy-owner-42',
+      roles: ['policy_owner'],
+    });
+
+    expect(principal).not.toHaveProperty('authorization');
+    expect(principal).not.toHaveProperty('token');
+    expect(principal).not.toHaveProperty('credential');
+    expect(() =>
+      requirePolicyOwner({
+        reviewerRef: 'policy-owner-42',
+        roles: ['policy_owner'],
+        token: 'synthetic_rejected',
       }),
     ).toThrow();
   });

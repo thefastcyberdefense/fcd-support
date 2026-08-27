@@ -1,3 +1,40 @@
+export type LifecycleClass = 'active_client' | 'casual_chat' | 'unconverted_lead';
+
+export interface QualifyingRetentionEventInput {
+  readonly conversationId: string;
+  readonly sourceWebhookEventId: string;
+  readonly targetClass: 'casual_chat' | 'unconverted_lead';
+  readonly requestKey: string;
+}
+
+export interface ActiveRelationshipStartInput {
+  readonly conversationId: string;
+  readonly relationshipStartedAt: Date;
+  readonly effectiveAt: Date;
+  readonly requestKey: string;
+}
+
+export interface ActiveRelationshipReviewInput {
+  readonly conversationId: string;
+  readonly reviewedAt: Date;
+  readonly requestKey: string;
+}
+
+export interface ActiveRelationshipCloseInput {
+  readonly conversationId: string;
+  readonly relationshipEndedAt?: Date;
+  readonly finalPaidServiceCompletedAt?: Date;
+  readonly effectiveAt: Date;
+  readonly requestKey: string;
+}
+
+export interface RetentionReclassificationInput {
+  readonly conversationId: string;
+  readonly targetClass: 'casual_chat' | 'unconverted_lead';
+  readonly effectiveAt: Date;
+  readonly requestKey: string;
+}
+
 export interface ChannelIdentitySelector {
   readonly channel: 'messenger' | 'whatsapp';
   readonly channelAccountId: string;
