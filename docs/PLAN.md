@@ -2,7 +2,7 @@
 
 ## Purpose And Status
 
-This document defines the approved delivery sequence and the gate that ends each phase. `docs/TODO.md` is the live task tracker and evidence index. The repository remains pre-implementation until the Phase 0 gate passes.
+This document defines the approved delivery sequence and the gate that ends each phase. `docs/TODO.md` is the live task tracker and evidence index. The Phase 0 planning gate passed on 2026-08-27; this does not clear later implementation, test-asset, production-readiness, or production-action gates.
 
 The service will be a dedicated, self-hosted TypeScript application for WhatsApp Business Cloud API and Facebook Messenger. PostgreSQL is authoritative. The dedicated Manifest Harness `fcd-support` is the only model gateway and receives `model: "auto"`. Private n8n workflows may send notifications or perform later CRM actions, but they never own conversation, consent, or delivery state.
 
@@ -59,6 +59,10 @@ Remove architectural ambiguity and define verifiable policies before application
 - All Phase 0 decisions in `docs/TODO.md` are closed or explicitly deferred to a later gate that does not affect Phase 1.
 - The channel matrix, lifecycle rules, trust-boundary rules, test matrix, and technology choices are written and reviewed.
 - No secret or live customer data was accessed or recorded.
+
+Gate record: `docs/reviews/phase-0-gate.md`. Threat evidence:
+`docs/security/threat-model.md`. Acceptance evidence:
+`docs/testing/acceptance-matrix.md`.
 
 ## Phase 1: Local Scaffold And Webhook Security Core
 

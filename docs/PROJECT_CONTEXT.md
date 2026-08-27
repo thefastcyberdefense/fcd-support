@@ -57,7 +57,7 @@ All secret values are intentionally absent from this repository. Create them dur
 ## Launch Blockers
 
 - The admission-only test deployment is approved and running under a narrow exception. Outbound messaging, models, n8n actions, live customer data, and production deployment remain unauthorized.
-- P0-009 through P0-016 are evidence-complete. P0-017 threat modeling, P0-018 acceptance mapping, and P0-GATE review remain open. The project owner authorized reversible local development through Phase 5; exceptions and current contracts are tracked in `docs/TODO.md`.
+- Phase 0 is evidence-complete: the threat model, acceptance matrix, and planning-only gate review are recorded in `docs/security/threat-model.md`, `docs/testing/acceptance-matrix.md`, and `docs/reviews/phase-0-gate.md`. This closes architectural planning only; every `PARTIAL`, `PLANNED`, or `BLOCKED` acceptance row remains a launch blocker. The project owner authorized reversible local development through Phase 5; exceptions and current contracts are tracked in `docs/TODO.md`.
 - Meta test callback and subscription flows are validated only for development-mode test assets. App review, live permissions, and production assets remain unvalidated.
 - WhatsApp coexistence for the production number has not been confirmed.
 - The dedicated Manifest host harness/key and `auto` model are verified privately, but the application-network route, recording-off state, and explicit provider fallback/limit behavior remain untested.
@@ -65,6 +65,8 @@ All secret values are intentionally absent from this repository. Create them dur
 - n8n's audit found no `fcd-support` public-API dependency, but owners of historically used API keys must be identified before revocation or disablement.
 - Website privacy and support wording must disclose AI assistance, external inference, retention, deletion, and marketing consent before production launch.
 - Backup restore and human-takeover behavior must pass acceptance tests.
+
+The next unblocked local engineering task is P3-005 retention classification and boundary jobs. P3-006 deletion follows it. P1-GATE remains a separate explicit review record.
 
 ## First Session Checklist
 
