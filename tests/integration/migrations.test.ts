@@ -684,6 +684,11 @@ describe('Phase 2 database migrations', () => {
          values ($1, $2, 'customer_message_applied')`,
         [eventId, conversation.rows[0]?.id],
       );
+    const settleApplication = (client: pg.PoolClient, eventId: string | undefined) =>
+      insertApplication(client, eventId).then(
+        (value) => ({ status: 'fulfilled' as const, value }),
+        (reason: unknown) => ({ reason, status: 'rejected' as const }),
+      );
 
     const referenceFirstEventId = await insertPendingEvent('synthetic:race:reference-first');
     const firstLocker = await pool.connect();
@@ -693,14 +698,17 @@ describe('Phase 2 database migrations', () => {
       await firstLocker.query(`select id from webhook_events where id = $1 for update`, [
         referenceFirstEventId,
       ]);
-      const referenceAttempt = insertApplication(firstContender, referenceFirstEventId);
+      const referenceAttempt = settleApplication(firstContender, referenceFirstEventId);
       await expect(
         firstLocker.query(`update webhook_events set admission_outcome = 'stale' where id = $1`, [
           referenceFirstEventId,
         ]),
       ).resolves.toMatchObject({ rowCount: 1 });
       await firstLocker.query('commit');
-      await expect(referenceAttempt).rejects.toMatchObject({ code: '23514' });
+      await expect(referenceAttempt).resolves.toMatchObject({
+        reason: { code: '23514' },
+        status: 'rejected',
+      });
     } finally {
       await firstLocker.query('rollback').catch(() => undefined);
       firstLocker.release();
@@ -716,9 +724,12 @@ describe('Phase 2 database migrations', () => {
         `update webhook_events set admission_outcome = 'stale' where id = $1`,
         [staleFirstEventId],
       );
-      const referenceAttempt = insertApplication(secondContender, staleFirstEventId);
+      const referenceAttempt = settleApplication(secondContender, staleFirstEventId);
       await secondLocker.query('commit');
-      await expect(referenceAttempt).rejects.toMatchObject({ code: '23514' });
+      await expect(referenceAttempt).resolves.toMatchObject({
+        reason: { code: '23514' },
+        status: 'rejected',
+      });
     } finally {
       await secondLocker.query('rollback').catch(() => undefined);
       secondLocker.release();

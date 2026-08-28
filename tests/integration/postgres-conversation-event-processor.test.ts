@@ -25,6 +25,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   await pool.query(
     `truncate table
+       retention_job_runs, retention_events, conversation_retention_states,
        policy_audit_outcomes, consent_events, human_pause_events,
        webhook_event_applications, conversations, channel_identities,
        contacts, webhook_events, webhook_receipts
@@ -118,6 +119,483 @@ async function waitForDatabaseLockWaiters(
 }
 
 describe('PostgresConversationEventProcessor', () => {
+  test('anchors the first customer message to the exact 60-day casual retention boundary', async () => {
+    const occurredAt = new Date('2026-01-01T12:34:56.789Z');
+    const webhookEventId = await insertSyntheticPendingEvent(pool, {
+      channel: 'messenger',
+      channelAccountId: 'PAGE_TEST_retention_first',
+      contactId: 'PSID_TEST_retention_first',
+      eventKind: 'customer_message',
+      externalMessageId: 'MID_TEST_retention_first',
+      fixtureKey: 'retention-first',
+      messageText: 'Synthetic retention boundary question',
+      occurredAt,
+    });
+
+    const result = await new PostgresConversationEventProcessor(pool).processEvent(webhookEventId);
+    if (result.status !== 'applied' || result.conversationId === undefined) {
+      throw new Error('Synthetic retention boundary event was not applied');
+    }
+
+    const state = await pool.query(
+      `select lifecycle_class, anchor_at, expires_at, relationship_status,
+              content_purged_through_at, row_version
+       from conversation_retention_states
+       where conversation_id = $1`,
+      [result.conversationId],
+    );
+    expect(state.rows).toEqual([
+      {
+        anchor_at: occurredAt,
+        content_purged_through_at: null,
+        expires_at: new Date('2026-03-02T12:34:56.789Z'),
+        lifecycle_class: 'casual_chat',
+        relationship_status: null,
+        row_version: '1',
+      },
+    ]);
+
+    const history = await pool.query(
+      `select decision_type, outcome, reason_code, actor_type, source_type,
+              previous_class, resulting_class, effective_at,
+              resulting_anchor_at, resulting_expires_at,
+              source_webhook_event_id, reviewer_reference, request_key
+       from retention_events
+       where conversation_id = $1`,
+      [result.conversationId],
+    );
+    expect(history.rows).toEqual([
+      {
+        actor_type: 'system',
+        decision_type: 'qualifying_event',
+        effective_at: occurredAt,
+        outcome: 'applied',
+        previous_class: null,
+        reason_code: 'first_customer_message',
+        request_key: `customer-webhook-event:${webhookEventId}`,
+        resulting_anchor_at: occurredAt,
+        resulting_class: 'casual_chat',
+        resulting_expires_at: new Date('2026-03-02T12:34:56.789Z'),
+        reviewer_reference: null,
+        source_type: 'customer_message',
+        source_webhook_event_id: webhookEventId,
+      },
+    ]);
+
+    const copiedTextColumns = await pool.query<{ readonly table_name: string }>(
+      `select table_name
+       from information_schema.columns
+       where table_schema = current_schema()
+         and table_name in (
+           'conversation_retention_states', 'retention_events', 'retention_job_runs'
+         )
+         and column_name = 'message_text'`,
+    );
+    expect(copiedTextColumns.rows).toEqual([]);
+  });
+
+  test('prevents rewriting event authority referenced by retention history', async () => {
+    const processor = new PostgresConversationEventProcessor(pool);
+    const referencedEventId = await insertSyntheticPendingEvent(pool, {
+      channel: 'messenger',
+      channelAccountId: 'PAGE_TEST_retention_authority_referenced',
+      contactId: 'PSID_TEST_retention_authority_referenced',
+      eventKind: 'customer_message',
+      fixtureKey: 'retention-authority-referenced',
+      messageText: 'Synthetic referenced retention event',
+      occurredAt: new Date('2026-01-01T00:00:00.000Z'),
+    });
+    const otherEventId = await insertSyntheticPendingEvent(pool, {
+      channel: 'messenger',
+      channelAccountId: 'PAGE_TEST_retention_authority_other',
+      contactId: 'PSID_TEST_retention_authority_other',
+      eventKind: 'customer_message',
+      fixtureKey: 'retention-authority-other',
+      messageText: 'Synthetic other retention event',
+      occurredAt: new Date('2026-01-02T00:00:00.000Z'),
+    });
+    const referenced = await processor.processEvent(referencedEventId);
+    const other = await processor.processEvent(otherEventId);
+    if (
+      referenced.status !== 'applied' ||
+      referenced.conversationId === undefined ||
+      other.status !== 'applied' ||
+      other.conversationId === undefined
+    ) {
+      throw new Error('Synthetic retention authority events were not applied');
+    }
+
+    await expect(
+      pool.query(
+        `update webhook_event_applications
+         set conversation_id = $2,
+             outcome = 'business_echo_paused'
+         where webhook_event_id = $1`,
+        [referencedEventId, other.conversationId],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+
+    const authority = await pool.query(
+      `select application.conversation_id, application.outcome,
+              history.conversation_id as history_conversation_id,
+              history.source_webhook_event_id
+       from webhook_event_applications as application
+       join retention_events as history
+         on history.source_webhook_event_id = application.webhook_event_id
+       where application.webhook_event_id = $1`,
+      [referencedEventId],
+    );
+    expect(authority.rows).toEqual([
+      {
+        conversation_id: referenced.conversationId,
+        history_conversation_id: referenced.conversationId,
+        outcome: 'customer_message_applied',
+        source_webhook_event_id: referencedEventId,
+      },
+    ]);
+  });
+
+  test('advances casual retention from a newer customer provider timestamp', async () => {
+    const processor = new PostgresConversationEventProcessor(pool);
+    const firstEventId = await insertSyntheticPendingEvent(pool, {
+      channel: 'whatsapp',
+      channelAccountId: 'PHONE_TEST_retention_newer',
+      contactId: 'CONTACT_TEST_retention_newer',
+      createdAt: new Date('2026-01-03T00:00:00.000Z'),
+      eventKind: 'customer_message',
+      fixtureKey: 'retention-newer-first',
+      messageText: 'Synthetic first retention event',
+      occurredAt: new Date('2026-01-01T12:34:56.789Z'),
+    });
+    const newerEventId = await insertSyntheticPendingEvent(pool, {
+      channel: 'whatsapp',
+      channelAccountId: 'PHONE_TEST_retention_newer',
+      contactId: 'CONTACT_TEST_retention_newer',
+      createdAt: new Date('2026-01-02T00:00:00.000Z'),
+      eventKind: 'customer_message',
+      fixtureKey: 'retention-newer-second',
+      messageText: 'Synthetic newer retention event',
+      occurredAt: new Date('2026-01-02T12:34:56.789Z'),
+    });
+
+    const first = await processor.processEvent(firstEventId);
+    const newer = await processor.processEvent(newerEventId);
+    if (first.status !== 'applied' || first.conversationId === undefined) {
+      throw new Error('Synthetic first retention event was not applied');
+    }
+
+    expect(newer).toMatchObject({
+      conversationId: first.conversationId,
+      outcome: 'customer_message_applied',
+      status: 'applied',
+    });
+    const state = await pool.query(
+      `select lifecycle_class, anchor_at, expires_at, row_version
+       from conversation_retention_states
+       where conversation_id = $1`,
+      [first.conversationId],
+    );
+    expect(state.rows).toEqual([
+      {
+        anchor_at: new Date('2026-01-02T12:34:56.789Z'),
+        expires_at: new Date('2026-03-03T12:34:56.789Z'),
+        lifecycle_class: 'casual_chat',
+        row_version: '2',
+      },
+    ]);
+    const history = await pool.query(
+      `select outcome, reason_code, effective_at, resulting_anchor_at,
+              resulting_expires_at, source_webhook_event_id
+       from retention_events
+       where conversation_id = $1
+       order by id`,
+      [first.conversationId],
+    );
+    expect(history.rows).toEqual([
+      {
+        effective_at: new Date('2026-01-01T12:34:56.789Z'),
+        outcome: 'applied',
+        reason_code: 'first_customer_message',
+        resulting_anchor_at: new Date('2026-01-01T12:34:56.789Z'),
+        resulting_expires_at: new Date('2026-03-02T12:34:56.789Z'),
+        source_webhook_event_id: firstEventId,
+      },
+      {
+        effective_at: new Date('2026-01-02T12:34:56.789Z'),
+        outcome: 'applied',
+        reason_code: 'casual_activity',
+        resulting_anchor_at: new Date('2026-01-02T12:34:56.789Z'),
+        resulting_expires_at: new Date('2026-03-03T12:34:56.789Z'),
+        source_webhook_event_id: newerEventId,
+      },
+    ]);
+  });
+
+  test.each([
+    {
+      caseName: 'older',
+      fixtureKey: 'retention-order-older',
+      occurredAt: new Date('2026-01-01T12:34:56.788Z'),
+    },
+    {
+      caseName: 'equal',
+      fixtureKey: 'retention-order-equal',
+      occurredAt: new Date('2026-01-01T12:34:56.789Z'),
+    },
+  ])(
+    'records an ignored decision for an $caseName customer timestamp without moving the casual anchor',
+    async ({ fixtureKey, occurredAt }) => {
+      const processor = new PostgresConversationEventProcessor(pool);
+      const firstEventId = await insertSyntheticPendingEvent(pool, {
+        channel: 'messenger',
+        channelAccountId: `PAGE_TEST_${fixtureKey}`,
+        contactId: `PSID_TEST_${fixtureKey}`,
+        eventKind: 'customer_message',
+        fixtureKey: `${fixtureKey}-first`,
+        messageText: 'Synthetic retention ordering anchor',
+        occurredAt: new Date('2026-01-01T12:34:56.789Z'),
+      });
+      const delayedEventId = await insertSyntheticPendingEvent(pool, {
+        channel: 'messenger',
+        channelAccountId: `PAGE_TEST_${fixtureKey}`,
+        contactId: `PSID_TEST_${fixtureKey}`,
+        createdAt: new Date('2026-01-02T12:34:56.789Z'),
+        eventKind: 'customer_message',
+        fixtureKey: `${fixtureKey}-delayed`,
+        messageText: 'Synthetic delayed retention event',
+        occurredAt,
+      });
+
+      const first = await processor.processEvent(firstEventId);
+      await processor.processEvent(delayedEventId);
+      if (first.status !== 'applied' || first.conversationId === undefined) {
+        throw new Error('Synthetic retention ordering anchor was not applied');
+      }
+
+      const state = await pool.query(
+        `select anchor_at, expires_at, row_version
+         from conversation_retention_states
+         where conversation_id = $1`,
+        [first.conversationId],
+      );
+      expect(state.rows).toEqual([
+        {
+          anchor_at: new Date('2026-01-01T12:34:56.789Z'),
+          expires_at: new Date('2026-03-02T12:34:56.789Z'),
+          row_version: '1',
+        },
+      ]);
+      const history = await pool.query(
+        `select outcome, reason_code, effective_at, resulting_anchor_at,
+                resulting_expires_at, source_webhook_event_id
+         from retention_events
+         where conversation_id = $1
+         order by id`,
+        [first.conversationId],
+      );
+      expect(history.rows).toEqual([
+        {
+          effective_at: new Date('2026-01-01T12:34:56.789Z'),
+          outcome: 'applied',
+          reason_code: 'first_customer_message',
+          resulting_anchor_at: new Date('2026-01-01T12:34:56.789Z'),
+          resulting_expires_at: new Date('2026-03-02T12:34:56.789Z'),
+          source_webhook_event_id: firstEventId,
+        },
+        {
+          effective_at: occurredAt,
+          outcome: 'ignored',
+          reason_code: 'out_of_order_ignored',
+          resulting_anchor_at: new Date('2026-01-01T12:34:56.789Z'),
+          resulting_expires_at: new Date('2026-03-02T12:34:56.789Z'),
+          source_webhook_event_id: delayedEventId,
+        },
+      ]);
+    },
+  );
+
+  test.each([
+    {
+      caseName: 'before',
+      fixtureKey: 'retention-purged-before',
+      occurredAt: new Date('2026-01-01T12:34:56.788Z'),
+    },
+    {
+      caseName: 'at',
+      fixtureKey: 'retention-purged-at',
+      occurredAt: new Date('2026-01-02T12:34:56.789Z'),
+    },
+  ])(
+    'clears late message content $caseName an already-purged boundary without moving retention',
+    async ({ fixtureKey, occurredAt }) => {
+      const processor = new PostgresConversationEventProcessor(pool);
+      const anchorAt = new Date('2026-01-02T12:34:56.789Z');
+      const firstEventId = await insertSyntheticPendingEvent(pool, {
+        channel: 'whatsapp',
+        channelAccountId: `PHONE_TEST_${fixtureKey}`,
+        contactId: `CONTACT_TEST_${fixtureKey}`,
+        eventKind: 'customer_message',
+        fixtureKey: `${fixtureKey}-anchor`,
+        messageText: 'Synthetic purged retention anchor',
+        occurredAt: anchorAt,
+      });
+      const first = await processor.processEvent(firstEventId);
+      if (first.status !== 'applied' || first.conversationId === undefined) {
+        throw new Error('Synthetic purged retention anchor was not applied');
+      }
+      await pool.query(
+        `update conversation_retention_states
+         set content_purged_through_at = $2
+         where conversation_id = $1`,
+        [first.conversationId, anchorAt],
+      );
+      const lateEventId = await insertSyntheticPendingEvent(pool, {
+        channel: 'whatsapp',
+        channelAccountId: `PHONE_TEST_${fixtureKey}`,
+        contactId: `CONTACT_TEST_${fixtureKey}`,
+        createdAt: new Date('2026-01-03T12:34:56.789Z'),
+        eventKind: 'customer_message',
+        fixtureKey: `${fixtureKey}-late`,
+        messageText: 'Synthetic content that cannot be resurrected',
+        occurredAt,
+      });
+
+      const late = await processor.processEvent(lateEventId);
+
+      expect(late).toMatchObject({
+        conversationId: first.conversationId,
+        outcome: 'customer_message_applied',
+        status: 'applied',
+      });
+      const state = await pool.query(
+        `select anchor_at, expires_at, content_purged_through_at, row_version
+         from conversation_retention_states
+         where conversation_id = $1`,
+        [first.conversationId],
+      );
+      expect(state.rows).toEqual([
+        {
+          anchor_at: anchorAt,
+          content_purged_through_at: anchorAt,
+          expires_at: new Date('2026-03-03T12:34:56.789Z'),
+          row_version: '1',
+        },
+      ]);
+      const lateEvidence = await pool.query(
+        `select
+           (select message_text from webhook_events where id = $2) as message_text,
+           outcome, reason_code, resulting_anchor_at, resulting_expires_at,
+           source_webhook_event_id
+         from retention_events
+         where conversation_id = $1
+           and source_webhook_event_id = $2`,
+        [first.conversationId, lateEventId],
+      );
+      expect(lateEvidence.rows).toEqual([
+        {
+          message_text: null,
+          outcome: 'ignored',
+          reason_code: 'purged_boundary_preserved',
+          resulting_anchor_at: anchorAt,
+          resulting_expires_at: new Date('2026-03-03T12:34:56.789Z'),
+          source_webhook_event_id: lateEventId,
+        },
+      ]);
+    },
+  );
+
+  test.each([
+    {
+      caseName: 'lead',
+      expectedAnchorAt: new Date('2026-01-01T12:34:56.789Z'),
+      expectedExpiresAt: new Date('2027-01-01T12:34:56.789Z'),
+      fixtureKey: 'retention-precedence-lead',
+      lifecycleClass: 'unconverted_lead',
+      stateSql: `update conversation_retention_states
+                 set lifecycle_class = 'unconverted_lead',
+                     expires_at = '2027-01-01T12:34:56.789Z'
+                 where conversation_id = $1`,
+    },
+    {
+      caseName: 'active client',
+      expectedAnchorAt: null,
+      expectedExpiresAt: null,
+      fixtureKey: 'retention-precedence-active',
+      lifecycleClass: 'active_client',
+      stateSql: `update conversation_retention_states
+                 set lifecycle_class = 'active_client',
+                     anchor_at = null,
+                     expires_at = null,
+                     relationship_status = 'open',
+                     relationship_started_at = '2025-12-01T00:00:00.000Z',
+                     last_active_review_at = '2026-01-01T00:00:00.000Z',
+                     next_active_review_at = '2027-01-01T00:00:00.000Z'
+                 where conversation_id = $1`,
+    },
+  ])(
+    'preserves $caseName precedence when a newer customer message arrives',
+    async ({ expectedAnchorAt, expectedExpiresAt, fixtureKey, lifecycleClass, stateSql }) => {
+      const processor = new PostgresConversationEventProcessor(pool);
+      const firstEventId = await insertSyntheticPendingEvent(pool, {
+        channel: 'messenger',
+        channelAccountId: `PAGE_TEST_${fixtureKey}`,
+        contactId: `PSID_TEST_${fixtureKey}`,
+        eventKind: 'customer_message',
+        fixtureKey: `${fixtureKey}-first`,
+        messageText: 'Synthetic precedence seed',
+        occurredAt: new Date('2026-01-01T12:34:56.789Z'),
+      });
+      const first = await processor.processEvent(firstEventId);
+      if (first.status !== 'applied' || first.conversationId === undefined) {
+        throw new Error('Synthetic precedence seed was not applied');
+      }
+      await pool.query(stateSql, [first.conversationId]);
+      const newerEventId = await insertSyntheticPendingEvent(pool, {
+        channel: 'messenger',
+        channelAccountId: `PAGE_TEST_${fixtureKey}`,
+        contactId: `PSID_TEST_${fixtureKey}`,
+        eventKind: 'customer_message',
+        fixtureKey: `${fixtureKey}-newer`,
+        messageText: 'Synthetic lower-precedence customer event',
+        occurredAt: new Date('2026-01-02T12:34:56.789Z'),
+      });
+
+      await processor.processEvent(newerEventId);
+
+      const state = await pool.query(
+        `select lifecycle_class, anchor_at, expires_at
+         from conversation_retention_states
+         where conversation_id = $1`,
+        [first.conversationId],
+      );
+      expect(state.rows).toEqual([
+        {
+          anchor_at: expectedAnchorAt,
+          expires_at: expectedExpiresAt,
+          lifecycle_class: lifecycleClass,
+        },
+      ]);
+      const evidence = await pool.query(
+        `select outcome, reason_code, previous_class, resulting_class,
+                effective_at, resulting_anchor_at, resulting_expires_at
+         from retention_events
+         where source_webhook_event_id = $1`,
+        [newerEventId],
+      );
+      expect(evidence.rows).toEqual([
+        {
+          effective_at: new Date('2026-01-02T12:34:56.789Z'),
+          outcome: 'ignored',
+          previous_class: lifecycleClass,
+          reason_code: 'higher_precedence_preserved',
+          resulting_anchor_at: expectedAnchorAt,
+          resulting_class: lifecycleClass,
+          resulting_expires_at: expectedExpiresAt,
+        },
+      ]);
+    },
+  );
+
   test('applies a customer message to bounded policy state without copying its text', async () => {
     const webhookEventId = await insertSyntheticPendingEvent(pool, {
       channel: 'messenger',
@@ -287,8 +765,9 @@ describe('PostgresConversationEventProcessor', () => {
          on webhook_events to "${restrictedRole}";
        grant select, insert, update on
          contacts, channel_identities, conversations, webhook_event_applications,
-         human_pause_events, policy_audit_outcomes
+         human_pause_events, policy_audit_outcomes, conversation_retention_states
          to "${restrictedRole}";
+       grant insert on retention_events to "${restrictedRole}";
        grant usage, select on all sequences in schema "${testSchema}"
          to "${restrictedRole}"`,
     );
@@ -345,9 +824,13 @@ describe('PostgresConversationEventProcessor', () => {
     const counts = await pool.query(
       `select
          (select count(*)::int from webhook_event_applications) as applications,
-         (select count(*)::int from policy_audit_outcomes) as audits`,
+         (select count(*)::int from policy_audit_outcomes) as audits,
+         (select count(*)::int from conversation_retention_states) as retention_states,
+         (select count(*)::int from retention_events) as retention_events`,
     );
-    expect(counts.rows).toEqual([{ applications: 1, audits: 1 }]);
+    expect(counts.rows).toEqual([
+      { applications: 1, audits: 1, retention_events: 1, retention_states: 1 },
+    ]);
   });
 
   test('replaying the same echo cannot mutate its pause application', async () => {
@@ -371,7 +854,9 @@ describe('PostgresConversationEventProcessor', () => {
                where source_webhook_event_id = $2) as pause_history_count,
               (select count(*)::int
                from webhook_event_applications
-               where webhook_event_id = $2) as application_count
+               where webhook_event_id = $2) as application_count,
+              (select count(*)::int from conversation_retention_states) as retention_states,
+              (select count(*)::int from retention_events) as retention_events
        from conversations
        where id = $1`,
       [conversationId, echoEventId],
@@ -390,6 +875,8 @@ describe('PostgresConversationEventProcessor', () => {
         ai_paused_until: new Date('2026-08-12T02:05:00.000Z'),
         application_count: 1,
         pause_history_count: 1,
+        retention_events: 0,
+        retention_states: 0,
         row_version: '2',
       },
     ]);
@@ -400,7 +887,9 @@ describe('PostgresConversationEventProcessor', () => {
                where source_webhook_event_id = $2) as pause_history_count,
               (select count(*)::int
                from webhook_event_applications
-               where webhook_event_id = $2) as application_count
+               where webhook_event_id = $2) as application_count,
+              (select count(*)::int from conversation_retention_states) as retention_states,
+              (select count(*)::int from retention_events) as retention_events
        from conversations
        where id = $1`,
       [conversationId, echoEventId],
@@ -433,42 +922,24 @@ describe('PostgresConversationEventProcessor', () => {
     }
     const processor = new PostgresConversationEventProcessor(contentionPool);
     const blocker = await pool.connect();
-    const advisoryLockKey = 4_204_001;
-    let leaderCall: ReturnType<PostgresConversationEventProcessor['processEvent']> | undefined;
     let blockerTransactionOpen = false;
     let calls: ReturnType<PostgresConversationEventProcessor['processEvent']>[] = [];
-    const followerCalls = () =>
-      Array.from({ length: contentionCallerCount - 1 }, () =>
-        processor.processEvent(webhookEventId),
-      );
     let results: Awaited<ReturnType<PostgresConversationEventProcessor['processEvent']>>[];
 
     try {
-      await pool.query(
-        `create function synthetic_hold_event_selection()
-         returns boolean language plpgsql volatile as $$
-         begin
-           perform pg_advisory_xact_lock_shared(4204001);
-           return true;
-         end;
-         $$;
-         alter table webhook_events rename to synthetic_webhook_events_base;
-         create view webhook_events as
-           select * from synthetic_webhook_events_base
-           where synthetic_hold_event_selection()`,
-      );
       await blocker.query('begin');
       blockerTransactionOpen = true;
-      await blocker.query(`select pg_advisory_xact_lock($1)`, [advisoryLockKey]);
+      await blocker.query(`select id from webhook_events where id = $1 for update`, [
+        webhookEventId,
+      ]);
 
-      leaderCall = processor.processEvent(webhookEventId);
-      calls = [leaderCall];
-      await waitForDatabaseLockWaiters(applicationName, 1, 250);
+      calls = Array.from({ length: contentionCallerCount }, () =>
+        processor.processEvent(webhookEventId),
+      );
+      expect(calls).toHaveLength(contentionCallerCount);
+      await waitForDatabaseLockWaiters(applicationName, contentionCallerCount, 250);
       await blocker.query('commit');
       blockerTransactionOpen = false;
-      calls.push(...followerCalls());
-      expect(calls).toHaveLength(contentionCallerCount);
-      await waitForDatabaseLockWaiters(applicationName, contentionCallerCount - 1, 250);
       results = await Promise.all(calls);
     } finally {
       if (blockerTransactionOpen) {
@@ -477,11 +948,6 @@ describe('PostgresConversationEventProcessor', () => {
       await Promise.allSettled(calls);
       blocker.release();
       await contentionPool.end();
-      await pool.query(
-        `drop view if exists webhook_events;
-         alter table synthetic_webhook_events_base rename to webhook_events;
-         drop function if exists synthetic_hold_event_selection()`,
-      );
     }
 
     expect(results.filter((result) => result.status === 'applied')).toHaveLength(1);
@@ -494,10 +960,20 @@ describe('PostgresConversationEventProcessor', () => {
          (select count(*)::int from channel_identities) as identities,
          (select count(*)::int from conversations) as conversations,
          (select count(*)::int from webhook_event_applications) as applications,
-         (select count(*)::int from policy_audit_outcomes) as audits`,
+         (select count(*)::int from policy_audit_outcomes) as audits,
+         (select count(*)::int from conversation_retention_states) as retention_states,
+         (select count(*)::int from retention_events) as retention_events`,
     );
     expect(counts.rows).toEqual([
-      { applications: 1, audits: 1, contacts: 1, conversations: 1, identities: 1 },
+      {
+        applications: 1,
+        audits: 1,
+        contacts: 1,
+        conversations: 1,
+        identities: 1,
+        retention_events: 1,
+        retention_states: 1,
+      },
     ]);
   });
 
@@ -742,10 +1218,20 @@ describe('PostgresConversationEventProcessor', () => {
          (select count(*)::int from channel_identities) as identities,
          (select count(*)::int from conversations) as conversations,
          (select count(*)::int from webhook_event_applications) as applications,
-         (select count(*)::int from policy_audit_outcomes) as audits`,
+         (select count(*)::int from policy_audit_outcomes) as audits,
+         (select count(*)::int from conversation_retention_states) as retention_states,
+         (select count(*)::int from retention_events) as retention_events`,
     );
     expect(counts.rows).toEqual([
-      { applications: 1, audits: 1, contacts: 0, conversations: 0, identities: 0 },
+      {
+        applications: 1,
+        audits: 1,
+        contacts: 0,
+        conversations: 0,
+        identities: 0,
+        retention_events: 0,
+        retention_states: 0,
+      },
     ]);
   });
 
@@ -838,13 +1324,19 @@ describe('PostgresConversationEventProcessor', () => {
       status: 'applied',
     });
     const state = await pool.query(
-      `select ai_paused_until, last_activity_at, row_version,
+      `select ai_paused_until, last_activity_at, conversations.row_version,
               pause.action, pause.effective_at, pause.resulting_pause_until,
               pause.actor_kind, pause.source_webhook_event_id,
               application.outcome as application_outcome,
-              audit.outcome as audit_outcome, audit.reason_code
+              audit.outcome as audit_outcome, audit.reason_code,
+              retention.anchor_at as retention_anchor_at,
+              retention.expires_at as retention_expires_at,
+              retention.row_version as retention_row_version,
+              (select count(*)::int from retention_events) as retention_events
        from conversations
        join human_pause_events as pause on pause.conversation_id = conversations.id
+       join conversation_retention_states as retention
+         on retention.conversation_id = conversations.id
        join webhook_event_applications as application
          on application.webhook_event_id = pause.source_webhook_event_id
        join policy_audit_outcomes as audit
@@ -860,6 +1352,10 @@ describe('PostgresConversationEventProcessor', () => {
         effective_at: new Date('2026-08-11T05:00:00.000Z'),
         last_activity_at: new Date('2026-08-11T05:00:00.000Z'),
         reason_code: 'business_echo_pause',
+        retention_anchor_at: new Date('2026-08-11T04:00:00.000Z'),
+        retention_events: 1,
+        retention_expires_at: new Date('2026-10-10T04:00:00.000Z'),
+        retention_row_version: '1',
         resulting_pause_until: new Date('2026-08-12T05:00:00.000Z'),
         row_version: '2',
         source_webhook_event_id: echoEventId,
@@ -1011,6 +1507,62 @@ describe('PostgresConversationEventProcessor', () => {
         exact_effective_at: true,
         exact_resulting_pause_until: true,
         row_version: '3',
+      },
+    ]);
+  });
+
+  test('rolls back customer policy state when retention history insertion fails', async () => {
+    const webhookEventId = await insertSyntheticPendingEvent(pool, {
+      channel: 'whatsapp',
+      channelAccountId: 'PHONE_TEST_retention_rollback',
+      contactId: 'CONTACT_TEST_retention_rollback',
+      eventKind: 'customer_message',
+      fixtureKey: 'retention-rollback',
+      messageText: 'Synthetic retention rollback question',
+      occurredAt: new Date('2026-08-11T10:00:00.000Z'),
+    });
+    await pool.query(
+      `create function synthetic_reject_retention_history()
+       returns trigger language plpgsql as $$
+       begin
+         raise exception using errcode = 'P0001', message = 'synthetic retention rejection';
+       end;
+       $$;
+       create trigger synthetic_reject_retention_history
+         before insert on retention_events
+         for each row execute function synthetic_reject_retention_history()`,
+    );
+
+    try {
+      await expect(
+        new PostgresConversationEventProcessor(pool).processEvent(webhookEventId),
+      ).rejects.toMatchObject({ code: 'P0001' });
+    } finally {
+      await pool.query(
+        `drop trigger if exists synthetic_reject_retention_history on retention_events;
+         drop function if exists synthetic_reject_retention_history()`,
+      );
+    }
+
+    const counts = await pool.query(
+      `select
+         (select count(*)::int from contacts) as contacts,
+         (select count(*)::int from channel_identities) as identities,
+         (select count(*)::int from conversations) as conversations,
+         (select count(*)::int from webhook_event_applications) as applications,
+         (select count(*)::int from policy_audit_outcomes) as audits,
+         (select count(*)::int from conversation_retention_states) as retention_states,
+         (select count(*)::int from retention_events) as retention_events`,
+    );
+    expect(counts.rows).toEqual([
+      {
+        applications: 0,
+        audits: 0,
+        contacts: 0,
+        conversations: 0,
+        identities: 0,
+        retention_events: 0,
+        retention_states: 0,
       },
     ]);
   });

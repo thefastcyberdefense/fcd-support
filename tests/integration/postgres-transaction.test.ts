@@ -36,6 +36,37 @@ describe('withBoundedTransaction', () => {
     expect(result.rows).toEqual([{ receipts: 1 }]);
   });
 
+  test('applies a two-second transaction-local lock budget', async () => {
+    const settings = await withBoundedTransaction(pool, async (client) =>
+      client.query<{
+        readonly lock_timeout: string;
+        readonly statement_timeout: string;
+        readonly transaction_timeout: string;
+      }>(
+        `select current_setting('lock_timeout') as lock_timeout,
+                current_setting('statement_timeout') as statement_timeout,
+                current_setting('transaction_timeout') as transaction_timeout`,
+      ),
+    );
+
+    expect(settings.rows).toEqual([
+      { lock_timeout: '2s', statement_timeout: '3s', transaction_timeout: '3500ms' },
+    ]);
+  });
+
+  test('honors the 750-millisecond public admission override', async () => {
+    const settings = await withBoundedTransaction(
+      pool,
+      async (client) =>
+        client.query<{ readonly lock_timeout: string }>(
+          `select current_setting('lock_timeout') as lock_timeout`,
+        ),
+      { lockTimeoutMilliseconds: 750 },
+    );
+
+    expect(settings.rows).toEqual([{ lock_timeout: '750ms' }]);
+  });
+
   test('rolls back a synthetic receipt when the operation throws', async () => {
     await expect(
       withBoundedTransaction(pool, async (client) => {

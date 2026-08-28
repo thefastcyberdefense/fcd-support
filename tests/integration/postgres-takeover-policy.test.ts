@@ -22,6 +22,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   await pool.query(
     `truncate table
+       retention_job_runs, retention_events, conversation_retention_states,
        policy_audit_outcomes, consent_events, human_pause_events,
        webhook_event_applications, conversations, channel_identities,
        contacts, webhook_events, webhook_receipts

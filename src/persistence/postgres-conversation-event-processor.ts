@@ -7,6 +7,7 @@ import {
   resolveChannelIdentity,
   resolveIdentityAndConversation,
 } from './postgres-policy-helpers.js';
+import { applyCustomerMessageRetention } from './postgres-retention-policy.js';
 import { withBoundedTransaction } from './postgres-transaction.js';
 
 interface WebhookEventRow {
@@ -257,6 +258,11 @@ export class PostgresConversationEventProcessor {
        values ($1, $2, 'customer_message_applied')`,
       [event.id, state.conversationId],
     );
+    await applyCustomerMessageRetention(client, {
+      conversationId: state.conversationId,
+      occurredAt: normalized.occurredAt,
+      webhookEventId: event.id,
+    });
     await insertPolicyAuditOutcome(client, {
       channelIdentityId: state.identityId,
       conversationId: state.conversationId,

@@ -25,6 +25,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   await pool.query(
     `truncate table
+       retention_job_runs, retention_events, conversation_retention_states,
        policy_audit_outcomes, consent_events, human_pause_events,
        webhook_event_applications, conversations, channel_identities,
        contacts, webhook_events, webhook_receipts
@@ -669,7 +670,9 @@ describe('PostgresConsentPolicy consent recording', () => {
 
     await pool.query(
       `alter table webhook_event_applications
-       disable trigger webhook_event_applications_authoritative_stability`,
+       disable trigger webhook_event_applications_authoritative_stability;
+       alter table webhook_event_applications
+       disable trigger webhook_event_applications_retention_stability`,
     );
     try {
       const invalidated = await pool.query(
@@ -689,6 +692,8 @@ describe('PostgresConsentPolicy consent recording', () => {
     } finally {
       await pool.query(
         `alter table webhook_event_applications
+         enable trigger webhook_event_applications_retention_stability;
+         alter table webhook_event_applications
          enable trigger webhook_event_applications_authoritative_stability`,
       );
     }
@@ -1189,6 +1194,12 @@ describe('PostgresConsentPolicy marketing eligibility', () => {
   test('applies revoke and later re-grant immediately', async () => {
     const { identity } = await createCustomerIdentity({ fixtureKey: 'revoke-regrant' });
     const policy = new PostgresConsentPolicy(pool);
+    const retentionBefore = await pool.query(
+      `select to_jsonb(state) as state,
+              (select jsonb_agg(to_jsonb(history) order by history.id)
+               from retention_events as history) as history
+       from conversation_retention_states as state`,
+    );
     const grant = reviewerCommand({
       fixtureKey: 'grant-first',
       identity,
@@ -1227,6 +1238,13 @@ describe('PostgresConsentPolicy marketing eligibility', () => {
         new Date('2026-08-11T16:02:01.000Z'),
       ),
     ).resolves.toEqual({ eligible: true, reason: 'consent_latest_grant' });
+    const retentionAfter = await pool.query(
+      `select to_jsonb(state) as state,
+              (select jsonb_agg(to_jsonb(history) order by history.id)
+               from retention_events as history) as history
+       from conversation_retention_states as state`,
+    );
+    expect(retentionAfter.rows).toEqual(retentionBefore.rows);
   });
 
   test('uses higher database ID for equal source times and ignores older late inserts', async () => {

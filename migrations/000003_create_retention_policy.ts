@@ -115,7 +115,8 @@ export function up(pgm: MigrationBuilder): void {
       relationship_ended_at timestamptz,
       final_paid_service_completed_at timestamptz,
       next_active_review_at timestamptz,
-      source_webhook_event_id bigint references webhook_events(id),
+      source_webhook_event_id bigint
+        references webhook_event_applications(webhook_event_id),
       reviewer_reference text,
       request_key text not null unique,
       created_at timestamptz not null default now(),
@@ -193,11 +194,45 @@ export function up(pgm: MigrationBuilder): void {
     create trigger retention_job_runs_append_only
       before update or delete on retention_job_runs
       for each row execute function reject_retention_evidence_mutation();
+
+    create function enforce_retention_application_stability()
+    returns trigger
+    language plpgsql
+    as $$
+    begin
+      if exists (
+        select 1
+        from retention_events
+        where source_webhook_event_id = old.webhook_event_id
+      ) then
+        if tg_op = 'DELETE' then
+          raise exception using
+            errcode = '23514',
+            message = 'retention source application is immutable';
+        end if;
+        if new.conversation_id is distinct from old.conversation_id
+           or new.outcome is distinct from old.outcome then
+          raise exception using
+            errcode = '23514',
+            message = 'retention source application is immutable';
+        end if;
+      end if;
+
+      return case when tg_op = 'DELETE' then old else new end;
+    end;
+    $$;
+
+    create trigger webhook_event_applications_retention_stability
+      before update or delete on webhook_event_applications
+      for each row execute function enforce_retention_application_stability();
   `);
 }
 
 export function down(pgm: MigrationBuilder): void {
   pgm.sql(`
+    drop trigger webhook_event_applications_retention_stability
+      on webhook_event_applications;
+    drop function enforce_retention_application_stability();
     drop table retention_job_runs;
     drop table retention_events;
     drop table conversation_retention_states;
