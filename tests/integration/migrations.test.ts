@@ -20,8 +20,34 @@ afterAll(async () => {
   await disposeDatabase?.();
 });
 
+async function createSyntheticConversation(fixtureKey: string): Promise<string> {
+  const contact = await pool.query<{ readonly id: string }>(
+    `insert into contacts default values returning id`,
+  );
+  const identity = await pool.query<{ readonly id: string }>(
+    `insert into channel_identities
+       (contact_id, channel, channel_account_id, external_contact_id,
+        first_seen_at, last_seen_at)
+     values ($1, 'messenger', $2, $3,
+             '2026-08-27T00:00:00Z', '2026-08-27T00:00:00Z')
+     returning id`,
+    [contact.rows[0]?.id, `PAGE_TEST_retention_${fixtureKey}`, `PSID_TEST_retention_${fixtureKey}`],
+  );
+  const conversation = await pool.query<{ readonly id: string }>(
+    `insert into conversations (channel_identity_id, created_at, last_activity_at)
+     values ($1, '2026-08-27T00:00:00Z', '2026-08-27T00:00:00Z')
+     returning id`,
+    [identity.rows[0]?.id],
+  );
+  const conversationId = conversation.rows[0]?.id;
+  if (conversationId === undefined) {
+    throw new Error('Synthetic retention conversation insert returned no identifier');
+  }
+  return conversationId;
+}
+
 describe('Phase 2 database migrations', () => {
-  test('create the Phase 2 and Phase 3A tables', async () => {
+  test('create the Phase 2, Phase 3A, and retention policy tables', async () => {
     const result = await pool.query<{ readonly table_name: string }>(
       `select table_name
        from information_schema.tables
@@ -30,9 +56,12 @@ describe('Phase 2 database migrations', () => {
            'channel_identities',
            'consent_events',
            'contacts',
+           'conversation_retention_states',
            'conversations',
            'human_pause_events',
            'policy_audit_outcomes',
+           'retention_events',
+           'retention_job_runs',
            'webhook_event_applications',
            'webhook_events',
            'webhook_receipts'
@@ -45,13 +74,164 @@ describe('Phase 2 database migrations', () => {
       { table_name: 'channel_identities' },
       { table_name: 'consent_events' },
       { table_name: 'contacts' },
+      { table_name: 'conversation_retention_states' },
       { table_name: 'conversations' },
       { table_name: 'human_pause_events' },
       { table_name: 'policy_audit_outcomes' },
+      { table_name: 'retention_events' },
+      { table_name: 'retention_job_runs' },
       { table_name: 'webhook_event_applications' },
       { table_name: 'webhook_events' },
       { table_name: 'webhook_receipts' },
     ]);
+  });
+
+  test('enforce retention state combinations and append-only bounded evidence', async () => {
+    const [
+      validId,
+      invalidClassId,
+      casualMissingId,
+      activeDeadlineId,
+      closedMissingId,
+      badDeadlineId,
+    ] = await Promise.all(
+      [
+        'valid',
+        'invalid-class',
+        'casual-missing',
+        'active-deadline',
+        'closed-missing',
+        'bad-deadline',
+      ].map(async (fixtureKey) => createSyntheticConversation(fixtureKey)),
+    );
+
+    await pool.query(
+      `insert into conversation_retention_states
+         (conversation_id, lifecycle_class, anchor_at, expires_at)
+       values ($1, 'casual_chat', '2026-08-27T00:00:00Z', '2026-10-26T00:00:00Z')`,
+      [validId],
+    );
+
+    await expect(
+      pool.query(
+        `insert into conversation_retention_states
+           (conversation_id, lifecycle_class, anchor_at, expires_at)
+         values ($1, 'unknown', '2026-08-27T00:00:00Z', '2026-10-26T00:00:00Z')`,
+        [invalidClassId],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+    await expect(
+      pool.query(
+        `insert into conversation_retention_states (conversation_id, lifecycle_class)
+         values ($1, 'casual_chat')`,
+        [casualMissingId],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+    await expect(
+      pool.query(
+        `insert into conversation_retention_states
+           (conversation_id, lifecycle_class, anchor_at, expires_at,
+            relationship_status, relationship_started_at,
+            last_active_review_at, next_active_review_at)
+         values ($1, 'active_client', '2026-08-27T00:00:00Z',
+                 '2028-08-27T00:00:00Z', 'open', '2026-08-01T00:00:00Z',
+                 '2026-08-27T00:00:00Z', '2027-08-27T00:00:00Z')`,
+        [activeDeadlineId],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+    await expect(
+      pool.query(
+        `insert into conversation_retention_states
+           (conversation_id, lifecycle_class, relationship_status,
+            relationship_started_at, relationship_ended_at,
+            last_active_review_at)
+         values ($1, 'active_client', 'closed', '2026-01-01T00:00:00Z',
+                 '2026-08-20T00:00:00Z', '2026-08-01T00:00:00Z')`,
+        [closedMissingId],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+    await expect(
+      pool.query(
+        `insert into conversation_retention_states
+           (conversation_id, lifecycle_class, anchor_at, expires_at)
+         values ($1, 'unconverted_lead', '2026-08-27T00:00:00Z',
+                 '2026-08-27T00:00:00Z')`,
+        [badDeadlineId],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+
+    const history = await pool.query<{ readonly id: string }>(
+      `insert into retention_events
+         (conversation_id, decision_type, outcome, reason_code, actor_type,
+          source_type, resulting_class, effective_at, resulting_anchor_at,
+          resulting_expires_at, reviewer_reference, request_key)
+       values ($1, 'classification_change', 'applied',
+               'active_relationship_started', 'policy_owner',
+               'reviewer_command', 'active_client', '2026-08-27T00:00:00Z',
+               null, null, 'synthetic-policy-owner', 'synthetic-retention-history')
+       returning id`,
+      [validId],
+    );
+    const historyId = history.rows[0]?.id;
+    expect(historyId).toBeDefined();
+
+    await expect(
+      pool.query(
+        `insert into retention_events
+           (conversation_id, decision_type, outcome, reason_code, actor_type,
+            source_type, resulting_class, effective_at, request_key)
+         values ($1, 'classification_change', 'applied', 'invalid_reason',
+                 'policy_owner', 'reviewer_command', 'active_client',
+                 '2026-08-27T00:00:00Z', 'synthetic-invalid-retention-history')`,
+        [validId],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+    await expect(
+      pool.query(
+        `insert into retention_events
+           (conversation_id, decision_type, outcome, reason_code, actor_type,
+            source_type, resulting_class, effective_at, reviewer_reference,
+            request_key)
+         values ($1, 'classification_change', 'applied',
+                 'active_relationship_started', 'policy_owner',
+                 'reviewer_command', 'active_client', '2026-08-27T00:00:00Z',
+                 'synthetic-policy-owner', 'synthetic-retention-history')`,
+        [validId],
+      ),
+    ).rejects.toMatchObject({ code: '23505' });
+
+    const job = await pool.query<{ readonly id: string }>(
+      `insert into retention_job_runs
+         (request_key, evaluated_at, requested_limit, status,
+          conversations_processed, messages_purged)
+       values ('synthetic-retention-job', '2026-10-26T00:00:00Z', 10,
+               'applied', 1, 2)
+       returning id`,
+    );
+    const jobId = job.rows[0]?.id;
+    expect(jobId).toBeDefined();
+    await expect(
+      pool.query(
+        `insert into retention_job_runs
+           (request_key, evaluated_at, requested_limit, status,
+            conversations_processed, messages_purged)
+         values ('synthetic-invalid-retention-job', '2026-10-26T00:00:00Z',
+                 0, 'invalid', -1, -1)`,
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+
+    const [historyUpdate, historyDelete, jobUpdate, jobDelete] = await Promise.allSettled([
+      pool.query(`update retention_events set outcome = 'ignored' where id = $1`, [historyId]),
+      pool.query(`delete from retention_events where id = $1`, [historyId]),
+      pool.query(`update retention_job_runs set messages_purged = 0 where id = $1`, [jobId]),
+      pool.query(`delete from retention_job_runs where id = $1`, [jobId]),
+    ]);
+    for (const mutation of [historyUpdate, historyDelete, jobUpdate, jobDelete]) {
+      expect(mutation.status).toBe('rejected');
+      if (mutation.status === 'rejected') {
+        expect(mutation.reason).toMatchObject({ code: '23514' });
+      }
+    }
   });
 
   test('enforce receipt digest uniqueness and format', async () => {
@@ -773,8 +953,8 @@ describe('Phase 2 database migrations', () => {
     ]);
   });
 
-  test('roll back and reapply the Phase 2 and Phase 3A migrations', async () => {
-    await runMigrations('down', 2);
+  test('roll back and reapply the Phase 2, Phase 3A, and retention migrations', async () => {
+    await runMigrations('down', 3);
 
     const afterRollback = await pool.query<{ readonly table_name: string }>(
       `select table_name
@@ -784,9 +964,12 @@ describe('Phase 2 database migrations', () => {
            'channel_identities',
            'consent_events',
            'contacts',
+           'conversation_retention_states',
            'conversations',
            'human_pause_events',
            'policy_audit_outcomes',
+           'retention_events',
+           'retention_job_runs',
            'webhook_event_applications',
            'webhook_events',
            'webhook_receipts'
@@ -805,9 +988,12 @@ describe('Phase 2 database migrations', () => {
            'channel_identities',
            'consent_events',
            'contacts',
+           'conversation_retention_states',
            'conversations',
            'human_pause_events',
            'policy_audit_outcomes',
+           'retention_events',
+           'retention_job_runs',
            'webhook_event_applications',
            'webhook_events',
            'webhook_receipts'
@@ -819,9 +1005,12 @@ describe('Phase 2 database migrations', () => {
       { table_name: 'channel_identities' },
       { table_name: 'consent_events' },
       { table_name: 'contacts' },
+      { table_name: 'conversation_retention_states' },
       { table_name: 'conversations' },
       { table_name: 'human_pause_events' },
       { table_name: 'policy_audit_outcomes' },
+      { table_name: 'retention_events' },
+      { table_name: 'retention_job_runs' },
       { table_name: 'webhook_event_applications' },
       { table_name: 'webhook_events' },
       { table_name: 'webhook_receipts' },
