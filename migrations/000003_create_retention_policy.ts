@@ -225,6 +225,34 @@ export function up(pgm: MigrationBuilder): void {
     create trigger webhook_event_applications_retention_stability
       before update or delete on webhook_event_applications
       for each row execute function enforce_retention_application_stability();
+
+    create function enforce_retention_source_event_stability()
+    returns trigger
+    language plpgsql
+    as $$
+    begin
+      if exists (
+        select 1
+        from retention_events
+        where source_webhook_event_id = old.id
+      ) and (
+        tg_op = 'DELETE'
+        or new.event_kind is distinct from old.event_kind
+        or new.occurred_at is distinct from old.occurred_at
+        or new.admission_outcome is distinct from old.admission_outcome
+      ) then
+        raise exception using
+          errcode = '23514',
+          message = 'retention source event is immutable';
+      end if;
+
+      return case when tg_op = 'DELETE' then old else new end;
+    end;
+    $$;
+
+    create trigger webhook_events_retention_source_stability
+      before update or delete on webhook_events
+      for each row execute function enforce_retention_source_event_stability();
   `);
 }
 
@@ -232,6 +260,8 @@ export function down(pgm: MigrationBuilder): void {
   pgm.sql(`
     drop trigger webhook_event_applications_retention_stability
       on webhook_event_applications;
+    drop trigger webhook_events_retention_source_stability on webhook_events;
+    drop function enforce_retention_source_event_stability();
     drop function enforce_retention_application_stability();
     drop table retention_job_runs;
     drop table retention_events;

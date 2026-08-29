@@ -245,7 +245,7 @@ const sourceInvalidationCases: readonly SourceInvalidationCase[] = [
   },
   {
     label: 'event deletion',
-    expectedCode: '23503',
+    expectedCode: '23514',
     sql: `delete from webhook_events where id = $1`,
     values: ({ eventId }) => [eventId],
   },
