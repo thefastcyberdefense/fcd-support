@@ -52,4 +52,18 @@ npm start
 
 Copy `.env.example` to an ignored `.env` and supply local synthetic credentials before starting. The runtime binds to `127.0.0.1` by default. `DATABASE_URL` must point to a migrated PostgreSQL database for signed POST webhooks to be accepted; without durable storage they intentionally return `503`.
 
-Integration tests require `TEST_DATABASE_URL` to name the exact `fcd_support_test` database and `ALLOW_DESTRUCTIVE_DATABASE_TESTS=fcd-support-test-only`. The guard rejects any other database before connecting, and every suite creates and removes only its own randomized schema. Tests use synthetic data. The approved test Compose service is defined in `infra/compose.test.yml`; it is isolated from existing services and publishes no host port. Do not reuse its trust-authentication configuration for production.
+Integration tests require `TEST_DATABASE_URL` to name the exact `fcd_support_test` database and `ALLOW_DESTRUCTIVE_DATABASE_TESTS=fcd-support-test-only`. The guard rejects any other database before connecting, and every suite creates and removes only its own randomized schema. Tests use synthetic data.
+
+Run the approved isolated test stack with:
+
+```text
+docker compose -f infra/compose.test.yml run --rm runner
+```
+
+Append an npm test path to target a suite, for example:
+
+```text
+docker compose -f infra/compose.test.yml run --rm runner npm run test:integration -- tests/integration/migrations.test.ts
+```
+
+The PostgreSQL service and pinned test runner share an internal-only network and publish no host ports. The runner is read-only apart from `/tmp`, mounts the current source, tests, and migrations read-only, and contains locked development dependencies. Do not reuse the test database's trust-authentication configuration for production.

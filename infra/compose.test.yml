@@ -23,6 +23,41 @@ services:
     cpus: 1.0
     mem_limit: 1g
 
+  runner:
+    image: fcd-support-integration-test:local
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.integration
+    command:
+      - npm
+      - run
+      - test:integration
+    environment:
+      ALLOW_DESTRUCTIVE_DATABASE_TESTS: fcd-support-test-only
+      TEST_DATABASE_URL: postgresql://fcd_support_test@postgres:5432/fcd_support_test
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - data
+    volumes:
+      - ../migrations:/workspace/migrations:ro
+      - ../src:/workspace/src:ro
+      - ../tests:/workspace/tests:ro
+      - ../tsconfig.json:/workspace/tsconfig.json:ro
+      - ../vitest.integration.config.ts:/workspace/vitest.integration.config.ts:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      - /workspace/node_modules/.vite-temp:size=16m,mode=1777
+    restart: 'no'
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: 1.0
+    mem_limit: 1g
+
 networks:
   data:
     internal: true
