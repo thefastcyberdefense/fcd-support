@@ -243,7 +243,7 @@ create table privacy_requests (
   contact_id bigint references contacts(id) on delete set null,
   source_webhook_event_id bigint references webhook_events(id) on delete set null,
   received_at timestamptz not null,
-  target_at timestamptz not null,
+  target_at timestamptz,
   decision_at timestamptz,
   completed_at timestamptz,
   reviewer_reference text,
@@ -359,6 +359,8 @@ and restore-gate rows. Add a request transition trigger that refuses
 unique index permitting at most one `passed` finalize row per `gate_ref`.
 Replace the existing application-outcome check so an `identity_suppressed`
 application is permitted only with a null conversation.
+Leave `target_at` null in P3-006; P8-001 must approve the applicable legal SLA
+before any production deadline is populated or enforced.
 
 - [ ] **Step 4: Add database rejection tests**
 
