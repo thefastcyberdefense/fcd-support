@@ -35,6 +35,18 @@ export interface RetentionReclassificationInput {
   readonly requestKey: string;
 }
 
+export interface RetentionJobInput {
+  readonly evaluatedAt: Date;
+  readonly limit: number;
+  readonly requestKey: string;
+}
+
+export interface RetentionJobResult {
+  readonly status: 'applied' | 'duplicate';
+  readonly conversationsProcessed: number;
+  readonly messagesPurged: number;
+}
+
 export interface ChannelIdentitySelector {
   readonly channel: 'messenger' | 'whatsapp';
   readonly channelAccountId: string;
