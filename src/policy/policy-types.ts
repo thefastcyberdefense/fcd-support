@@ -53,6 +53,46 @@ export interface ChannelIdentitySelector {
   readonly externalContactId: string;
 }
 
+export interface PrivacyHmacKey {
+  readonly key: Buffer;
+  readonly version: string;
+}
+
+export interface PrivacyHmacKeyring {
+  readonly activeVersion: string;
+  readonly keys: ReadonlyMap<string, Buffer>;
+}
+
+export interface OpenDeletionRequestInput {
+  readonly identity: ChannelIdentitySelector;
+  readonly requestedAt: Date;
+  readonly requestKey: string;
+  readonly sourceWebhookEventId: string;
+}
+
+interface ReviewDeletionRequestBase {
+  readonly confirmationWebhookEventId: string;
+  readonly decidedAt: Date;
+  readonly requestKey: string;
+  readonly requestRef: string;
+  readonly verificationMethod: 'explicit_confirmation' | 'known_name';
+}
+
+export type ReviewDeletionRequestInput = ReviewDeletionRequestBase &
+  (
+    | { readonly decision: 'approve'; readonly reasonCode: 'customer_confirmed' }
+    | {
+        readonly decision: 'reject';
+        readonly reasonCode: 'identity_ambiguous' | 'request_withdrawn';
+      }
+  );
+
+export interface ExecuteDeletionInput {
+  readonly executedAt: Date;
+  readonly requestKey: string;
+  readonly requestRef: string;
+}
+
 export type EventApplicationOutcome =
   | 'business_echo_ignored_before_resume'
   | 'business_echo_paused'
