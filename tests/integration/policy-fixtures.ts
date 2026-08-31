@@ -2,6 +2,9 @@ import { createHash } from 'node:crypto';
 
 import type pg from 'pg';
 
+import { PostgresConversationEventProcessor } from '../../src/persistence/postgres-conversation-event-processor.js';
+import type { ChannelIdentitySelector } from '../../src/policy/policy-types.js';
+
 export interface SyntheticPendingEventInput {
   readonly channel: 'messenger' | 'unknown' | 'whatsapp';
   readonly channelAccountId?: string;
@@ -59,4 +62,34 @@ export async function insertSyntheticPendingEvent(
   }
 
   return eventId;
+}
+
+export async function insertSyntheticAppliedCustomerEvent(
+  pool: pg.Pool,
+  input: {
+    readonly fixtureKey: string;
+    readonly identity: ChannelIdentitySelector;
+    readonly messageText?: string;
+    readonly occurredAt: Date;
+  },
+): Promise<{ readonly conversationId: string; readonly eventId: string }> {
+  const eventId = await insertSyntheticPendingEvent(pool, {
+    channel: input.identity.channel,
+    channelAccountId: input.identity.channelAccountId,
+    contactId: input.identity.externalContactId,
+    eventKind: 'customer_message',
+    fixtureKey: input.fixtureKey,
+    messageText:
+      input.messageText ?? 'Synthetic deletion-policy source text excluded from privacy state',
+    occurredAt: input.occurredAt,
+  });
+  const result = await new PostgresConversationEventProcessor(pool).processEvent(eventId);
+  if (
+    result.status !== 'applied' ||
+    result.outcome !== 'customer_message_applied' ||
+    result.conversationId === undefined
+  ) {
+    throw new Error('Synthetic deletion-policy customer source was not applied');
+  }
+  return { conversationId: result.conversationId, eventId };
 }

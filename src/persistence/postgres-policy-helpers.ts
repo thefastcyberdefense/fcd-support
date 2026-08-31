@@ -48,8 +48,69 @@ export interface LockedConversationState {
   readonly eventOccurredAfterAuthorizedResume: boolean;
 }
 
+export interface LockedAppliedCustomerEvent {
+  readonly channel: 'messenger' | 'whatsapp';
+  readonly channelAccountId: string;
+  readonly contactId: string;
+  readonly conversationId: string;
+  readonly externalContactId: string;
+  readonly identityId: string;
+  readonly occurredAt: Date;
+}
+
 interface IdentifierRow {
   readonly id: string;
+}
+
+interface AppliedCustomerEventRow {
+  readonly channel: 'messenger' | 'whatsapp';
+  readonly channel_account_id: string;
+  readonly contact_id: string;
+  readonly conversation_id: string;
+  readonly external_contact_id: string;
+  readonly identity_id: string;
+  readonly occurred_at: Date;
+}
+
+export async function lockAppliedCustomerEvent(
+  client: pg.PoolClient,
+  webhookEventId: string,
+): Promise<LockedAppliedCustomerEvent | undefined> {
+  const selected = await client.query<AppliedCustomerEventRow>(
+    `select source_event.occurred_at,
+            conversation.id as conversation_id,
+            identity.id as identity_id,
+            identity.contact_id,
+            identity.channel,
+            identity.channel_account_id,
+            identity.external_contact_id
+     from webhook_events as source_event
+     join webhook_event_applications as application
+       on application.webhook_event_id = source_event.id
+     join conversations as conversation
+       on conversation.id = application.conversation_id
+     join channel_identities as identity
+       on identity.id = conversation.channel_identity_id
+     join contacts as contact
+       on contact.id = identity.contact_id
+     where source_event.id = $1
+       and source_event.event_kind = 'customer_message'
+       and source_event.occurred_at is not null
+       and application.outcome = 'customer_message_applied'
+     for update of source_event, application, conversation, identity, contact`,
+    [webhookEventId],
+  );
+  const row = selected.rows[0];
+  if (row === undefined) return undefined;
+  return {
+    channel: row.channel,
+    channelAccountId: row.channel_account_id,
+    contactId: row.contact_id,
+    conversationId: row.conversation_id,
+    externalContactId: row.external_contact_id,
+    identityId: row.identity_id,
+    occurredAt: row.occurred_at,
+  };
 }
 
 export async function resolveChannelIdentity(
