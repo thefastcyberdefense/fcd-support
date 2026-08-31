@@ -203,3 +203,69 @@ export interface MarketingEligibility {
   readonly reason:
     'consent_latest_grant' | 'consent_latest_revoke' | 'consent_missing' | 'identity_not_found';
 }
+
+export interface ProcessPrivacyIntentInput {
+  readonly requestKey: string;
+  readonly sourceWebhookEventId: string;
+}
+
+interface ReviewPrivacyRequestBase {
+  readonly decidedAt: Date;
+  readonly requestKey: string;
+  readonly requestRef: string;
+  readonly verificationMethod: 'known_name' | 'same_channel_context';
+}
+
+export type ReviewPrivacyRequestInput = ReviewPrivacyRequestBase &
+  (
+    | { readonly decision: 'approve'; readonly reasonCode: 'identity_verified' }
+    | {
+        readonly decision: 'reject';
+        readonly reasonCode: 'identity_ambiguous' | 'request_withdrawn';
+      }
+  );
+
+export type PrivacyLocationCode =
+  | 'backup_tombstone_gate'
+  | 'manifest_recordings'
+  | 'meta_provider'
+  | 'offline_archives'
+  | 'operator_exports'
+  | 'pending_outbound'
+  | 'primary_postgres';
+
+export interface AttestPrivacyLocationInput {
+  readonly checkedAt: Date;
+  readonly locationCode: PrivacyLocationCode;
+  readonly outcomeCode: 'location_complete' | 'location_failed' | 'location_not_applicable';
+  readonly requestKey: string;
+  readonly requestRef: string;
+}
+
+export interface CollectAccessDataInput {
+  readonly collectedAt: Date;
+  readonly requestKey: string;
+  readonly requestRef: string;
+}
+
+export interface ExecuteCorrectionInput {
+  readonly executedAt: Date;
+  readonly fieldKey: string;
+  readonly requestKey: string;
+  readonly requestRef: string;
+}
+
+export interface MarketingOptOutInput {
+  readonly effectiveAt: Date;
+  readonly requestKey: string;
+  readonly sourceWebhookEventId: string;
+}
+
+export interface ExplicitMarketingReoptInInput {
+  readonly categories: readonly string[];
+  readonly effectiveAt: Date;
+  readonly identity: ChannelIdentitySelector;
+  readonly requestKey: string;
+  readonly scope: 'all_linked_identities' | 'source_identity';
+  readonly verificationMethod: 'known_name' | 'same_channel_context';
+}
