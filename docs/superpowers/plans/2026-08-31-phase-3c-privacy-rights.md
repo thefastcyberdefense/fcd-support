@@ -33,6 +33,7 @@
 ### Files Created
 
 - `migrations/000005_create_privacy_rights_workflows.ts` — additive access/correction/opt-out evidence constraints and aggregate run tables.
+- `migrations/000006_extend_privacy_hold_audit.ts` — closed checklist-location evidence plus the privacy-hold audit reason discovered during Task 3 execution.
 - `src/policy/privacy-intent.ts` — exact deterministic intent parser.
 - `src/policy/privacy-rights-command.ts` — strict schemas for access/correction review, checklist, opt-out, and re-opt-in commands.
 - `src/persistence/postgres-privacy-rights-policy.ts` — authoritative intent intake, access/correction request lifecycle, holds, and checklist transitions.
@@ -53,7 +54,7 @@
 - `src/persistence/postgres-takeover-policy.ts` — unresolved privacy-request hold in automated reply eligibility.
 - `src/persistence/postgres-deletion-policy.ts` — share the already-tested deletion-open primitive with deterministic intake without changing approval/execution behavior.
 - `src/persistence/postgres-policy-helpers.ts` — reusable authoritative-event and subject-lock helpers.
-- `tests/integration/migrations.test.ts` — migration-five apply/down/reapply and closed-value/append-only checks.
+- `tests/integration/migrations.test.ts` — migration-five/six apply/down/reapply and closed-value/append-only checks.
 - `tests/integration/policy-fixtures.ts` — neutral synthetic applied-message helper wording and linked-identity setup.
 - `tests/integration/postgres-consent-policy.test.ts` — suppression precedence regression cases.
 - `tests/integration/postgres-takeover-policy.test.ts` — privacy-hold precedence and release cases.
@@ -129,7 +130,7 @@ git commit -m "feat: define privacy rights contracts"
 
 - [ ] **Step 1: Write the failing migration-five tests**
 
-Assert migration count `5`, roll back exactly migration five while P3-006 tables remain, and reapply it. Verify:
+Assert the workflow tables arrive in migration five. Task 3 adds the narrow audit/checklist extension as migration six, after which the complete migration count is `6`; roll back six then five while P3-006 tables remain, and reapply both. Verify:
 
 - `privacy_request_events` accepts only the additional access/correction/checklist actions, reasons, and actors required by this plan;
 - `privacy_access_runs`, `privacy_correction_runs`, and `privacy_marketing_opt_out_runs` contain only request/internal references, closed codes, timestamps, aggregate counts, and unique request keys;
@@ -184,10 +185,12 @@ git commit -m "feat: add privacy rights workflow schema"
 ## Task 3: Human-Reviewed Request Intake, Holds, And Checklist
 
 **Files:**
+- Create: `migrations/000006_extend_privacy_hold_audit.ts`
 - Create: `src/persistence/postgres-privacy-rights-policy.ts`
 - Modify: `src/persistence/postgres-deletion-policy.ts`
 - Modify: `src/persistence/postgres-policy-helpers.ts`
 - Modify: `src/persistence/postgres-takeover-policy.ts`
+- Modify: `tests/integration/migrations.test.ts`
 - Create: `tests/integration/postgres-privacy-rights-policy.test.ts`
 - Modify: `tests/integration/postgres-takeover-policy.test.ts`
 
@@ -235,7 +238,7 @@ Expected: intake, authorization, holds, checklist, rollback, retry, and concurre
 - [ ] **Step 8: Commit Task 3**
 
 ```bash
-git add src/persistence/postgres-privacy-rights-policy.ts src/persistence/postgres-deletion-policy.ts src/persistence/postgres-policy-helpers.ts src/persistence/postgres-takeover-policy.ts src/policy/policy-types.ts tests/integration/postgres-privacy-rights-policy.test.ts tests/integration/postgres-takeover-policy.test.ts
+git add migrations/000006_extend_privacy_hold_audit.ts src/persistence/postgres-privacy-rights-policy.ts src/persistence/postgres-deletion-policy.ts src/persistence/postgres-policy-helpers.ts src/persistence/postgres-takeover-policy.ts src/policy/policy-types.ts tests/integration/migrations.test.ts tests/integration/postgres-privacy-rights-policy.test.ts tests/integration/postgres-takeover-policy.test.ts
 git commit -m "feat: add reviewed privacy request intake"
 ```
 

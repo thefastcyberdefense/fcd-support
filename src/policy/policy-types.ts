@@ -147,7 +147,7 @@ export type EventProcessResult =
 
 export interface ReplyEligibility {
   readonly eligible: boolean;
-  readonly reason: 'pause_active' | 'pause_inactive';
+  readonly reason: 'pause_active' | 'pause_inactive' | 'privacy_request_open';
 }
 
 export interface AuthorizedResumeInput {

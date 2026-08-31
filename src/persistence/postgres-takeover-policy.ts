@@ -11,6 +11,7 @@ import { withBoundedTransaction } from './postgres-transaction.js';
 
 interface ReplyEligibilityRow {
   readonly pause_active: boolean;
+  readonly privacy_request_open: boolean;
 }
 
 interface ExistingResumeRow {
@@ -71,17 +72,35 @@ export class PostgresTakeoverPolicy {
 
     return withBoundedTransaction(this.pool, async (client) => {
       const selected = await client.query<ReplyEligibilityRow>(
-        `select coalesce(ai_paused_until > $2, false) as pause_active
-         from conversations
-         where id = $1`,
+        `select coalesce(conversation.ai_paused_until > $2, false) as pause_active,
+                exists (
+                  select 1
+                  from privacy_requests as request
+                  where request.contact_id = identity.contact_id
+                    and request.state in (
+                      'received',
+                      'awaiting_confirmation',
+                      'human_review',
+                      'in_progress',
+                      'partially_completed'
+                    )
+                ) as privacy_request_open
+         from conversations as conversation
+         join channel_identities as identity
+           on identity.id = conversation.channel_identity_id
+         where conversation.id = $1`,
         [conversationId, evaluatedAt],
       );
       const row = selected.rows[0];
       if (row === undefined) {
         throw new PolicyRecordNotFoundError('Conversation not found');
       }
-      const eligible = !row.pause_active;
-      const reason = eligible ? 'pause_inactive' : 'pause_active';
+      const eligible = !row.pause_active && !row.privacy_request_open;
+      const reason = row.pause_active
+        ? 'pause_active'
+        : row.privacy_request_open
+          ? 'privacy_request_open'
+          : 'pause_inactive';
 
       await insertPolicyAuditOutcome(client, {
         conversationId,

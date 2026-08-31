@@ -9,9 +9,11 @@ import {
   parseReviewDeletionRequestInput,
 } from '../policy/deletion-command.js';
 import { createIdentityHmac, requirePrivacyHmacKeyring } from '../policy/privacy-identity.js';
+import { parsePrivacyIntent } from '../policy/privacy-intent.js';
 import type {
   ChannelIdentitySelector,
   DeletionExecutionResult,
+  OpenDeletionRequestInput,
   PrivacyHmacKeyring,
 } from '../policy/policy-types.js';
 import { requireSupportReviewer } from '../policy/reviewer-principal.js';
@@ -117,7 +119,18 @@ export class PostgresDeletionPolicy {
 
   public async openRequest(input: unknown): Promise<OpenDeletionRequestResult> {
     const command = parseOpenDeletionRequestInput(input);
+    return this.openValidatedRequest(command, false);
+  }
 
+  public async openIntentRequest(input: unknown): Promise<OpenDeletionRequestResult> {
+    const command = parseOpenDeletionRequestInput(input);
+    return this.openValidatedRequest(command, true);
+  }
+
+  private async openValidatedRequest(
+    command: OpenDeletionRequestInput,
+    requireExactIntent: boolean,
+  ): Promise<OpenDeletionRequestResult> {
     return withBoundedTransaction(this.pool, async (client) => {
       await client.query(`select pg_advisory_xact_lock(hashtextextended($1::text, 0::bigint))`, [
         command.requestKey,
@@ -127,7 +140,8 @@ export class PostgresDeletionPolicy {
       if (
         source === undefined ||
         !identitiesMatch(source, command.identity) ||
-        source.occurredAt.getTime() !== command.requestedAt.getTime()
+        source.occurredAt.getTime() !== command.requestedAt.getTime() ||
+        (requireExactIntent && parsePrivacyIntent(source.messageText) !== 'deletion')
       ) {
         throw new PolicyRecordNotFoundError('Authoritative deletion request source not found');
       }

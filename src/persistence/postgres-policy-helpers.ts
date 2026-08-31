@@ -25,6 +25,7 @@ export type PolicyAuditReasonCode =
   | 'message_status_ignored'
   | 'pause_active'
   | 'pause_inactive'
+  | 'privacy_request_open'
   | 'resume_applied'
   | 'resume_duplicate';
 
@@ -55,6 +56,7 @@ export interface LockedAppliedCustomerEvent {
   readonly conversationId: string;
   readonly externalContactId: string;
   readonly identityId: string;
+  readonly messageText: string;
   readonly occurredAt: Date;
 }
 
@@ -69,6 +71,7 @@ interface AppliedCustomerEventRow {
   readonly conversation_id: string;
   readonly external_contact_id: string;
   readonly identity_id: string;
+  readonly message_text: string;
   readonly occurred_at: Date;
 }
 
@@ -78,6 +81,7 @@ export async function lockAppliedCustomerEvent(
 ): Promise<LockedAppliedCustomerEvent | undefined> {
   const selected = await client.query<AppliedCustomerEventRow>(
     `select source_event.occurred_at,
+            source_event.message_text,
             conversation.id as conversation_id,
             identity.id as identity_id,
             identity.contact_id,
@@ -96,6 +100,7 @@ export async function lockAppliedCustomerEvent(
      where source_event.id = $1
        and source_event.event_kind = 'customer_message'
        and source_event.occurred_at is not null
+       and source_event.message_text is not null
        and application.outcome = 'customer_message_applied'
      for update of source_event, application, conversation, identity, contact`,
     [webhookEventId],
@@ -109,6 +114,7 @@ export async function lockAppliedCustomerEvent(
     conversationId: row.conversation_id,
     externalContactId: row.external_contact_id,
     identityId: row.identity_id,
+    messageText: row.message_text,
     occurredAt: row.occurred_at,
   };
 }

@@ -133,7 +133,7 @@ describe('Phase 2 database migrations', () => {
       { table_name: 'privacy_suppressions' },
       { table_name: 'restore_deletion_gates' },
     ]);
-    expect(migrations.rows[0]?.count).toBe(5);
+    expect(migrations.rows[0]?.count).toBe(6);
   });
 
   test('create the bounded privacy rights workflow tables as migration five', async () => {
@@ -171,13 +171,7 @@ describe('Phase 2 database migrations', () => {
       { table_name: 'privacy_correction_runs' },
       { table_name: 'privacy_marketing_opt_out_runs' },
     ]);
-    expect(columns.rows).not.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          data_type: expect.stringMatching(/json|bytea/i),
-        }),
-      ]),
-    );
+    expect(columns.rows.some(({ data_type }) => /json|bytea/i.test(data_type))).toBe(false);
     expect(columns.rows.map(({ column_name }) => column_name)).not.toEqual(
       expect.arrayContaining([
         'customer_data',
@@ -290,6 +284,39 @@ describe('Phase 2 database migrations', () => {
       await client.query('rollback').catch(() => undefined);
       client.release();
     }
+  });
+
+  test('add closed checklist location evidence and privacy hold audit reason in migration six', async () => {
+    const columns = await pool.query<{ readonly column_name: string }>(
+      `select column_name
+       from information_schema.columns
+       where table_schema = $1
+         and table_name = 'privacy_request_events'
+         and column_name = 'location_code'`,
+      [schema],
+    );
+    expect(columns.rows).toEqual([{ column_name: 'location_code' }]);
+
+    await expect(
+      captureRolledBackMutation(
+        `insert into policy_audit_outcomes
+           (decision_type, outcome, reason_code, evaluated_at)
+         values ('reply_eligibility', 'denied', 'privacy_request_open',
+                 '2026-08-31T04:04:00Z')`,
+      ),
+    ).resolves.toBeUndefined();
+    const invalidLocation = await captureRolledBackMutation(
+      `insert into privacy_request_events
+         (request_id, action, outcome, reason_code, previous_state,
+          resulting_state, actor_type, effective_at, request_key, location_code)
+       select id, 'location_checked', 'applied', 'location_complete',
+              'in_progress', 'in_progress', 'support_reviewer',
+              '2026-08-31T04:05:00Z', 'privacy-test-invalid-location',
+              'operator-laptop-path'
+       from privacy_requests
+       where request_ref = 'PRIVACY_TEST_workflow_constraints'`,
+    );
+    expect(invalidLocation).toMatchObject({ code: '23514' });
   });
 
   test('permits only privacy-safe suppressed webhook event shapes', async () => {
@@ -1441,7 +1468,7 @@ describe('Phase 2 database migrations', () => {
     ]);
   });
 
-  test('roll back and reapply all five policy migrations', async () => {
+  test('roll back and reapply all six policy migrations', async () => {
     const receipt = await pool.query<{ readonly id: string }>(
       `insert into webhook_receipts (payload_sha256, event_count)
        values ($1, 1)
@@ -1462,7 +1489,7 @@ describe('Phase 2 database migrations', () => {
       [suppressedEvent.rows[0]?.id],
     );
 
-    await runMigrations('down', 1);
+    await runMigrations('down', 2);
 
     const retainedSuppressionEvidence = await pool.query<{
       readonly outcome: string;
@@ -1491,7 +1518,7 @@ describe('Phase 2 database migrations', () => {
     ]);
 
     await runMigrations('up');
-    await runMigrations('down', 5);
+    await runMigrations('down', 6);
 
     const afterRollback = await pool.query<{ readonly table_name: string }>(
       `select table_name

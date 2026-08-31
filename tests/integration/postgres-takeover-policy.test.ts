@@ -22,6 +22,11 @@ beforeAll(async () => {
 beforeEach(async () => {
   await pool.query(
     `truncate table
+       privacy_access_runs, privacy_correction_runs,
+       privacy_marketing_opt_out_runs, privacy_notification_intents,
+       privacy_request_events, privacy_request_locations,
+       privacy_deletion_runs, restore_deletion_gates, privacy_requests,
+       privacy_suppressions,
        retention_job_runs, retention_events, conversation_retention_states,
        policy_audit_outcomes, consent_events, human_pause_events,
        webhook_event_applications, conversations, channel_identities,
@@ -414,6 +419,102 @@ describe('PostgresTakeoverPolicy', () => {
         related_webhook_event_id: null,
       },
     ]);
+  });
+
+  test.each([
+    'received',
+    'awaiting_confirmation',
+    'human_review',
+    'in_progress',
+    'partially_completed',
+  ] as const)('denies automated replies while privacy request state is %s', async (state) => {
+    const conversationId = await createConversationSeed(`privacy-hold-${state}`);
+    const contact = await pool.query<{ readonly id: string }>(
+      `select identity.contact_id as id
+       from conversations
+       join channel_identities as identity
+         on identity.id = conversations.channel_identity_id
+       where conversations.id = $1`,
+      [conversationId],
+    );
+    await pool.query(
+      `insert into privacy_requests
+         (request_ref, request_type, state, contact_id, received_at, open_request_key)
+       values ($1, 'access', $2, $3, '2026-08-11T04:10:00Z', $4)`,
+      [`PRIVACY_TEST_hold_${state}`, state, contact.rows[0]?.id, `privacy-test-hold-${state}`],
+    );
+
+    await expect(
+      new PostgresTakeoverPolicy(pool).evaluateReplyEligibility(
+        conversationId,
+        new Date('2026-08-11T04:30:00.000Z'),
+      ),
+    ).resolves.toEqual({ eligible: false, reason: 'privacy_request_open' });
+  });
+
+  test.each(['completed', 'rejected', 'cancelled'] as const)(
+    'releases the privacy hold when the only request is %s',
+    async (state) => {
+      const conversationId = await createConversationSeed(`privacy-release-${state}`);
+      const contact = await pool.query<{ readonly id: string }>(
+        `select identity.contact_id as id
+         from conversations
+         join channel_identities as identity
+           on identity.id = conversations.channel_identity_id
+         where conversations.id = $1`,
+        [conversationId],
+      );
+      await pool.query(
+        `insert into privacy_requests
+           (request_ref, request_type, state, contact_id, received_at,
+            open_request_key)
+         values ($1, 'correction', $2, $3, '2026-08-11T04:10:00Z', $4)`,
+        [
+          `PRIVACY_TEST_release_${state}`,
+          state,
+          contact.rows[0]?.id,
+          `privacy-test-release-${state}`,
+        ],
+      );
+
+      await expect(
+        new PostgresTakeoverPolicy(pool).evaluateReplyEligibility(
+          conversationId,
+          new Date('2026-08-11T04:30:00.000Z'),
+        ),
+      ).resolves.toEqual({ eligible: true, reason: 'pause_inactive' });
+    },
+  );
+
+  test('keeps an active human pause as the first denial reason during a privacy hold', async () => {
+    const { conversationId } = await createPausedConversation(
+      'privacy-hold-pause-precedence',
+      new Date('2026-08-11T06:00:00.000Z'),
+    );
+    const contact = await pool.query<{ readonly id: string }>(
+      `select identity.contact_id as id
+       from conversations
+       join channel_identities as identity
+         on identity.id = conversations.channel_identity_id
+       where conversations.id = $1`,
+      [conversationId],
+    );
+    await pool.query(
+      `insert into privacy_requests
+         (request_ref, request_type, state, contact_id, received_at,
+          open_request_key)
+       values ('PRIVACY_TEST_pause_precedence', 'access', 'in_progress',
+               $1, '2026-08-11T06:01:00Z',
+               'privacy-test-pause-precedence')`,
+      [contact.rows[0]?.id],
+    );
+
+    await expect(
+      new PostgresTakeoverPolicy(pool).evaluateReplyEligibility(
+        conversationId,
+        new Date('2026-08-11T06:30:00.000Z'),
+      ),
+    ).resolves.toEqual({ eligible: false, reason: 'pause_active' });
   });
 
   test('rejects an unknown conversation without appending an eligibility audit', async () => {
