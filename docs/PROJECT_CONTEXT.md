@@ -1,6 +1,6 @@
 # Project Context
 
-Last reviewed: 2026-08-27 (Asia/Dhaka)
+Last reviewed: 2026-08-31 (Asia/Dhaka)
 
 ## Confirmed Decisions
 
@@ -15,6 +15,7 @@ Last reviewed: 2026-08-27 (Asia/Dhaka)
 - Lifecycle precedence is `active_client > unconverted_lead > casual_chat`. Casual chats expire 60 days after the latest qualifying human-authored event; unconverted leads expire 12 calendar months after the latest qualifying lead interaction. AI replies, statuses, duplicates, retries, consent bookkeeping, and unresponded marketing sends never extend retention.
 - Active-client support content is retained during the documented relationship and for 24 calendar months after the later documented relationship end or final paid service completion. The Fast Cyber Defense Managing Director/business-owner role owns the policy and reviews active-client classifications annually.
 - Deletion uses same-channel explicit confirmation plus human review, never a password, OTP, payment credential, or secret. Minimal suppression and restore tombstones use a versioned HMAC identity and no raw identifier or message content.
+- `REQUEST MY DATA`, `CORRECT MY DATA`, and all-linked-identity `STOP MARKETING` require deterministic P3-007 intake plus human notification/review; they are not part of the completed deletion-only P3-006 slice.
 - Manifest message-body recording must be disabled before customer/model traffic; restored backups remain isolated until all unexpired deletion tombstones are reapplied and verified.
 - Marketing requires explicit, category-specific opt-in. Blank means no promotional eligibility.
 
@@ -54,6 +55,13 @@ All secret values are intentionally absent from this repository. Create them dur
 - The app remains unpublished. A real device-originated WhatsApp message sent during the 2026-08-26 post-redeployment check did not reach the callback, so real delivery and production permissions remain unproven.
 - The deployed admission-only normalizer accepts phone-unavailable v26 text messages through a namespaced user identity and deliberately leaves contact-card content unsupported. A signed public-callback smoke test and exact retry passed at revision `207a5e6357c1e1a7c75918793262d835574d898d`.
 
+## Current Local Policy Evidence
+
+- P3-005 retention and P3-006 verified deletion are locally complete. The current gate passes 153 local tests and 190 guarded synthetic PostgreSQL tests.
+- P3-006 verifies same-channel requests through authorized human review, atomically tombstones and pseudonymizes linked identities, clears implemented raw event/customer content, retains aggregate evidence, and blocks later raw storage for deleted identities.
+- The restore primitive reapplies all covered active tombstone key versions in bounded batches and refuses a pass on missing keys, failed/nonzero evidence, remaining matches, changed revision material, or an incomplete concurrent scan.
+- No Meta/Manifest/provider deletion, export/offline/archive cleanup, notification delivery, actual backup creation/restore/promotion, Ubuntu redeployment, or production action occurred. Those locations remain pending or belong to P6-004 and later test gates.
+
 ## Launch Blockers
 
 - The admission-only test deployment is approved and running under a narrow exception. Outbound messaging, models, n8n actions, live customer data, and production deployment remain unauthorized.
@@ -64,9 +72,11 @@ All secret values are intentionally absent from this repository. Create them dur
 - The WhatsApp test token was expired at inventory time; the app remains development/role-scoped, and runtime Graph `v25.0` versus webhook-sample `v26.0` requires an approved version/support decision.
 - n8n's audit found no `fcd-support` public-API dependency, but owners of historically used API keys must be identified before revocation or disablement.
 - Website privacy and support wording must disclose AI assistance, external inference, retention, deletion, and marketing consent before production launch.
-- Backup restore and human-takeover behavior must pass acceptance tests.
+- Actual encrypted backup/restore procedures and deployed human-takeover behavior must still pass their acceptance tests; the local restore-gate primitive alone does not satisfy P6-004.
 
-The next unblocked local engineering task is P3-005 retention classification and boundary jobs. P3-006 deletion follows it. P1-GATE remains a separate explicit review record.
+The next unblocked local engineering task is P3-007 privacy-intent intake,
+access export, correction workflow, and global marketing opt-out. P3-GATE then
+requires project-owner review. P1-GATE remains a separate explicit review record.
 
 ## First Session Checklist
 

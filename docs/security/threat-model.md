@@ -2,11 +2,11 @@
 
 Status: reviewed Phase 0 architecture threat model (`P0-017`)
 
-Reviewed: 2026-08-27 (Asia/Dhaka)
+Reviewed: 2026-08-31 (Asia/Dhaka)
 
-Scope: the public Meta webhook boundary, the current admission and Phase 3A
-policy core, and the planned private model, automation, outbound, lifecycle,
-backup, and operational paths. This is an architecture threat model, not a
+Scope: the public Meta webhook boundary, the current admission, retention, and
+verified-deletion policy core, and the planned private model, automation,
+outbound, backup, and operational paths. This is an architecture threat model, not a
 claim that every planned control is implemented and not a vulnerability audit.
 
 ## 1. Overview
@@ -21,10 +21,12 @@ takeover, consent, lifecycle, deletion, and future outbound state. Manifest and
 n8n are private downstream services and must never become authorities for that
 state. The production WhatsApp number is outside the present test scope.
 
-The repository already implements the narrow webhook admission and Phase 3A
-policy core. Lifecycle jobs, verified deletion, backup/restore enforcement,
-model calls, outbound providers, and n8n integration remain planned controls.
-The acceptance matrix records their evidence state rather than assuming them.
+The repository implements narrow webhook admission, the Phase 3 conversation
+policy core, retention jobs, verified local deletion, pre-storage resurrection
+blocking, and an isolated-database restore reconciliation/promotion primitive.
+Actual encrypted backup/restore procedures, provider/offline deletion, model
+calls, outbound providers, and n8n integration remain planned controls. The
+acceptance matrix records their evidence state rather than assuming them.
 
 ### Components and source evidence
 
@@ -34,11 +36,11 @@ The acceptance matrix records their evidence state rather than assuming them.
 | Fastify admission API | Applies a 256 KiB limit, keeps JSON as raw bytes, verifies signatures, parses only afterward, and returns `503` if durable receipt fails | `src/app.ts:30`; `src/app.ts:36`; `src/app.ts:83`; `src/app.ts:99`; `src/app.ts:113` |
 | Signature verifier | Requires the `sha256=` format and compares the raw-body HMAC in constant time | `src/meta/verify-signature.ts:9`; `src/meta/verify-signature.ts:27`; `src/meta/verify-signature.ts:30` |
 | PostgreSQL receipt/event store | Persists minimal normalized events and enforces receipt and event uniqueness | `migrations/000001_create_webhook_receipts.ts:5`; `migrations/000001_create_webhook_receipts.ts:14`; `migrations/000001_create_webhook_receipts.ts:33` |
-| Phase 3A policy core | Applies events once, serializes workers, records 24-hour takeover, and keeps consent category/identity scoped | `src/persistence/postgres-conversation-event-processor.ts:95`; `src/persistence/postgres-conversation-event-processor.ts:156`; `src/persistence/postgres-consent-policy.ts:120` |
+| Phase 3 policy core | Applies events once, serializes workers, records takeover and consent, enforces retention, and performs verified local deletion | `src/persistence/postgres-conversation-event-processor.ts`; `src/persistence/postgres-consent-policy.ts`; `src/persistence/postgres-retention-policy.ts`; `src/persistence/postgres-deletion-policy.ts` |
 | Reviewer boundary | Requires an authenticated principal with `support_reviewer` before private resume or reviewer-recorded consent | `src/policy/reviewer-principal.ts:17`; `src/policy/reviewer-principal.ts:20`; `docs/architecture/channel-behavior.md:83` |
 | Manifest `fcd-support` | Planned, tool-free model gateway; recording must be off before traffic | `AGENTS.md:16`; `AGENTS.md:22`; `docs/architecture/data-lifecycle.md:181` |
 | n8n | Planned private notification/CRM adapter; never owns authoritative support state | `AGENTS.md:21`; `docs/operations/preflight-inventory.md:121` |
-| Backups and deletion tombstones | Planned isolated restore with deletion reapplication before promotion | `docs/architecture/data-lifecycle.md:196`; `docs/architecture/data-lifecycle.md:200`; `docs/architecture/data-lifecycle.md:205` |
+| Deletion tombstones and restore gate | Versioned identity HMACs block later raw storage; isolated restore reconciliation refuses a pass on missing keys, failures, remaining matches, or incomplete scans | `src/persistence/postgres-receipt-store.ts`; `src/persistence/postgres-restore-deletion-gate.ts`; `tests/integration/postgres-restore-deletion-gate.test.ts` |
 | Windows/GitHub/Ubuntu release path | Windows authors and pushes; Ubuntu deploys an exact approved revision | `docs/PROJECT_CONTEXT.md:39`; `scripts/verify-test-deployment.sh:14`; `scripts/verify-test-deployment.sh:167` |
 
 ### Effective resource and exposure table
@@ -48,12 +50,12 @@ The acceptance matrix records their evidence state rather than assuming them.
 | `GET /webhooks/meta` | Public through exact tunnel path | Verification challenge; protected verify token comparison | Implemented and test-deployed |
 | `POST /webhooks/meta` | Public through exact tunnel path | Signed Meta event bytes | Implemented and test-deployed |
 | All other application routes | Private / ingress `404` | No public administrative capability | Enforced by deployment verifier |
-| PostgreSQL | Private data network, no host port | Receipts, normalized events, policy state | Implemented for admission and Phase 3A |
+| PostgreSQL | Private data network, no host port | Receipts, normalized events, policy, retention, deletion, and restore-gate state | Implemented locally through P3-006 |
 | Manifest | Private network only | Redacted prompts and model output | Not connected to current admission runtime |
 | n8n | LAN/private only | Notifications and later CRM requests | No `fcd-support` integration yet |
 | Meta Graph outbound | External provider call | Customer replies and delivery state | Not implemented |
 | Backup repository | Private operator path | Encrypted database backups and tombstones | Not implemented |
-| Reviewer/admin operations | Private authenticated path | Resume, consent review, deletion approval | Policy functions exist; no public admin route |
+| Reviewer/admin operations | Private authenticated path | Resume, consent review, deletion approval | Policy functions enforce reviewer authority; no public admin route |
 | Production WhatsApp/Page assets | Explicitly out of scope | Live customer communication | No action authorized |
 
 ```mermaid
@@ -161,8 +163,9 @@ flowchart LR
   blocked until that state is corrected and contract-tested.
 - Real WhatsApp device delivery, coexistence/manual-app echoes, app review, and
   production permissions remain unproven (`docs/architecture/channel-behavior.md:180`).
-- Lifecycle, deletion, backup/restore, outbound, model, and n8n controls below are
-  requirements until their tracker rows and acceptance evidence pass.
+- Access/correction/global opt-out, actual backup/restore automation, outbound,
+  model, and n8n controls below remain requirements until their tracker rows and
+  acceptance evidence pass. P3-006 proves only local deletion and the restore gate primitive.
 
 ## 3. Attack Surface, Mitigations, And Attacker Stories
 
@@ -181,8 +184,8 @@ that exploitation has occurred.
 | High | Service self-echo is mistaken for staff activity, or staff echo is missed | Missing outbound correlation or race | Reply loops or AI replying over a human | Business echoes never generate replies; unmatched echoes fail safe by pausing | Phase 5 must correlate durable outbound/provider IDs before Messenger sends; test both race orders | `docs/architecture/channel-behavior.md:61`; `docs/architecture/channel-behavior.md:88`; `docs/architecture/channel-behavior.md:99` |
 | High | Unauthorized reviewer resumes AI or records consent | Public/admin exposure or weak caller authentication | Replies during takeover or unlawful marketing | No public reviewer route; policy requires `support_reviewer`; exact identity/category scope | Implement authenticated private admin adapter and authorization audit before exposure | `docs/architecture/channel-behavior.md:83`; `src/policy/reviewer-principal.ts:20`; `src/persistence/postgres-consent-policy.ts:120` |
 | High | Missing, blank, cross-channel, or stale consent is treated as opt-in | Bad defaults or identity collision | Unauthorized marketing | Eligibility is true only for latest exact grant; blank/invalid is denied | Recheck consent immediately before each marketing send and after restore | `src/persistence/postgres-consent-policy.ts:129`; `AGENTS.md:29`; `docs/architecture/data-lifecycle.md:34` |
-| High | Deletion authenticates with a secret or targets the wrong identity | Social engineering or identity confusion | Data loss or privacy breach | Same-channel confirmation plus human review; passwords/OTP/payment secrets prohibited | Implement idempotent deletion workflow and exact identity tests in P3-006 | `docs/architecture/data-lifecycle.md:121`; `docs/architecture/data-lifecycle.md:126`; `docs/architecture/data-lifecycle.md:138` |
-| High | A restore resurrects deleted customer content | Restore of immutable pre-deletion backup | Deleted data is served again | Versioned tombstones and isolated restore/promotion rule are specified | Build encrypted backup and restore gate; refuse application attachment until verification passes | `docs/architecture/data-lifecycle.md:177`; `docs/architecture/data-lifecycle.md:196`; `docs/architecture/data-lifecycle.md:207` |
+| High | Deletion authenticates with a secret or targets the wrong identity | Social engineering or identity confusion | Data loss or privacy breach | Same-channel confirmation, authorized human review, prohibited-secret validation, idempotent execution, rollback, and exact identity tests pass locally | Keep reviewer controls private; complete external checklist locations manually and implement P3-007 without weakening verification | `src/persistence/postgres-deletion-policy.ts`; `tests/integration/postgres-deletion-policy.test.ts` |
+| High | A later event or restore resurrects deleted customer content | Provider retry or immutable pre-deletion backup | Deleted data is served again | Receipt storage checks versioned tombstones before raw persistence; restore batches reapply shared erasure; finalization performs a complete lock-safe scan | P6-004 must build encrypted backup/isolation/rollback/attachment procedures that require the persisted pass record | `src/persistence/postgres-receipt-store.ts`; `src/persistence/postgres-restore-deletion-gate.ts`; `tests/integration/postgres-restore-deletion-gate.test.ts` |
 | High | Prompt injection gains tools, secrets, or unapproved business claims | Adversarial signed customer text | Data exfiltration or harmful actions | Models receive no tools; FAQ/business facts take precedence; redaction required | Add redaction, tool-free request contract, output policy, and bilingual evaluation in P4 | `AGENTS.md:16`; `docs/PLAN.md:18` |
 | High | Manifest records customer bodies or falls back through unapproved providers | Recording/fallback misconfiguration | Third-party retention or secret-scope expansion | No current application connection; dedicated harness/key inventory | Disable and verify recording; approve explicit providers/fallbacks/limits; test `fcd-support` + `auto` | `docs/operations/preflight-inventory.md:37`; `docs/operations/preflight-inventory.md:47` |
 | Medium | n8n becomes a state authority or gains a public control path | Over-broad workflow/API design | Divergent consent/delivery state or unauthorized action | LAN-only service; zero discovered `fcd-support` public-API dependency; PostgreSQL authority rule | Use an authenticated idempotent private notification adapter only; resolve legacy key ownership | `AGENTS.md:21`; `docs/operations/preflight-inventory.md:101`; `docs/operations/preflight-inventory.md:117` |
@@ -205,7 +208,7 @@ that exploitation has occurred.
 | Model unavailable or unsafe | Approved FAQ or safe escalation; no unapproved provider | Planned P4 evidence |
 | Provider unavailable or ambiguous send result | Durable outbox retry/terminal state; no blind resend | Planned P5 evidence |
 | n8n unavailable | Core state remains in PostgreSQL; notification retries/fails safely | Planned P6 evidence |
-| Backup restore | Isolated restore; tombstones reapplied; promotion blocked on failure | Planned P6 evidence |
+| Backup restore | Isolated restore; tombstones reapplied; promotion blocked on failure | Local reconciliation/promotion primitive passes; actual backup/restore automation remains planned P6 evidence |
 | Tunnel/server outage | No unsafe alternative public path; manual staff coverage | Partial operational evidence; P7 outage test pending |
 
 ## 4. Severity Calibration

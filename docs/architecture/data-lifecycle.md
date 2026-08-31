@@ -16,6 +16,13 @@ Stored timestamps and retention calculations use UTC. Operator-facing displays
 may render them in `Asia/Dhaka` (`UTC+06:00`), but display conversion must not
 change an anchor or deadline.
 
+Local implementation status (2026-08-31): P3-005 retention and P3-006 verified
+deletion are implemented and pass guarded synthetic PostgreSQL tests. P3-006
+includes a restore reconciliation/promotion-gate primitive, but it did not
+create, restore, attach, or promote an actual backup. Provider, Manifest,
+operator-export, offline-archive, and backup-expiry actions remain unresolved
+checklist locations rather than claimed deletions.
+
 ## Classification And Precedence
 
 Exactly one effective lifecycle class applies to a conversation identity at a
@@ -150,6 +157,16 @@ An approved deletion removes applicable:
 - provider recordings that can be associated with the identity; and
 - other customer-content copies governed by this service.
 
+The implemented P3-006 local transaction first creates a versioned tombstone,
+then clears raw event identity/content/status fields, replaces event replay keys
+with a domain-separated HMAC, clears implemented conversation pause state, and
+pseudonymizes every linked channel identity with separate random opaque values.
+It preserves only content-free policy history and aggregate result counts.
+`primary_postgres` and `pending_outbound` are marked complete; the request stays
+`in_progress` while Manifest, Meta-provider, operator-export, offline-archive,
+and backup-tombstone locations await later manual or operational completion.
+No public reviewer or deletion-execution route exists.
+
 A separately governed record subject to a documented legal obligation may be
 retained only with a reason code, policy-owner approval, access restriction, and
 explicit expiry or review date.
@@ -207,6 +224,15 @@ enforcement is therefore mandatory:
 A restored database must never be attached to the application before deletion
 reapplication succeeds.
 
+P3-006 implements the isolated-database reconciliation primitive used by this
+rule. It scans raw identities against every active tombstone key version in
+memory, reuses the local erasure primitive in bounded stable batches, retains
+aggregate append-only evidence, and refuses a `passed` record when a matching
+identity, missing key version, failed batch, nonzero latest remainder, changed
+revision, or concurrent row lock prevents a complete scan. P6-004 must still
+provide encrypted backup creation, retention, restore isolation, rollback, and
+application-attachment procedures that consume this pass record.
+
 ## Required Implementation Evidence
 
 P3-005 retention tests must cover:
@@ -227,6 +253,13 @@ P3-006 deletion tests must cover:
 - live, derived, outbound, suppression, and tombstone effects;
 - missing and blank consent remaining ineligible; and
 - deleted identities remaining deleted after later events.
+
+Local evidence: `tests/integration/postgres-deletion-policy.test.ts`,
+`tests/integration/postgres-receipt-store.test.ts`, and
+`tests/integration/postgres-restore-deletion-gate.test.ts` cover verification,
+review, replay, concurrency, rollback, linked-identity erasure, pre-storage
+suppression, key rotation, bounded restore reapplication, and promotion refusal.
+They use synthetic identities and retain no HMAC or raw payload as evidence.
 
 P6-004 backup tests must cover:
 
