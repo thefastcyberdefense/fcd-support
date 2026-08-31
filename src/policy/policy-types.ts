@@ -102,6 +102,26 @@ export interface DeletionExecutionResult {
   readonly tombstonesCreated: number;
 }
 
+interface RestoreDeletionGateInputBase {
+  readonly evaluatedAt: Date;
+  readonly gateRef: string;
+  readonly gitRevision: string;
+  readonly requestKey: string;
+  readonly requiredKeyVersions: readonly string[];
+}
+
+export interface RestoreDeletionBatchInput extends RestoreDeletionGateInputBase {
+  readonly limit: number;
+}
+
+export type RestoreDeletionFinalizeInput = RestoreDeletionGateInputBase;
+
+export interface RestoreDeletionBatchResult {
+  readonly identitiesProcessed: number;
+  readonly remainingMatches: number;
+  readonly status: 'applied' | 'duplicate';
+}
+
 export type EventApplicationOutcome =
   | 'business_echo_ignored_before_resume'
   | 'business_echo_paused'

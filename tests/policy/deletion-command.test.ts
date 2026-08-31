@@ -3,6 +3,8 @@ import { describe, expect, test } from 'vitest';
 import {
   parseExecuteDeletionInput,
   parseOpenDeletionRequestInput,
+  parseRestoreDeletionBatchInput,
+  parseRestoreDeletionFinalizeInput,
   parseReviewDeletionRequestInput,
 } from '../../src/policy/deletion-command.js';
 
@@ -121,5 +123,45 @@ describe('execute deletion input', () => {
     },
   ])('rejects invalid execution material', (candidate) => {
     expect(() => parseExecuteDeletionInput(candidate)).toThrow();
+  });
+});
+
+describe('restore deletion gate input', () => {
+  const validRestore = {
+    evaluatedAt: new Date('2026-08-29T12:03:00.000Z'),
+    gateRef: 'synthetic-restore-gate',
+    gitRevision: 'a'.repeat(40),
+    requestKey: 'synthetic-restore-request',
+    requiredKeyVersions: ['test-v2', 'test-v1'],
+  } as const;
+
+  test('canonicalizes required versions for batch and finalize evidence', () => {
+    expect(parseRestoreDeletionBatchInput({ ...validRestore, limit: 25 })).toEqual({
+      ...validRestore,
+      limit: 25,
+      requiredKeyVersions: ['test-v1', 'test-v2'],
+    });
+    expect(parseRestoreDeletionFinalizeInput(validRestore)).toEqual({
+      ...validRestore,
+      requiredKeyVersions: ['test-v1', 'test-v2'],
+    });
+  });
+
+  test.each([
+    { ...validRestore, limit: 0 },
+    { ...validRestore, limit: 1_001 },
+    { ...validRestore, limit: 1.5 },
+    { ...validRestore, limit: 1, gitRevision: 'not-a-git-revision' },
+    { ...validRestore, limit: 1, evaluatedAt: new Date(Number.NaN) },
+    { ...validRestore, limit: 1, requiredKeyVersions: [] },
+    { ...validRestore, limit: 1, requiredKeyVersions: ['test-v1', 'test-v1'] },
+    { ...validRestore, limit: 1, requiredKeyVersions: ['bad version'] },
+    { ...validRestore, limit: 1, unexpected: true },
+  ])('rejects malformed restore batch material', (candidate) => {
+    expect(() => parseRestoreDeletionBatchInput(candidate)).toThrow();
+  });
+
+  test('keeps finalize input distinct from batch input', () => {
+    expect(() => parseRestoreDeletionFinalizeInput({ ...validRestore, limit: 1 })).toThrow();
   });
 });

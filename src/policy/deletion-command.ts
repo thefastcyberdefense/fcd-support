@@ -3,6 +3,8 @@ import { z } from 'zod';
 import type {
   ExecuteDeletionInput,
   OpenDeletionRequestInput,
+  RestoreDeletionBatchInput,
+  RestoreDeletionFinalizeInput,
   ReviewDeletionRequestInput,
 } from './policy-types.js';
 
@@ -50,6 +52,31 @@ const executeDeletionSchema = z.strictObject({
   requestRef: boundedString,
 });
 
+const keyVersion = z
+  .string()
+  .trim()
+  .regex(/^[A-Za-z0-9._-]{1,64}$/);
+const requiredKeyVersions = z
+  .array(keyVersion)
+  .min(1)
+  .max(32)
+  .refine((versions) => new Set(versions).size === versions.length, {
+    message: 'requiredKeyVersions must not contain duplicates',
+  })
+  .transform((versions) => [...versions].sort());
+const restoreGateFields = {
+  evaluatedAt: validDate,
+  gateRef: boundedString,
+  gitRevision: z.string().regex(/^[0-9a-f]{40}$/),
+  requestKey: boundedString,
+  requiredKeyVersions,
+};
+const restoreDeletionBatchSchema = z.strictObject({
+  ...restoreGateFields,
+  limit: z.number().int().min(1).max(1_000),
+});
+const restoreDeletionFinalizeSchema = z.strictObject(restoreGateFields);
+
 export function parseOpenDeletionRequestInput(input: unknown): OpenDeletionRequestInput {
   return openDeletionRequestSchema.parse(input);
 }
@@ -60,4 +87,12 @@ export function parseReviewDeletionRequestInput(input: unknown): ReviewDeletionR
 
 export function parseExecuteDeletionInput(input: unknown): ExecuteDeletionInput {
   return executeDeletionSchema.parse(input);
+}
+
+export function parseRestoreDeletionBatchInput(input: unknown): RestoreDeletionBatchInput {
+  return restoreDeletionBatchSchema.parse(input);
+}
+
+export function parseRestoreDeletionFinalizeInput(input: unknown): RestoreDeletionFinalizeInput {
+  return restoreDeletionFinalizeSchema.parse(input);
 }
