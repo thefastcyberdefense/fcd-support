@@ -308,9 +308,11 @@ git commit -m "feat: enforce global marketing opt out"
 
 **Files:**
 - Create: `src/persistence/postgres-access-export.ts`
+- Modify: `src/persistence/postgres-transaction.ts`
+- Modify: `src/policy/policy-types.ts`
 - Create: `tests/integration/postgres-access-export.test.ts`
 
-- [ ] **Step 1: Write failing collector and isolation tests**
+- [x] **Step 1: Write failing collector and isolation tests**
 
 For an approved `access` request, assert the export manifest includes request reference, collection time, schema version, and explicit source categories. Allowlist collectors for:
 
@@ -322,7 +324,7 @@ For an approved `access` request, assert the export manifest includes request re
 
 Create another contact plus mixed event/consent rows and prove none appear. Assert internal audit controls, HMACs, suppression rows, reviewer references, provider secrets, receipt hashes, unrelated contacts, and third-party contact-card data are excluded.
 
-- [ ] **Step 2: Implement explicit typed collectors**
+- [x] **Step 2: Implement explicit typed collectors**
 
 Define one typed collector per source category and a frozen production collector registry. Query only explicit columns; do not use `select *`. Collect inside one repeatable-read bounded transaction after locking/validating the approved request; the only write in that transaction is the content-free aggregate run inserted after all collectors succeed. Return the assembled object directly and never stringify, log, cache, or write it to any other destination.
 
@@ -333,15 +335,15 @@ export interface AccessCollector<TName extends string, TRecord> {
 }
 ```
 
-- [ ] **Step 3: Add completeness and non-persistence tests**
+- [x] **Step 3: Add completeness and non-persistence tests**
 
 Compare the frozen collector names to the policy-owned expected category registry so schema additions force an explicit collector/waiver decision. Snapshot database table row counts before/after collection except for one aggregate `privacy_access_runs` row. Spy on the safe logger boundary and serialization/filesystem adapters to prove the synthetic export is neither logged nor persisted.
 
-- [ ] **Step 4: Record aggregate collection evidence**
+- [x] **Step 4: Record aggregate collection evidence**
 
 After successful in-memory collection, insert only request ID, request key, collection time, collector count, record count, and `collected` status. A replay returns fresh in-memory data only when authorized but does not duplicate aggregate evidence; conflicting material fails closed.
 
-- [ ] **Step 5: Run focused access tests**
+- [x] **Step 5: Run focused access tests**
 
 ```powershell
 npm run test:integration -- tests/integration/postgres-access-export.test.ts
@@ -349,7 +351,7 @@ npm run test:integration -- tests/integration/postgres-access-export.test.ts
 
 Expected: completeness, isolation, exclusions, authorization, retry, and non-persistence cases PASS.
 
-- [ ] **Step 6: Commit Task 5**
+- [x] **Step 6: Commit Task 5**
 
 ```bash
 git add src/persistence/postgres-access-export.ts src/policy/policy-types.ts tests/integration/postgres-access-export.test.ts

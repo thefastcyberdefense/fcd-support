@@ -252,6 +252,126 @@ export interface CollectAccessDataInput {
   readonly requestRef: string;
 }
 
+export const ACCESS_EXPORT_CATEGORIES = Object.freeze([
+  'channel_identities',
+  'conversations',
+  'conversation_lifecycle',
+  'webhook_events',
+  'consent_history',
+  'privacy_requests',
+  'privacy_checklist',
+] as const);
+
+export type AccessExportCategory = (typeof ACCESS_EXPORT_CATEGORIES)[number];
+
+export interface AccessChannelIdentityRecord {
+  readonly channel: 'messenger' | 'whatsapp';
+  readonly channelAccountId: string;
+  readonly externalContactId: string;
+  readonly firstSeenAt: Date;
+  readonly lastSeenAt: Date;
+}
+
+export interface AccessConversationRecord {
+  readonly channel: 'messenger' | 'whatsapp';
+  readonly channelAccountId: string;
+  readonly createdAt: Date;
+  readonly externalContactId: string;
+  readonly lastActivityAt: Date;
+}
+
+export interface AccessConversationLifecycleRecord {
+  readonly anchorAt: Date | null;
+  readonly channel: 'messenger' | 'whatsapp';
+  readonly channelAccountId: string;
+  readonly contentPurgedThroughAt: Date | null;
+  readonly expiresAt: Date | null;
+  readonly externalContactId: string;
+  readonly finalPaidServiceCompletedAt: Date | null;
+  readonly lastActiveReviewAt: Date | null;
+  readonly lifecycleClass: 'active_client' | 'casual_chat' | 'unconverted_lead';
+  readonly nextActiveReviewAt: Date | null;
+  readonly relationshipEndedAt: Date | null;
+  readonly relationshipStartedAt: Date | null;
+  readonly relationshipStatus: 'closed' | 'open' | null;
+}
+
+export interface AccessWebhookEventRecord {
+  readonly channel: 'messenger' | 'whatsapp';
+  readonly createdAt: Date;
+  readonly eventKind: 'business_message_echo' | 'customer_message' | 'message_status';
+  readonly externalMessageId: string | null;
+  readonly messageStatus: 'delivered' | 'failed' | 'read' | 'sent' | null;
+  readonly messageText: string | null;
+  readonly occurredAt: Date | null;
+}
+
+export interface AccessConsentRecord {
+  readonly action: 'grant' | 'revoke';
+  readonly category: string;
+  readonly channel: 'messenger' | 'whatsapp';
+  readonly channelAccountId: string;
+  readonly createdAt: Date;
+  readonly externalContactId: string;
+  readonly source: 'customer_message' | 'reviewer_recorded';
+  readonly sourceAt: Date;
+  readonly wording: string;
+  readonly wordingVersion: string;
+}
+
+export interface AccessPrivacyRequestRecord {
+  readonly completedAt: Date | null;
+  readonly decisionAt: Date | null;
+  readonly receivedAt: Date;
+  readonly requestRef: string;
+  readonly requestType: 'access' | 'correction' | 'deletion';
+  readonly state:
+    | 'awaiting_confirmation'
+    | 'cancelled'
+    | 'completed'
+    | 'human_review'
+    | 'in_progress'
+    | 'partially_completed'
+    | 'received'
+    | 'rejected';
+  readonly targetAt: Date | null;
+}
+
+export interface AccessPrivacyChecklistRecord {
+  readonly checkedAt: Date | null;
+  readonly locationCode: PrivacyLocationCode;
+  readonly outcomeCode: string | null;
+  readonly requestRef: string;
+  readonly required: boolean;
+  readonly state: 'completed' | 'failed' | 'not_applicable' | 'pending';
+}
+
+export interface AccessExportRecords {
+  readonly channel_identities: readonly AccessChannelIdentityRecord[];
+  readonly consent_history: readonly AccessConsentRecord[];
+  readonly conversation_lifecycle: readonly AccessConversationLifecycleRecord[];
+  readonly conversations: readonly AccessConversationRecord[];
+  readonly privacy_checklist: readonly AccessPrivacyChecklistRecord[];
+  readonly privacy_requests: readonly AccessPrivacyRequestRecord[];
+  readonly webhook_events: readonly AccessWebhookEventRecord[];
+}
+
+export interface AccessDataExport {
+  readonly manifest: {
+    readonly collectedAt: Date;
+    readonly recordCount: number;
+    readonly requestRef: string;
+    readonly schemaVersion: 'fcd-support.access.v1';
+    readonly sourceCategories: readonly AccessExportCategory[];
+  };
+  readonly records: AccessExportRecords;
+}
+
+export interface AccessDataExportResult {
+  readonly export: AccessDataExport;
+  readonly status: 'collected' | 'duplicate';
+}
+
 export interface ExecuteCorrectionInput {
   readonly executedAt: Date;
   readonly fieldKey: string;

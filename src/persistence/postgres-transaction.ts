@@ -1,6 +1,7 @@
 import type pg from 'pg';
 
 export interface BoundedTransactionOptions {
+  readonly isolationLevel?: 'repeatable_read';
   readonly lockTimeoutMilliseconds?: 750 | 2_000;
 }
 
@@ -15,6 +16,9 @@ export async function withBoundedTransaction<T>(
 
   try {
     await client.query('begin');
+    if (options.isolationLevel === 'repeatable_read') {
+      await client.query('set transaction isolation level repeatable read');
+    }
     await client.query(
       `select set_config('lock_timeout', $1, true),
               set_config('statement_timeout', '3000ms', true),
