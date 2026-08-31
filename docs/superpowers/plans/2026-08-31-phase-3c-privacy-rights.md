@@ -366,7 +366,7 @@ git commit -m "feat: add private access data collection"
 - Create: `src/persistence/postgres-correction-policy.ts`
 - Create: `tests/integration/postgres-correction-policy.test.ts`
 
-- [ ] **Step 1: Write failing registry and authorization tests**
+- [x] **Step 1: Write failing registry and authorization tests**
 
 Use a test-only synthetic field handler to prove:
 
@@ -378,7 +378,7 @@ Use a test-only synthetic field handler to prove:
 - no dynamic SQL, JSON patch, arbitrary column, or free-form correction value path exists;
 - handler failure rolls back both mutation and evidence.
 
-- [ ] **Step 2: Implement the typed registry**
+- [x] **Step 2: Implement the typed registry**
 
 Use a generic handler contract whose command type is owned by the handler, not by a generic persistence layer:
 
@@ -392,11 +392,11 @@ export interface CorrectionHandler<TKey extends string, TCommand> {
 
 Construct the service with a readonly registry. Production wiring supplies an empty registry until an authoritative field owner adds a separately tested handler. Reject duplicate field keys at construction.
 
-- [ ] **Step 3: Implement bounded workflow evidence**
+- [x] **Step 3: Implement bounded workflow evidence**
 
 Lock the request/contact, parse through the selected registered handler, execute within the same bounded transaction, and insert only request ID, field key, closed result code, timestamp, and request key. Unsupported/manual outcomes must not persist requested values or handler error text. Update the request/checklist only from the closed result.
 
-- [ ] **Step 4: Run focused correction tests**
+- [x] **Step 4: Run focused correction tests**
 
 ```powershell
 npm run test:integration -- tests/integration/postgres-correction-policy.test.ts
@@ -404,7 +404,7 @@ npm run test:integration -- tests/integration/postgres-correction-policy.test.ts
 
 Expected: typed allowlist, authorization, same-subject, rollback, replay, and no-generic-patch cases PASS.
 
-- [ ] **Step 5: Commit Task 6**
+- [x] **Step 5: Commit Task 6**
 
 ```bash
 git add src/persistence/postgres-correction-policy.ts src/policy/policy-types.ts tests/integration/postgres-correction-policy.test.ts

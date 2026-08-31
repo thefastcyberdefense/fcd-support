@@ -379,6 +379,16 @@ export interface ExecuteCorrectionInput {
   readonly requestRef: string;
 }
 
+export type CorrectionResultCode =
+  'applied' | 'manual_required' | 'partially_completed' | 'rejected';
+
+export interface CorrectionExecutionResult {
+  readonly fieldKey: string;
+  readonly requestRef: string;
+  readonly resultCode: CorrectionResultCode;
+  readonly status: 'applied' | 'duplicate';
+}
+
 export interface MarketingOptOutInput {
   readonly effectiveAt: Date;
   readonly requestKey: string;
