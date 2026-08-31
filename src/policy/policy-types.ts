@@ -93,6 +93,15 @@ export interface ExecuteDeletionInput {
   readonly requestRef: string;
 }
 
+export interface DeletionExecutionResult {
+  readonly conversationsProcessed: number;
+  readonly identitiesPseudonymized: number;
+  readonly messagesCleared: number;
+  readonly requestRef: string;
+  readonly status: 'applied' | 'duplicate';
+  readonly tombstonesCreated: number;
+}
+
 export type EventApplicationOutcome =
   | 'business_echo_ignored_before_resume'
   | 'business_echo_paused'

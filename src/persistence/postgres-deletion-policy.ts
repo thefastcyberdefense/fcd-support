@@ -4,11 +4,20 @@ import type pg from 'pg';
 import { z } from 'zod';
 
 import {
+  parseExecuteDeletionInput,
   parseOpenDeletionRequestInput,
   parseReviewDeletionRequestInput,
 } from '../policy/deletion-command.js';
-import { createIdentityHmac, requirePrivacyHmacKeyring } from '../policy/privacy-identity.js';
-import type { ChannelIdentitySelector, PrivacyHmacKeyring } from '../policy/policy-types.js';
+import {
+  createIdentityHmac,
+  createReplayHmac,
+  requirePrivacyHmacKeyring,
+} from '../policy/privacy-identity.js';
+import type {
+  ChannelIdentitySelector,
+  DeletionExecutionResult,
+  PrivacyHmacKeyring,
+} from '../policy/policy-types.js';
 import { requireSupportReviewer } from '../policy/reviewer-principal.js';
 import { lockAppliedCustomerEvent } from './postgres-policy-helpers.js';
 import {
@@ -68,6 +77,34 @@ interface ExistingReviewRow {
   readonly material_matches: boolean;
   readonly request_ref: string;
   readonly resulting_state: 'human_review' | 'rejected';
+}
+
+interface ExistingDeletionRunRow {
+  readonly conversations_processed: number;
+  readonly identities_pseudonymized: number;
+  readonly material_matches: boolean;
+  readonly messages_cleared: number;
+  readonly request_ref: string;
+  readonly tombstones_created: number;
+}
+
+interface LockedExecutionRequestRow {
+  readonly contact_id: string | null;
+  readonly id: string;
+  readonly state: string;
+}
+
+interface SubjectIdentityRow {
+  readonly channel: 'messenger' | 'whatsapp';
+  readonly channel_account_id: string;
+  readonly external_contact_id: string;
+  readonly id: string;
+}
+
+interface SubjectEventRow {
+  readonly had_message: boolean;
+  readonly id: string;
+  readonly idempotency_key: string;
 }
 
 function identitiesMatch(left: ChannelIdentitySelector, right: ChannelIdentitySelector): boolean {
@@ -175,6 +212,230 @@ export class PostgresDeletionPolicy {
       );
 
       return { status: 'opened', requestRef };
+    });
+  }
+
+  public async executeApprovedRequest(input: unknown): Promise<DeletionExecutionResult> {
+    const command = parseExecuteDeletionInput(input);
+    const activeKey = this.keyring.keys.get(this.keyring.activeVersion);
+    if (activeKey === undefined) throw new Error('Active privacy key is missing');
+
+    return withBoundedTransaction(this.pool, async (client) => {
+      await client.query(`select pg_advisory_xact_lock(hashtextextended($1::text, 0::bigint))`, [
+        command.requestKey,
+      ]);
+
+      const existing = await client.query<ExistingDeletionRunRow>(
+        `select request.request_ref,
+                run.conversations_processed,
+                run.identities_pseudonymized,
+                run.messages_cleared,
+                run.tombstones_created,
+                request.request_ref = $2
+                  and run.executed_at = $3::timestamptz
+                  as material_matches
+         from privacy_deletion_runs as run
+         join privacy_requests as request on request.id = run.request_id
+         where run.request_key = $1`,
+        [command.requestKey, command.requestRef, command.executedAt],
+      );
+      const replay = existing.rows[0];
+      if (replay !== undefined) {
+        if (!replay.material_matches) {
+          throw new PolicyIdempotencyConflictError('Deletion execution key material conflicts');
+        }
+        return {
+          conversationsProcessed: replay.conversations_processed,
+          identitiesPseudonymized: replay.identities_pseudonymized,
+          messagesCleared: replay.messages_cleared,
+          requestRef: replay.request_ref,
+          status: 'duplicate',
+          tombstonesCreated: replay.tombstones_created,
+        };
+      }
+
+      const selectedRequest = await client.query<LockedExecutionRequestRow>(
+        `select id, state, contact_id
+         from privacy_requests
+         where request_ref = $1 and request_type = 'deletion'
+         for update`,
+        [command.requestRef],
+      );
+      const request = selectedRequest.rows[0];
+      if (request?.contact_id == null || request.state !== 'human_review') {
+        throw new PolicyRecordNotFoundError('Approved deletion request not found');
+      }
+      const lockedContact = await client.query(`select id from contacts where id = $1 for update`, [
+        request.contact_id,
+      ]);
+      if (lockedContact.rows[0] === undefined) {
+        throw new PolicyRecordNotFoundError('Deletion contact not found');
+      }
+      const identities = await client.query<SubjectIdentityRow>(
+        `select id, channel, channel_account_id, external_contact_id
+         from channel_identities
+         where contact_id = $1
+         order by id
+         for update`,
+        [request.contact_id],
+      );
+      if (identities.rows.length === 0) {
+        throw new PolicyRecordNotFoundError('Deletion identities not found');
+      }
+
+      let tombstonesCreated = 0;
+      for (const identity of identities.rows) {
+        const inserted = await client.query(
+          `insert into privacy_suppressions
+             (identity_hmac, channel, category, reason_code, effective_at, key_version)
+           values ($1, $2, 'deletion_tombstone', 'customer_deletion', $3, $4)
+           on conflict (identity_hmac, channel, category, key_version) do nothing
+           returning id`,
+          [
+            createIdentityHmac(
+              {
+                channel: identity.channel,
+                channelAccountId: identity.channel_account_id,
+                externalContactId: identity.external_contact_id,
+              },
+              { key: activeKey, version: this.keyring.activeVersion },
+            ),
+            identity.channel,
+            command.executedAt,
+            this.keyring.activeVersion,
+          ],
+        );
+        tombstonesCreated += inserted.rowCount ?? 0;
+      }
+
+      const identityIds = identities.rows.map((identity) => identity.id);
+      const conversations = await client.query<{ readonly id: string }>(
+        `select id
+         from conversations
+         where channel_identity_id = any($1::bigint[])
+         order by id
+         for update`,
+        [identityIds],
+      );
+      const subjectEvents = await client.query<SubjectEventRow>(
+        `with matched_events as (
+           select application.webhook_event_id as id
+           from webhook_event_applications as application
+           join conversations as conversation on conversation.id = application.conversation_id
+           where conversation.channel_identity_id = any($1::bigint[])
+           union
+           select event.id
+           from webhook_events as event
+           join unnest($2::text[], $3::text[], $4::text[])
+             as identity(channel, channel_account_id, external_contact_id)
+             on identity.channel = event.channel
+            and identity.channel_account_id = event.channel_account_id
+            and identity.external_contact_id = event.contact_id
+         )
+         select event.id, event.idempotency_key,
+                event.message_text is not null as had_message
+         from webhook_events as event
+         join matched_events on matched_events.id = event.id
+         order by event.id
+         for update of event`,
+        [
+          identityIds,
+          identities.rows.map((identity) => identity.channel),
+          identities.rows.map((identity) => identity.channel_account_id),
+          identities.rows.map((identity) => identity.external_contact_id),
+        ],
+      );
+      let messagesCleared = 0;
+      for (const event of subjectEvents.rows) {
+        if (event.had_message) messagesCleared += 1;
+        await client.query(
+          `update webhook_events
+           set idempotency_key = $2,
+               channel_account_id = null,
+               contact_id = null,
+               external_message_id = null,
+               message_text = null,
+               message_status = null
+           where id = $1`,
+          [
+            event.id,
+            `privacy:${this.keyring.activeVersion}:${createReplayHmac(event.idempotency_key, {
+              key: activeKey,
+              version: this.keyring.activeVersion,
+            })}`,
+          ],
+        );
+      }
+      await client.query(
+        `update conversations
+         set ai_paused_until = null,
+             last_authorized_resume_at = null,
+             updated_at = now(),
+             row_version = row_version + 1
+         where id = any($1::bigint[])`,
+        [conversations.rows.map((conversation) => conversation.id)],
+      );
+      for (const identity of identities.rows) {
+        await client.query(
+          `update channel_identities
+           set channel_account_id = $2,
+               external_contact_id = $3
+           where id = $1`,
+          [identity.id, `deleted:${randomUUID()}`, `deleted:${randomUUID()}`],
+        );
+      }
+      await client.query(
+        `update privacy_request_locations
+         set state = 'completed',
+             outcome_code = 'local_erasure_complete',
+             checked_at = $2
+         where request_id = $1
+           and location_code in ('primary_postgres', 'pending_outbound')`,
+        [request.id, command.executedAt],
+      );
+      await client.query(
+        `update privacy_requests
+         set state = 'in_progress',
+             contact_id = null,
+             source_webhook_event_id = null,
+             updated_at = now(),
+             row_version = row_version + 1
+         where id = $1`,
+        [request.id],
+      );
+      await client.query(
+        `insert into privacy_request_events
+           (request_id, action, outcome, reason_code, previous_state,
+            resulting_state, actor_type, effective_at, request_key)
+         values ($1, 'deletion_executed', 'applied', 'local_erasure_complete',
+                 'human_review', 'in_progress', 'deletion_job', $2, $3)`,
+        [request.id, command.executedAt, command.requestKey],
+      );
+      await client.query(
+        `insert into privacy_deletion_runs
+           (request_id, request_key, executed_at, conversations_processed,
+            identities_pseudonymized, messages_cleared, tombstones_created,
+            status, completed_at)
+         values ($1, $2, $3, $4, $5, $6, $7, 'applied', $3)`,
+        [
+          request.id,
+          command.requestKey,
+          command.executedAt,
+          conversations.rows.length,
+          identities.rows.length,
+          messagesCleared,
+          tombstonesCreated,
+        ],
+      );
+
+      return {
+        conversationsProcessed: conversations.rows.length,
+        identitiesPseudonymized: identities.rows.length,
+        messagesCleared,
+        requestRef: command.requestRef,
+        status: 'applied',
+        tombstonesCreated,
+      };
     });
   }
 
