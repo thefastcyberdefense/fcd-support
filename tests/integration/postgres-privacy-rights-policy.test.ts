@@ -23,7 +23,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   await pool.query(
     `truncate table
-       privacy_access_runs, privacy_correction_runs,
+       privacy_marketing_reopt_in_runs, privacy_access_runs, privacy_correction_runs,
        privacy_marketing_opt_out_runs, privacy_notification_intents,
        privacy_request_events, privacy_request_locations,
        privacy_deletion_runs, restore_deletion_gates, privacy_requests,
@@ -187,6 +187,36 @@ describe('PostgresPrivacyRightsPolicy', () => {
         state: 'awaiting_confirmation',
       },
     ]);
+  });
+
+  test('dispatches exact marketing opt-out immediately with content-free evidence', async () => {
+    const source = await createCommandEvent('privacy-marketing-dispatch', 'STOP MARKETING');
+    const policy = new PostgresPrivacyRightsPolicy(pool, syntheticPrivacyKeyring);
+    const input = {
+      requestKey: 'privacy-marketing-dispatch',
+      sourceWebhookEventId: source.eventId,
+    };
+
+    await expect(policy.processAppliedEvent(input)).resolves.toEqual({
+      categoryRevocations: 0,
+      intent: 'marketing_opt_out',
+      linkedIdentities: 1,
+      pendingIntentsCancelled: 0,
+      status: 'applied',
+      suppressionsCreated: 1,
+    });
+    await expect(policy.processAppliedEvent(input)).resolves.toMatchObject({
+      intent: 'marketing_opt_out',
+      status: 'duplicate',
+    });
+    const stored = await pool.query(
+      `select
+         (select count(*)::int from privacy_marketing_opt_out_runs) as runs,
+         (select count(*)::int from privacy_notification_intents) as notifications,
+         (select count(*)::int from privacy_suppressions
+          where category = 'marketing_opt_out') as suppressions`,
+    );
+    expect(stored.rows).toEqual([{ notifications: 1, runs: 1, suppressions: 1 }]);
   });
 
   test('ignores non-exact text and rejects a non-applied source', async () => {

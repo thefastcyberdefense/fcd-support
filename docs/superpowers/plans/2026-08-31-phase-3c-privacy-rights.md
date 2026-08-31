@@ -34,6 +34,7 @@
 
 - `migrations/000005_create_privacy_rights_workflows.ts` — additive access/correction/opt-out evidence constraints and aggregate run tables.
 - `migrations/000006_extend_privacy_hold_audit.ts` — closed checklist-location evidence plus the privacy-hold audit reason discovered during Task 3 execution.
+- `migrations/000007_create_marketing_opt_out_policy.ts` — source uniqueness, append-only explicit re-opt-in evidence, and global suppression audit precedence discovered during Task 4 execution.
 - `src/policy/privacy-intent.ts` — exact deterministic intent parser.
 - `src/policy/privacy-rights-command.ts` — strict schemas for access/correction review, checklist, opt-out, and re-opt-in commands.
 - `src/persistence/postgres-privacy-rights-policy.ts` — authoritative intent intake, access/correction request lifecycle, holds, and checklist transitions.
@@ -54,7 +55,7 @@
 - `src/persistence/postgres-takeover-policy.ts` — unresolved privacy-request hold in automated reply eligibility.
 - `src/persistence/postgres-deletion-policy.ts` — share the already-tested deletion-open primitive with deterministic intake without changing approval/execution behavior.
 - `src/persistence/postgres-policy-helpers.ts` — reusable authoritative-event and subject-lock helpers.
-- `tests/integration/migrations.test.ts` — migration-five/six apply/down/reapply and closed-value/append-only checks.
+- `tests/integration/migrations.test.ts` — migration-five/six/seven apply/down/reapply and closed-value/append-only checks.
 - `tests/integration/policy-fixtures.ts` — neutral synthetic applied-message helper wording and linked-identity setup.
 - `tests/integration/postgres-consent-policy.test.ts` — suppression precedence regression cases.
 - `tests/integration/postgres-takeover-policy.test.ts` — privacy-hold precedence and release cases.
@@ -130,7 +131,7 @@ git commit -m "feat: define privacy rights contracts"
 
 - [ ] **Step 1: Write the failing migration-five tests**
 
-Assert the workflow tables arrive in migration five. Task 3 adds the narrow audit/checklist extension as migration six, after which the complete migration count is `6`; roll back six then five while P3-006 tables remain, and reapply both. Verify:
+Assert the workflow tables arrive in migration five. Task 3 adds the narrow audit/checklist extension as migration six. Task 4 adds the narrow marketing source/re-opt-in/audit extension as migration seven, after which the complete migration count is `7`; roll back seven, six, and five while P3-006 tables remain, and reapply all three. Verify:
 
 - `privacy_request_events` accepts only the additional access/correction/checklist actions, reasons, and actors required by this plan;
 - `privacy_access_runs`, `privacy_correction_runs`, and `privacy_marketing_opt_out_runs` contain only request/internal references, closed codes, timestamps, aggregate counts, and unique request keys;
@@ -247,37 +248,46 @@ git commit -m "feat: add reviewed privacy request intake"
 ## Task 4: Immediate Global Marketing Opt-Out And Explicit Re-Opt-In
 
 **Files:**
+- Create: `migrations/000007_create_marketing_opt_out_policy.ts`
 - Create: `src/persistence/postgres-marketing-opt-out-policy.ts`
 - Modify: `src/persistence/postgres-consent-policy.ts`
+- Modify: `src/persistence/postgres-policy-helpers.ts`
 - Modify: `src/persistence/postgres-privacy-rights-policy.ts`
+- Modify: `src/policy/privacy-rights-command.ts`
+- Modify: `src/policy/policy-types.ts`
+- Modify: `tests/integration/migrations.test.ts`
 - Create: `tests/integration/postgres-marketing-opt-out-policy.test.ts`
 - Modify: `tests/integration/postgres-consent-policy.test.ts`
+- Modify: `tests/integration/postgres-deletion-policy.test.ts`
+- Modify: `tests/integration/postgres-privacy-rights-policy.test.ts`
+- Modify: `tests/integration/postgres-retention-job.test.ts`
+- Modify: `tests/policy/privacy-rights-command.test.ts`
 
-- [ ] **Step 1: Write failing all-linked opt-out tests**
+- [x] **Step 1: Write failing all-linked opt-out tests**
 
 Use one contact with Messenger and WhatsApp identities. Cover zero/one/many existing marketing categories, all currently known categories, categories on only one identity, exact/concurrent retry, conflict, notification/run rollback, and no identity merge. Assert one revoke per linked identity/category, one active HMAC suppression per linked identity/key version, one aggregate run, and no raw identifier/HMAC in results or evidence.
 
-- [ ] **Step 2: Implement atomic opt-out**
+- [x] **Step 2: Implement atomic opt-out**
 
 Validate the privacy keyring before connecting. Lock request key, source applied event, contact, and all linked identities in deterministic ID order. Determine the union of existing consent categories for that contact, append customer-authoritative revokes with deterministic idempotency keys, upsert/refresh active `marketing_opt_out` suppressions for the active HMAC version, cancel pending marketing intents only if the later outbox table exists, insert one aggregate run, and insert one `operator_marketing_opt_out` notification intent linked only to that run. Make the whole operation one bounded transaction.
 
-- [ ] **Step 3: Write failing suppression-precedence tests**
+- [x] **Step 3: Write failing suppression-precedence tests**
 
 Assert marketing eligibility is denied by global opt-out despite a newer/older category grant, across each retained HMAC key version and after restore-like ordering. Assert support reply eligibility is unaffected. A different contact and unlinked identity must not be suppressed.
 
-- [ ] **Step 4: Implement eligibility precedence**
+- [x] **Step 4: Implement eligibility precedence**
 
 Give `PostgresConsentPolicy` the validated privacy keyring. Before latest-consent evaluation, compute HMAC candidates for every retained key and query active `marketing_opt_out` suppressions. Return `global_marketing_opt_out` on any match, audit the closed reason, and never expose the digest.
 
-- [ ] **Step 5: Write failing explicit re-opt-in tests**
+- [x] **Step 5: Write failing explicit re-opt-in tests**
 
 Require `support_reviewer`, explicit same-channel verification, selected linked-identity scope, and one or more closed marketing categories. Prove the command atomically expires/removes applicable global suppressions and appends category grants; rollback leaves both unchanged. Ordinary consent recording, arbitrary messages, and reviewer notes must not clear suppression.
 
-- [ ] **Step 6: Implement atomic re-opt-in**
+- [x] **Step 6: Implement atomic re-opt-in**
 
 Add a specialized `recordExplicitReoptIn` method that locks the contact and selected linked identities, verifies request-key material, clears every matching suppression for every retained key version in scope, appends category-specific reviewer-recorded grants, and inserts bounded aggregate audit evidence. Do not weaken `recordReviewerCommand`.
 
-- [ ] **Step 7: Run focused marketing tests**
+- [x] **Step 7: Run focused marketing tests**
 
 ```powershell
 npm run test:integration -- tests/integration/postgres-marketing-opt-out-policy.test.ts tests/integration/postgres-consent-policy.test.ts
@@ -285,7 +295,7 @@ npm run test:integration -- tests/integration/postgres-marketing-opt-out-policy.
 
 Expected: opt-out, precedence, rotation, re-opt-in, support-reply, rollback, and concurrency cases PASS.
 
-- [ ] **Step 8: Commit Task 4**
+- [x] **Step 8: Commit Task 4**
 
 ```bash
 git add src/persistence/postgres-marketing-opt-out-policy.ts src/persistence/postgres-consent-policy.ts src/persistence/postgres-privacy-rights-policy.ts src/policy/policy-types.ts tests/integration/postgres-marketing-opt-out-policy.test.ts tests/integration/postgres-consent-policy.test.ts

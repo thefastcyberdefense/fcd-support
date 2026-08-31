@@ -792,7 +792,7 @@ describe('PostgresDeletionPolicy approved local erasure', () => {
       occurredAt: new Date('2026-08-31T06:01:30.000Z'),
     });
     await new PostgresConversationEventProcessor(pool).processEvent(statusId);
-    await new PostgresConsentPolicy(pool).recordReviewerCommand(
+    await new PostgresConsentPolicy(pool, keyring).recordReviewerCommand(
       {
         identity: messengerIdentity,
         action: 'grant',

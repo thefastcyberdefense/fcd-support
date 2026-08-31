@@ -13,10 +13,7 @@ import type {
 const boundedString = z.string().trim().min(1).max(128);
 const databaseId = z.string().regex(/^\d+$/);
 const validDate = z.date().refine((value) => Number.isFinite(value.getTime()));
-const category = z
-  .string()
-  .trim()
-  .regex(/^[a-z0-9][a-z0-9._-]{0,63}$/);
+const category = z.enum(['newsletter', 'product_offers', 'product_updates', 'security_updates']);
 const categories = z
   .array(category)
   .min(1)

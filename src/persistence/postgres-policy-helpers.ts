@@ -21,6 +21,7 @@ export type PolicyAuditReasonCode =
   | 'consent_revoke'
   | 'customer_message_applied'
   | 'echo_not_later_than_resume'
+  | 'global_marketing_opt_out'
   | 'identity_not_found'
   | 'message_status_ignored'
   | 'pause_active'

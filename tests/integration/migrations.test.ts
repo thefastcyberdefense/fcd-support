@@ -133,7 +133,7 @@ describe('Phase 2 database migrations', () => {
       { table_name: 'privacy_suppressions' },
       { table_name: 'restore_deletion_gates' },
     ]);
-    expect(migrations.rows[0]?.count).toBe(6);
+    expect(migrations.rows[0]?.count).toBe(7);
   });
 
   test('create the bounded privacy rights workflow tables as migration five', async () => {
@@ -317,6 +317,66 @@ describe('Phase 2 database migrations', () => {
        where request_ref = 'PRIVACY_TEST_workflow_constraints'`,
     );
     expect(invalidLocation).toMatchObject({ code: '23514' });
+  });
+
+  test('add bounded marketing re-opt-in evidence and suppression precedence in migration seven', async () => {
+    const table = await pool.query<{ readonly table_name: string }>(
+      `select table_name
+       from information_schema.tables
+       where table_schema = $1
+         and table_name = 'privacy_marketing_reopt_in_runs'`,
+      [schema],
+    );
+    const indexes = await pool.query<{ readonly indexname: string }>(
+      `select indexname
+       from pg_indexes
+       where schemaname = $1
+         and indexname = 'privacy_marketing_opt_out_runs_source_unique'`,
+      [schema],
+    );
+    expect(table.rows).toEqual([{ table_name: 'privacy_marketing_reopt_in_runs' }]);
+    expect(indexes.rows).toEqual([{ indexname: 'privacy_marketing_opt_out_runs_source_unique' }]);
+
+    const run = await pool.query<{ readonly id: string }>(
+      `insert into privacy_marketing_reopt_in_runs
+         (request_key, category_codes, effective_at, scope,
+          linked_identities_count, category_grants_count,
+          suppressions_cleared_count, reviewer_reference,
+          verification_method, status)
+       values ('privacy-test-marketing-reopt-in', array['security_updates'],
+               '2026-08-31T04:06:00Z', 'source_identity',
+               1, 1, 2, 'REVIEWER_TEST_migration',
+               'same_channel_context', 'applied')
+       returning id`,
+    );
+    const immutable = await captureRolledBackMutation(
+      `update privacy_marketing_reopt_in_runs
+       set category_grants_count = 2
+       where id = $1`,
+      [run.rows[0]?.id],
+    );
+    expect(immutable).toMatchObject({ code: '23514' });
+    const unknownCategory = await captureRolledBackMutation(
+      `insert into privacy_marketing_reopt_in_runs
+         (request_key, category_codes, effective_at, scope,
+          linked_identities_count, category_grants_count,
+          suppressions_cleared_count, reviewer_reference,
+          verification_method, status)
+       values ('privacy-test-marketing-reopt-in-unknown',
+               array['unknown_campaign'],
+               '2026-08-31T04:06:00Z', 'source_identity',
+               1, 1, 1, 'REVIEWER_TEST_migration',
+               'same_channel_context', 'applied')`,
+    );
+    expect(unknownCategory).toMatchObject({ code: '23514' });
+    await expect(
+      captureRolledBackMutation(
+        `insert into policy_audit_outcomes
+           (decision_type, outcome, reason_code, evaluated_at)
+         values ('marketing_eligibility', 'denied', 'global_marketing_opt_out',
+                 '2026-08-31T04:07:00Z')`,
+      ),
+    ).resolves.toBeUndefined();
   });
 
   test('permits only privacy-safe suppressed webhook event shapes', async () => {
@@ -1468,7 +1528,7 @@ describe('Phase 2 database migrations', () => {
     ]);
   });
 
-  test('roll back and reapply all six policy migrations', async () => {
+  test('roll back and reapply all seven policy migrations', async () => {
     const receipt = await pool.query<{ readonly id: string }>(
       `insert into webhook_receipts (payload_sha256, event_count)
        values ($1, 1)
@@ -1489,7 +1549,7 @@ describe('Phase 2 database migrations', () => {
       [suppressedEvent.rows[0]?.id],
     );
 
-    await runMigrations('down', 2);
+    await runMigrations('down', 3);
 
     const retainedSuppressionEvidence = await pool.query<{
       readonly outcome: string;
@@ -1518,7 +1578,7 @@ describe('Phase 2 database migrations', () => {
     ]);
 
     await runMigrations('up');
-    await runMigrations('down', 6);
+    await runMigrations('down', 7);
 
     const afterRollback = await pool.query<{ readonly table_name: string }>(
       `select table_name
@@ -1536,6 +1596,7 @@ describe('Phase 2 database migrations', () => {
            'privacy_correction_runs',
            'privacy_deletion_runs',
            'privacy_marketing_opt_out_runs',
+           'privacy_marketing_reopt_in_runs',
            'privacy_notification_intents',
            'privacy_request_events',
            'privacy_request_locations',
@@ -1570,6 +1631,7 @@ describe('Phase 2 database migrations', () => {
            'privacy_correction_runs',
            'privacy_deletion_runs',
            'privacy_marketing_opt_out_runs',
+           'privacy_marketing_reopt_in_runs',
            'privacy_notification_intents',
            'privacy_request_events',
            'privacy_request_locations',
@@ -1597,6 +1659,7 @@ describe('Phase 2 database migrations', () => {
       { table_name: 'privacy_correction_runs' },
       { table_name: 'privacy_deletion_runs' },
       { table_name: 'privacy_marketing_opt_out_runs' },
+      { table_name: 'privacy_marketing_reopt_in_runs' },
       { table_name: 'privacy_notification_intents' },
       { table_name: 'privacy_request_events' },
       { table_name: 'privacy_request_locations' },

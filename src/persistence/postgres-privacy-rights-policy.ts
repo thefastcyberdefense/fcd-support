@@ -12,6 +12,7 @@ import type { PrivacyHmacKeyring, PrivacyLocationCode } from '../policy/policy-t
 import { requirePrivacyHmacKeyring } from '../policy/privacy-identity.js';
 import { requireSupportReviewer } from '../policy/reviewer-principal.js';
 import { PostgresDeletionPolicy } from './postgres-deletion-policy.js';
+import { PostgresMarketingOptOutPolicy } from './postgres-marketing-opt-out-policy.js';
 import { lockAppliedCustomerEvent } from './postgres-policy-helpers.js';
 import {
   PolicyIdempotencyConflictError,
@@ -31,7 +32,11 @@ export type ProcessPrivacyIntentResult =
     }
   | {
       readonly intent: 'marketing_opt_out';
-      readonly status: 'not_configured';
+      readonly categoryRevocations: number;
+      readonly linkedIdentities: number;
+      readonly pendingIntentsCancelled: number;
+      readonly status: 'applied' | 'duplicate';
+      readonly suppressionsCreated: number;
     };
 
 export interface ReviewPrivacyRequestResult {
@@ -105,12 +110,15 @@ function locationState(
 
 export class PostgresPrivacyRightsPolicy {
   private readonly deletionPolicy: PostgresDeletionPolicy;
+  private readonly marketingOptOutPolicy: PostgresMarketingOptOutPolicy;
 
   public constructor(
     private readonly pool: pg.Pool,
     keyring: PrivacyHmacKeyring,
   ) {
-    this.deletionPolicy = new PostgresDeletionPolicy(pool, requirePrivacyHmacKeyring(keyring));
+    const validatedKeyring = requirePrivacyHmacKeyring(keyring);
+    this.deletionPolicy = new PostgresDeletionPolicy(pool, validatedKeyring);
+    this.marketingOptOutPolicy = new PostgresMarketingOptOutPolicy(pool, validatedKeyring);
   }
 
   public async processAppliedEvent(input: unknown): Promise<ProcessPrivacyIntentResult> {
@@ -124,7 +132,12 @@ export class PostgresPrivacyRightsPolicy {
     });
     if (classified.intent === null) return { status: 'not_a_privacy_intent' };
     if (classified.intent === 'marketing_opt_out') {
-      return { intent: classified.intent, status: 'not_configured' };
+      const result = await this.marketingOptOutPolicy.apply({
+        effectiveAt: classified.source.occurredAt,
+        requestKey: command.requestKey,
+        sourceWebhookEventId: command.sourceWebhookEventId,
+      });
+      return { intent: classified.intent, ...result };
     }
     if (classified.intent === 'deletion') {
       const result = await this.deletionPolicy.openIntentRequest({

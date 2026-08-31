@@ -179,6 +179,7 @@ describe('specialized privacy commands', () => {
     { categories: ['newsletter', 'newsletter'] },
     { categories: ['Newsletter'] },
     { categories: ['security updates'] },
+    { categories: ['unknown_campaign'] },
     { categories: ['x'.repeat(65)] },
   ])('rejects invalid re-opt-in category set $categories', ({ categories }) => {
     expect(() =>

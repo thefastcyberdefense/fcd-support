@@ -2,11 +2,13 @@ import type pg from 'pg';
 import { z } from 'zod';
 
 import { parseConsentCommand } from '../policy/consent-command.js';
+import { createIdentityHmac, requirePrivacyHmacKeyring } from '../policy/privacy-identity.js';
 import type {
   ChannelIdentitySelector,
   ConsentCommand,
   ConsentRecordResult,
   MarketingEligibility,
+  PrivacyHmacKeyring,
 } from '../policy/policy-types.js';
 import { requireSupportReviewer } from '../policy/reviewer-principal.js';
 import { insertPolicyAuditOutcome } from './postgres-policy-helpers.js';
@@ -36,6 +38,10 @@ interface ConsentActionRow {
   readonly action: 'grant' | 'revoke';
 }
 
+interface SuppressionRow {
+  readonly suppressed: boolean;
+}
+
 function normalizeIdentity(identity: unknown): ChannelIdentitySelector {
   const parsed = identitySelectorSchema.safeParse(identity);
   if (!parsed.success) {
@@ -51,7 +57,14 @@ function requireValidDate(value: Date, fieldName: string): void {
 }
 
 export class PostgresConsentPolicy {
-  public constructor(private readonly pool: pg.Pool) {}
+  private readonly keyring: PrivacyHmacKeyring;
+
+  public constructor(
+    private readonly pool: pg.Pool,
+    keyring: PrivacyHmacKeyring,
+  ) {
+    this.keyring = requirePrivacyHmacKeyring(keyring);
+  }
 
   public async recordCustomerCommand(input: unknown): Promise<ConsentRecordResult> {
     const command = parseConsentCommand(input);
@@ -115,6 +128,42 @@ export class PostgresConsentPolicy {
           reasonCode: 'identity_not_found',
         });
         return { eligible: false, reason: 'identity_not_found' };
+      }
+
+      const keyVersions: string[] = [];
+      const identityHmacs: string[] = [];
+      for (const [version, key] of this.keyring.keys) {
+        keyVersions.push(version);
+        identityHmacs.push(
+          createIdentityHmac(normalizedIdentity, {
+            key,
+            version,
+          }),
+        );
+      }
+      const suppression = await client.query<SuppressionRow>(
+        `select exists (
+           select 1
+           from privacy_suppressions
+           where channel = $1
+             and category = 'marketing_opt_out'
+             and effective_at <= $2::timestamptz
+             and (expires_at is null or expires_at > $2::timestamptz)
+             and (key_version, identity_hmac) in (
+               select * from unnest($3::text[], $4::text[])
+             )
+         ) as suppressed`,
+        [normalizedIdentity.channel, evaluatedAt, keyVersions, identityHmacs],
+      );
+      if (suppression.rows[0]?.suppressed === true) {
+        await insertPolicyAuditOutcome(client, {
+          channelIdentityId: identityId,
+          decisionType: 'marketing_eligibility',
+          evaluatedAt,
+          outcome: 'denied',
+          reasonCode: 'global_marketing_opt_out',
+        });
+        return { eligible: false, reason: 'global_marketing_opt_out' };
       }
 
       const latest = await client.query<ConsentActionRow>(

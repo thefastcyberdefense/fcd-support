@@ -9,7 +9,7 @@ import {
 } from '../../src/persistence/postgres-retention-job.js';
 import { PostgresRetentionPolicy } from '../../src/persistence/postgres-retention-policy.js';
 import type { RetentionJobInput } from '../../src/policy/policy-types.js';
-import { insertSyntheticPendingEvent } from './policy-fixtures.js';
+import { insertSyntheticPendingEvent, syntheticPrivacyKeyring } from './policy-fixtures.js';
 import { createIsolatedTestDatabase, type IsolatedTestDatabase } from './test-database.js';
 
 let disposeDatabase: (() => Promise<void>) | undefined;
@@ -174,7 +174,7 @@ describe('PostgresRetentionJob exact boundaries and preservation', () => {
       fixtureKey: 'casual-boundary-preservation',
       occurredAt: new Date('2026-01-01T00:01:00.000Z'),
     });
-    await new PostgresConsentPolicy(pool).recordReviewerCommand(
+    await new PostgresConsentPolicy(pool, syntheticPrivacyKeyring).recordReviewerCommand(
       {
         action: 'grant',
         category: 'product_updates',

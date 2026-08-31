@@ -7,7 +7,7 @@ import type {
   ChannelIdentitySelector,
   CustomerMessageConsentCommand,
 } from '../../src/policy/policy-types.js';
-import { insertSyntheticPendingEvent } from './policy-fixtures.js';
+import { insertSyntheticPendingEvent, syntheticPrivacyKeyring } from './policy-fixtures.js';
 import { createIsolatedTestDatabase, type IsolatedTestDatabase } from './test-database.js';
 
 let disposeDatabase: (() => Promise<void>) | undefined;
@@ -187,13 +187,13 @@ async function runConcurrentConsentKeyReuse(input: {
     await holder.query(`select pg_advisory_xact_lock(hashtextextended($1::text, 0::bigint))`, [
       input.firstCommand.idempotencyKey,
     ]);
-    firstPromise = new PostgresConsentPolicy(firstPool)
+    firstPromise = new PostgresConsentPolicy(firstPool, syntheticPrivacyKeyring)
       .recordCustomerCommand(input.firstCommand)
       .then(
         (value): PromiseSettledResult<unknown> => ({ status: 'fulfilled', value }),
         (reason: unknown): PromiseSettledResult<unknown> => ({ status: 'rejected', reason }),
       );
-    secondPromise = new PostgresConsentPolicy(secondPool)
+    secondPromise = new PostgresConsentPolicy(secondPool, syntheticPrivacyKeyring)
       .recordCustomerCommand(input.secondCommand)
       .then(
         (value): PromiseSettledResult<unknown> => ({ status: 'fulfilled', value }),
@@ -334,7 +334,7 @@ async function runConcurrentSourceInvalidation(sourceInvalidation: SourceInvalid
     await holder.query(`select pg_advisory_xact_lock($1::bigint)`, [advisoryKey]);
 
     recordPromise = settled(
-      new PostgresConsentPolicy(recorderPool).recordCustomerCommand(
+      new PostgresConsentPolicy(recorderPool, syntheticPrivacyKeyring).recordCustomerCommand(
         customerCommand({ eventId, fixtureKey, identity, sourceAt }),
       ),
     );
@@ -372,7 +372,10 @@ describe('PostgresConsentPolicy missing and blank consent', () => {
   test('denies an existing identity with no consent', async () => {
     const { identity } = await createCustomerIdentity({ fixtureKey: 'missing-consent' });
 
-    const result = await new PostgresConsentPolicy(pool).evaluateMarketingEligibility(
+    const result = await new PostgresConsentPolicy(
+      pool,
+      syntheticPrivacyKeyring,
+    ).evaluateMarketingEligibility(
       identity,
       'security_updates',
       new Date('2026-08-11T12:05:00.000Z'),
@@ -384,7 +387,10 @@ describe('PostgresConsentPolicy missing and blank consent', () => {
   test('does not broaden an identity lookup across channels', async () => {
     const { identity } = await createCustomerIdentity({ fixtureKey: 'channel-scope' });
 
-    const result = await new PostgresConsentPolicy(pool).evaluateMarketingEligibility(
+    const result = await new PostgresConsentPolicy(
+      pool,
+      syntheticPrivacyKeyring,
+    ).evaluateMarketingEligibility(
       { ...identity, channel: 'whatsapp' },
       'security_updates',
       new Date('2026-08-11T12:05:00.000Z'),
@@ -396,7 +402,10 @@ describe('PostgresConsentPolicy missing and blank consent', () => {
   test('denies an invalid category as missing consent even when the identity does not exist', async () => {
     const evaluatedAt = new Date('2026-08-11T12:05:00.000Z');
 
-    const result = await new PostgresConsentPolicy(pool).evaluateMarketingEligibility(
+    const result = await new PostgresConsentPolicy(
+      pool,
+      syntheticPrivacyKeyring,
+    ).evaluateMarketingEligibility(
       {
         channel: 'messenger',
         channelAccountId: 'PAGE_TEST_invalid_category_missing_identity',
@@ -433,7 +442,7 @@ describe('PostgresConsentPolicy missing and blank consent', () => {
       await lockHolder.query('lock table consent_events in access exclusive mode');
 
       await expect(
-        new PostgresConsentPolicy(pool).evaluateMarketingEligibility(
+        new PostgresConsentPolicy(pool, syntheticPrivacyKeyring).evaluateMarketingEligibility(
           identity,
           '   ',
           new Date('2026-08-11T12:05:00.000Z'),
@@ -473,7 +482,9 @@ describe('PostgresConsentPolicy missing and blank consent', () => {
       ...override,
     };
 
-    await expect(new PostgresConsentPolicy(pool).recordCustomerCommand(command)).rejects.toThrow();
+    await expect(
+      new PostgresConsentPolicy(pool, syntheticPrivacyKeyring).recordCustomerCommand(command),
+    ).rejects.toThrow();
     const records = await pool.query<{ readonly count: number }>(
       `select count(*)::int as count from consent_events`,
     );
@@ -489,7 +500,10 @@ describe('PostgresConsentPolicy consent recording', () => {
       occurredAt: sourceAt,
     });
 
-    const result = await new PostgresConsentPolicy(pool).recordCustomerCommand(
+    const result = await new PostgresConsentPolicy(
+      pool,
+      syntheticPrivacyKeyring,
+    ).recordCustomerCommand(
       customerCommand({ eventId, fixtureKey: 'record-customer', identity, sourceAt }),
     );
 
@@ -545,10 +559,10 @@ describe('PostgresConsentPolicy consent recording', () => {
       idempotencyKey: 'synthetic-consent-record-reviewer',
     };
 
-    const result = await new PostgresConsentPolicy(pool).recordReviewerCommand(
-      command,
-      supportReviewer,
-    );
+    const result = await new PostgresConsentPolicy(
+      pool,
+      syntheticPrivacyKeyring,
+    ).recordReviewerCommand(command, supportReviewer);
 
     expect(result).toMatchObject({ status: 'applied' });
     const stored = await pool.query(
@@ -571,7 +585,7 @@ describe('PostgresConsentPolicy consent recording', () => {
     };
     void removed;
     const before = await readConsentMutationState();
-    const policy = new PostgresConsentPolicy(pool);
+    const policy = new PostgresConsentPolicy(pool, syntheticPrivacyKeyring);
 
     await expect(policy.recordCustomerCommand(reviewer)).rejects.toThrow();
     await expect(policy.recordReviewerCommand(customer, supportReviewer)).rejects.toThrow();
@@ -603,10 +617,13 @@ describe('PostgresConsentPolicy consent recording', () => {
 
     try {
       await expect(
-        new PostgresConsentPolicy(unavailablePool).recordReviewerCommand(command, {
-          reviewerRef: 'reviewer-opaque-denied',
-          roles: ['incident_reader'],
-        }),
+        new PostgresConsentPolicy(unavailablePool, syntheticPrivacyKeyring).recordReviewerCommand(
+          command,
+          {
+            reviewerRef: 'reviewer-opaque-denied',
+            roles: ['incident_reader'],
+          },
+        ),
       ).rejects.toMatchObject({ name: 'PolicyAuthorizationError' });
     } finally {
       await unavailablePool.end();
@@ -619,7 +636,7 @@ describe('PostgresConsentPolicy consent recording', () => {
   test('exact replay is a no-op and material key reuse is a policy conflict', async () => {
     const { eventId, identity } = await createCustomerIdentity({ fixtureKey: 'record-replay' });
     const command = customerCommand({ eventId, fixtureKey: 'record-replay', identity });
-    const policy = new PostgresConsentPolicy(pool);
+    const policy = new PostgresConsentPolicy(pool, syntheticPrivacyKeyring);
     const applied = await policy.recordCustomerCommand(command);
     const beforeConflict = await readConsentMutationState();
 
@@ -638,7 +655,7 @@ describe('PostgresConsentPolicy consent recording', () => {
   test('normalized exact replay appends no second consent or audit row', async () => {
     const { eventId, identity } = await createCustomerIdentity({ fixtureKey: 'normalized-replay' });
     const command = customerCommand({ eventId, fixtureKey: 'normalized-replay', identity });
-    const policy = new PostgresConsentPolicy(pool);
+    const policy = new PostgresConsentPolicy(pool, syntheticPrivacyKeyring);
     const applied = await policy.recordCustomerCommand(command);
 
     await expect(
@@ -665,7 +682,7 @@ describe('PostgresConsentPolicy consent recording', () => {
       fixtureKey: 'replay-source-binding',
     });
     const command = customerCommand({ eventId, fixtureKey: 'replay-source-binding', identity });
-    const policy = new PostgresConsentPolicy(pool);
+    const policy = new PostgresConsentPolicy(pool, syntheticPrivacyKeyring);
     await policy.recordCustomerCommand(command);
 
     await pool.query(
@@ -750,7 +767,7 @@ describe('PostgresConsentPolicy consent recording', () => {
       occurredAt: sourceAt,
     });
     const command = customerCommand({ eventId, fixtureKey: 'material-key', identity, sourceAt });
-    const policy = new PostgresConsentPolicy(pool);
+    const policy = new PostgresConsentPolicy(pool, syntheticPrivacyKeyring);
     await policy.recordCustomerCommand(command);
     const before = await readConsentMutationState();
     const customerMismatches = [
@@ -876,7 +893,7 @@ describe('PostgresConsentPolicy consent recording', () => {
       });
 
       await expect(
-        new PostgresConsentPolicy(pool).recordCustomerCommand(command),
+        new PostgresConsentPolicy(pool, syntheticPrivacyKeyring).recordCustomerCommand(command),
       ).rejects.toMatchObject({ name: 'PolicyRecordNotFoundError' });
       const state = await readConsentMutationState();
       expect(state.rows).toEqual([{ audits: null, consent: null }]);
@@ -895,7 +912,7 @@ describe('PostgresConsentPolicy consent recording', () => {
     });
 
     await expect(
-      new PostgresConsentPolicy(pool).recordCustomerCommand(command),
+      new PostgresConsentPolicy(pool, syntheticPrivacyKeyring).recordCustomerCommand(command),
     ).rejects.toMatchObject({ name: 'PolicyRecordNotFoundError' });
     expect((await readConsentMutationState()).rows).toEqual([{ audits: null, consent: null }]);
   });
@@ -911,7 +928,7 @@ describe('PostgresConsentPolicy consent recording', () => {
       reviewerRef: 'reviewer-opaque-audit-privacy',
       roles: ['support_reviewer', 'synthetic_private_role'],
     } as const;
-    const policy = new PostgresConsentPolicy(pool);
+    const policy = new PostgresConsentPolicy(pool, syntheticPrivacyKeyring);
     await policy.recordReviewerCommand(
       {
         ...reviewerCommand({
@@ -964,7 +981,7 @@ describe('PostgresConsentPolicy consent recording', () => {
     );
     try {
       await expect(
-        new PostgresConsentPolicy(pool).recordReviewerCommand(
+        new PostgresConsentPolicy(pool, syntheticPrivacyKeyring).recordReviewerCommand(
           reviewerCommand({
             fixtureKey: 'audit-rollback',
             identity,
@@ -1001,7 +1018,7 @@ describe('PostgresConsentPolicy marketing eligibility', () => {
       channelAccountId: 'PHONE_TEST_other_account',
     };
     await createCustomerIdentity({ fixtureKey: 'other-account', identity: otherAccountIdentity });
-    const policy = new PostgresConsentPolicy(pool);
+    const policy = new PostgresConsentPolicy(pool, syntheticPrivacyKeyring);
     await policy.recordCustomerCommand(
       customerCommand({ eventId, fixtureKey: 'exact-scope', identity, sourceAt }),
     );
@@ -1101,7 +1118,7 @@ describe('PostgresConsentPolicy marketing eligibility', () => {
       identity: otherIdentity,
       occurredAt: sourceAt,
     });
-    const policy = new PostgresConsentPolicy(pool);
+    const policy = new PostgresConsentPolicy(pool, syntheticPrivacyKeyring);
     await policy.recordCustomerCommand(
       customerCommand({
         eventId,
@@ -1159,7 +1176,10 @@ describe('PostgresConsentPolicy marketing eligibility', () => {
       });
       try {
         await expect(
-          new PostgresConsentPolicy(unavailablePool).evaluateMarketingEligibility(
+          new PostgresConsentPolicy(
+            unavailablePool,
+            syntheticPrivacyKeyring,
+          ).evaluateMarketingEligibility(
             identity as ChannelIdentitySelector,
             category,
             evaluatedAt,
@@ -1173,7 +1193,7 @@ describe('PostgresConsentPolicy marketing eligibility', () => {
 
   test('denies an invalid category without broadening to valid consent', async () => {
     const { identity } = await createCustomerIdentity({ fixtureKey: 'invalid-category' });
-    await new PostgresConsentPolicy(pool).recordReviewerCommand(
+    await new PostgresConsentPolicy(pool, syntheticPrivacyKeyring).recordReviewerCommand(
       reviewerCommand({
         fixtureKey: 'invalid-category',
         identity,
@@ -1183,7 +1203,7 @@ describe('PostgresConsentPolicy marketing eligibility', () => {
     );
 
     await expect(
-      new PostgresConsentPolicy(pool).evaluateMarketingEligibility(
+      new PostgresConsentPolicy(pool, syntheticPrivacyKeyring).evaluateMarketingEligibility(
         identity,
         'Security Updates',
         new Date('2026-08-11T15:05:00.000Z'),
@@ -1193,7 +1213,7 @@ describe('PostgresConsentPolicy marketing eligibility', () => {
 
   test('applies revoke and later re-grant immediately', async () => {
     const { identity } = await createCustomerIdentity({ fixtureKey: 'revoke-regrant' });
-    const policy = new PostgresConsentPolicy(pool);
+    const policy = new PostgresConsentPolicy(pool, syntheticPrivacyKeyring);
     const retentionBefore = await pool.query(
       `select to_jsonb(state) as state,
               (select jsonb_agg(to_jsonb(history) order by history.id)
@@ -1249,7 +1269,7 @@ describe('PostgresConsentPolicy marketing eligibility', () => {
 
   test('uses higher database ID for equal source times and ignores older late inserts', async () => {
     const { identity } = await createCustomerIdentity({ fixtureKey: 'ordering' });
-    const policy = new PostgresConsentPolicy(pool);
+    const policy = new PostgresConsentPolicy(pool, syntheticPrivacyKeyring);
     const tiedAt = new Date('2026-08-11T17:00:00.000Z');
     await policy.recordReviewerCommand(
       reviewerCommand({ fixtureKey: 'tie-grant', identity, sourceAt: tiedAt }),
@@ -1309,7 +1329,7 @@ describe('PostgresConsentPolicy marketing eligibility', () => {
     );
 
     await expect(
-      new PostgresConsentPolicy(pool).evaluateMarketingEligibility(
+      new PostgresConsentPolicy(pool, syntheticPrivacyKeyring).evaluateMarketingEligibility(
         identity,
         'security_updates',
         new Date('2026-08-11T18:01:00.000Z'),

@@ -201,7 +201,11 @@ export type ConsentRecordResult =
 export interface MarketingEligibility {
   readonly eligible: boolean;
   readonly reason:
-    'consent_latest_grant' | 'consent_latest_revoke' | 'consent_missing' | 'identity_not_found';
+    | 'consent_latest_grant'
+    | 'consent_latest_revoke'
+    | 'consent_missing'
+    | 'global_marketing_opt_out'
+    | 'identity_not_found';
 }
 
 export interface ProcessPrivacyIntentInput {
