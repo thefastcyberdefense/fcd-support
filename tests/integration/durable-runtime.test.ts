@@ -4,6 +4,7 @@ import pg from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vitest';
 
 import { createRuntime } from '../../src/runtime.js';
+import { syntheticPrivacyKeyring } from './policy-fixtures.js';
 import { createIsolatedTestDatabase, type IsolatedTestDatabase } from './test-database.js';
 
 let databaseUrl: string;
@@ -38,6 +39,7 @@ describe('durable runtime', () => {
         META_APP_SECRET: appSecret,
         META_VERIFY_TOKEN: 'synthetic_verify_token_1234567890',
       },
+      privacyKeyring: syntheticPrivacyKeyring,
     });
     apps.push(runtime.app);
 
@@ -61,6 +63,38 @@ describe('durable runtime', () => {
     expect(counts.rows).toEqual([{ receipts: 1, events: 1 }]);
   });
 
+  test('fails closed when PostgreSQL is configured without an explicit privacy keyring', async () => {
+    const appSecret = 'synthetic_app_secret_1234567890';
+    const rawBody = JSON.stringify({ object: 'unknown', entry: [] });
+    const signature = `sha256=${createHmac('sha256', appSecret).update(rawBody).digest('hex')}`;
+    const runtime = createRuntime({
+      environment: {
+        DATABASE_URL: databaseUrl,
+        META_APP_SECRET: appSecret,
+        META_VERIFY_TOKEN: 'synthetic_verify_token_1234567890',
+      },
+    });
+    apps.push(runtime.app);
+
+    const response = await runtime.app.inject({
+      method: 'POST',
+      url: '/webhooks/meta',
+      headers: {
+        'content-type': 'application/json',
+        'x-hub-signature-256': signature,
+      },
+      payload: rawBody,
+    });
+
+    expect(response.statusCode).toBe(503);
+    const counts = await pool.query(
+      `select
+         (select count(*)::int from webhook_receipts) as receipts,
+         (select count(*)::int from webhook_events) as events`,
+    );
+    expect(counts.rows).toEqual([{ receipts: 0, events: 0 }]);
+  });
+
   test('returns unavailable when PostgreSQL cannot accept the receipt', async () => {
     const appSecret = 'synthetic_app_secret_1234567890';
     const rawBody = JSON.stringify({ object: 'unknown', entry: [] });
@@ -73,6 +107,7 @@ describe('durable runtime', () => {
         META_APP_SECRET: appSecret,
         META_VERIFY_TOKEN: 'synthetic_verify_token_1234567890',
       },
+      privacyKeyring: syntheticPrivacyKeyring,
     });
     apps.push(runtime.app);
 
@@ -115,12 +150,15 @@ describe('durable runtime', () => {
       payload: rawBody,
     };
 
-    const firstRuntime = createRuntime({ environment });
+    const firstRuntime = createRuntime({ environment, privacyKeyring: syntheticPrivacyKeyring });
     apps.push(firstRuntime.app);
     expect((await firstRuntime.app.inject(delivery)).statusCode).toBe(200);
     await firstRuntime.app.close();
 
-    const restartedRuntime = createRuntime({ environment });
+    const restartedRuntime = createRuntime({
+      environment,
+      privacyKeyring: syntheticPrivacyKeyring,
+    });
     apps.push(restartedRuntime.app);
     expect((await restartedRuntime.app.inject(delivery)).statusCode).toBe(200);
 
@@ -151,6 +189,7 @@ describe('durable runtime', () => {
         META_APP_SECRET: appSecret,
         META_VERIFY_TOKEN: 'synthetic_verify_token_1234567890',
       },
+      privacyKeyring: syntheticPrivacyKeyring,
     });
     apps.push(runtime.app);
     let releasePromise: Promise<void> | undefined;
@@ -222,6 +261,7 @@ describe('durable runtime', () => {
         META_APP_SECRET: appSecret,
         META_VERIFY_TOKEN: 'synthetic_verify_token_1234567890',
       },
+      privacyKeyring: syntheticPrivacyKeyring,
     });
     apps.push(runtime.app);
 

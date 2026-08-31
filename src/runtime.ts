@@ -5,12 +5,14 @@ import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
 import { noopSafeLogger, type SafeLogger } from './logging.js';
 import { PostgresReceiptStore } from './persistence/postgres-receipt-store.js';
+import type { PrivacyHmacKeyring } from './policy/policy-types.js';
 import type { WebhookReceiptSink } from './receipts/webhook-receipt.js';
 
 export interface CreateRuntimeOptions {
   readonly environment: Readonly<Record<string, string | undefined>>;
   readonly logger?: SafeLogger;
   readonly poolFactory?: (configuration: pg.PoolConfig) => pg.Pool;
+  readonly privacyKeyring?: PrivacyHmacKeyring;
   readonly receiptSink?: WebhookReceiptSink;
 }
 
@@ -42,7 +44,10 @@ export function createRuntime(options: CreateRuntimeOptions): AppRuntime {
   pool?.on('error', () => {
     logger.error('database_pool_error');
   });
-  const postgresStore = pool === undefined ? undefined : new PostgresReceiptStore(pool);
+  const postgresStore =
+    pool === undefined || options.privacyKeyring === undefined
+      ? undefined
+      : new PostgresReceiptStore(pool, options.privacyKeyring);
   const app = buildApp({
     logger,
     metaAppSecret: config.metaAppSecret,

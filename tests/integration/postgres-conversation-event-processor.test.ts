@@ -1271,6 +1271,43 @@ describe('PostgresConversationEventProcessor', () => {
     expect(state.rows).toEqual([{ applications: 0 }]);
   });
 
+  test('returns not processable for a privacy-suppressed event without policy state', async () => {
+    const receipt = await pool.query<{ readonly id: string }>(
+      `insert into webhook_receipts (payload_sha256, event_count)
+       values ($1, 1)
+       returning id`,
+      ['a'.repeat(64)],
+    );
+    const event = await pool.query<{ readonly id: string }>(
+      `insert into webhook_events
+         (receipt_id, idempotency_key, channel, event_kind, occurred_at,
+          reason_code, admission_outcome)
+       values ($1, $2, 'whatsapp', 'customer_message', $3,
+               'deletion_tombstone', 'suppressed')
+       returning id`,
+      [
+        receipt.rows[0]?.id,
+        `privacy:TEST_v1:${'b'.repeat(64)}`,
+        new Date('2026-08-11T02:35:00.000Z'),
+      ],
+    );
+
+    await expect(
+      new PostgresConversationEventProcessor(pool).processEvent(event.rows[0]?.id ?? ''),
+    ).resolves.toEqual({ status: 'not_processable' });
+    const counts = await pool.query(
+      `select
+         (select count(*)::int from contacts) as contacts,
+         (select count(*)::int from channel_identities) as identities,
+         (select count(*)::int from conversations) as conversations,
+         (select count(*)::int from conversation_retention_states) as retention_states,
+         (select count(*)::int from webhook_event_applications) as applications`,
+    );
+    expect(counts.rows).toEqual([
+      { applications: 0, contacts: 0, conversations: 0, identities: 0, retention_states: 0 },
+    ]);
+  });
+
   test('rejects malformed pending normalized state without policy mutation', async () => {
     const webhookEventId = await insertSyntheticPendingEvent(pool, {
       channel: 'messenger',

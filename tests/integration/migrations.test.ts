@@ -136,6 +136,35 @@ describe('Phase 2 database migrations', () => {
     expect(migrations.rows[0]?.count).toBe(4);
   });
 
+  test('permits only privacy-safe suppressed webhook event shapes', async () => {
+    const receipt = await pool.query<{ readonly id: string }>(
+      `insert into webhook_receipts (payload_sha256, event_count)
+       values ($1, 2)
+       returning id`,
+      ['2'.repeat(64)],
+    );
+    await expect(
+      pool.query(
+        `insert into webhook_events
+           (receipt_id, idempotency_key, channel, event_kind, occurred_at,
+            reason_code, admission_outcome)
+         values ($1, $2, 'whatsapp', 'customer_message',
+                 '2026-08-31T00:00:00Z', 'deletion_tombstone', 'suppressed')`,
+        [receipt.rows[0]?.id, `privacy:TEST_v1:${'3'.repeat(64)}`],
+      ),
+    ).resolves.toMatchObject({ rowCount: 1 });
+
+    const unsafeSuppressed = await captureRolledBackMutation(
+      `insert into webhook_events
+         (receipt_id, idempotency_key, channel, event_kind, contact_id,
+          occurred_at, reason_code, admission_outcome)
+       values ($1, $2, 'whatsapp', 'customer_message', 'CONTACT_TEST_raw',
+               '2026-08-31T00:00:00Z', 'deletion_tombstone', 'suppressed')`,
+      [receipt.rows[0]?.id, `privacy:TEST_v1:${'4'.repeat(64)}`],
+    );
+    expect(unsafeSuppressed).toMatchObject({ code: '23514' });
+  });
+
   test('enforce closed deletion request, suppression, and application values', async () => {
     const request = await pool.query<{ readonly id: string }>(
       `insert into privacy_requests

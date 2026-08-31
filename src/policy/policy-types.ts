@@ -97,6 +97,7 @@ export type EventApplicationOutcome =
   | 'business_echo_ignored_before_resume'
   | 'business_echo_paused'
   | 'customer_message_applied'
+  | 'identity_suppressed'
   | 'message_status_ignored';
 
 export type EventProcessResult =

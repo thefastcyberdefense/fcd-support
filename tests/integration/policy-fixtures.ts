@@ -1,9 +1,15 @@
+import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 
 import type pg from 'pg';
 
 import { PostgresConversationEventProcessor } from '../../src/persistence/postgres-conversation-event-processor.js';
-import type { ChannelIdentitySelector } from '../../src/policy/policy-types.js';
+import type { ChannelIdentitySelector, PrivacyHmacKeyring } from '../../src/policy/policy-types.js';
+
+export const syntheticPrivacyKeyring = {
+  activeVersion: 'TEST_v1',
+  keys: new Map([['TEST_v1', Buffer.alloc(32, 0x51)]]),
+} satisfies PrivacyHmacKeyring;
 
 export interface SyntheticPendingEventInput {
   readonly channel: 'messenger' | 'unknown' | 'whatsapp';

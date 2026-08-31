@@ -2,7 +2,10 @@ import pg from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vitest';
 
 import type { NormalizedMetaEvent } from '../../src/meta/normalized-event.js';
+import { PostgresConversationEventProcessor } from '../../src/persistence/postgres-conversation-event-processor.js';
 import { PostgresReceiptStore } from '../../src/persistence/postgres-receipt-store.js';
+import { createIdentityHmac } from '../../src/policy/privacy-identity.js';
+import { syntheticPrivacyKeyring } from './policy-fixtures.js';
 import { createIsolatedTestDatabase, type IsolatedTestDatabase } from './test-database.js';
 
 let disposeDatabase: (() => Promise<void>) | undefined;
@@ -34,7 +37,7 @@ afterAll(async () => {
 
 describe('PostgresReceiptStore', () => {
   test('atomically stores a new receipt and normalized event', async () => {
-    const store = new PostgresReceiptStore(pool);
+    const store = new PostgresReceiptStore(pool, syntheticPrivacyKeyring);
     const result = await store.store({
       events: [
         {
@@ -89,8 +92,100 @@ describe('PostgresReceiptStore', () => {
     ]);
   });
 
+  test('suppresses a tombstoned identity before raw event fields reach storage', async () => {
+    const customerIdentity = {
+      channel: 'whatsapp' as const,
+      channelAccountId: 'PHONE_TEST_deleted_receipt',
+      externalContactId: 'CONTACT_TEST_deleted_receipt',
+    };
+    const key = syntheticPrivacyKeyring.keys.get(syntheticPrivacyKeyring.activeVersion);
+    if (key === undefined) throw new Error('Synthetic active privacy key missing');
+    await pool.query(
+      `insert into privacy_suppressions
+         (identity_hmac, channel, category, reason_code, effective_at, key_version)
+       values ($1, 'whatsapp', 'deletion_tombstone', 'customer_deletion', $2, $3)`,
+      [
+        createIdentityHmac(customerIdentity, {
+          key,
+          version: syntheticPrivacyKeyring.activeVersion,
+        }),
+        new Date('2026-08-11T00:05:00.000Z'),
+        syntheticPrivacyKeyring.activeVersion,
+      ],
+    );
+    const store = new PostgresReceiptStore(pool, syntheticPrivacyKeyring);
+    const input = {
+      events: [
+        {
+          kind: 'customer_message' as const,
+          channel: customerIdentity.channel,
+          channelAccountId: customerIdentity.channelAccountId,
+          contactId: customerIdentity.externalContactId,
+          externalMessageId: 'wamid.TEST_deleted_receipt',
+          idempotencyKey: 'whatsapp:message:wamid.TEST_deleted_receipt',
+          occurredAt: new Date('2026-08-11T00:06:00.000Z'),
+          text: 'Synthetic content sent after deletion',
+        },
+      ],
+      payloadSha256: 'a'.repeat(64),
+      receivedAt: new Date('2026-08-11T00:06:05.000Z'),
+    };
+
+    const first = await store.store(input);
+    const retry = await store.store(input);
+    expect(first).toMatchObject({ insertedEventCount: 1, outcome: 'accepted' });
+    expect(retry).toEqual({
+      insertedEventCount: 0,
+      outcome: 'duplicate',
+      receiptId: first.receiptId,
+    });
+    const event = await pool.query<{
+      readonly id: string;
+      readonly idempotency_key: string;
+      readonly [key: string]: unknown;
+    }>(
+      `select id, idempotency_key, channel, event_kind, channel_account_id,
+              contact_id, external_message_id, occurred_at, message_text,
+              message_status, reason_code, admission_outcome
+       from webhook_events`,
+    );
+    expect(event.rows).toHaveLength(1);
+    expect(event.rows[0]).toMatchObject({
+      admission_outcome: 'suppressed',
+      channel: 'whatsapp',
+      channel_account_id: null,
+      contact_id: null,
+      event_kind: 'customer_message',
+      external_message_id: null,
+      message_status: null,
+      message_text: null,
+      reason_code: 'deletion_tombstone',
+    });
+    expect(event.rows[0]?.idempotency_key).toMatch(/^privacy:TEST_v1:[0-9a-f]{64}$/);
+    const serialized = JSON.stringify(event.rows);
+    expect(serialized).not.toContain(customerIdentity.channelAccountId);
+    expect(serialized).not.toContain(customerIdentity.externalContactId);
+    expect(serialized).not.toContain('wamid.TEST_deleted_receipt');
+    expect(serialized).not.toContain('Synthetic content sent after deletion');
+
+    await expect(
+      new PostgresConversationEventProcessor(pool).processEvent(event.rows[0]?.id ?? ''),
+    ).resolves.toEqual({ status: 'not_processable' });
+    const sideEffects = await pool.query(
+      `select
+         (select count(*)::int from contacts) as contacts,
+         (select count(*)::int from channel_identities) as identities,
+         (select count(*)::int from conversations) as conversations,
+         (select count(*)::int from conversation_retention_states) as retention_states,
+         (select count(*)::int from webhook_event_applications) as applications`,
+    );
+    expect(sideEffects.rows).toEqual([
+      { applications: 0, contacts: 0, conversations: 0, identities: 0, retention_states: 0 },
+    ]);
+  });
+
   test('treats an exact delivery retry as a successful no-op', async () => {
-    const store = new PostgresReceiptStore(pool);
+    const store = new PostgresReceiptStore(pool, syntheticPrivacyKeyring);
     const input = {
       events: [
         {
@@ -127,7 +222,7 @@ describe('PostgresReceiptStore', () => {
   });
 
   test('does not emit a transaction warning while handling an exact delivery retry', async () => {
-    const store = new PostgresReceiptStore(pool);
+    const store = new PostgresReceiptStore(pool, syntheticPrivacyKeyring);
     const input = {
       events: [
         {
@@ -158,7 +253,7 @@ describe('PostgresReceiptStore', () => {
   });
 
   test('deduplicates the same logical event across different delivery payloads', async () => {
-    const store = new PostgresReceiptStore(pool);
+    const store = new PostgresReceiptStore(pool, syntheticPrivacyKeyring);
     const event = {
       kind: 'message_status' as const,
       channel: 'whatsapp' as const,
@@ -193,7 +288,7 @@ describe('PostgresReceiptStore', () => {
   });
 
   test('records an inbound message older than five minutes as stale', async () => {
-    const store = new PostgresReceiptStore(pool);
+    const store = new PostgresReceiptStore(pool, syntheticPrivacyKeyring);
 
     await store.store({
       events: [
@@ -229,7 +324,7 @@ describe('PostgresReceiptStore', () => {
   });
 
   test('quarantines an event more than sixty seconds in the future', async () => {
-    const store = new PostgresReceiptStore(pool);
+    const store = new PostgresReceiptStore(pool, syntheticPrivacyKeyring);
 
     await store.store({
       events: [
@@ -266,7 +361,7 @@ describe('PostgresReceiptStore', () => {
   });
 
   test('retains delayed status transitions received out of order', async () => {
-    const store = new PostgresReceiptStore(pool);
+    const store = new PostgresReceiptStore(pool, syntheticPrivacyKeyring);
     const statusBase = {
       kind: 'message_status' as const,
       channel: 'whatsapp' as const,
@@ -320,7 +415,7 @@ describe('PostgresReceiptStore', () => {
   });
 
   test('rolls back the receipt and every event when one insert fails', async () => {
-    const store = new PostgresReceiptStore(pool);
+    const store = new PostgresReceiptStore(pool, syntheticPrivacyKeyring);
     const invalidEvent = {
       kind: 'unsupported',
       channel: 'invalid_channel',
@@ -356,7 +451,7 @@ describe('PostgresReceiptStore', () => {
   });
 
   test('accepts one logical event under concurrent exact retries', async () => {
-    const store = new PostgresReceiptStore(pool);
+    const store = new PostgresReceiptStore(pool, syntheticPrivacyKeyring);
     const input = {
       events: [
         {

@@ -1,6 +1,12 @@
 import type pg from 'pg';
 
 import type { NormalizedMetaEvent } from '../meta/normalized-event.js';
+import {
+  createIdentityHmac,
+  createReplayHmac,
+  requirePrivacyHmacKeyring,
+} from '../policy/privacy-identity.js';
+import type { PrivacyHmacKeyring } from '../policy/policy-types.js';
 import type { WebhookReceiptInput } from '../receipts/webhook-receipt.js';
 import { withBoundedTransaction } from './postgres-transaction.js';
 
@@ -19,6 +25,8 @@ function eventValues(
   payloadSha256: string,
   index: number,
   receivedAt: Date,
+  suppressed: boolean,
+  privacyKeyring: PrivacyHmacKeyring,
 ): readonly unknown[] {
   const supportedEvent = event.kind !== 'unsupported' ? event : undefined;
   const messageEvent =
@@ -30,16 +38,28 @@ function eventValues(
   const isTooFarFuture =
     supportedEvent !== undefined &&
     supportedEvent.occurredAt.getTime() > receivedAt.getTime() + 60 * 1000;
-  const admissionOutcome =
-    event.kind === 'unsupported' || isTooFarFuture
+  const admissionOutcome = suppressed
+    ? 'suppressed'
+    : event.kind === 'unsupported' || isTooFarFuture
       ? 'unsupported'
       : isStaleMessage
         ? 'stale'
         : 'pending';
   const storesProcessableDetails = admissionOutcome === 'pending';
+  const activeKey = privacyKeyring.keys.get(privacyKeyring.activeVersion);
+  if (activeKey === undefined) throw new Error('Active privacy key is missing');
+  const idempotencyKey = suppressed
+    ? `privacy:${privacyKeyring.activeVersion}:${createReplayHmac(
+        supportedEvent?.idempotencyKey ?? '',
+        {
+          key: activeKey,
+          version: privacyKeyring.activeVersion,
+        },
+      )}`
+    : (supportedEvent?.idempotencyKey ?? `meta:unsupported:${payloadSha256}:${String(index)}`);
 
   return [
-    supportedEvent?.idempotencyKey ?? `meta:unsupported:${payloadSha256}:${String(index)}`,
+    idempotencyKey,
     event.channel,
     event.kind,
     storesProcessableDetails ? supportedEvent?.channelAccountId : undefined,
@@ -48,17 +68,26 @@ function eventValues(
     supportedEvent?.occurredAt,
     storesProcessableDetails ? messageEvent?.text : undefined,
     storesProcessableDetails ? statusEvent?.status : undefined,
-    event.kind === 'unsupported'
-      ? event.reasonCode
-      : isTooFarFuture
-        ? 'event_time_too_far_future'
-        : undefined,
+    suppressed
+      ? 'deletion_tombstone'
+      : event.kind === 'unsupported'
+        ? event.reasonCode
+        : isTooFarFuture
+          ? 'event_time_too_far_future'
+          : undefined,
     admissionOutcome,
   ];
 }
 
 export class PostgresReceiptStore {
-  public constructor(private readonly pool: pg.Pool) {}
+  private readonly privacyKeyring: PrivacyHmacKeyring;
+
+  public constructor(
+    private readonly pool: pg.Pool,
+    privacyKeyring: PrivacyHmacKeyring,
+  ) {
+    this.privacyKeyring = requirePrivacyHmacKeyring(privacyKeyring);
+  }
 
   public async store(input: WebhookReceiptInput): Promise<StoreWebhookReceiptResult> {
     return withBoundedTransaction(
@@ -95,6 +124,7 @@ export class PostgresReceiptStore {
 
         let insertedEventCount = 0;
         for (const [index, event] of input.events.entries()) {
+          const suppressed = await this.isDeletedIdentity(client, event, input.receivedAt);
           const insertedEvent = await client.query(
             `insert into webhook_events
              (receipt_id, idempotency_key, channel, event_kind, channel_account_id,
@@ -103,7 +133,17 @@ export class PostgresReceiptStore {
            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
            on conflict (idempotency_key) do nothing
            returning id`,
-            [receiptId, ...eventValues(event, input.payloadSha256, index, input.receivedAt)],
+            [
+              receiptId,
+              ...eventValues(
+                event,
+                input.payloadSha256,
+                index,
+                input.receivedAt,
+                suppressed,
+                this.privacyKeyring,
+              ),
+            ],
           );
           insertedEventCount += insertedEvent.rowCount ?? 0;
         }
@@ -116,5 +156,43 @@ export class PostgresReceiptStore {
       },
       { lockTimeoutMilliseconds: 750 },
     );
+  }
+
+  private async isDeletedIdentity(
+    client: pg.PoolClient,
+    event: NormalizedMetaEvent,
+    evaluatedAt: Date,
+  ): Promise<boolean> {
+    if (event.kind === 'unsupported') return false;
+    const keyVersions: string[] = [];
+    const identityHmacs: string[] = [];
+    for (const [version, key] of this.privacyKeyring.keys) {
+      keyVersions.push(version);
+      identityHmacs.push(
+        createIdentityHmac(
+          {
+            channel: event.channel,
+            channelAccountId: event.channelAccountId,
+            externalContactId: event.contactId,
+          },
+          { key, version },
+        ),
+      );
+    }
+    const selected = await client.query<{ readonly suppressed: boolean }>(
+      `select exists (
+         select 1
+         from privacy_suppressions
+         where channel = $1
+           and category = 'deletion_tombstone'
+           and effective_at <= $2
+           and (expires_at is null or expires_at > $2)
+           and (key_version, identity_hmac) in (
+             select * from unnest($3::text[], $4::text[])
+           )
+       ) as suppressed`,
+      [event.channel, evaluatedAt, keyVersions, identityHmacs],
+    );
+    return selected.rows[0]?.suppressed ?? false;
   }
 }

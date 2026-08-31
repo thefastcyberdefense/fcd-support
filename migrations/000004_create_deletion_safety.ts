@@ -2,6 +2,28 @@ import type { MigrationBuilder } from 'node-pg-migrate';
 
 export function up(pgm: MigrationBuilder): void {
   pgm.sql(`
+    alter table webhook_events
+      drop constraint webhook_events_outcome_allowed,
+      drop constraint if exists webhook_events_suppressed_shape;
+    alter table webhook_events
+      add constraint webhook_events_outcome_allowed
+        check (admission_outcome in ('pending', 'stale', 'unsupported', 'suppressed')),
+      add constraint webhook_events_suppressed_shape
+        check (
+          admission_outcome <> 'suppressed'
+          or (
+            channel in ('messenger', 'whatsapp')
+            and channel_account_id is null
+            and contact_id is null
+            and external_message_id is null
+            and message_text is null
+            and message_status is null
+            and reason_code = 'deletion_tombstone'
+            and idempotency_key
+              ~ '^privacy:[A-Za-z0-9][A-Za-z0-9._-]{0,63}:[0-9a-f]{64}$'
+          )
+        );
+
     alter table webhook_event_applications
       drop constraint webhook_event_applications_outcome_check,
       drop constraint webhook_event_applications_check;
@@ -354,8 +376,8 @@ export function down(pgm: MigrationBuilder): void {
     drop table privacy_request_locations;
     drop table privacy_requests;
 
-    -- The application-outcome widening is intentionally non-destructive on
-    -- rollback. Restoring the old check would require deleting immutable
-    -- identity_suppressed evidence.
+    -- The event/application outcome widenings are intentionally non-destructive
+    -- on rollback. Restoring the old checks would require deleting privacy-safe
+    -- suppressed events or immutable identity_suppressed evidence.
   `);
 }
