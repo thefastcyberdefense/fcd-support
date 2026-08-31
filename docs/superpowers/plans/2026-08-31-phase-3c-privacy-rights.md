@@ -165,7 +165,7 @@ Reuse a migration-five-specific immutable-evidence trigger. Extend request compl
 PowerShell:
 
 ```powershell
-$env:DATABASE_URL='postgresql://fcd_support_test@127.0.0.1:55432/fcd_support_test'
+$env:TEST_DATABASE_URL='postgresql://fcd_support_test@127.0.0.1:55432/fcd_support_test'
 $env:ALLOW_DESTRUCTIVE_DATABASE_TESTS='fcd-support-test-only'
 npm run test:integration -- tests/integration/migrations.test.ts
 ```
@@ -467,7 +467,7 @@ Run:
 
 ```powershell
 npm run check
-$env:DATABASE_URL='postgresql://fcd_support_test@127.0.0.1:55432/fcd_support_test'
+$env:TEST_DATABASE_URL='postgresql://fcd_support_test@127.0.0.1:55432/fcd_support_test'
 $env:ALLOW_DESTRUCTIVE_DATABASE_TESTS='fcd-support-test-only'
 npm run test:integration
 git diff --check

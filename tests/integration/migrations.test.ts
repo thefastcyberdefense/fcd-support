@@ -133,7 +133,163 @@ describe('Phase 2 database migrations', () => {
       { table_name: 'privacy_suppressions' },
       { table_name: 'restore_deletion_gates' },
     ]);
-    expect(migrations.rows[0]?.count).toBe(4);
+    expect(migrations.rows[0]?.count).toBe(5);
+  });
+
+  test('create the bounded privacy rights workflow tables as migration five', async () => {
+    const tables = await pool.query<{ readonly table_name: string }>(
+      `select table_name
+       from information_schema.tables
+       where table_schema = $1
+         and table_name in (
+           'privacy_access_runs',
+           'privacy_correction_runs',
+           'privacy_marketing_opt_out_runs'
+         )
+       order by table_name`,
+      [schema],
+    );
+    const columns = await pool.query<{
+      readonly column_name: string;
+      readonly data_type: string;
+      readonly table_name: string;
+    }>(
+      `select table_name, column_name, data_type
+       from information_schema.columns
+       where table_schema = $1
+         and table_name in (
+           'privacy_access_runs',
+           'privacy_correction_runs',
+           'privacy_marketing_opt_out_runs'
+         )
+       order by table_name, ordinal_position`,
+      [schema],
+    );
+
+    expect(tables.rows).toEqual([
+      { table_name: 'privacy_access_runs' },
+      { table_name: 'privacy_correction_runs' },
+      { table_name: 'privacy_marketing_opt_out_runs' },
+    ]);
+    expect(columns.rows).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          data_type: expect.stringMatching(/json|bytea/i),
+        }),
+      ]),
+    );
+    expect(columns.rows.map(({ column_name }) => column_name)).not.toEqual(
+      expect.arrayContaining([
+        'customer_data',
+        'export',
+        'handler_error',
+        'identity_hmac',
+        'message_text',
+        'path',
+        'requested_value',
+      ]),
+    );
+  });
+
+  test('enforce append-only privacy workflow evidence and one notification parent', async () => {
+    const request = await pool.query<{ readonly id: string }>(
+      `insert into privacy_requests
+         (request_ref, request_type, state, received_at, open_request_key)
+       values ('PRIVACY_TEST_workflow_constraints', 'access', 'in_progress',
+               '2026-08-31T04:00:00Z', 'privacy-test-workflow-constraints')
+       returning id`,
+    );
+    const requestId = request.rows[0]?.id;
+    const accessRun = await pool.query<{ readonly id: string }>(
+      `insert into privacy_access_runs
+         (request_id, request_key, collected_at, collector_count, record_count, status)
+       values ($1, 'privacy-test-access-run', '2026-08-31T04:01:00Z', 5, 12, 'collected')
+       returning id`,
+      [requestId],
+    );
+    const correctionRun = await pool.query<{ readonly id: string }>(
+      `insert into privacy_correction_runs
+         (request_id, request_key, executed_at, field_key, result_code)
+       values ($1, 'privacy-test-correction-run', '2026-08-31T04:02:00Z',
+               'synthetic_profile_name', 'manual_required')
+       returning id`,
+      [requestId],
+    );
+    const optOutRun = await pool.query<{ readonly id: string }>(
+      `insert into privacy_marketing_opt_out_runs
+         (request_key, effective_at, linked_identities_count,
+          category_revocations_count, suppressions_created_count,
+          pending_intents_cancelled_count, status)
+       values ('privacy-test-opt-out-run', '2026-08-31T04:03:00Z',
+               2, 4, 2, 0, 'applied')
+       returning id`,
+    );
+
+    const immutableErrors = await Promise.all([
+      captureRolledBackMutation(`update privacy_access_runs set record_count = 13 where id = $1`, [
+        accessRun.rows[0]?.id,
+      ]),
+      captureRolledBackMutation(`delete from privacy_correction_runs where id = $1`, [
+        correctionRun.rows[0]?.id,
+      ]),
+      captureRolledBackMutation(
+        `update privacy_marketing_opt_out_runs
+         set linked_identities_count = 3
+         where id = $1`,
+        [optOutRun.rows[0]?.id],
+      ),
+    ]);
+    expect(immutableErrors).toEqual([
+      expect.objectContaining({ code: '23514' }),
+      expect.objectContaining({ code: '23514' }),
+      expect.objectContaining({ code: '23514' }),
+    ]);
+
+    const invalidParents = await Promise.all([
+      captureRolledBackMutation(
+        `insert into privacy_notification_intents
+           (request_id, marketing_opt_out_run_id, notification_type,
+            state, idempotency_key)
+         values ($1, $2, 'operator_marketing_opt_out', 'pending',
+                 'privacy-test-notification-both-parents')`,
+        [requestId, optOutRun.rows[0]?.id],
+      ),
+      captureRolledBackMutation(
+        `insert into privacy_notification_intents
+           (notification_type, state, idempotency_key)
+         values ('operator_privacy_request', 'pending',
+                 'privacy-test-notification-no-parent')`,
+      ),
+      captureRolledBackMutation(
+        `insert into privacy_notification_intents
+           (request_id, notification_type, state, idempotency_key)
+         values ($1, 'operator_marketing_opt_out', 'pending',
+                 'privacy-test-notification-wrong-parent')`,
+        [requestId],
+      ),
+    ]);
+    expect(invalidParents).toEqual([
+      expect.objectContaining({ code: '23514' }),
+      expect.objectContaining({ code: '23514' }),
+      expect.objectContaining({ code: '23514' }),
+    ]);
+
+    const client = await pool.connect();
+    try {
+      await client.query('begin');
+      await expect(
+        client.query(
+          `insert into privacy_notification_intents
+             (marketing_opt_out_run_id, notification_type, state, idempotency_key)
+           values ($1, 'operator_marketing_opt_out', 'pending',
+                   'privacy-test-notification-valid-opt-out')`,
+          [optOutRun.rows[0]?.id],
+        ),
+      ).resolves.toMatchObject({ rowCount: 1 });
+    } finally {
+      await client.query('rollback').catch(() => undefined);
+      client.release();
+    }
   });
 
   test('permits only privacy-safe suppressed webhook event shapes', async () => {
@@ -1285,7 +1441,7 @@ describe('Phase 2 database migrations', () => {
     ]);
   });
 
-  test('roll back and reapply all four policy migrations', async () => {
+  test('roll back and reapply all five policy migrations', async () => {
     const receipt = await pool.query<{ readonly id: string }>(
       `insert into webhook_receipts (payload_sha256, event_count)
        values ($1, 1)
@@ -1320,14 +1476,22 @@ describe('Phase 2 database migrations', () => {
       `select table_name
        from information_schema.tables
        where table_schema = $1
-         and table_name like 'privacy_%'`,
+         and table_name like 'privacy_%'
+       order by table_name`,
       [schema],
     );
     expect(retainedSuppressionEvidence.rows).toEqual([{ outcome: 'identity_suppressed' }]);
-    expect(afterPrivacyRollback.rows).toEqual([]);
+    expect(afterPrivacyRollback.rows).toEqual([
+      { table_name: 'privacy_deletion_runs' },
+      { table_name: 'privacy_notification_intents' },
+      { table_name: 'privacy_request_events' },
+      { table_name: 'privacy_request_locations' },
+      { table_name: 'privacy_requests' },
+      { table_name: 'privacy_suppressions' },
+    ]);
 
     await runMigrations('up');
-    await runMigrations('down', 4);
+    await runMigrations('down', 5);
 
     const afterRollback = await pool.query<{ readonly table_name: string }>(
       `select table_name
@@ -1341,7 +1505,10 @@ describe('Phase 2 database migrations', () => {
            'conversations',
            'human_pause_events',
            'policy_audit_outcomes',
+           'privacy_access_runs',
+           'privacy_correction_runs',
            'privacy_deletion_runs',
+           'privacy_marketing_opt_out_runs',
            'privacy_notification_intents',
            'privacy_request_events',
            'privacy_request_locations',
@@ -1372,7 +1539,10 @@ describe('Phase 2 database migrations', () => {
            'conversations',
            'human_pause_events',
            'policy_audit_outcomes',
+           'privacy_access_runs',
+           'privacy_correction_runs',
            'privacy_deletion_runs',
+           'privacy_marketing_opt_out_runs',
            'privacy_notification_intents',
            'privacy_request_events',
            'privacy_request_locations',
@@ -1396,7 +1566,10 @@ describe('Phase 2 database migrations', () => {
       { table_name: 'conversations' },
       { table_name: 'human_pause_events' },
       { table_name: 'policy_audit_outcomes' },
+      { table_name: 'privacy_access_runs' },
+      { table_name: 'privacy_correction_runs' },
       { table_name: 'privacy_deletion_runs' },
+      { table_name: 'privacy_marketing_opt_out_runs' },
       { table_name: 'privacy_notification_intents' },
       { table_name: 'privacy_request_events' },
       { table_name: 'privacy_request_locations' },
