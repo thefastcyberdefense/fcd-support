@@ -38,7 +38,7 @@ beforeEach(async () => {
        policy_audit_outcomes, consent_events, human_pause_events,
        webhook_event_applications, conversations, channel_identities,
        contacts, webhook_events, webhook_receipts
-     restart identity`,
+     restart identity cascade`,
   );
 });
 

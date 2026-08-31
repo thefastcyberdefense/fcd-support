@@ -46,6 +46,23 @@ async function createSyntheticConversation(fixtureKey: string): Promise<string> 
   return conversationId;
 }
 
+async function captureRolledBackMutation(
+  statement: string,
+  values: readonly unknown[] = [],
+): Promise<unknown> {
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    return await client.query(statement, [...values]).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+  } finally {
+    await client.query('rollback').catch(() => undefined);
+    client.release();
+  }
+}
+
 describe('Phase 2 database migrations', () => {
   test('create the Phase 2, Phase 3A, and retention policy tables', async () => {
     const result = await pool.query<{ readonly table_name: string }>(
@@ -84,6 +101,281 @@ describe('Phase 2 database migrations', () => {
       { table_name: 'webhook_events' },
       { table_name: 'webhook_receipts' },
     ]);
+  });
+
+  test('create the bounded deletion safety tables as migration four', async () => {
+    const tables = await pool.query<{ readonly table_name: string }>(
+      `select table_name
+       from information_schema.tables
+       where table_schema = $1
+         and table_name in (
+           'privacy_deletion_runs',
+           'privacy_notification_intents',
+           'privacy_request_events',
+           'privacy_request_locations',
+           'privacy_requests',
+           'privacy_suppressions',
+           'restore_deletion_gates'
+         )
+       order by table_name`,
+      [schema],
+    );
+    const migrations = await pool.query<{ readonly count: number }>(
+      `select count(*)::int as count from pgmigrations`,
+    );
+
+    expect(tables.rows).toEqual([
+      { table_name: 'privacy_deletion_runs' },
+      { table_name: 'privacy_notification_intents' },
+      { table_name: 'privacy_request_events' },
+      { table_name: 'privacy_request_locations' },
+      { table_name: 'privacy_requests' },
+      { table_name: 'privacy_suppressions' },
+      { table_name: 'restore_deletion_gates' },
+    ]);
+    expect(migrations.rows[0]?.count).toBe(4);
+  });
+
+  test('enforce closed deletion request, suppression, and application values', async () => {
+    const request = await pool.query<{ readonly id: string }>(
+      `insert into privacy_requests
+         (request_ref, request_type, state, received_at, open_request_key)
+       values ('PRIVACY_TEST_bounded', 'deletion', 'received',
+               '2026-08-31T00:00:00Z', 'privacy-test-bounded-open')
+       returning id`,
+    );
+    const requestId = request.rows[0]?.id;
+    expect(requestId).toBeDefined();
+
+    const invalidType = await captureRolledBackMutation(
+      `insert into privacy_requests
+         (request_ref, request_type, state, received_at, open_request_key)
+       values ('PRIVACY_TEST_invalid_type', 'export', 'received',
+               '2026-08-31T00:00:00Z', 'privacy-test-invalid-type')`,
+    );
+    const invalidState = await captureRolledBackMutation(
+      `insert into privacy_requests
+         (request_ref, request_type, state, received_at, open_request_key)
+       values ('PRIVACY_TEST_invalid_state', 'deletion', 'auto_approved',
+               '2026-08-31T00:00:00Z', 'privacy-test-invalid-state')`,
+    );
+    const duplicateOpenKey = await captureRolledBackMutation(
+      `insert into privacy_requests
+         (request_ref, request_type, state, received_at, open_request_key)
+       values ('PRIVACY_TEST_duplicate_key', 'deletion', 'received',
+               '2026-08-31T00:00:00Z', 'privacy-test-bounded-open')`,
+    );
+    const malformedHmac = await captureRolledBackMutation(
+      `insert into privacy_suppressions
+         (identity_hmac, channel, category, reason_code, effective_at, key_version)
+       values ('raw-customer-identifier', 'messenger', 'deletion_tombstone',
+               'customer_deletion', '2026-08-31T00:00:00Z', 'v1')`,
+    );
+    const rawCategory = await captureRolledBackMutation(
+      `insert into privacy_suppressions
+         (identity_hmac, channel, category, reason_code, effective_at, key_version)
+       values ($1, 'messenger', 'do_not_contact', 'customer_deletion',
+               '2026-08-31T00:00:00Z', 'v1')`,
+      ['a'.repeat(64)],
+    );
+
+    expect([invalidType, invalidState, malformedHmac, rawCategory]).toEqual([
+      expect.objectContaining({ code: '23514' }),
+      expect.objectContaining({ code: '23514' }),
+      expect.objectContaining({ code: '23514' }),
+      expect.objectContaining({ code: '23514' }),
+    ]);
+    expect(duplicateOpenKey).toMatchObject({ code: '23505' });
+
+    const conversationId = await createSyntheticConversation('privacy-suppression-application');
+    const receipt = await pool.query<{ readonly id: string }>(
+      `insert into webhook_receipts (payload_sha256, event_count)
+       values ($1, 2)
+       returning id`,
+      ['9'.repeat(64)],
+    );
+    const firstEvent = await pool.query<{ readonly id: string }>(
+      `insert into webhook_events
+         (receipt_id, idempotency_key, channel, event_kind, admission_outcome)
+       values ($1, 'synthetic:privacy:suppressed-null', 'messenger',
+               'customer_message', 'pending')
+       returning id`,
+      [receipt.rows[0]?.id],
+    );
+    const secondEvent = await pool.query<{ readonly id: string }>(
+      `insert into webhook_events
+         (receipt_id, idempotency_key, channel, event_kind, admission_outcome)
+       values ($1, 'synthetic:privacy:suppressed-conversation', 'messenger',
+               'customer_message', 'pending')
+       returning id`,
+      [receipt.rows[0]?.id],
+    );
+    const nullConversation = await captureRolledBackMutation(
+      `insert into webhook_event_applications (webhook_event_id, outcome)
+       values ($1, 'identity_suppressed')`,
+      [firstEvent.rows[0]?.id],
+    );
+    const nonnullConversation = await captureRolledBackMutation(
+      `insert into webhook_event_applications
+         (webhook_event_id, conversation_id, outcome)
+       values ($1, $2, 'identity_suppressed')`,
+      [secondEvent.rows[0]?.id, conversationId],
+    );
+
+    expect(nullConversation).toBeUndefined();
+    expect(nonnullConversation).toMatchObject({ code: '23514' });
+  });
+
+  test('reject evidence mutation, unsafe completion, and nonzero restore passage', async () => {
+    const request = await pool.query<{ readonly id: string }>(
+      `insert into privacy_requests
+         (request_ref, request_type, state, received_at, open_request_key)
+       values ('PRIVACY_TEST_safety', 'deletion', 'in_progress',
+               '2026-08-31T00:00:00Z', 'privacy-test-safety-open')
+       returning id`,
+    );
+    const requestId = request.rows[0]?.id;
+    expect(requestId).toBeDefined();
+    await pool.query(
+      `insert into privacy_request_locations
+         (request_id, location_code, required, state)
+       values ($1, 'primary_postgres', true, 'pending')`,
+      [requestId],
+    );
+    const event = await pool.query<{ readonly id: string }>(
+      `insert into privacy_request_events
+         (request_id, action, outcome, reason_code, previous_state,
+          resulting_state, actor_type, reviewer_reference, effective_at,
+          request_key)
+       values ($1, 'reviewer_decision', 'applied', 'customer_confirmed',
+               'human_review', 'in_progress', 'support_reviewer',
+               'synthetic-reviewer', '2026-08-31T00:05:00Z',
+               'privacy-test-safety-review')
+       returning id`,
+      [requestId],
+    );
+    const deletionRun = await pool.query<{ readonly id: string }>(
+      `insert into privacy_deletion_runs
+         (request_id, request_key, executed_at, conversations_processed,
+          identities_pseudonymized, messages_cleared, tombstones_created,
+          status, completed_at)
+       values ($1, 'privacy-test-safety-run', '2026-08-31T00:10:00Z',
+               1, 1, 1, 1, 'applied', '2026-08-31T00:11:00Z')
+       returning id`,
+      [requestId],
+    );
+    const gate = await pool.query<{ readonly id: string }>(
+      `insert into restore_deletion_gates
+         (gate_ref, request_key, action, status, evaluated_at, git_revision,
+          required_key_versions, identities_processed, remaining_matches,
+          completed_at)
+       values ('RESTORE_TEST_append_only', 'restore-test-append-only',
+               'reapply_batch', 'applied', '2026-08-31T00:15:00Z', $1,
+               array['v1'], 1, 1, '2026-08-31T00:16:00Z')
+       returning id`,
+      ['a'.repeat(40)],
+    );
+
+    const completionError = await captureRolledBackMutation(
+      `update privacy_requests
+       set state = 'completed', completed_at = '2026-08-31T00:20:00Z'
+       where id = $1`,
+      [requestId],
+    );
+    expect(completionError).toMatchObject({ code: '23514' });
+
+    const eventUpdate = await captureRolledBackMutation(
+      `update privacy_request_events set outcome = 'rejected' where id = $1`,
+      [event.rows[0]?.id],
+    );
+    const eventDelete = await captureRolledBackMutation(
+      `delete from privacy_request_events where id = $1`,
+      [event.rows[0]?.id],
+    );
+    const runUpdate = await captureRolledBackMutation(
+      `update privacy_deletion_runs set messages_cleared = 0 where id = $1`,
+      [deletionRun.rows[0]?.id],
+    );
+    const runDelete = await captureRolledBackMutation(
+      `delete from privacy_deletion_runs where id = $1`,
+      [deletionRun.rows[0]?.id],
+    );
+    const gateUpdate = await captureRolledBackMutation(
+      `update restore_deletion_gates set remaining_matches = 0 where id = $1`,
+      [gate.rows[0]?.id],
+    );
+    const gateDelete = await captureRolledBackMutation(
+      `delete from restore_deletion_gates where id = $1`,
+      [gate.rows[0]?.id],
+    );
+    for (const mutation of [
+      eventUpdate,
+      eventDelete,
+      runUpdate,
+      runDelete,
+      gateUpdate,
+      gateDelete,
+    ]) {
+      expect(mutation).toMatchObject({ code: '23514' });
+    }
+
+    const unsafePassedGate = await captureRolledBackMutation(
+      `insert into restore_deletion_gates
+         (gate_ref, request_key, action, status, evaluated_at, git_revision,
+          required_key_versions, identities_processed, remaining_matches,
+          completed_at)
+       values ('RESTORE_TEST_nonzero', 'restore-test-nonzero', 'finalize',
+               'passed', '2026-08-31T00:25:00Z', $1, array['v1'], 1, 1,
+               '2026-08-31T00:26:00Z')`,
+      ['b'.repeat(40)],
+    );
+    expect(unsafePassedGate).toMatchObject({ code: '23514' });
+
+    await pool.query(
+      `insert into restore_deletion_gates
+         (gate_ref, request_key, action, status, evaluated_at, git_revision,
+          required_key_versions, identities_processed, remaining_matches,
+          completed_at)
+       values ('RESTORE_TEST_unique_pass', 'restore-test-unique-pass-1',
+               'finalize', 'passed', '2026-08-31T00:30:00Z', $1,
+               array['v1'], 1, 0, '2026-08-31T00:31:00Z')`,
+      ['c'.repeat(40)],
+    );
+    const duplicatePassedGate = await captureRolledBackMutation(
+      `insert into restore_deletion_gates
+         (gate_ref, request_key, action, status, evaluated_at, git_revision,
+          required_key_versions, identities_processed, remaining_matches,
+          completed_at)
+       values ('RESTORE_TEST_unique_pass', 'restore-test-unique-pass-2',
+               'finalize', 'passed', '2026-08-31T00:32:00Z', $1,
+               array['v1'], 1, 0, '2026-08-31T00:33:00Z')`,
+      ['d'.repeat(40)],
+    );
+    expect(duplicatePassedGate).toMatchObject({ code: '23505' });
+
+    await pool.query(
+      `update privacy_request_locations
+       set state = 'completed', outcome_code = 'local_erasure_complete',
+           checked_at = '2026-08-31T00:35:00Z'
+       where request_id = $1 and location_code = 'primary_postgres'`,
+      [requestId],
+    );
+    await expect(
+      pool.query(
+        `update privacy_requests
+         set state = 'completed', completed_at = '2026-08-31T00:36:00Z'
+         where id = $1`,
+        [requestId],
+      ),
+    ).resolves.toMatchObject({ rowCount: 1 });
+
+    const completedLocationRegression = await captureRolledBackMutation(
+      `update privacy_request_locations
+       set state = 'failed', outcome_code = 'location_failed'
+       where request_id = $1 and location_code = 'primary_postgres'`,
+      [requestId],
+    );
+    expect(completedLocationRegression).toMatchObject({ code: '23514' });
   });
 
   test('enforce retention state combinations and append-only bounded evidence', async () => {
@@ -964,8 +1256,49 @@ describe('Phase 2 database migrations', () => {
     ]);
   });
 
-  test('roll back and reapply the Phase 2, Phase 3A, and retention migrations', async () => {
-    await runMigrations('down', 3);
+  test('roll back and reapply all four policy migrations', async () => {
+    const receipt = await pool.query<{ readonly id: string }>(
+      `insert into webhook_receipts (payload_sha256, event_count)
+       values ($1, 1)
+       returning id`,
+      ['8'.repeat(64)],
+    );
+    const suppressedEvent = await pool.query<{ readonly id: string }>(
+      `insert into webhook_events
+         (receipt_id, idempotency_key, channel, event_kind, admission_outcome)
+       values ($1, 'synthetic:migration:identity-suppressed-down',
+               'messenger', 'customer_message', 'pending')
+       returning id`,
+      [receipt.rows[0]?.id],
+    );
+    await pool.query(
+      `insert into webhook_event_applications (webhook_event_id, outcome)
+       values ($1, 'identity_suppressed')`,
+      [suppressedEvent.rows[0]?.id],
+    );
+
+    await runMigrations('down', 1);
+
+    const retainedSuppressionEvidence = await pool.query<{
+      readonly outcome: string;
+    }>(
+      `select outcome
+       from webhook_event_applications
+       where webhook_event_id = $1`,
+      [suppressedEvent.rows[0]?.id],
+    );
+    const afterPrivacyRollback = await pool.query<{ readonly table_name: string }>(
+      `select table_name
+       from information_schema.tables
+       where table_schema = $1
+         and table_name like 'privacy_%'`,
+      [schema],
+    );
+    expect(retainedSuppressionEvidence.rows).toEqual([{ outcome: 'identity_suppressed' }]);
+    expect(afterPrivacyRollback.rows).toEqual([]);
+
+    await runMigrations('up');
+    await runMigrations('down', 4);
 
     const afterRollback = await pool.query<{ readonly table_name: string }>(
       `select table_name
@@ -979,8 +1312,15 @@ describe('Phase 2 database migrations', () => {
            'conversations',
            'human_pause_events',
            'policy_audit_outcomes',
+           'privacy_deletion_runs',
+           'privacy_notification_intents',
+           'privacy_request_events',
+           'privacy_request_locations',
+           'privacy_requests',
+           'privacy_suppressions',
            'retention_events',
            'retention_job_runs',
+           'restore_deletion_gates',
            'webhook_event_applications',
            'webhook_events',
            'webhook_receipts'
@@ -1003,8 +1343,15 @@ describe('Phase 2 database migrations', () => {
            'conversations',
            'human_pause_events',
            'policy_audit_outcomes',
+           'privacy_deletion_runs',
+           'privacy_notification_intents',
+           'privacy_request_events',
+           'privacy_request_locations',
+           'privacy_requests',
+           'privacy_suppressions',
            'retention_events',
            'retention_job_runs',
+           'restore_deletion_gates',
            'webhook_event_applications',
            'webhook_events',
            'webhook_receipts'
@@ -1020,6 +1367,13 @@ describe('Phase 2 database migrations', () => {
       { table_name: 'conversations' },
       { table_name: 'human_pause_events' },
       { table_name: 'policy_audit_outcomes' },
+      { table_name: 'privacy_deletion_runs' },
+      { table_name: 'privacy_notification_intents' },
+      { table_name: 'privacy_request_events' },
+      { table_name: 'privacy_request_locations' },
+      { table_name: 'privacy_requests' },
+      { table_name: 'privacy_suppressions' },
+      { table_name: 'restore_deletion_gates' },
       { table_name: 'retention_events' },
       { table_name: 'retention_job_runs' },
       { table_name: 'webhook_event_applications' },
