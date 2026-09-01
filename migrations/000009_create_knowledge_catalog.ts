@@ -97,6 +97,9 @@ export function up(pgm: MigrationBuilder): void {
       ),
       item_id bigint not null references knowledge_items(id),
       version_number integer not null check (version_number > 0),
+      request_key text not null unique check (
+        btrim(request_key) <> '' and char_length(request_key) <= 128
+      ),
       state text not null check (state in (
         'draft', 'submitted', 'approved', 'rejected'
       )),
@@ -298,6 +301,7 @@ export function up(pgm: MigrationBuilder): void {
       if old.item_id is distinct from new.item_id
          or old.version_ref is distinct from new.version_ref
          or old.version_number is distinct from new.version_number
+         or old.request_key is distinct from new.request_key
          or old.source_id is distinct from new.source_id
          or old.source_snapshot_id is distinct from new.source_snapshot_id
          or old.source_sha256 is distinct from new.source_sha256

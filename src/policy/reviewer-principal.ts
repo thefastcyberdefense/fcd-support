@@ -8,9 +8,16 @@ const reviewerPrincipalSchema = z.strictObject({
 });
 
 export class PolicyAuthorizationError extends Error {
-  public constructor() {
-    super('Support reviewer role required');
+  public constructor(message = 'Support reviewer role required') {
+    super(message);
     this.name = 'PolicyAuthorizationError';
+  }
+}
+
+export class KnowledgeEditorAuthorizationError extends PolicyAuthorizationError {
+  public constructor() {
+    super('Knowledge editor role required');
+    this.name = 'KnowledgeEditorAuthorizationError';
   }
 }
 
@@ -36,6 +43,16 @@ export function requirePolicyOwner(input: unknown): ReviewerPrincipal {
 
   if (!principal.roles.includes('policy_owner')) {
     throw new PolicyOwnerAuthorizationError();
+  }
+
+  return principal;
+}
+
+export function requireKnowledgeEditor(input: unknown): ReviewerPrincipal {
+  const principal = reviewerPrincipalSchema.parse(input);
+
+  if (!principal.roles.includes('knowledge_editor') && !principal.roles.includes('administrator')) {
+    throw new KnowledgeEditorAuthorizationError();
   }
 
   return principal;

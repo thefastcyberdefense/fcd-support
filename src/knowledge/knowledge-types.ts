@@ -77,6 +77,27 @@ export interface PublishedKnowledgeVersion {
   readonly versionRef: string;
 }
 
+export interface KnowledgeAliasView {
+  readonly kind: KnowledgeAliasInput['kind'] | 'question';
+  readonly language: KnowledgeLanguage;
+  readonly normalizedPhrase: string;
+  readonly phrase: string;
+}
+
+export interface KnowledgeVersionView extends Omit<KnowledgeProposalInput, 'aliases'> {
+  readonly aliases: readonly KnowledgeAliasView[];
+  readonly state: 'approved' | 'draft' | 'rejected' | 'submitted';
+  readonly versionNumber: number;
+}
+
+export type KnowledgeSourceWriteResult =
+  | { readonly sourceRef: string; readonly status: 'created' }
+  | { readonly sourceRef: string; readonly status: 'duplicate' };
+
+export type KnowledgeSnapshotWriteResult =
+  | { readonly snapshotRef: string; readonly status: 'created' }
+  | { readonly snapshotRef: string; readonly status: 'duplicate' };
+
 export type KnowledgeWriteResult =
   | { readonly status: 'created'; readonly versionRef: string }
   | { readonly status: 'duplicate'; readonly versionRef: string };

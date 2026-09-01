@@ -175,10 +175,10 @@ describe('Phase 2 database migrations', () => {
       );
       const invalidBilingualVersion = await captureRolledBackMutation(
         `insert into knowledge_versions
-           (version_ref, item_id, version_number, state,
+           (version_ref, item_id, version_number, request_key, state,
             question_en, answer_en, question_bn, answer_bn,
             source_id, source_sha256, content_sha256, author_reference, created_at)
-         values ('VERSION_TEST_incomplete', $1, 1, 'draft',
+         values ('VERSION_TEST_incomplete', $1, 1, 'REQUEST_TEST_incomplete', 'draft',
                  'Synthetic English question?', 'Synthetic English answer.',
                  null, null, $2, $3, $4, 'ADMIN_TEST_author',
                  '2026-09-01T10:01:00Z')`,
@@ -188,10 +188,10 @@ describe('Phase 2 database migrations', () => {
 
       const version = await pool.query<{ readonly id: string }>(
         `insert into knowledge_versions
-           (version_ref, item_id, version_number, state,
+           (version_ref, item_id, version_number, request_key, state,
             question_en, answer_en, question_bn, answer_bn,
             source_id, source_sha256, content_sha256, author_reference, created_at)
-         values ('VERSION_TEST_complete', $1, 1, 'draft',
+         values ('VERSION_TEST_complete', $1, 1, 'REQUEST_TEST_complete', 'draft',
                  'Synthetic English question?', 'Synthetic English answer.',
                  'সিনথেটিক বাংলা প্রশ্ন?', 'সিনথেটিক বাংলা উত্তর।',
                  $2, $3, $4, 'ADMIN_TEST_author', '2026-09-01T10:01:00Z')

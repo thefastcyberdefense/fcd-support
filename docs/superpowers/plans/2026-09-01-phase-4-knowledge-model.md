@@ -37,13 +37,13 @@
 - `knowledge_sources`: opaque identity, closed `manual_business|website|policy|support_gap` type, bounded label, optional approved URL, active flag, creator reference, timestamps.
 - `knowledge_source_snapshots`: source reference, fetch/outcome times, closed outcome, SHA-256 source/content digests, bounded proposed public content, creator reference, request key.
 - `knowledge_items`: stable bounded opaque key, closed `faq|business_fact|safety_response|escalation_response` kind, timestamps.
-- `knowledge_versions`: item reference, monotonically increasing version number, closed state `draft|submitted|approved|rejected`, bilingual questions/answers as required by kind, source/snapshot references, digests, author, replacement/rollback lineage, created/submitted/decided times.
+- `knowledge_versions`: item reference, monotonically increasing version number, proposal request key, closed state `draft|submitted|approved|rejected`, bilingual questions/answers as required by kind, source/snapshot references, digests, author, replacement/rollback lineage, created/submitted/decided times.
 - `knowledge_aliases`: version reference, `en|bn`, closed `question|alias|intent|example` kind, original bounded phrase and deterministic normalized phrase.
 - `knowledge_tags`: version reference and bounded normalized tag.
 - `knowledge_review_events`: append-only `submit|approve|reject` event, reviewer, bounded reason, request key, time.
 - `knowledge_publication_events`: append-only `publish|retire|rollback` event, exact version, prior version, reviewer, effective time, request key, time.
 - Database functions/triggers reject mutation/deletion of submitted versions and all review/publication history; unique and exclusion/trigger rules prevent two effective publications for one item at the same serialized decision point.
-- Enable `pg_trgm` and add bounded trigram lookup indexes to the normalized alias columns in this migration so later tasks never rewrite an already-applied migration.
+- Enable `pg_trgm` and add bounded trigram lookup indexes to the normalized alias columns in the original catalog migration.
 
 **Steps:**
 
@@ -86,8 +86,10 @@
 
 - Create: `src/persistence/postgres-knowledge-repository.ts`
 - Create: `tests/integration/postgres-knowledge-repository.test.ts`
+- Modify: `migrations/000009_create_knowledge_catalog.ts`
 - Modify: `src/knowledge/knowledge-types.ts`
-- Modify: `tests/integration/policy-fixtures.ts`
+- Modify: `src/policy/reviewer-principal.ts`
+- Modify: `tests/integration/migrations.test.ts`
 
 **Interfaces:**
 
@@ -99,12 +101,12 @@
 
 **Steps:**
 
-- [ ] Add guarded PostgreSQL tests for manual and website sources, provenance, monotonically increasing versions, exact replay, conflicting replay, author roles, website proposal-only behavior, and immutable submitted data.
-- [ ] Run the focused integration test and confirm failure because the repository does not exist.
-- [ ] Implement the repository using `withBoundedTransaction`, per-item advisory locks, material comparison, typed row mapping, and explicit column lists.
-- [ ] Add concurrent version-creation and rollback-on-invalid-child tests.
-- [ ] Run the focused integration test, `npm run check`, and all guarded PostgreSQL tests.
-- [ ] Commit with `feat: implement knowledge proposal repository` and push `main`.
+- [x] Add guarded PostgreSQL tests for manual and website sources, provenance, monotonically increasing versions, exact replay, conflicting replay, author roles, website proposal-only behavior, and immutable submitted data.
+- [x] Run the focused integration test and confirm failure because the repository does not exist.
+- [x] Implement the repository using `withBoundedTransaction`, per-item advisory locks, material comparison, typed row mapping, and explicit column lists. Self-review identified and added the proposal request-key column before any Phase 4 schema deployment.
+- [x] Add concurrent version-creation and rollback-on-invalid-child tests.
+- [x] Run the focused integration test, `npm run check`, and all guarded PostgreSQL tests.
+- [x] Commit with `feat: implement knowledge proposal repository` and push `main`.
 
 ## Task 4: Implement review, publication, retirement, and rollback
 
