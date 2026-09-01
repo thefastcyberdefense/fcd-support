@@ -47,13 +47,13 @@
 
 **Steps:**
 
-- [ ] Add an integration test that expects all eight catalog tables, required indexes, immutable-history triggers, and migration count nine.
-- [ ] Run `npm run test:integration -- --run tests/integration/migrations.test.ts` and confirm failure because migration 000009 is absent.
-- [ ] Implement migration 000009 with `pg_trgm`, bounded checks, foreign keys, append-only triggers, per-item version uniqueness, request-key uniqueness, trigram lookup indexes, and a guarded `down` migration that refuses when catalog evidence exists.
-- [ ] Extend the migration test with invalid-state, invalid-bilingual-content, history-mutation, guarded-down, clean-down, and reapply assertions.
-- [ ] Run the focused migration test and confirm it passes.
-- [ ] Run `npm run typecheck`, `npm run format:check`, and `git diff --check`.
-- [ ] Commit with `feat: add phase 4 knowledge catalog schema` and push `main`.
+- [x] Add an integration test that expects all eight catalog tables, required indexes, immutable-history triggers, and migration count nine.
+- [x] Run `npm run test:integration -- --run tests/integration/migrations.test.ts` and confirm failure because migration 000009 is absent.
+- [x] Implement migration 000009 with `pg_trgm`, bounded checks, foreign keys, append-only triggers, per-item version uniqueness, request-key uniqueness, trigram lookup indexes, and a guarded `down` migration that refuses when catalog evidence exists.
+- [x] Extend the migration test with invalid-state, invalid-bilingual-content, history-mutation, guarded-down, clean-down, and reapply assertions.
+- [x] Run the focused migration test and confirm it passes.
+- [x] Run `npm run typecheck`, `npm run format:check`, and `git diff --check`.
+- [x] Commit with `feat: add phase 4 knowledge catalog schema` and push `main`.
 
 ## Task 2: Define closed knowledge inputs and normalization
 

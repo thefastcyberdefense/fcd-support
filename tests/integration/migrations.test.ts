@@ -103,6 +103,208 @@ describe('Phase 2 database migrations', () => {
     ]);
   });
 
+  test('create the reviewed knowledge catalog as migration nine', async () => {
+    const tables = await pool.query<{ readonly table_name: string }>(
+      `select table_name
+       from information_schema.tables
+       where table_schema = $1
+         and table_name in (
+           'knowledge_aliases',
+           'knowledge_items',
+           'knowledge_publication_events',
+           'knowledge_review_events',
+           'knowledge_source_snapshots',
+           'knowledge_sources',
+           'knowledge_tags',
+           'knowledge_versions'
+         )
+       order by table_name`,
+      [schema],
+    );
+    const migrations = await pool.query<{ readonly count: number }>(
+      `select count(*)::int as count from pgmigrations`,
+    );
+    const trigramExtension = await pool.query<{ readonly installed: boolean }>(
+      `select exists (
+         select 1 from pg_extension where extname = 'pg_trgm'
+       ) as installed`,
+    );
+    const aliasIndexes = await pool.query<{ readonly indexname: string }>(
+      `select indexname
+       from pg_indexes
+       where schemaname = $1
+         and tablename = 'knowledge_aliases'
+       order by indexname`,
+      [schema],
+    );
+
+    expect(tables.rows).toEqual([
+      { table_name: 'knowledge_aliases' },
+      { table_name: 'knowledge_items' },
+      { table_name: 'knowledge_publication_events' },
+      { table_name: 'knowledge_review_events' },
+      { table_name: 'knowledge_source_snapshots' },
+      { table_name: 'knowledge_sources' },
+      { table_name: 'knowledge_tags' },
+      { table_name: 'knowledge_versions' },
+    ]);
+    expect(migrations.rows[0]?.count).toBe(9);
+    expect(trigramExtension.rows).toEqual([{ installed: true }]);
+    expect(aliasIndexes.rows.map(({ indexname }) => indexname)).toEqual(
+      expect.arrayContaining([
+        'knowledge_aliases_normalized_exact_idx',
+        'knowledge_aliases_normalized_trgm_idx',
+      ]),
+    );
+  });
+
+  test('enforce bilingual knowledge shape and append-only reviewed history', async () => {
+    try {
+      const source = await pool.query<{ readonly id: string }>(
+        `insert into knowledge_sources
+           (source_ref, source_type, label, created_by_reference, created_at, updated_at)
+         values ('SOURCE_TEST_catalog', 'manual_business', 'Synthetic catalog source',
+                 'ADMIN_TEST_author', '2026-09-01T10:00:00Z', '2026-09-01T10:00:00Z')
+         returning id`,
+      );
+      const item = await pool.query<{ readonly id: string }>(
+        `insert into knowledge_items (item_key, kind, created_at, updated_at)
+         values ('faq.synthetic.catalog', 'faq',
+                 '2026-09-01T10:00:00Z', '2026-09-01T10:00:00Z')
+         returning id`,
+      );
+      const invalidBilingualVersion = await captureRolledBackMutation(
+        `insert into knowledge_versions
+           (version_ref, item_id, version_number, state,
+            question_en, answer_en, question_bn, answer_bn,
+            source_id, source_sha256, content_sha256, author_reference, created_at)
+         values ('VERSION_TEST_incomplete', $1, 1, 'draft',
+                 'Synthetic English question?', 'Synthetic English answer.',
+                 null, null, $2, $3, $4, 'ADMIN_TEST_author',
+                 '2026-09-01T10:01:00Z')`,
+        [item.rows[0]?.id, source.rows[0]?.id, 'a'.repeat(64), 'b'.repeat(64)],
+      );
+      expect(invalidBilingualVersion).toEqual(expect.objectContaining({ code: '23514' }));
+
+      const version = await pool.query<{ readonly id: string }>(
+        `insert into knowledge_versions
+           (version_ref, item_id, version_number, state,
+            question_en, answer_en, question_bn, answer_bn,
+            source_id, source_sha256, content_sha256, author_reference, created_at)
+         values ('VERSION_TEST_complete', $1, 1, 'draft',
+                 'Synthetic English question?', 'Synthetic English answer.',
+                 'সিনথেটিক বাংলা প্রশ্ন?', 'সিনথেটিক বাংলা উত্তর।',
+                 $2, $3, $4, 'ADMIN_TEST_author', '2026-09-01T10:01:00Z')
+         returning id`,
+        [item.rows[0]?.id, source.rows[0]?.id, 'c'.repeat(64), 'd'.repeat(64)],
+      );
+      await pool.query(
+        `insert into knowledge_aliases
+           (version_id, language, alias_kind, phrase, normalized_phrase)
+         values ($1, 'en', 'alias', 'Synthetic alias', 'synthetic alias')`,
+        [version.rows[0]?.id],
+      );
+
+      const directStateMutation = await captureRolledBackMutation(
+        `update knowledge_versions
+         set state = 'submitted', submitted_at = '2026-09-01T10:02:00Z'
+         where id = $1`,
+        [version.rows[0]?.id],
+      );
+      expect(directStateMutation).toEqual(expect.objectContaining({ code: '23514' }));
+
+      const submit = await pool.query<{ readonly id: string }>(
+        `insert into knowledge_review_events
+           (version_id, action, reviewer_reference, reason_code, request_key, effective_at)
+         values ($1, 'submit', 'ADMIN_TEST_author', 'ready_for_review',
+                 'REQUEST_TEST_submit', '2026-09-01T10:02:00Z')
+         returning id`,
+        [version.rows[0]?.id],
+      );
+      await pool.query(
+        `insert into knowledge_review_events
+           (version_id, action, reviewer_reference, reason_code, request_key, effective_at)
+         values ($1, 'approve', 'ADMIN_TEST_reviewer', 'business_fact_verified',
+                 'REQUEST_TEST_approve', '2026-09-01T10:03:00Z')`,
+        [version.rows[0]?.id],
+      );
+      await pool.query(
+        `insert into knowledge_publication_events
+           (item_id, version_id, action, reviewer_reference, reason_code,
+            effective_at, request_key)
+         values ($1, $2, 'publish', 'ADMIN_TEST_reviewer', 'initial_publication',
+                 '2026-09-01T10:04:00Z', 'REQUEST_TEST_publish')`,
+        [item.rows[0]?.id, version.rows[0]?.id],
+      );
+
+      const contentMutation = await captureRolledBackMutation(
+        `update knowledge_versions set answer_en = 'Synthetic changed answer.' where id = $1`,
+        [version.rows[0]?.id],
+      );
+      const aliasMutation = await captureRolledBackMutation(
+        `update knowledge_aliases set phrase = 'Synthetic changed alias' where version_id = $1`,
+        [version.rows[0]?.id],
+      );
+      const reviewMutation = await captureRolledBackMutation(
+        `update knowledge_review_events set reason_code = 'changed' where id = $1`,
+        [submit.rows[0]?.id],
+      );
+      const publicationDelete = await captureRolledBackMutation(
+        `delete from knowledge_publication_events where request_key = 'REQUEST_TEST_publish'`,
+      );
+
+      expect([contentMutation, aliasMutation, reviewMutation, publicationDelete]).toEqual([
+        expect.objectContaining({ code: '23514' }),
+        expect.objectContaining({ code: '23514' }),
+        expect.objectContaining({ code: '23514' }),
+        expect.objectContaining({ code: '23514' }),
+      ]);
+      await expect(
+        pool.query(`select state from knowledge_versions where id = $1`, [version.rows[0]?.id]),
+      ).resolves.toMatchObject({ rows: [{ state: 'approved' }] });
+    } finally {
+      await pool.query(`
+        truncate table
+          knowledge_publication_events, knowledge_review_events,
+          knowledge_aliases, knowledge_tags, knowledge_versions,
+          knowledge_items, knowledge_source_snapshots, knowledge_sources
+        restart identity cascade
+      `);
+    }
+  });
+
+  test('refuse knowledge-catalog downgrade while reviewed authority exists', async () => {
+    await pool.query(
+      `insert into knowledge_sources
+         (source_ref, source_type, label, created_by_reference, created_at, updated_at)
+       values ('SOURCE_TEST_downgrade', 'policy', 'Synthetic downgrade source',
+               'ADMIN_TEST_author', '2026-09-01T11:00:00Z', '2026-09-01T11:00:00Z')`,
+    );
+
+    let rollbackError: unknown;
+    try {
+      await runMigrations('down', 1);
+    } catch (error: unknown) {
+      rollbackError = error;
+    }
+    expect(rollbackError).toBeInstanceOf(Error);
+    if (!(rollbackError instanceof Error)) {
+      throw new Error('Expected populated P4-002 rollback to fail');
+    }
+    expect(rollbackError.message).toContain('P4-002 rollback blocked');
+    expect((rollbackError as Error & { code?: string }).code).toBe('55000');
+    await expect(
+      pool.query(`select count(*)::int as count from pgmigrations`),
+    ).resolves.toMatchObject({ rows: [{ count: 9 }] });
+
+    await pool.query(`truncate table knowledge_sources restart identity cascade`);
+    await runMigrations('down', 1);
+    await expect(
+      pool.query(`select to_regclass('knowledge_sources') as table_name`),
+    ).resolves.toMatchObject({ rows: [{ table_name: null }] });
+    await runMigrations('up');
+  });
+
   test('create the bounded deletion safety tables as migration four', async () => {
     const tables = await pool.query<{ readonly table_name: string }>(
       `select table_name
@@ -133,7 +335,7 @@ describe('Phase 2 database migrations', () => {
       { table_name: 'privacy_suppressions' },
       { table_name: 'restore_deletion_gates' },
     ]);
-    expect(migrations.rows[0]?.count).toBe(8);
+    expect(migrations.rows[0]?.count).toBe(9);
   });
 
   test('create the bounded privacy rights workflow tables as migration five', async () => {
@@ -1528,7 +1730,7 @@ describe('Phase 2 database migrations', () => {
     ]);
   });
 
-  test('guards populated privacy evidence, then rolls back and reapplies all eight migrations', async () => {
+  test('guards populated privacy evidence, then rolls back and reapplies all nine migrations', async () => {
     const receipt = await pool.query<{ readonly id: string }>(
       `insert into webhook_receipts (payload_sha256, event_count)
        values ($1, 1)
@@ -1655,7 +1857,7 @@ describe('Phase 2 database migrations', () => {
     ]);
 
     await runMigrations('up');
-    await runMigrations('down', 8);
+    await runMigrations('down', 9);
 
     const afterRollback = await pool.query<{ readonly table_name: string }>(
       `select table_name
