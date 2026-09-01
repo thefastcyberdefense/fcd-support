@@ -7,7 +7,11 @@ Last reviewed: 2026-09-01 (Asia/Dhaka)
 - Build a dedicated customer-support application; OpenClaw and Hermes remain private/internal.
 - Automate WhatsApp Business and Facebook Messenger. Instagram DM automation is not part of the first release.
 - Use English and Bangla, approved FAQ answers first, and AI only when needed.
+- Store reviewed, versioned support knowledge in the existing private PostgreSQL database. Website fetches, customer-derived gaps, model drafts, and owner answers remain proposals until an authenticated reviewer publishes them.
+- Use a separate authenticated, loopback/private-access `fcd-support-admin` dashboard for knowledge review, owner questions, privacy-safe insights, model-policy administration, and later independently designed CRM modules. It never joins the public webhook ingress network; a private CLI remains for bootstrap and break-glass operations.
+- Improve knowledge through a controlled proposal-only learning loop. Every three days the application may prepare at most five useful owner questions in the dashboard, but neither the AI, Manifest, n8n, a crawl, nor customer repetition can publish knowledge.
 - Use Manifest Harness `fcd-support` with its dedicated API configuration, provider scope, default model, up to five fallbacks, limits, and observability.
+- Use Manifest-managed allowlisted fallback only. Model output uses a validated structured envelope, operational limits are versioned/customizable under protected deployment ceilings, and unsafe or exhausted inference creates a safe response plus PostgreSQL escalation.
 - Use a Meta test number before any production WhatsApp change. The current production account stays linked to Meta.
 - Staff retain Meta Business Suite access and manually cover periods when the local server is off.
 - Human staff replies pause AI for that conversation for 24 hours unless resumed earlier.
@@ -66,7 +70,7 @@ All secret values are intentionally absent from this repository. Create them dur
 ## Launch Blockers
 
 - The admission-only test deployment is approved and running under a narrow exception. Outbound messaging, models, n8n actions, live customer data, and production deployment remain unauthorized.
-- P3-GATE passed on 2026-09-01 at validated revision `bb95803` and authorizes P4-001 design/planning only. Reviewed knowledge, redaction, Manifest/model requests, limits, safe failure, and bilingual evaluation remain unimplemented and blocked behind the separate P4-001 plan review.
+- P3-GATE passed on 2026-09-01 at validated revision `bb95803`. The project owner approved the major P4-001 architecture decisions and delegated the remaining local Phase 4 design/implementation approvals on 2026-09-01. The Phase 4 design is recorded in `docs/superpowers/specs/2026-09-01-phase-4-knowledge-model-design.md`; P4-002 remains blocked until its detailed test-first implementation plan is committed and validated. Reviewed knowledge, dashboard review, redaction, Manifest/model requests, customizable limits, safe failure, insights, and bilingual evaluation remain unimplemented.
 - Phase 0 is evidence-complete: the threat model, acceptance matrix, and planning-only gate review are recorded in `docs/security/threat-model.md`, `docs/testing/acceptance-matrix.md`, and `docs/reviews/phase-0-gate.md`. This closes architectural planning only; every `PARTIAL`, `PLANNED`, or `BLOCKED` acceptance row remains a launch blocker. The project owner authorized reversible local development through Phase 5; exceptions and current contracts are tracked in `docs/TODO.md`.
 - Meta test callback and subscription flows are validated only for development-mode test assets. App review, live permissions, and production assets remain unvalidated.
 - WhatsApp coexistence for the production number has not been confirmed.
@@ -76,10 +80,11 @@ All secret values are intentionally absent from this repository. Create them dur
 - Website privacy and support wording must disclose AI assistance, external inference, retention, deletion, and marketing consent before production launch.
 - Actual encrypted backup/restore procedures and deployed human-takeover behavior must still pass their acceptance tests; the local restore-gate primitive alone does not satisfy P6-004.
 
-The current tracker action is P4-001 architectural design and test-first
-implementation planning. Phase 4 implementation remains blocked until the
-written design and plan receive explicit project-owner review. P1-GATE remains
-a separate explicit review record.
+The current tracker action is P4-001 detailed test-first implementation
+planning from the approved written architecture. Phase 4 implementation remains
+blocked until that plan is committed and validated. All live Manifest, network,
+deployment, test-asset, and production actions remain separately gated. P1-GATE
+remains a separate explicit review record.
 
 ## First Session Checklist
 
