@@ -21,6 +21,13 @@ export class KnowledgeEditorAuthorizationError extends PolicyAuthorizationError 
   }
 }
 
+export class KnowledgeReviewerAuthorizationError extends PolicyAuthorizationError {
+  public constructor() {
+    super('Knowledge reviewer role required');
+    this.name = 'KnowledgeReviewerAuthorizationError';
+  }
+}
+
 export class PolicyOwnerAuthorizationError extends Error {
   public constructor() {
     super('Policy owner role required');
@@ -53,6 +60,19 @@ export function requireKnowledgeEditor(input: unknown): ReviewerPrincipal {
 
   if (!principal.roles.includes('knowledge_editor') && !principal.roles.includes('administrator')) {
     throw new KnowledgeEditorAuthorizationError();
+  }
+
+  return principal;
+}
+
+export function requireKnowledgeReviewer(input: unknown): ReviewerPrincipal {
+  const principal = reviewerPrincipalSchema.parse(input);
+
+  if (
+    !principal.roles.includes('knowledge_reviewer') &&
+    !principal.roles.includes('administrator')
+  ) {
+    throw new KnowledgeReviewerAuthorizationError();
   }
 
   return principal;

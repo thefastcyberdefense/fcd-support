@@ -41,7 +41,7 @@
 - `knowledge_aliases`: version reference, `en|bn`, closed `question|alias|intent|example` kind, original bounded phrase and deterministic normalized phrase.
 - `knowledge_tags`: version reference and bounded normalized tag.
 - `knowledge_review_events`: append-only `submit|approve|reject` event, reviewer, bounded reason, request key, time.
-- `knowledge_publication_events`: append-only `publish|retire|rollback` event, exact version, prior version, reviewer, effective time, request key, time.
+- `knowledge_publication_events`: append-only `publish|retire|rollback` event, exact version, optional superseded/prior version for publish, required prior version for rollback, no invented prior version for retirement, reviewer, effective time, request key, and creation time.
 - Database functions/triggers reject mutation/deletion of submitted versions and all review/publication history; unique and exclusion/trigger rules prevent two effective publications for one item at the same serialized decision point.
 - Enable `pg_trgm` and add bounded trigram lookup indexes to the normalized alias columns in the original catalog migration.
 
@@ -126,12 +126,12 @@
 
 **Steps:**
 
-- [ ] Write failing tests for role denial, exact-version confirmation, author/reviewer identity, submit/approve/reject state transitions, replay/conflict, and unpublished/future/rejected invisibility.
-- [ ] Add failing tests for one effective version, serialized concurrent publication, retirement, replacement, and rollback to a previously approved version without history mutation.
-- [ ] Run the focused integration test and confirm the missing service failures.
-- [ ] Implement typed reviewer orchestration and PostgreSQL publication with per-item advisory locks and append-only events.
-- [ ] Run focused tests, the migration test, `npm run check`, and all guarded PostgreSQL tests.
-- [ ] Commit with `feat: implement reviewed knowledge publication` and push `main`.
+- [x] Write failing tests for role denial, exact-version confirmation, author/reviewer identity, submit/approve/reject state transitions, replay/conflict, and unpublished/future/rejected invisibility.
+- [x] Add failing tests for one effective version, serialized concurrent publication, retirement, replacement, and rollback to a previously approved version without history mutation.
+- [x] Run the focused integration test and confirm the missing service failures.
+- [x] Implement typed reviewer orchestration and PostgreSQL publication with per-item advisory locks and append-only events. Self-review clarified that retirement identifies its own active version; prior-version confirmation binds superseding publish and rollback actions.
+- [x] Run focused tests, the migration test, `npm run check`, and all guarded PostgreSQL tests.
+- [x] Commit with `feat: implement reviewed knowledge publication` and push `main`.
 
 ## Task 5: Add admin identity, learning, draft, and audit schema
 

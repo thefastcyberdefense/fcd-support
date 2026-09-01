@@ -142,7 +142,7 @@ describe('knowledge inputs', () => {
     ).toThrow('Knowledge review command is invalid');
   });
 
-  test('require prior-version evidence for retire and rollback publication commands', () => {
+  test('bind superseding publish and rollback to prior versions without inventing one for retire', () => {
     const base = {
       effectiveAt: createdAt,
       itemKey: 'faq.synthetic.account-help',
@@ -155,8 +155,22 @@ describe('knowledge inputs', () => {
     expect(parseKnowledgePublicationCommand({ ...base, action: 'publish' })).toMatchObject({
       action: 'publish',
     });
+    expect(
+      parseKnowledgePublicationCommand({
+        ...base,
+        action: 'publish',
+        priorVersionRef: 'VERSION_TEST_faq_0',
+      }),
+    ).toMatchObject({ action: 'publish', priorVersionRef: 'VERSION_TEST_faq_0' });
+    expect(parseKnowledgePublicationCommand({ ...base, action: 'retire' })).toMatchObject({
+      action: 'retire',
+    });
     expect(() =>
-      parseKnowledgePublicationCommand({ ...base, action: 'publish', priorVersionRef: 'OLD' }),
+      parseKnowledgePublicationCommand({
+        ...base,
+        action: 'retire',
+        priorVersionRef: 'VERSION_TEST_faq_0',
+      }),
     ).toThrow('Knowledge publication command is invalid');
     expect(() => parseKnowledgePublicationCommand({ ...base, action: 'rollback' })).toThrow(
       'Knowledge publication command is invalid',

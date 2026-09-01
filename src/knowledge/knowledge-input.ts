@@ -128,12 +128,12 @@ const publicationBase = {
 } as const;
 
 const knowledgePublicationSchema = z.discriminatedUnion('action', [
-  z.strictObject({ ...publicationBase, action: z.literal('publish') }),
   z.strictObject({
     ...publicationBase,
-    action: z.literal('retire'),
-    priorVersionRef: opaqueReference,
+    action: z.literal('publish'),
+    priorVersionRef: opaqueReference.optional(),
   }),
+  z.strictObject({ ...publicationBase, action: z.literal('retire') }),
   z.strictObject({
     ...publicationBase,
     action: z.literal('rollback'),
@@ -195,9 +195,22 @@ export function parseKnowledgeReviewCommand(input: unknown): KnowledgeReviewComm
 }
 
 export function parseKnowledgePublicationCommand(input: unknown): KnowledgePublicationCommand {
-  return parseOrThrow(
+  const parsed = parseOrThrow(
     knowledgePublicationSchema,
     input,
     'Knowledge publication command is invalid',
   );
+  if (parsed.action === 'publish') {
+    return {
+      action: parsed.action,
+      effectiveAt: parsed.effectiveAt,
+      itemKey: parsed.itemKey,
+      ...(parsed.priorVersionRef === undefined ? {} : { priorVersionRef: parsed.priorVersionRef }),
+      reasonCode: parsed.reasonCode,
+      requestKey: parsed.requestKey,
+      reviewerReference: parsed.reviewerReference,
+      versionRef: parsed.versionRef,
+    };
+  }
+  return parsed;
 }

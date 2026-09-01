@@ -222,8 +222,9 @@ export function up(pgm: MigrationBuilder): void {
       ),
       created_at timestamptz not null default now(),
       check (
-        (action = 'publish' and prior_version_id is null)
-        or (action in ('retire', 'rollback') and prior_version_id is not null)
+        action = 'publish'
+        or (action = 'retire' and prior_version_id is null)
+        or (action = 'rollback' and prior_version_id is not null)
       ),
       check (prior_version_id is null or prior_version_id <> version_id)
     );

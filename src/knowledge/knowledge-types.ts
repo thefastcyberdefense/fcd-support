@@ -63,9 +63,13 @@ interface KnowledgePublicationCommandBase {
 }
 
 export type KnowledgePublicationCommand =
-  | (KnowledgePublicationCommandBase & { readonly action: 'publish' })
   | (KnowledgePublicationCommandBase & {
-      readonly action: 'retire' | 'rollback';
+      readonly action: 'publish';
+      readonly priorVersionRef?: string;
+    })
+  | (KnowledgePublicationCommandBase & { readonly action: 'retire' })
+  | (KnowledgePublicationCommandBase & {
+      readonly action: 'rollback';
       readonly priorVersionRef: string;
     });
 
