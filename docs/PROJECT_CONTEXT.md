@@ -66,6 +66,7 @@ All secret values are intentionally absent from this repository. Create them dur
 ## Launch Blockers
 
 - The admission-only test deployment is approved and running under a narrow exception. Outbound messaging, models, n8n actions, live customer data, and production deployment remain unauthorized.
+- P3-GATE passed on 2026-09-01 at validated revision `bb95803` and authorizes P4-001 design/planning only. Reviewed knowledge, redaction, Manifest/model requests, limits, safe failure, and bilingual evaluation remain unimplemented and blocked behind the separate P4-001 plan review.
 - Phase 0 is evidence-complete: the threat model, acceptance matrix, and planning-only gate review are recorded in `docs/security/threat-model.md`, `docs/testing/acceptance-matrix.md`, and `docs/reviews/phase-0-gate.md`. This closes architectural planning only; every `PARTIAL`, `PLANNED`, or `BLOCKED` acceptance row remains a launch blocker. The project owner authorized reversible local development through Phase 5; exceptions and current contracts are tracked in `docs/TODO.md`.
 - Meta test callback and subscription flows are validated only for development-mode test assets. App review, live permissions, and production assets remain unvalidated.
 - WhatsApp coexistence for the production number has not been confirmed.
@@ -75,10 +76,10 @@ All secret values are intentionally absent from this repository. Create them dur
 - Website privacy and support wording must disclose AI assistance, external inference, retention, deletion, and marketing consent before production launch.
 - Actual encrypted backup/restore procedures and deployed human-takeover behavior must still pass their acceptance tests; the local restore-gate primitive alone does not satisfy P6-004.
 
-The next unblocked tracker action is P3-GATE, which requires explicit
-project-owner review of the complete Phase 3 evidence. Phase 4 planning remains
-blocked until that review is recorded. P1-GATE remains a separate explicit
-review record.
+The current tracker action is P4-001 architectural design and test-first
+implementation planning. Phase 4 implementation remains blocked until the
+written design and plan receive explicit project-owner review. P1-GATE remains
+a separate explicit review record.
 
 ## First Session Checklist
 
