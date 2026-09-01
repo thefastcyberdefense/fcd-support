@@ -144,17 +144,17 @@
 
 - Admin: `admin_accounts`, `admin_role_assignments`, `admin_mfa_credentials`, `admin_sessions`, and append-only `admin_audit_events` with normalized login uniqueness, password algorithm/parameters/salt/hash, encrypted MFA material, revocation, expiry, hashed session/CSRF values, closed roles/actions/results, and no plaintext credential fields.
 - Learning: `knowledge_gap_observations`, `customer_insight_runs`, `customer_insight_entries`, `owner_questions`, `owner_question_insights`, `owner_question_answers`, and `owner_question_digests` with closed categories, aggregate counts, retention deadlines, request keys, at-most-five digest membership, and no raw external identity/provider-body fields.
-- Reply state: `support_reply_drafts` links one applied customer event/conversation to `faq|model|safe_failure`, language, bounded answer, optional knowledge version, retention deadline, and state; `support_escalation_outcomes` stores only closed failure reason and internal references.
+- Reply state: `support_reply_drafts` links one applied customer event/conversation to `faq|model|safe_failure`, language, bounded answer, primary FAQ version, retention deadline, and state; append-only `support_reply_draft_knowledge` records the bounded published references supporting FAQ/model drafts; `support_escalation_outcomes` stores only closed failure reason and internal references.
 - Append-only evidence tables reject update/delete; mutable session/question state uses explicit row versions and closed transitions.
 
 **Steps:**
 
-- [ ] Extend migration tests to expect the admin, learning, draft, and escalation tables and migration count ten.
-- [ ] Add negative schema tests proving plaintext password/session/MFA columns are absent, closed enums reject unknown values, digest size is bounded, and evidence history is append-only.
-- [ ] Run the focused migration test and confirm failure.
-- [ ] Implement migration 000010, guarded downgrade refusal, supporting indexes, and deletion/retention lookup indexes.
-- [ ] Run migration apply/down/reapply tests, typecheck, formatting, and diff checks.
-- [ ] Commit with `feat: add phase 4 admin and learning schema` and push `main`.
+- [x] Extend migration tests to expect the admin, learning, draft, and escalation tables and migration count ten.
+- [x] Add negative schema tests proving plaintext password/session/MFA columns are absent, closed enums reject unknown values, digest size is bounded, and evidence history is append-only.
+- [x] Run the focused migration test and confirm failure.
+- [x] Implement migration 000010, guarded downgrade refusal, supporting indexes, and deletion/retention lookup indexes.
+- [x] Run migration apply/down/reapply tests, typecheck, formatting, and diff checks.
+- [x] Commit with `feat: add phase 4 admin and learning schema` and push `main`.
 
 ## Task 6: Implement cryptographic admin authentication primitives
 

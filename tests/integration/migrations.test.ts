@@ -1,3 +1,5 @@
+import { Buffer } from 'node:buffer';
+
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 
@@ -148,7 +150,7 @@ describe('Phase 2 database migrations', () => {
       { table_name: 'knowledge_tags' },
       { table_name: 'knowledge_versions' },
     ]);
-    expect(migrations.rows[0]?.count).toBe(9);
+    expect(migrations.rows[0]?.count).toBe(10);
     expect(trigramExtension.rows).toEqual([{ installed: true }]);
     expect(aliasIndexes.rows.map(({ indexname }) => indexname)).toEqual(
       expect.arrayContaining([
@@ -156,6 +158,196 @@ describe('Phase 2 database migrations', () => {
         'knowledge_aliases_normalized_trgm_idx',
       ]),
     );
+  });
+
+  test('create the private admin, proposal-learning, draft, and escalation schema as migration ten', async () => {
+    const tables = await pool.query<{ readonly table_name: string }>(
+      `select table_name
+       from information_schema.tables
+       where table_schema = $1
+         and table_name in (
+           'admin_accounts',
+           'admin_audit_events',
+           'admin_mfa_credentials',
+           'admin_role_assignments',
+           'admin_sessions',
+           'customer_insight_entries',
+           'customer_insight_runs',
+           'knowledge_gap_candidates',
+           'knowledge_gap_observations',
+           'owner_question_answers',
+           'owner_question_digest_entries',
+           'owner_question_digests',
+           'owner_question_insights',
+           'owner_questions',
+           'support_escalation_outcomes',
+           'support_reply_draft_knowledge',
+           'support_reply_drafts'
+         )
+       order by table_name`,
+      [schema],
+    );
+    const migrations = await pool.query<{ readonly count: number }>(
+      `select count(*)::int as count from pgmigrations`,
+    );
+
+    expect(tables.rows.map(({ table_name }) => table_name)).toEqual([
+      'admin_accounts',
+      'admin_audit_events',
+      'admin_mfa_credentials',
+      'admin_role_assignments',
+      'admin_sessions',
+      'customer_insight_entries',
+      'customer_insight_runs',
+      'knowledge_gap_candidates',
+      'knowledge_gap_observations',
+      'owner_question_answers',
+      'owner_question_digest_entries',
+      'owner_question_digests',
+      'owner_question_insights',
+      'owner_questions',
+      'support_escalation_outcomes',
+      'support_reply_draft_knowledge',
+      'support_reply_drafts',
+    ]);
+    expect(migrations.rows[0]?.count).toBe(10);
+  });
+
+  test('exclude plaintext admin credentials and enforce closed append-only evidence', async () => {
+    const prohibitedColumns = await pool.query<{ readonly column_name: string }>(
+      `select column_name
+       from information_schema.columns
+       where table_schema = $1
+         and table_name in (
+           'admin_accounts', 'admin_mfa_credentials', 'admin_sessions'
+         )
+         and column_name in (
+           'password', 'password_plaintext', 'session_token',
+           'mfa_seed', 'totp_secret', 'recovery_code'
+         )
+       order by column_name`,
+      [schema],
+    );
+    const unrestrictedColumns = await pool.query<{ readonly column_name: string }>(
+      `select column_name
+       from information_schema.columns
+       where table_schema = $1
+         and table_name in (
+           'admin_accounts', 'admin_audit_events', 'knowledge_gap_observations',
+           'customer_insight_entries', 'owner_questions',
+           'support_reply_drafts', 'support_escalation_outcomes'
+         )
+         and data_type in ('json', 'jsonb')`,
+      [schema],
+    );
+    expect(prohibitedColumns.rows).toEqual([]);
+    expect(unrestrictedColumns.rows).toEqual([]);
+
+    try {
+      const account = await pool.query<{ readonly id: string }>(
+        `insert into admin_accounts
+           (account_ref, login_name, password_algorithm, password_cost,
+            password_block_size, password_parallelization, password_key_length,
+            password_salt, password_hash, state, created_at, updated_at,
+            password_changed_at)
+         values ('ADMIN_TEST_schema', 'synthetic.schema', 'scrypt_v1', 16384,
+                 8, 1, 32, $1, $2, 'active',
+                 '2026-09-01T12:00:00Z', '2026-09-01T12:00:00Z',
+                 '2026-09-01T12:00:00Z')
+         returning id`,
+        [Buffer.alloc(16, 0x31), Buffer.alloc(32, 0x32)],
+      );
+      const accountId = account.rows[0]?.id;
+      const role = await pool.query<{ readonly id: string }>(
+        `insert into admin_role_assignments
+           (account_id, role, action, actor_account_id, effective_at, request_key)
+         values ($1, 'knowledge_editor', 'assign', $1,
+                 '2026-09-01T12:01:00Z', 'REQUEST_TEST_schema_role')
+         returning id`,
+        [accountId],
+      );
+      const audit = await pool.query<{ readonly id: string }>(
+        `insert into admin_audit_events
+           (actor_account_id, action, result, object_type, object_ref,
+            reason_code, request_key, effective_at)
+         values ($1, 'role_assigned', 'applied', 'account',
+                 'ADMIN_TEST_schema', 'authorized_assignment',
+                 'REQUEST_TEST_schema_audit', '2026-09-01T12:01:00Z')
+         returning id`,
+        [accountId],
+      );
+
+      const invalidRole = await captureRolledBackMutation(
+        `insert into admin_role_assignments
+           (account_id, role, action, actor_account_id, effective_at, request_key)
+         values ($1, 'unbounded_role', 'assign', $1,
+                 '2026-09-01T12:02:00Z', 'REQUEST_TEST_schema_invalid_role')`,
+        [accountId],
+      );
+      const roleMutation = await captureRolledBackMutation(
+        `update admin_role_assignments set role = 'administrator' where id = $1`,
+        [role.rows[0]?.id],
+      );
+      const auditMutation = await captureRolledBackMutation(
+        `delete from admin_audit_events where id = $1`,
+        [audit.rows[0]?.id],
+      );
+      const oversizedDigest = await captureRolledBackMutation(
+        `insert into owner_question_digests
+           (digest_ref, state, period_started_at, period_ended_at,
+            question_count, request_key, created_at)
+         values ('DIGEST_TEST_oversized', 'ready',
+                 '2026-09-01T00:00:00Z', '2026-09-04T00:00:00Z',
+                 6, 'REQUEST_TEST_digest_oversized', '2026-09-04T00:00:00Z')`,
+      );
+
+      expect([invalidRole, roleMutation, auditMutation, oversizedDigest]).toEqual([
+        expect.objectContaining({ code: '23514' }),
+        expect.objectContaining({ code: '23514' }),
+        expect.objectContaining({ code: '23514' }),
+        expect.objectContaining({ code: '23514' }),
+      ]);
+    } finally {
+      await pool.query(`truncate table admin_accounts restart identity cascade`);
+    }
+  });
+
+  test('refuse admin and learning downgrade while Phase 4 evidence exists', async () => {
+    await pool.query(
+      `insert into admin_accounts
+         (account_ref, login_name, password_algorithm, password_cost,
+          password_block_size, password_parallelization, password_key_length,
+          password_salt, password_hash, state, created_at, updated_at,
+          password_changed_at)
+       values ('ADMIN_TEST_downgrade', 'synthetic.downgrade', 'scrypt_v1', 16384,
+               8, 1, 32, $1, $2, 'active',
+               '2026-09-01T12:00:00Z', '2026-09-01T12:00:00Z',
+               '2026-09-01T12:00:00Z')`,
+      [Buffer.alloc(16, 0x41), Buffer.alloc(32, 0x42)],
+    );
+
+    let rollbackError: unknown;
+    try {
+      await runMigrations('down', 1);
+    } catch (error: unknown) {
+      rollbackError = error;
+    }
+    expect(rollbackError).toBeInstanceOf(Error);
+    if (!(rollbackError instanceof Error)) {
+      throw new Error('Expected populated Phase 4 admin rollback to fail');
+    }
+    expect(rollbackError.message).toContain('P4-002 rollback blocked');
+    expect((rollbackError as Error & { code?: string }).code).toBe('55000');
+    await expect(
+      pool.query(`select count(*)::int as count from pgmigrations`),
+    ).resolves.toMatchObject({ rows: [{ count: 10 }] });
+
+    await pool.query(`truncate table admin_accounts restart identity cascade`);
+    await runMigrations('down', 1);
+    await expect(
+      pool.query(`select to_regclass('admin_accounts') as table_name`),
+    ).resolves.toMatchObject({ rows: [{ table_name: null }] });
+    await runMigrations('up');
   });
 
   test('enforce bilingual knowledge shape and append-only reviewed history', async () => {
@@ -283,7 +475,7 @@ describe('Phase 2 database migrations', () => {
 
     let rollbackError: unknown;
     try {
-      await runMigrations('down', 1);
+      await runMigrations('down', 2);
     } catch (error: unknown) {
       rollbackError = error;
     }
@@ -335,7 +527,7 @@ describe('Phase 2 database migrations', () => {
       { table_name: 'privacy_suppressions' },
       { table_name: 'restore_deletion_gates' },
     ]);
-    expect(migrations.rows[0]?.count).toBe(9);
+    expect(migrations.rows[0]?.count).toBe(10);
   });
 
   test('create the bounded privacy rights workflow tables as migration five', async () => {
@@ -1730,7 +1922,7 @@ describe('Phase 2 database migrations', () => {
     ]);
   });
 
-  test('guards populated privacy evidence, then rolls back and reapplies all nine migrations', async () => {
+  test('guards populated privacy evidence, then rolls back and reapplies all ten migrations', async () => {
     const receipt = await pool.query<{ readonly id: string }>(
       `insert into webhook_receipts (payload_sha256, event_count)
        values ($1, 1)
@@ -1857,7 +2049,7 @@ describe('Phase 2 database migrations', () => {
     ]);
 
     await runMigrations('up');
-    await runMigrations('down', 9);
+    await runMigrations('down', 10);
 
     const afterRollback = await pool.query<{ readonly table_name: string }>(
       `select table_name
