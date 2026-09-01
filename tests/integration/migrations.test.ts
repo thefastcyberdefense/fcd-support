@@ -133,7 +133,7 @@ describe('Phase 2 database migrations', () => {
       { table_name: 'privacy_suppressions' },
       { table_name: 'restore_deletion_gates' },
     ]);
-    expect(migrations.rows[0]?.count).toBe(7);
+    expect(migrations.rows[0]?.count).toBe(8);
   });
 
   test('create the bounded privacy rights workflow tables as migration five', async () => {
@@ -1528,7 +1528,7 @@ describe('Phase 2 database migrations', () => {
     ]);
   });
 
-  test('roll back and reapply all seven policy migrations', async () => {
+  test('guards populated privacy evidence, then rolls back and reapplies all eight migrations', async () => {
     const receipt = await pool.query<{ readonly id: string }>(
       `insert into webhook_receipts (payload_sha256, event_count)
        values ($1, 1)
@@ -1549,7 +1549,84 @@ describe('Phase 2 database migrations', () => {
       [suppressedEvent.rows[0]?.id],
     );
 
-    await runMigrations('down', 3);
+    const livePrivacyRequest = await pool.query<{ readonly id: string }>(
+      `insert into privacy_requests
+         (request_ref, request_type, state, received_at, decision_at,
+          reviewer_reference, decision_code, reason_code, open_request_key)
+       values ('PRIVACY_TEST_populated_down', 'access', 'in_progress',
+               '2026-08-31T10:00:00Z', '2026-08-31T10:01:00Z',
+               'REVIEWER_TEST_populated_down', 'same_channel_context',
+               'identity_verified', 'privacy-test-populated-down')
+       returning id`,
+    );
+    await pool.query(
+      `insert into privacy_request_events
+         (request_id, action, outcome, reason_code, previous_state,
+          resulting_state, actor_type, reviewer_reference,
+          effective_at, request_key)
+       values ($1, 'reviewer_decision', 'applied', 'identity_verified',
+               'human_review', 'in_progress', 'support_reviewer',
+               'REVIEWER_TEST_populated_down', '2026-08-31T10:01:00Z',
+               'privacy-test-populated-down-review')`,
+      [livePrivacyRequest.rows[0]?.id],
+    );
+    const liveOptOutRun = await pool.query<{ readonly id: string }>(
+      `insert into privacy_marketing_opt_out_runs
+         (request_key, effective_at, linked_identities_count,
+          category_revocations_count, suppressions_created_count,
+          pending_intents_cancelled_count, status)
+       values ('privacy-test-populated-down-opt-out', '2026-08-31T10:02:00Z',
+               1, 0, 4, 0, 'applied')
+       returning id`,
+    );
+    await pool.query(
+      `insert into privacy_notification_intents
+         (marketing_opt_out_run_id, notification_type, state, idempotency_key)
+       values ($1, 'operator_marketing_opt_out', 'pending',
+               'privacy-test-populated-down-notification')`,
+      [liveOptOutRun.rows[0]?.id],
+    );
+    await pool.query(
+      `insert into policy_audit_outcomes
+         (decision_type, outcome, reason_code, evaluated_at)
+       values
+         ('reply_eligibility', 'denied', 'privacy_request_open',
+          '2026-08-31T10:03:00Z'),
+         ('marketing_eligibility', 'denied', 'global_marketing_opt_out',
+          '2026-08-31T10:03:01Z')`,
+    );
+
+    let rollbackError: unknown;
+    try {
+      await runMigrations('down', 4);
+    } catch (error: unknown) {
+      rollbackError = error;
+    }
+    expect(rollbackError).toBeInstanceOf(Error);
+    if (!(rollbackError instanceof Error)) {
+      throw new Error('Expected populated P3-007 rollback to fail');
+    }
+    expect(rollbackError.message).toContain('P3-007 rollback blocked');
+    expect((rollbackError as Error & { code?: string }).code).toBe('55000');
+    await expect(
+      pool.query(`select count(*)::int as count from pgmigrations`),
+    ).resolves.toMatchObject({ rows: [{ count: 8 }] });
+
+    await pool.query(`
+      truncate table
+        privacy_marketing_reopt_in_runs, privacy_access_runs,
+        privacy_correction_runs, privacy_marketing_opt_out_runs,
+        privacy_notification_intents, privacy_request_events,
+        privacy_request_locations, privacy_deletion_runs,
+        restore_deletion_gates, privacy_requests, privacy_suppressions
+      restart identity cascade
+    `);
+    await pool.query(
+      `delete from policy_audit_outcomes
+       where reason_code in ('global_marketing_opt_out', 'privacy_request_open')`,
+    );
+
+    await runMigrations('down', 4);
 
     const retainedSuppressionEvidence = await pool.query<{
       readonly outcome: string;
@@ -1578,7 +1655,7 @@ describe('Phase 2 database migrations', () => {
     ]);
 
     await runMigrations('up');
-    await runMigrations('down', 7);
+    await runMigrations('down', 8);
 
     const afterRollback = await pool.query<{ readonly table_name: string }>(
       `select table_name

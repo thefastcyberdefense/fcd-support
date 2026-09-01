@@ -172,7 +172,7 @@ describe('PostgresMarketingOptOutPolicy', () => {
       linkedIdentities: 2,
       pendingIntentsCancelled: 0,
       status: 'applied',
-      suppressionsCreated: 2,
+      suppressionsCreated: 8,
     });
     const latest = await pool.query(
       `select identity.channel, consent.category, consent.action
@@ -206,7 +206,7 @@ describe('PostgresMarketingOptOutPolicy', () => {
         notification_state: 'pending',
         notification_type: 'operator_marketing_opt_out',
         pending_intents_cancelled_count: 0,
-        suppressions_created_count: 2,
+        suppressions_created_count: 8,
       },
     ]);
     const serializedResult = JSON.stringify(result);
@@ -267,9 +267,9 @@ describe('PostgresMarketingOptOutPolicy', () => {
          (select count(*)::int from privacy_marketing_opt_out_runs) as runs,
          (select count(*)::int from privacy_notification_intents) as notifications,
          (select count(*)::int from privacy_suppressions
-          where category = 'marketing_opt_out') as suppressions`,
+          where category like 'marketing_opt_out:%') as suppressions`,
     );
-    expect(counts.rows).toEqual([{ notifications: 1, runs: 1, suppressions: 2 }]);
+    expect(counts.rows).toEqual([{ notifications: 1, runs: 1, suppressions: 8 }]);
   });
 
   test('rejects request-key reuse for a different authoritative source', async () => {
@@ -469,6 +469,81 @@ describe('PostgresMarketingOptOutPolicy', () => {
     ).resolves.toEqual({ eligible: false, reason: 'global_marketing_opt_out' });
   });
 
+  test('category-scoped re-opt-in keeps every unselected category suppressed', async () => {
+    const fixture = await createLinkedFixture('marketing-reopt-in-category-isolation');
+    const policy = new PostgresMarketingOptOutPolicy(pool, syntheticPrivacyKeyring);
+    const consent = new PostgresConsentPolicy(pool, syntheticPrivacyKeyring);
+    await policy.apply(optOutInput(fixture, 'marketing-reopt-in-category-isolation-opt-out'));
+    await seedGrant(
+      messengerIdentity,
+      'newsletter',
+      '06:10:00',
+      'marketing-reopt-in-category-isolation-later-grant',
+    );
+
+    await expect(
+      policy.recordExplicitReoptIn(
+        {
+          categories: ['security_updates'],
+          effectiveAt: new Date('2026-08-31T06:20:00.000Z'),
+          identity: messengerIdentity,
+          requestKey: 'marketing-reopt-in-category-isolation',
+          scope: 'source_identity',
+          verificationMethod: 'same_channel_context',
+        },
+        reviewer,
+      ),
+    ).resolves.toMatchObject({ status: 'applied' });
+
+    await expect(
+      consent.evaluateMarketingEligibility(
+        messengerIdentity,
+        'security_updates',
+        new Date('2026-08-31T06:21:00.000Z'),
+      ),
+    ).resolves.toEqual({ eligible: true, reason: 'consent_latest_grant' });
+    await expect(
+      consent.evaluateMarketingEligibility(
+        messengerIdentity,
+        'newsletter',
+        new Date('2026-08-31T06:21:00.000Z'),
+      ),
+    ).resolves.toEqual({ eligible: false, reason: 'global_marketing_opt_out' });
+  });
+
+  test('future-effective re-opt-in remains suppressed until its effective time', async () => {
+    const fixture = await createLinkedFixture('marketing-reopt-in-future');
+    const policy = new PostgresMarketingOptOutPolicy(pool, syntheticPrivacyKeyring);
+    const consent = new PostgresConsentPolicy(pool, syntheticPrivacyKeyring);
+    await policy.apply(optOutInput(fixture, 'marketing-reopt-in-future-opt-out'));
+    await policy.recordExplicitReoptIn(
+      {
+        categories: ['security_updates'],
+        effectiveAt: new Date('2026-08-31T07:00:00.000Z'),
+        identity: messengerIdentity,
+        requestKey: 'marketing-reopt-in-future',
+        scope: 'source_identity',
+        verificationMethod: 'same_channel_context',
+      },
+      reviewer,
+    );
+
+    await expect(
+      consent.evaluateMarketingEligibility(
+        messengerIdentity,
+        'security_updates',
+        new Date('2026-08-31T06:30:00.000Z'),
+      ),
+    ).resolves.toEqual({ eligible: false, reason: 'global_marketing_opt_out' });
+    await expect(
+      consent.evaluateMarketingEligibility(
+        messengerIdentity,
+        'security_updates',
+        new Date('2026-08-31T07:00:00.001Z'),
+      ),
+    ).resolves.toEqual({ eligible: true, reason: 'consent_latest_grant' });
+  });
+
   test('rejects unauthorized re-opt-in without clearing suppression', async () => {
     const fixture = await createLinkedFixture('marketing-reopt-in-unauthorized');
     const policy = new PostgresMarketingOptOutPolicy(pool, syntheticPrivacyKeyring);
@@ -492,7 +567,7 @@ describe('PostgresMarketingOptOutPolicy', () => {
          (select count(*)::int from privacy_suppressions) as suppressions,
          (select count(*)::int from privacy_marketing_reopt_in_runs) as runs`,
     );
-    expect(counts.rows).toEqual([{ runs: 0, suppressions: 2 }]);
+    expect(counts.rows).toEqual([{ runs: 0, suppressions: 8 }]);
   });
 
   test('explicit all-linked re-opt-in clears and grants every selected identity atomically', async () => {
@@ -572,7 +647,7 @@ describe('PostgresMarketingOptOutPolicy', () => {
             where source = 'reviewer_recorded'
               and wording = 'EXPLICIT MARKETING RE-OPT-IN') as reviewer_grants`,
       );
-      expect(counts.rows).toEqual([{ reviewer_grants: 0, runs: 0, suppressions: 2 }]);
+      expect(counts.rows).toEqual([{ reviewer_grants: 0, runs: 0, suppressions: 8 }]);
     } finally {
       await pool.query(`
         drop trigger reject_synthetic_marketing_reopt_in

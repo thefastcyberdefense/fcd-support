@@ -9,11 +9,12 @@ import type {
   ProcessPrivacyIntentInput,
   ReviewPrivacyRequestInput,
 } from './policy-types.js';
+import { MARKETING_CATEGORIES } from './policy-types.js';
 
 const boundedString = z.string().trim().min(1).max(128);
 const databaseId = z.string().regex(/^\d+$/);
 const validDate = z.date().refine((value) => Number.isFinite(value.getTime()));
-const category = z.enum(['newsletter', 'product_offers', 'product_updates', 'security_updates']);
+const category = z.enum(MARKETING_CATEGORIES);
 const categories = z
   .array(category)
   .min(1)

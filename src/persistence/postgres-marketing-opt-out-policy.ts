@@ -13,6 +13,7 @@ import type {
   ExplicitMarketingReoptInInput,
   PrivacyHmacKeyring,
 } from '../policy/policy-types.js';
+import { MARKETING_CATEGORIES } from '../policy/policy-types.js';
 import { requireSupportReviewer } from '../policy/reviewer-principal.js';
 import { lockAppliedCustomerEvent } from './postgres-policy-helpers.js';
 import {
@@ -190,32 +191,35 @@ export class PostgresMarketingOptOutPolicy {
 
       let suppressionsCreated = 0;
       for (const identity of identities.rows) {
-        const suppression = await client.query<InsertedSuppressionRow>(
-          `insert into privacy_suppressions
-             (identity_hmac, channel, category, reason_code,
-              effective_at, key_version, expires_at)
-           values ($1, $2, 'marketing_opt_out', 'customer_opt_out',
-                   $3, $4, null)
-           on conflict (identity_hmac, channel, category, key_version)
-           do update set
-             reason_code = 'customer_opt_out',
-             effective_at = greatest(
-               privacy_suppressions.effective_at,
-               excluded.effective_at
-             ),
-             expires_at = null
-           returning (xmax = 0) as inserted`,
-          [
-            createIdentityHmac(selector(identity), {
-              key: activeKey,
-              version: this.keyring.activeVersion,
-            }),
-            identity.channel,
-            command.effectiveAt,
-            this.keyring.activeVersion,
-          ],
-        );
-        if (suppression.rows[0]?.inserted) suppressionsCreated += 1;
+        for (const category of MARKETING_CATEGORIES) {
+          const suppression = await client.query<InsertedSuppressionRow>(
+            `insert into privacy_suppressions
+               (identity_hmac, channel, category, reason_code,
+                effective_at, key_version, expires_at)
+             values ($1, $2, $3, 'customer_opt_out',
+                     $4, $5, null)
+             on conflict (identity_hmac, channel, category, key_version)
+             do update set
+               reason_code = 'customer_opt_out',
+               effective_at = greatest(
+                 privacy_suppressions.effective_at,
+                 excluded.effective_at
+               ),
+               expires_at = null
+             returning (xmax = 0) as inserted`,
+            [
+              createIdentityHmac(selector(identity), {
+                key: activeKey,
+                version: this.keyring.activeVersion,
+              }),
+              identity.channel,
+              `marketing_opt_out:${category}`,
+              command.effectiveAt,
+              this.keyring.activeVersion,
+            ],
+          );
+          if (suppression.rows[0]?.inserted) suppressionsCreated += 1;
+        }
       }
 
       const run = await client.query<IdentifierRow>(
@@ -351,16 +355,64 @@ export class PostgresMarketingOptOutPolicy {
           keyVersions.push(version);
           identityHmacs.push(createIdentityHmac(selector(identity), { key, version }));
         }
-        const deleted = await client.query(
-          `delete from privacy_suppressions
+        await client.query(
+          `insert into privacy_suppressions
+             (identity_hmac, channel, category, reason_code,
+              effective_at, key_version, expires_at)
+           select legacy.identity_hmac,
+                  legacy.channel,
+                  scoped.category,
+                  legacy.reason_code,
+                  legacy.effective_at,
+                  legacy.key_version,
+                  legacy.expires_at
+           from privacy_suppressions as legacy
+           cross join unnest($4::text[]) as scoped(category)
+           where legacy.channel = $1
+             and legacy.category = 'marketing_opt_out'
+             and (legacy.key_version, legacy.identity_hmac) in (
+               select * from unnest($2::text[], $3::text[])
+             )
+           on conflict (identity_hmac, channel, category, key_version)
+           do nothing`,
+          [
+            identity.channel,
+            keyVersions,
+            identityHmacs,
+            MARKETING_CATEGORIES.map((category) => `marketing_opt_out:${category}`),
+          ],
+        );
+        await client.query(
+          `update privacy_suppressions
+           set expires_at = $4
            where channel = $1
              and category = 'marketing_opt_out'
+             and effective_at < $4::timestamptz
+             and (expires_at is null or expires_at > $4::timestamptz)
              and (key_version, identity_hmac) in (
                select * from unnest($2::text[], $3::text[])
              )`,
-          [identity.channel, keyVersions, identityHmacs],
+          [identity.channel, keyVersions, identityHmacs, command.effectiveAt],
         );
-        suppressionsCleared += deleted.rowCount ?? 0;
+        const expired = await client.query(
+          `update privacy_suppressions
+           set expires_at = $4
+           where channel = $1
+             and category = any($5::text[])
+             and effective_at < $4::timestamptz
+             and (expires_at is null or expires_at > $4::timestamptz)
+             and (key_version, identity_hmac) in (
+               select * from unnest($2::text[], $3::text[])
+             )`,
+          [
+            identity.channel,
+            keyVersions,
+            identityHmacs,
+            command.effectiveAt,
+            command.categories.map((category) => `marketing_opt_out:${category}`),
+          ],
+        );
+        suppressionsCleared += expired.rowCount ?? 0;
       }
 
       const digest = commandDigest(command.requestKey);

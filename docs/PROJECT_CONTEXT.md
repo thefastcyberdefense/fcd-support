@@ -1,6 +1,6 @@
 # Project Context
 
-Last reviewed: 2026-08-31 (Asia/Dhaka)
+Last reviewed: 2026-09-01 (Asia/Dhaka)
 
 ## Confirmed Decisions
 
@@ -15,7 +15,7 @@ Last reviewed: 2026-08-31 (Asia/Dhaka)
 - Lifecycle precedence is `active_client > unconverted_lead > casual_chat`. Casual chats expire 60 days after the latest qualifying human-authored event; unconverted leads expire 12 calendar months after the latest qualifying lead interaction. AI replies, statuses, duplicates, retries, consent bookkeeping, and unresponded marketing sends never extend retention.
 - Active-client support content is retained during the documented relationship and for 24 calendar months after the later documented relationship end or final paid service completion. The Fast Cyber Defense Managing Director/business-owner role owns the policy and reviews active-client classifications annually.
 - Deletion uses same-channel explicit confirmation plus human review, never a password, OTP, payment credential, or secret. Minimal suppression and restore tombstones use a versioned HMAC identity and no raw identifier or message content.
-- `REQUEST MY DATA`, `CORRECT MY DATA`, and all-linked-identity `STOP MARKETING` require deterministic P3-007 intake plus human notification/review; they are not part of the completed deletion-only P3-006 slice.
+- `REQUEST MY DATA`, `CORRECT MY DATA`, and all-linked-identity `STOP MARKETING` use deterministic P3-007 intake plus human review. Access collection is private, redacting, one-run, and review-expiring; correction has no production handler until a field owner is approved; marketing opt-out covers all four closed categories and re-opt-in changes only named categories at its effective time.
 - Manifest message-body recording must be disabled before customer/model traffic; restored backups remain isolated until all unexpired deletion tombstones are reapplied and verified.
 - Marketing requires explicit, category-specific opt-in. Blank means no promotional eligibility.
 
@@ -57,10 +57,11 @@ All secret values are intentionally absent from this repository. Create them dur
 
 ## Current Local Policy Evidence
 
-- P3-005 retention and P3-006 verified deletion are locally complete. The current gate passes 153 local tests and 190 guarded synthetic PostgreSQL tests.
+- P3-005 retention, P3-006 verified deletion, and P3-007 privacy rights are locally complete. The current gate passes 213 local tests and 244 guarded synthetic PostgreSQL tests across 16 files, with zero leaked temporary schemas or advisory locks.
 - P3-006 verifies same-channel requests through authorized human review, atomically tombstones and pseudonymizes linked identities, clears implemented raw event/customer content, retains aggregate evidence, and blocks later raw storage for deleted identities.
 - The restore primitive reapplies all covered active tombstone key versions in bounded batches and refuses a pass on missing keys, failed/nonzero evidence, remaining matches, changed revision material, or an incomplete concurrent scan.
-- No Meta/Manifest/provider deletion, export/offline/archive cleanup, notification delivery, actual backup creation/restore/promotion, Ubuntu redeployment, or production action occurred. Those locations remain pending or belong to P6-004 and later test gates.
+- P3-007 exact intake, reviewer holds, redacting one-run access collection, typed correction boundaries, category-scoped opt-out/re-opt-in, and evidence-preserving rollback pass locally. Security scan `1f4a68bb-5290-480f-89f4-6297d840ec87` reviewed 15 production surfaces; its five medium findings in the original range all have guarded remediation tests.
+- No Meta/Manifest/provider deletion, access delivery, export/offline/archive cleanup, notification delivery, actual backup creation/restore/promotion, Ubuntu redeployment, or production action occurred. Those locations remain pending or belong to P6-004 and later test gates.
 
 ## Launch Blockers
 
@@ -74,9 +75,10 @@ All secret values are intentionally absent from this repository. Create them dur
 - Website privacy and support wording must disclose AI assistance, external inference, retention, deletion, and marketing consent before production launch.
 - Actual encrypted backup/restore procedures and deployed human-takeover behavior must still pass their acceptance tests; the local restore-gate primitive alone does not satisfy P6-004.
 
-The next unblocked local engineering task is P3-007 privacy-intent intake,
-access export, correction workflow, and global marketing opt-out. P3-GATE then
-requires project-owner review. P1-GATE remains a separate explicit review record.
+The next unblocked tracker action is P3-GATE, which requires explicit
+project-owner review of the complete Phase 3 evidence. Phase 4 planning remains
+blocked until that review is recorded. P1-GATE remains a separate explicit
+review record.
 
 ## First Session Checklist
 

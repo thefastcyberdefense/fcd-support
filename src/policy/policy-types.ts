@@ -367,10 +367,12 @@ export interface AccessDataExport {
   readonly records: AccessExportRecords;
 }
 
-export interface AccessDataExportResult {
-  readonly export: AccessDataExport;
-  readonly status: 'collected' | 'duplicate';
-}
+export type AccessDataExportResult =
+  | {
+      readonly export: AccessDataExport;
+      readonly status: 'collected';
+    }
+  | { readonly status: 'duplicate' };
 
 export interface ExecuteCorrectionInput {
   readonly executedAt: Date;
@@ -381,6 +383,15 @@ export interface ExecuteCorrectionInput {
 
 export type CorrectionResultCode =
   'applied' | 'manual_required' | 'partially_completed' | 'rejected';
+
+export const MARKETING_CATEGORIES = Object.freeze([
+  'newsletter',
+  'product_offers',
+  'product_updates',
+  'security_updates',
+] as const);
+
+export type MarketingCategory = (typeof MARKETING_CATEGORIES)[number];
 
 export interface CorrectionExecutionResult {
   readonly fieldKey: string;

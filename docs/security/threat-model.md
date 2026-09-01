@@ -2,10 +2,10 @@
 
 Status: reviewed Phase 0 architecture threat model (`P0-017`)
 
-Reviewed: 2026-08-31 (Asia/Dhaka)
+Reviewed: 2026-09-01 (Asia/Dhaka)
 
-Scope: the public Meta webhook boundary, the current admission, retention, and
-verified-deletion policy core, and the planned private model, automation,
+Scope: the public Meta webhook boundary, the current admission, retention,
+verified-deletion, and privacy-rights policy core, and the planned private model, automation,
 outbound, backup, and operational paths. This is an architecture threat model, not a
 claim that every planned control is implemented and not a vulnerability audit.
 
@@ -22,8 +22,10 @@ n8n are private downstream services and must never become authorities for that
 state. The production WhatsApp number is outside the present test scope.
 
 The repository implements narrow webhook admission, the Phase 3 conversation
-policy core, retention jobs, verified local deletion, pre-storage resurrection
-blocking, and an isolated-database restore reconciliation/promotion primitive.
+policy core, retention jobs, verified local deletion, deterministic privacy
+request intake, in-memory access collection, typed correction, global marketing
+suppression, pre-storage resurrection blocking, and an isolated-database restore
+reconciliation/promotion primitive.
 Actual encrypted backup/restore procedures, provider/offline deletion, model
 calls, outbound providers, and n8n integration remain planned controls. The
 acceptance matrix records their evidence state rather than assuming them.
@@ -37,6 +39,7 @@ acceptance matrix records their evidence state rather than assuming them.
 | Signature verifier | Requires the `sha256=` format and compares the raw-body HMAC in constant time | `src/meta/verify-signature.ts:9`; `src/meta/verify-signature.ts:27`; `src/meta/verify-signature.ts:30` |
 | PostgreSQL receipt/event store | Persists minimal normalized events and enforces receipt and event uniqueness | `migrations/000001_create_webhook_receipts.ts:5`; `migrations/000001_create_webhook_receipts.ts:14`; `migrations/000001_create_webhook_receipts.ts:33` |
 | Phase 3 policy core | Applies events once, serializes workers, records takeover and consent, enforces retention, and performs verified local deletion | `src/persistence/postgres-conversation-event-processor.ts`; `src/persistence/postgres-consent-policy.ts`; `src/persistence/postgres-retention-policy.ts`; `src/persistence/postgres-deletion-policy.ts` |
+| Privacy-rights services | Prove exact applied-message intents, hold access/correction for review, collect access data in memory, permit only typed correction handlers, and enforce all-linked marketing suppression | `src/policy/privacy-intent.ts`; `src/persistence/postgres-privacy-rights-policy.ts`; `src/persistence/postgres-access-export.ts`; `src/persistence/postgres-correction-policy.ts`; `src/persistence/postgres-marketing-opt-out-policy.ts` |
 | Reviewer boundary | Requires an authenticated principal with `support_reviewer` before private resume or reviewer-recorded consent | `src/policy/reviewer-principal.ts:17`; `src/policy/reviewer-principal.ts:20`; `docs/architecture/channel-behavior.md:83` |
 | Manifest `fcd-support` | Planned, tool-free model gateway; recording must be off before traffic | `AGENTS.md:16`; `AGENTS.md:22`; `docs/architecture/data-lifecycle.md:181` |
 | n8n | Planned private notification/CRM adapter; never owns authoritative support state | `AGENTS.md:21`; `docs/operations/preflight-inventory.md:121` |
@@ -50,12 +53,12 @@ acceptance matrix records their evidence state rather than assuming them.
 | `GET /webhooks/meta` | Public through exact tunnel path | Verification challenge; protected verify token comparison | Implemented and test-deployed |
 | `POST /webhooks/meta` | Public through exact tunnel path | Signed Meta event bytes | Implemented and test-deployed |
 | All other application routes | Private / ingress `404` | No public administrative capability | Enforced by deployment verifier |
-| PostgreSQL | Private data network, no host port | Receipts, normalized events, policy, retention, deletion, and restore-gate state | Implemented locally through P3-006 |
+| PostgreSQL | Private data network, no host port | Receipts, normalized events, policy, retention, privacy-rights evidence, deletion, and restore-gate state | Implemented locally through P3-007 |
 | Manifest | Private network only | Redacted prompts and model output | Not connected to current admission runtime |
 | n8n | LAN/private only | Notifications and later CRM requests | No `fcd-support` integration yet |
 | Meta Graph outbound | External provider call | Customer replies and delivery state | Not implemented |
 | Backup repository | Private operator path | Encrypted database backups and tombstones | Not implemented |
-| Reviewer/admin operations | Private authenticated path | Resume, consent review, deletion approval | Policy functions enforce reviewer authority; no public admin route |
+| Reviewer/admin operations | Private authenticated path | Resume, consent review, privacy-request decisions, correction execution, deletion approval | Policy functions enforce reviewer authority; no public admin route |
 | Production WhatsApp/Page assets | Explicitly out of scope | Live customer communication | No action authorized |
 
 ```mermaid
@@ -163,9 +166,14 @@ flowchart LR
   blocked until that state is corrected and contract-tested.
 - Real WhatsApp device delivery, coexistence/manual-app echoes, app review, and
   production permissions remain unproven (`docs/architecture/channel-behavior.md:180`).
-- Access/correction/global opt-out, actual backup/restore automation, outbound,
-  model, and n8n controls below remain requirements until their tracker rows and
-  acceptance evidence pass. P3-006 proves only local deletion and the restore gate primitive.
+- Access/correction/global opt-out policy behavior passes locally. The P3-007
+  security diff scan reported five medium findings in the original implementation;
+  guarded fixes now cover export redaction, fresh one-run authorization,
+  effective-time consent, category isolation, and evidence-preserving rollback.
+  No access package or notification was externally delivered and no
+  provider/offline checklist operation ran. Actual backup/restore automation,
+  outbound, model, and n8n controls remain requirements until their tracker rows
+  and acceptance evidence pass.
 
 ## 3. Attack Surface, Mitigations, And Attacker Stories
 
@@ -184,7 +192,14 @@ that exploitation has occurred.
 | High | Service self-echo is mistaken for staff activity, or staff echo is missed | Missing outbound correlation or race | Reply loops or AI replying over a human | Business echoes never generate replies; unmatched echoes fail safe by pausing | Phase 5 must correlate durable outbound/provider IDs before Messenger sends; test both race orders | `docs/architecture/channel-behavior.md:61`; `docs/architecture/channel-behavior.md:88`; `docs/architecture/channel-behavior.md:99` |
 | High | Unauthorized reviewer resumes AI or records consent | Public/admin exposure or weak caller authentication | Replies during takeover or unlawful marketing | No public reviewer route; policy requires `support_reviewer`; exact identity/category scope | Implement authenticated private admin adapter and authorization audit before exposure | `docs/architecture/channel-behavior.md:83`; `src/policy/reviewer-principal.ts:20`; `src/persistence/postgres-consent-policy.ts:120` |
 | High | Missing, blank, cross-channel, or stale consent is treated as opt-in | Bad defaults or identity collision | Unauthorized marketing | Eligibility is true only for latest exact grant; blank/invalid is denied | Recheck consent immediately before each marketing send and after restore | `src/persistence/postgres-consent-policy.ts:129`; `AGENTS.md:29`; `docs/architecture/data-lifecycle.md:34` |
-| High | Deletion authenticates with a secret or targets the wrong identity | Social engineering or identity confusion | Data loss or privacy breach | Same-channel confirmation, authorized human review, prohibited-secret validation, idempotent execution, rollback, and exact identity tests pass locally | Keep reviewer controls private; complete external checklist locations manually and implement P3-007 without weakening verification | `src/persistence/postgres-deletion-policy.ts`; `tests/integration/postgres-deletion-policy.test.ts` |
+| High | Deletion authenticates with a secret or targets the wrong identity | Social engineering or identity confusion | Data loss or privacy breach | Same-channel confirmation, authorized human review, prohibited-secret validation, idempotent execution, rollback, and exact identity tests pass locally | Keep reviewer controls private and complete provider, export, offline, and backup checklist locations manually | `src/persistence/postgres-deletion-policy.ts`; `tests/integration/postgres-deletion-policy.test.ts` |
+| High | Access export discloses another subject, deleted pseudonyms, or secrets | Wrong request/contact binding, broad collector, stale review, replay, or unsafe output sink | Wrongful disclosure or credential exposure | Approved in-progress request locks its contact; review expires after 24 hours; one run per request; exact replay returns no export; seven subject-filtered collectors redact secret-shaped whole messages; deleted identities fail closed; export remains caller-memory-only; evidence stores counts only | Keep export delivery manual/private until a separately approved transport proves identity, redaction, and no persistence/logging | `src/persistence/postgres-access-export.ts`; `tests/integration/postgres-access-export.test.ts`; `tests/integration/postgres-privacy-rights-interactions.test.ts` |
+| High | Correction mutates the wrong subject or an arbitrary/security-sensitive field | Request confusion, dynamic SQL/path, or over-broad handler registry | Data integrity loss, credential handling, or cross-customer change | Reviewer-only approved request/contact lock; strict field key; typed handler-owned parser; empty production registry; closed manual/rejected fallbacks; same-transaction rollback | Add a production handler only with an authoritative field owner and separate field-specific tests; keep reviewer adapter private | `src/persistence/postgres-correction-policy.ts`; `tests/integration/postgres-correction-policy.test.ts` |
+| High | Identity-link or category confusion scopes opt-out or re-opt-in incorrectly | Incorrect contact linkage, cross-channel selector, or clearing a global row for one category | Unlawful marketing or suppression of another customer | Authoritative applied source selects the contact; opt-out locks every linked identity and creates four closed category suppressions; suppression HMAC includes channel; re-opt-in expires only named categories for the selected scope at its effective time | Recheck linkage and suppression immediately before every future send; never infer a link or category from message text | `src/persistence/postgres-marketing-opt-out-policy.ts`; `tests/integration/postgres-marketing-opt-out-policy.test.ts` |
+| High | Stale, restored, or future-dated consent overrides an active opt-out | Ordering bug, HMAC key rotation gap, future-effective grant, or restored database drift | Unauthorized marketing | Legacy global and exact scoped suppressions precede grants across supported key versions; consent evaluation excludes future rows; only later explicit reviewed re-opt-in expires selected suppression at its effective time | P6 restore procedure must load every active key version; Phase 5 must perform the same last-moment suppression check | `src/persistence/postgres-consent-policy.ts`; `src/persistence/postgres-marketing-opt-out-policy.ts`; `tests/integration/postgres-marketing-opt-out-policy.test.ts` |
+| Medium | Populated privacy-rights rollback fails after partial schema mutation or loses evidence | Operator downgrade after P3-007 evidence exists | Availability loss, inconsistent schema, or privacy audit loss | Migration eight refuses before mutation with SQLSTATE `55000` when any P3-007 run, notification, audit, checklist, or scoped suppression exists; it never deletes evidence | Preserve and explicitly resolve governed evidence before any approved downgrade; keep populated and empty down/up tests in the migration gate | `migrations/000008_scope_marketing_suppressions.ts`; `tests/integration/migrations.test.ts` |
+| High | Offline/provider search is incomplete but a privacy request is marked complete | Manual omission or treating local completion as global completion | Incomplete access/correction/deletion response | Closed checklist registry; database completion trigger rejects unresolved required locations; local services update only owned locations | Named operators must attest provider/Manifest/export/offline/backup locations; do not automate completion without an approved adapter | `migrations/000004_create_deletion_safety.ts`; `src/persistence/postgres-privacy-rights-policy.ts` |
+| Medium | Notification payload or failure leaks the phrase, identity, correction value, or export | Over-rich intent/workflow payload or raw error forwarding | Privacy metadata/content disclosure | Durable notification intent contains only type, parent ID, state, and idempotency key; no n8n delivery exists; correction errors are generic | Future P6 adapter must authenticate, minimize, and test retries without copying customer content | `migrations/000005_create_privacy_rights_workflows.ts`; `src/persistence/postgres-correction-policy.ts`; `tests/integration/postgres-privacy-rights-policy.test.ts` |
 | High | A later event or restore resurrects deleted customer content | Provider retry or immutable pre-deletion backup | Deleted data is served again | Receipt storage checks versioned tombstones before raw persistence; restore batches reapply shared erasure; finalization performs a complete lock-safe scan | P6-004 must build encrypted backup/isolation/rollback/attachment procedures that require the persisted pass record | `src/persistence/postgres-receipt-store.ts`; `src/persistence/postgres-restore-deletion-gate.ts`; `tests/integration/postgres-restore-deletion-gate.test.ts` |
 | High | Prompt injection gains tools, secrets, or unapproved business claims | Adversarial signed customer text | Data exfiltration or harmful actions | Models receive no tools; FAQ/business facts take precedence; redaction required | Add redaction, tool-free request contract, output policy, and bilingual evaluation in P4 | `AGENTS.md:16`; `docs/PLAN.md:18` |
 | High | Manifest records customer bodies or falls back through unapproved providers | Recording/fallback misconfiguration | Third-party retention or secret-scope expansion | No current application connection; dedicated harness/key inventory | Disable and verify recording; approve explicit providers/fallbacks/limits; test `fcd-support` + `auto` | `docs/operations/preflight-inventory.md:37`; `docs/operations/preflight-inventory.md:47` |
@@ -208,6 +223,9 @@ that exploitation has occurred.
 | Model unavailable or unsafe | Approved FAQ or safe escalation; no unapproved provider | Planned P4 evidence |
 | Provider unavailable or ambiguous send result | Durable outbox retry/terminal state; no blind resend | Planned P5 evidence |
 | n8n unavailable | Core state remains in PostgreSQL; notification retries/fails safely | Planned P6 evidence |
+| Access subject was deleted after approval | Reject collection; persist no access-run evidence | Guarded cross-feature PostgreSQL evidence |
+| Correction handler rejects or fails | Roll back mutation/evidence; return bounded manual/rejected or generic error | Guarded typed-handler PostgreSQL evidence |
+| Privacy notification insert times out | Roll back request and notification; exact retry opens one complete workflow | Guarded cross-feature PostgreSQL evidence |
 | Backup restore | Isolated restore; tombstones reapplied; promotion blocked on failure | Local reconciliation/promotion primitive passes; actual backup/restore automation remains planned P6 evidence |
 | Tunnel/server outage | No unsafe alternative public path; manual staff coverage | Partial operational evidence; P7 outage test pending |
 

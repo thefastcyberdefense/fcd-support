@@ -72,6 +72,7 @@ interface ApprovedAccessFixture {
   readonly otherMarker: string;
   readonly receiptHash: string;
   readonly requestRef: string;
+  readonly sensitiveMarker: string;
   readonly subjectMarker: string;
   readonly thirdPartyMarker: string;
 }
@@ -92,6 +93,7 @@ async function identityId(identity: ChannelIdentitySelector): Promise<string> {
 
 async function prepareApprovedAccessFixture(): Promise<ApprovedAccessFixture> {
   const subjectMarker = 'Synthetic subject support detail';
+  const sensitiveMarker = 'SYNTHETIC_ACCESS_SECRET_DO_NOT_USE';
   const otherMarker = 'Synthetic unrelated contact detail';
   const thirdPartyMarker = 'Synthetic third-party contact-card detail';
   const source = await insertSyntheticAppliedCustomerEvent(pool, {
@@ -157,6 +159,12 @@ async function prepareApprovedAccessFixture(): Promise<ApprovedAccessFixture> {
     messageText: subjectMarker,
     occurredAt: new Date('2026-08-31T08:02:00.000Z'),
   });
+  await insertSyntheticAppliedCustomerEvent(pool, {
+    fixtureKey: 'access-subject-sensitive-message',
+    identity: subjectMessenger,
+    messageText: `Password: ${sensitiveMarker}`,
+    occurredAt: new Date('2026-08-31T08:02:30.000Z'),
+  });
   await new PostgresConsentPolicy(pool, syntheticPrivacyKeyring).recordReviewerCommand(
     {
       action: 'grant',
@@ -220,9 +228,14 @@ async function prepareApprovedAccessFixture(): Promise<ApprovedAccessFixture> {
     otherMarker,
     receiptHash,
     requestRef: opened.requestRef,
+    sensitiveMarker,
     subjectMarker,
     thirdPartyMarker,
   };
+}
+
+function accessExportService(now = new Date('2026-08-31T08:10:00.000Z')): PostgresAccessExport {
+  return new PostgresAccessExport(pool, () => now);
 }
 
 async function relevantTableCounts(): Promise<Record<string, number>> {
@@ -272,7 +285,7 @@ describe('PostgresAccessExport', () => {
     const stringifySpy = vi.spyOn(JSON, 'stringify');
     const stdoutSpy = vi.spyOn(process.stdout, 'write');
     try {
-      const result = await new PostgresAccessExport(pool).collect(
+      const result = await accessExportService().collect(
         {
           collectedAt: new Date('2026-08-31T08:10:00.000Z'),
           requestKey: 'access-subject-collect',
@@ -281,6 +294,9 @@ describe('PostgresAccessExport', () => {
         reviewer,
       );
       expect(result.status).toBe('collected');
+      if (result.status !== 'collected') {
+        throw new Error('Synthetic access export was not collected');
+      }
       expect(result.export.manifest).toMatchObject({
         collectedAt: new Date('2026-08-31T08:10:00.000Z'),
         requestRef: fixture.requestRef,
@@ -290,11 +306,11 @@ describe('PostgresAccessExport', () => {
       expect(result.export.records.channel_identities).toHaveLength(2);
       expect(result.export.records.conversations).toHaveLength(2);
       expect(result.export.records.conversation_lifecycle).toHaveLength(2);
-      expect(result.export.records.webhook_events).toHaveLength(2);
+      expect(result.export.records.webhook_events).toHaveLength(3);
       expect(result.export.records.consent_history).toHaveLength(1);
       expect(result.export.records.privacy_requests).toHaveLength(1);
       expect(result.export.records.privacy_checklist).toHaveLength(7);
-      expect(result.export.manifest.recordCount).toBe(17);
+      expect(result.export.manifest.recordCount).toBe(18);
 
       const serializationInputs: unknown[] = [];
       for (const call of stringifySpy.mock.calls) {
@@ -316,6 +332,8 @@ describe('PostgresAccessExport', () => {
       expect(serialized).toContain(subjectWhatsApp.externalContactId);
       expect(serialized).toContain(subjectMessenger.externalContactId);
       expect(serialized).toContain(fixture.subjectMarker);
+      expect(serialized).toContain('[REDACTED SENSITIVE MESSAGE]');
+      expect(serialized).not.toContain(fixture.sensitiveMarker);
       expect(serialized).toContain('Synthetic approved subject consent wording');
       expect(serialized).not.toContain(otherIdentity.externalContactId);
       expect(serialized).not.toContain(fixture.otherMarker);
@@ -338,9 +356,9 @@ describe('PostgresAccessExport', () => {
     });
   });
 
-  test('re-collects fresh in-memory data on exact replay without duplicating evidence', async () => {
+  test('returns no fresh data on exact replay and rejects another run for the same request', async () => {
     const fixture = await prepareApprovedAccessFixture();
-    const service = new PostgresAccessExport(pool);
+    const service = accessExportService();
     const command = {
       collectedAt: new Date('2026-08-31T08:10:00.000Z'),
       requestKey: 'access-subject-replay',
@@ -356,21 +374,57 @@ describe('PostgresAccessExport', () => {
        where id = $1`,
       [await identityId(subjectMessenger)],
     );
-    const replay = await service.collect(command, reviewer);
-
-    expect(replay.status).toBe('duplicate');
-    expect(replay.export.records.channel_identities).toContainEqual(
-      expect.objectContaining({
-        externalContactId: subjectMessenger.externalContactId,
-        lastSeenAt: new Date('2026-08-31T08:11:00.000Z'),
-      }),
-    );
+    await expect(service.collect(command, reviewer)).resolves.toEqual({ status: 'duplicate' });
     await expect(
       pool.query(`select count(*)::int as count from privacy_access_runs`),
     ).resolves.toMatchObject({ rows: [{ count: 1 }] });
     await expect(
-      service.collect({ ...command, collectedAt: new Date('2026-08-31T08:12:00.000Z') }, reviewer),
+      service.collect(
+        {
+          ...command,
+          requestKey: 'access-subject-second-run',
+          collectedAt: new Date('2026-08-31T08:12:00.000Z'),
+        },
+        reviewer,
+      ),
     ).rejects.toMatchObject({ name: 'PolicyIdempotencyConflictError' });
+  });
+
+  test('rejects completed requests and access reviews older than 24 hours', async () => {
+    const fixture = await prepareApprovedAccessFixture();
+    const command = {
+      collectedAt: new Date('2026-08-31T08:10:00.000Z'),
+      requestKey: 'access-bounded-review',
+      requestRef: fixture.requestRef,
+    } as const;
+
+    await expect(
+      accessExportService(new Date('2026-09-01T08:01:00.001Z')).collect(command, reviewer),
+    ).rejects.toMatchObject({ name: 'PolicyIdempotencyConflictError' });
+
+    await pool.query(
+      `update privacy_request_locations
+       set state = 'completed',
+           outcome_code = 'location_complete',
+           reviewer_reference = 'REVIEWER_TEST_access_export',
+           checked_at = '2026-08-31T08:14:00Z'
+       where request_id = (
+         select id from privacy_requests where request_ref = $1
+       )
+         and required
+         and state = 'pending'`,
+      [fixture.requestRef],
+    );
+    await pool.query(
+      `update privacy_requests
+       set state = 'completed',
+           completed_at = '2026-08-31T08:15:00Z'
+       where request_ref = $1`,
+      [fixture.requestRef],
+    );
+    await expect(accessExportService().collect(command, reviewer)).rejects.toMatchObject({
+      name: 'PolicyIdempotencyConflictError',
+    });
   });
 
   test('requires a support reviewer and an approved access request', async () => {
@@ -381,7 +435,7 @@ describe('PostgresAccessExport', () => {
       requestRef: fixture.requestRef,
     };
     await expect(
-      new PostgresAccessExport(pool).collect(command, {
+      accessExportService().collect(command, {
         reviewerRef: 'REVIEWER_TEST_access_unauthorized',
         roles: ['incident_reader'],
       }),
@@ -405,7 +459,7 @@ describe('PostgresAccessExport', () => {
     });
     if (opened.status !== 'opened') throw new Error('Synthetic unapproved request was not opened');
     await expect(
-      new PostgresAccessExport(pool).collect(
+      accessExportService().collect(
         { ...command, requestKey: 'access-unapproved-collect', requestRef: opened.requestRef },
         reviewer,
       ),
@@ -427,7 +481,7 @@ describe('PostgresAccessExport', () => {
     `);
     try {
       await expect(
-        new PostgresAccessExport(pool).collect(
+        accessExportService().collect(
           {
             collectedAt: new Date('2026-08-31T08:10:00.000Z'),
             requestKey: 'access-run-rollback',

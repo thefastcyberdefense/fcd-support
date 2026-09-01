@@ -16,12 +16,13 @@ Stored timestamps and retention calculations use UTC. Operator-facing displays
 may render them in `Asia/Dhaka` (`UTC+06:00`), but display conversion must not
 change an anchor or deadline.
 
-Local implementation status (2026-08-31): P3-005 retention and P3-006 verified
-deletion are implemented and pass guarded synthetic PostgreSQL tests. P3-006
-includes a restore reconciliation/promotion-gate primitive, but it did not
-create, restore, attach, or promote an actual backup. Provider, Manifest,
-operator-export, offline-archive, and backup-expiry actions remain unresolved
-checklist locations rather than claimed deletions.
+Local implementation status (2026-09-01): P3-005 retention, P3-006 verified
+deletion, and the P3-007 privacy-rights policy services are implemented and pass
+guarded synthetic PostgreSQL tests. P3-006 includes a restore
+reconciliation/promotion-gate primitive, but it did not create, restore, attach,
+or promote an actual backup. Provider, Manifest, operator-export,
+offline-archive, and backup-expiry actions remain unresolved checklist
+locations rather than claimed operations.
 
 ## Classification And Precedence
 
@@ -171,6 +172,75 @@ A separately governed record subject to a documented legal obligation may be
 retained only with a reason code, policy-owner approval, access restriction, and
 explicit expiry or review date.
 
+## Access, Correction, And Marketing Rights
+
+Privacy-intent intake recognizes only `REQUEST MY DATA`, `CORRECT MY DATA`,
+`DELETE MY DATA`, and `STOP MARKETING` after NFKC normalization, trimming,
+internal-whitespace collapse, removal of at most one final `.`, `!`, or `?`, and
+English-locale uppercasing. Prefixes, suffixes, repeated punctuation, embedded
+discussion, and unknown phrases do not trigger a privacy workflow. A request can
+open only from an authoritative, already-applied customer-message event; caller
+text is never accepted as proof of the request.
+
+Access and correction requests create a PostgreSQL hold plus a content-free
+operator notification intent. An authorized `support_reviewer` must verify the
+same-channel context or a name already known in the conversation. Passwords,
+OTPs, credentials, payment data, secrets, and free-form evidence are not valid
+verification material. The hold remains authoritative while any linked request
+is open and releases independently when each request reaches a closed state.
+
+Approved access collection uses seven explicit, subject-filtered PostgreSQL
+collectors. A stored message containing a credential-, OTP-, payment-, private-key-,
+or token-shaped value is replaced as a whole by `[REDACTED SENSITIVE MESSAGE]`
+before the record enters the result. The assembled export exists only in caller
+memory: it is not written to PostgreSQL, filesystem, logs, Git, n8n, Manifest,
+Meta, or another provider. Persistent evidence contains only collector and record
+counts, timestamps, request references, and bounded status.
+
+Collection is authorized only while the request is `in_progress` and its
+reviewer decision is no more than 24 hours old. PostgreSQL permits one access run
+per request. Exact replay returns only a `duplicate` outcome and no export;
+another key for the same request is rejected. Collection also refuses a subject
+whose linked identity has been deletion-pseudonymized, so `deleted:*`
+identifiers or cleared records cannot become an access result.
+
+Correction execution is reviewer-only and uses a readonly typed handler
+registry. Each handler owns its strict command parser and fixed SQL operation;
+there is no JSON Patch, arbitrary column/path, dynamic SQL, or generic value
+sink. The production registry is deliberately empty until an authoritative
+field owner contributes a separately tested handler. Unknown/provider-owned
+fields remain manual, while immutable or security-sensitive fields are rejected.
+Only the field key, closed result code, timestamp, request key, and internal
+request ID persist; requested values and handler error text do not.
+
+`STOP MARKETING` is immediate and applies to every identity already linked to
+the authoritative contact. It appends category revocations and creates one
+versioned HMAC suppression for each closed marketing category (`newsletter`,
+`product_offers`, `product_updates`, and `security_updates`) without raw
+identifiers. Legacy global rows remain honored and are converted to the closed
+scoped form during a later explicit re-opt-in. Marketing can resume only through
+reviewer-recorded re-opt-in for named categories and the selected source identity
+or all linked identities. The grant and expiry of only those selected scoped
+suppressions are atomic and take effect at the declared effective timestamp;
+unselected categories remain suppressed.
+
+For access requests, `primary_postgres` requires reviewer attestation after the
+bounded in-memory collection. For correction requests, only the registered
+typed handler that owns the field may complete `primary_postgres`; the
+production handler registry is currently empty. Provider, Manifest,
+pending-outbound, operator-export, offline-archive, and backup locations remain
+manual checklist responsibilities unless a later approved service implements
+that exact location. No operator notification was delivered during P3-007, and no
+provider, offline, live-data, Meta, Manifest, n8n, deployment, or production
+action occurred.
+
+Migration eight widens the suppression category constraint and adds the scoped
+representation. Its down path refuses with SQLSTATE `55000` before changing any
+schema whenever P3-007 run, notification, audit, checklist, or scoped-suppression
+evidence exists. An operator must preserve and explicitly resolve that evidence
+before a downgrade; the migration never deletes privacy evidence to make rollback
+appear successful.
+
 ## Suppression And Deletion Tombstones
 
 The suppression store must not contain a raw external identity or message
@@ -182,14 +252,17 @@ The retained fields are limited to:
 
 - `identity_hmac`;
 - `channel`;
-- `category`, either `marketing_opt_out` or `deletion_tombstone`;
+- `category`, either `deletion_tombstone`, the legacy `marketing_opt_out`, or
+  `marketing_opt_out:<closed-category>`;
 - `reason_code`;
 - `effective_at`;
 - `key_version`; and
 - `expires_at` when the category has a defined expiry.
 
-A marketing opt-out remains effective until a later verified opt-in for the same
-channel and category.
+A scoped marketing opt-out remains effective until a later verified opt-in for
+the same channel and category reaches its declared effective timestamp. A legacy
+global row suppresses every marketing category until converted by the reviewed
+scoped re-opt-in transaction.
 
 A deletion tombstone remains until 30 days after the newest backup that could
 contain the deleted identity has expired. Key rotation must preserve matching for

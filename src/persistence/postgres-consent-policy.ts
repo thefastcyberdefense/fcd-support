@@ -146,14 +146,17 @@ export class PostgresConsentPolicy {
            select 1
            from privacy_suppressions
            where channel = $1
-             and category = 'marketing_opt_out'
+             and category in (
+               'marketing_opt_out',
+               'marketing_opt_out:' || $5
+             )
              and effective_at <= $2::timestamptz
              and (expires_at is null or expires_at > $2::timestamptz)
              and (key_version, identity_hmac) in (
                select * from unnest($3::text[], $4::text[])
              )
          ) as suppressed`,
-        [normalizedIdentity.channel, evaluatedAt, keyVersions, identityHmacs],
+        [normalizedIdentity.channel, evaluatedAt, keyVersions, identityHmacs, normalizedCategory],
       );
       if (suppression.rows[0]?.suppressed === true) {
         await insertPolicyAuditOutcome(client, {
@@ -171,9 +174,10 @@ export class PostgresConsentPolicy {
          from consent_events
          where channel_identity_id = $1
            and category = $2
+           and source_at <= $3::timestamptz
          order by source_at desc, id desc
          limit 1`,
-        [identityId, normalizedCategory],
+        [identityId, normalizedCategory, evaluatedAt],
       );
       const action = latest.rows[0]?.action;
       const eligible = action === 'grant';

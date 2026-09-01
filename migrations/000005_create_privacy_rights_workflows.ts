@@ -55,6 +55,9 @@ export function up(pgm: MigrationBuilder): void {
       check (completed_at >= collected_at)
     );
 
+    create unique index privacy_access_runs_request_unique
+      on privacy_access_runs (request_id);
+
     create table privacy_correction_runs (
       id bigint generated always as identity primary key,
       request_id bigint not null references privacy_requests(id),
@@ -155,6 +158,7 @@ export function down(pgm: MigrationBuilder): void {
       on privacy_correction_runs;
     drop trigger privacy_access_runs_append_only
       on privacy_access_runs;
+    drop index privacy_access_runs_request_unique;
     drop table privacy_marketing_opt_out_runs;
     drop table privacy_correction_runs;
     drop table privacy_access_runs;

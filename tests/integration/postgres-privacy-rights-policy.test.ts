@@ -203,7 +203,7 @@ describe('PostgresPrivacyRightsPolicy', () => {
       linkedIdentities: 1,
       pendingIntentsCancelled: 0,
       status: 'applied',
-      suppressionsCreated: 1,
+      suppressionsCreated: 4,
     });
     await expect(policy.processAppliedEvent(input)).resolves.toMatchObject({
       intent: 'marketing_opt_out',
@@ -213,10 +213,10 @@ describe('PostgresPrivacyRightsPolicy', () => {
       `select
          (select count(*)::int from privacy_marketing_opt_out_runs) as runs,
          (select count(*)::int from privacy_notification_intents) as notifications,
-         (select count(*)::int from privacy_suppressions
-          where category = 'marketing_opt_out') as suppressions`,
+          (select count(*)::int from privacy_suppressions
+           where category like 'marketing_opt_out:%') as suppressions`,
     );
-    expect(stored.rows).toEqual([{ notifications: 1, runs: 1, suppressions: 1 }]);
+    expect(stored.rows).toEqual([{ notifications: 1, runs: 1, suppressions: 4 }]);
   });
 
   test('ignores non-exact text and rejects a non-applied source', async () => {

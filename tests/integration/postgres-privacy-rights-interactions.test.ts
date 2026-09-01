@@ -330,7 +330,7 @@ describe('privacy-rights cross-feature safety', () => {
     });
 
     await expect(
-      new PostgresAccessExport(pool).collect(
+      new PostgresAccessExport(pool, () => new Date('2026-08-31T10:45:00.000Z')).collect(
         {
           collectedAt: new Date('2026-08-31T10:45:00.000Z'),
           requestKey: 'deleted-access-collect',

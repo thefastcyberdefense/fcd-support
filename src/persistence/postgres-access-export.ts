@@ -28,14 +28,25 @@ export interface AccessCollector<TName extends AccessExportCategory, TRecord> {
 
 interface LockedAccessRequestRow {
   readonly contact_id: string;
+  readonly decision_at: Date;
   readonly decision_code: 'known_name' | 'same_channel_context';
   readonly id: string;
   readonly request_ref: string;
-  readonly state: 'completed' | 'in_progress';
+  readonly state: 'in_progress';
 }
 
 interface ExistingAccessRunRow {
   readonly material_matches: boolean;
+}
+
+const ACCESS_REVIEW_VALIDITY_MILLISECONDS = 24 * 60 * 60 * 1_000;
+const REDACTED_SENSITIVE_MESSAGE = '[REDACTED SENSITIVE MESSAGE]';
+const sensitiveMessagePattern =
+  /(?:\b(?:authorization|bearer|credential|cvv|cvc|otp|passcode|password|payment|secret|token)\b|\bapi[\s._-]*key\b|\baccess[\s._-]*token\b|-----BEGIN[^\n]*PRIVATE KEY-----|(?:\d[ -]?){13,19})/iu;
+
+function redactAccessMessageText(value: string | null): string | null {
+  if (value === null) return null;
+  return sensitiveMessagePattern.test(value.normalize('NFKC')) ? REDACTED_SENSITIVE_MESSAGE : value;
 }
 
 const channelIdentityCollector = Object.freeze({
@@ -131,7 +142,10 @@ const webhookEventCollector = Object.freeze({
        order by event.id`,
       [contactId],
     );
-    return result.rows;
+    return result.rows.map((row) => ({
+      ...row,
+      messageText: redactAccessMessageText(row.messageText),
+    }));
   },
 } satisfies AccessCollector<'webhook_events', AccessWebhookEventRecord>);
 
@@ -219,11 +233,18 @@ function recordCount(records: AccessExportRecords): number {
 }
 
 export class PostgresAccessExport {
-  public constructor(private readonly pool: pg.Pool) {}
+  public constructor(
+    private readonly pool: pg.Pool,
+    private readonly now: () => Date = () => new Date(),
+  ) {}
 
   public async collect(input: unknown, principal: unknown): Promise<AccessDataExportResult> {
     const command = parseCollectAccessDataInput(input);
     requireSupportReviewer(principal);
+    const evaluatedAt = this.now();
+    if (!(evaluatedAt instanceof Date) || !Number.isFinite(evaluatedAt.getTime())) {
+      throw new TypeError('Access export clock returned an invalid Date');
+    }
 
     return withBoundedTransaction(
       this.pool,
@@ -236,12 +257,14 @@ export class PostgresAccessExport {
                   request.request_ref,
                   request.contact_id,
                   request.state,
+                  request.decision_at,
                   request.decision_code
            from privacy_requests as request
            join contacts as contact on contact.id = request.contact_id
            where request.request_ref = $1
              and request.request_type = 'access'
-             and request.state in ('in_progress', 'completed')
+             and request.state = 'in_progress'
+             and request.decision_at is not null
              and request.decision_code in ('same_channel_context', 'known_name')
              and not exists (
                select 1
@@ -259,19 +282,35 @@ export class PostgresAccessExport {
         if (request === undefined) {
           throw new PolicyIdempotencyConflictError('Approved access request is not available');
         }
+        if (
+          evaluatedAt.getTime() < request.decision_at.getTime() ||
+          evaluatedAt.getTime() >
+            request.decision_at.getTime() + ACCESS_REVIEW_VALIDITY_MILLISECONDS
+        ) {
+          throw new PolicyIdempotencyConflictError('Access review authorization has expired');
+        }
 
         const existing = await client.query<ExistingAccessRunRow>(
-          `select request_id = $2::bigint
+          `select request_key = $1
+                    and request_id = $2::bigint
                     and collected_at = $3::timestamptz
                     and collector_count = $4
                     as material_matches
            from privacy_access_runs
-           where request_key = $1`,
+           where request_key = $1
+              or request_id = $2
+           order by (request_key = $1) desc
+           limit 1`,
           [command.requestKey, request.id, command.collectedAt, productionAccessCollectors.length],
         );
         const replay = existing.rows[0];
-        if (replay !== undefined && !replay.material_matches) {
-          throw new PolicyIdempotencyConflictError('Access collection key material conflicts');
+        if (replay !== undefined) {
+          if (!replay.material_matches) {
+            throw new PolicyIdempotencyConflictError(
+              'Access request was already collected or key material conflicts',
+            );
+          }
+          return { status: 'duplicate' };
         }
 
         const records: AccessExportRecords = {
@@ -288,24 +327,22 @@ export class PostgresAccessExport {
         };
         const totalRecords = recordCount(records);
 
-        if (replay === undefined) {
-          const inserted = await client.query(
-            `insert into privacy_access_runs
-               (request_id, request_key, collected_at,
-                collector_count, record_count, status)
-             values ($1, $2, $3, $4, $5, 'collected')
-             returning id`,
-            [
-              request.id,
-              command.requestKey,
-              command.collectedAt,
-              productionAccessCollectors.length,
-              totalRecords,
-            ],
-          );
-          if (inserted.rows[0] === undefined) {
-            throw new PolicyRecordNotFoundError('Access collection evidence was not created');
-          }
+        const inserted = await client.query(
+          `insert into privacy_access_runs
+             (request_id, request_key, collected_at,
+              collector_count, record_count, status)
+           values ($1, $2, $3, $4, $5, 'collected')
+           returning id`,
+          [
+            request.id,
+            command.requestKey,
+            command.collectedAt,
+            productionAccessCollectors.length,
+            totalRecords,
+          ],
+        );
+        if (inserted.rows[0] === undefined) {
+          throw new PolicyRecordNotFoundError('Access collection evidence was not created');
         }
 
         return {
@@ -319,7 +356,7 @@ export class PostgresAccessExport {
             },
             records,
           },
-          status: replay === undefined ? 'collected' : 'duplicate',
+          status: 'collected',
         };
       },
       { isolationLevel: 'repeatable_read' },

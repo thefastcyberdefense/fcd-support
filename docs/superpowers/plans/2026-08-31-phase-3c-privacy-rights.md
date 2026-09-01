@@ -75,7 +75,7 @@
 - Create: `tests/policy/privacy-intent.test.ts`
 - Create: `tests/policy/privacy-rights-command.test.ts`
 
-- [ ] **Step 1: Write failing exact-intent parser tests**
+- [x] **Step 1: Write failing exact-intent parser tests**
 
 Use table-driven tests for NFC/NFKC normalization as selected in the spec implementation, Unicode-aware lower/case folding through `toLocaleUpperCase('en-US')`, trim, collapsed whitespace, and at most one terminal `.`, `!`, or `?`. Cover all four commands, mixed case, Unicode whitespace, invalid input, extra punctuation, substring/suffix/prefix discussion, Bangla aliases, and credential-like text.
 
@@ -85,11 +85,11 @@ expect(parsePrivacyIntent('Please REQUEST MY DATA')).toBeNull();
 expect(parsePrivacyIntent('STOP MARKETING!!')).toBeNull();
 ```
 
-- [ ] **Step 2: Implement the pure parser**
+- [x] **Step 2: Implement the pure parser**
 
 Export `PrivacyIntent = 'access' | 'correction' | 'deletion' | 'marketing_opt_out'` and `parsePrivacyIntent(value: unknown): PrivacyIntent | null`. Keep the command map closed and codepoint-normalize before whitespace/punctuation handling.
 
-- [ ] **Step 3: Write failing strict command-schema tests**
+- [x] **Step 3: Write failing strict command-schema tests**
 
 Define and test schemas for:
 
@@ -102,11 +102,11 @@ Define and test schemas for:
 
 Reject unknown properties, invalid dates, empty/oversized keys, raw evidence/notes, arbitrary location names, duplicate categories, and unsafe correction field names.
 
-- [ ] **Step 4: Implement schemas and exported contracts**
+- [x] **Step 4: Implement schemas and exported contracts**
 
 Use `z.strictObject`, closed enums, `/^\d+$/` database references, 1–128 character opaque keys/references, and `readonly` result types. Do not add a generic `value: unknown` or free-form evidence field to a persisted command.
 
-- [ ] **Step 5: Run focused unit tests and static typing**
+- [x] **Step 5: Run focused unit tests and static typing**
 
 Run: `npm test -- tests/policy/privacy-intent.test.ts tests/policy/privacy-rights-command.test.ts`
 
@@ -114,7 +114,7 @@ Run: `npm run typecheck`
 
 Expected: focused tests and strict typing PASS.
 
-- [ ] **Step 6: Commit Task 1**
+- [x] **Step 6: Commit Task 1**
 
 ```bash
 git add src/policy/privacy-intent.ts src/policy/privacy-rights-command.ts src/policy/policy-types.ts tests/policy/privacy-intent.test.ts tests/policy/privacy-rights-command.test.ts
@@ -129,7 +129,7 @@ git commit -m "feat: define privacy rights contracts"
 - Create: `migrations/000005_create_privacy_rights_workflows.ts`
 - Modify: `tests/integration/migrations.test.ts`
 
-- [ ] **Step 1: Write the failing migration-five tests**
+- [x] **Step 1: Write the failing migration-five tests**
 
 Assert the workflow tables arrive in migration five. Task 3 adds the narrow audit/checklist extension as migration six. Task 4 adds the narrow marketing source/re-opt-in/audit extension as migration seven, after which the complete migration count is `7`; roll back seven, six, and five while P3-006 tables remain, and reapply all three. Verify:
 
@@ -140,7 +140,7 @@ Assert the workflow tables arrive in migration five. Task 3 adds the narrow audi
 - no table has JSON, bytea, message, identity, HMAC, export, path, requested-value, or free-form note columns;
 - indexes support unresolved request holds and idempotency lookup.
 
-- [ ] **Step 2: Implement migration five as a non-destructive extension**
+- [x] **Step 2: Implement migration five as a non-destructive extension**
 
 Drop and replace only named check constraints that must widen. Add:
 
@@ -158,11 +158,11 @@ create table privacy_access_runs (
 
 Create equally bounded `privacy_correction_runs` and `privacy_marketing_opt_out_runs`. The correction run stores only a closed field key and result code; the opt-out run stores linked-identity, category-revocation, suppression, and cancelled-intent counts. Make `privacy_notification_intents.request_id` nullable, add a nullable `marketing_opt_out_run_id` foreign key, widen the notification type to the closed values `operator_privacy_request` and `operator_marketing_opt_out`, and enforce that exactly one parent is present. Do not store export material, raw identifiers, HMACs, requested values, or handler errors.
 
-- [ ] **Step 3: Add append-only and completion guards**
+- [x] **Step 3: Add append-only and completion guards**
 
 Reuse a migration-five-specific immutable-evidence trigger. Extend request completion rules so access/correction cannot report `completed` with unresolved required checklist rows. Ensure rollback removes only migration-five objects and restores the prior P3-006 constraints.
 
-- [ ] **Step 4: Run the guarded migration cycle**
+- [x] **Step 4: Run the guarded migration cycle**
 
 PowerShell:
 
@@ -174,7 +174,7 @@ npm run test:integration -- tests/integration/migrations.test.ts
 
 Expected: apply/down/reapply, closed-value, and append-only tests PASS with no leaked schema or advisory lock.
 
-- [ ] **Step 5: Commit Task 2**
+- [x] **Step 5: Commit Task 2**
 
 ```bash
 git add migrations/000005_create_privacy_rights_workflows.ts tests/integration/migrations.test.ts
@@ -195,11 +195,11 @@ git commit -m "feat: add privacy rights workflow schema"
 - Create: `tests/integration/postgres-privacy-rights-policy.test.ts`
 - Modify: `tests/integration/postgres-takeover-policy.test.ts`
 
-- [ ] **Step 1: Write failing authoritative intake tests**
+- [x] **Step 1: Write failing authoritative intake tests**
 
 Cover exact access/correction/deletion intents from applied customer events; non-exact text; pending/stale/status/echo events; wrong identity/time; exact retry, logical retry, concurrent retry, conflicting request key, and notification insertion rollback. Assert access/correction start in `human_review`, create one content-free notification, and initialize only policy-owned checklist rows.
 
-- [ ] **Step 2: Implement request intake and reuse deletion opening**
+- [x] **Step 2: Implement request intake and reuse deletion opening**
 
 Add `PostgresPrivacyRightsPolicy.processAppliedEvent(input)`. It must load and lock the applied source event, parse only its message body, derive the authoritative contact/identity, and dispatch:
 
@@ -210,23 +210,23 @@ Add `PostgresPrivacyRightsPolicy.processAppliedEvent(input)`. It must load and l
 
 Extract a client-scoped deletion-open helper rather than copying P3-006 SQL. Keep public P3-006 behavior and tests unchanged.
 
-- [ ] **Step 3: Write failing reviewer and checklist tests**
+- [x] **Step 3: Write failing reviewer and checklist tests**
 
 Prove only `support_reviewer` can approve/reject, attest locations, or close a request. Test same-channel/known-name verification, rejection of secret/cross-identity evidence, valid state transitions, exact duplicate, conflicting key, unresolved required location refusal, partial completion, and append-only bounded evidence.
 
-- [ ] **Step 4: Implement serialized request transitions**
+- [x] **Step 4: Implement serialized request transitions**
 
 Use advisory request-key locks plus `FOR UPDATE` on the request. Reviewer approval moves access/correction `human_review -> in_progress`; reject moves to `rejected`. Checklist attestation records only closed location/outcome codes and opaque reviewer reference. Completion derives from checklist state and specialized run evidence; it never trusts a caller-provided success claim.
 
-- [ ] **Step 5: Write failing privacy-hold eligibility tests**
+- [x] **Step 5: Write failing privacy-hold eligibility tests**
 
 Create zero, one, and multiple unresolved deletion/access/correction requests for the contact behind a conversation. Assert automated reply eligibility denies while any request is in `received`, `awaiting_confirmation`, `human_review`, or `in_progress`; terminal rejected/cancelled/completed requests release only their own hold. Human takeover pause remains independently authoritative.
 
-- [ ] **Step 6: Implement hold precedence**
+- [x] **Step 6: Implement hold precedence**
 
 Extend `ReplyEligibility.reason` with `privacy_request_open`. In the same bounded eligibility transaction, join conversation -> channel identity -> contact and test unresolved privacy requests. Return pause denial before privacy denial when the human pause is active, then privacy denial, else `pause_inactive`. Audit only the closed reason code.
 
-- [ ] **Step 7: Run focused integration tests**
+- [x] **Step 7: Run focused integration tests**
 
 Run the two files under the guarded environment:
 
@@ -236,7 +236,7 @@ npm run test:integration -- tests/integration/postgres-privacy-rights-policy.tes
 
 Expected: intake, authorization, holds, checklist, rollback, retry, and concurrency cases PASS.
 
-- [ ] **Step 8: Commit Task 3**
+- [x] **Step 8: Commit Task 3**
 
 ```bash
 git add migrations/000006_extend_privacy_hold_audit.ts src/persistence/postgres-privacy-rights-policy.ts src/persistence/postgres-deletion-policy.ts src/persistence/postgres-policy-helpers.ts src/persistence/postgres-takeover-policy.ts src/policy/policy-types.ts tests/integration/migrations.test.ts tests/integration/postgres-privacy-rights-policy.test.ts tests/integration/postgres-takeover-policy.test.ts
@@ -464,19 +464,19 @@ git commit -m "test: cover privacy rights interactions"
 - Modify: `docs/TODO.md`
 - Modify: `docs/PROJECT_CONTEXT.md`
 
-- [ ] **Step 1: Document the implemented boundaries**
+- [x] **Step 1: Document the implemented boundaries**
 
 Record exact phrase parsing, authoritative source proof, access/correction human review, privacy holds, in-memory-only export, empty-by-default correction registry, all-linked opt-out precedence, explicit re-opt-in, manual online/offline checklist ownership, and content-free notification intent. State explicitly that no notification was delivered and no provider/offline/live/deployment action occurred.
 
-- [ ] **Step 2: Update threat and acceptance evidence**
+- [x] **Step 2: Update threat and acceptance evidence**
 
 Add threats and mitigations for wrongful disclosure, wrong-subject correction, secrets in exports, identity-link confusion, stale/restored consent, incomplete offline search, and notification leakage. Give access, correction, opt-out, holds, retry/concurrency, and migration-cycle tests separate acceptance rows.
 
-- [ ] **Step 3: Run privacy/scope scans**
+- [x] **Step 3: Run privacy/scope scans**
 
 Run tracked-source searches for credential names, raw identifiers, HMAC/export serialization, filesystem/network calls in the new services, forbidden generic patch/SQL fields, live domains, Meta/Cloudflare/n8n/Manifest calls, and production/deployment changes. Review every hit; do not treat a raw match count as evidence.
 
-- [ ] **Step 4: Run final local gate**
+- [x] **Step 4: Run final local gate**
 
 Run:
 
@@ -491,22 +491,22 @@ git status --short
 
 Expected: Phase 0 validator, formatting, lint, strict type checking, all unit tests, build, the complete guarded PostgreSQL suite, and diff hygiene PASS; no leaked test schema/advisory lock; only the intentional documentation changes remain.
 
-- [ ] **Step 5: Perform verification and focused security review**
+- [x] **Step 5: Perform verification and focused security review**
 
 Use `superpowers:verification-before-completion` and `codex-security:security-diff-scan` on the complete P3-007 diff. Fix and re-run relevant tests for every validated finding. Confirm results/evidence never include customer content, raw identities, HMACs, exports, correction values, paths, or credentials.
 
-- [ ] **Step 6: Update tracker truthfully**
+- [x] **Step 6: Update tracker truthfully**
 
 Mark `P3-007` complete only after all named gates pass. Keep `P3-GATE` blocked pending explicit project-owner evidence review. Do not mark any live export, provider/offline operation, notification delivery, deployment, `P6-004`, or production gate complete.
 
-- [ ] **Step 7: Commit documentation and evidence**
+- [x] **Step 7: Commit documentation and evidence**
 
 ```bash
 git add docs/architecture/data-lifecycle.md docs/security/threat-model.md docs/testing/acceptance-matrix.md docs/TODO.md docs/PROJECT_CONTEXT.md
 git commit -m "docs: record privacy rights evidence"
 ```
 
-- [ ] **Step 8: Verify committed tree and push**
+- [x] **Step 8: Verify committed tree and push**
 
 Re-run `npm run check` and the complete guarded integration suite from the committed tree. Confirm `main...origin/main` before push, then:
 
@@ -522,13 +522,13 @@ Expected: push succeeds, working tree is clean, and local/remote divergence is `
 
 ## Self-Review Checklist
 
-- [ ] Every persistent field is necessary, bounded, and content-free.
-- [ ] Exact command parsing cannot trigger from discussion, suffix/prefix text, repeated punctuation, or non-authoritative events.
-- [ ] Access/correction/deletion holds are derived from PostgreSQL and cannot be bypassed by cached workflow state.
-- [ ] Access collectors use explicit columns and subject filters; the export is not persisted, logged, committed, or sent.
-- [ ] Correction has no generic mutation path and the production registry contains no unowned handler.
-- [ ] Global opt-out covers every already-linked identity and precedes every consent grant/key version.
-- [ ] Re-opt-in is explicit, reviewed, scoped, and atomic with new category grants.
-- [ ] Retry, conflict, concurrency, timeout, and rollback behavior leave one complete outcome.
-- [ ] Existing deletion, retention, takeover, receipt, and consent tests remain green.
-- [ ] P3-GATE remains a separate explicit project-owner review.
+- [x] Every persistent field is necessary, bounded, and content-free.
+- [x] Exact command parsing cannot trigger from discussion, suffix/prefix text, repeated punctuation, or non-authoritative events.
+- [x] Access/correction/deletion holds are derived from PostgreSQL and cannot be bypassed by cached workflow state.
+- [x] Access collectors use explicit columns and subject filters; the export is not persisted, logged, committed, or sent.
+- [x] Correction has no generic mutation path and the production registry contains no unowned handler.
+- [x] Global opt-out covers every already-linked identity and precedes every consent grant/key version.
+- [x] Re-opt-in is explicit, reviewed, scoped, and atomic with new category grants.
+- [x] Retry, conflict, concurrency, timeout, and rollback behavior leave one complete outcome.
+- [x] Existing deletion, retention, takeover, receipt, and consent tests remain green.
+- [x] P3-GATE remains a separate explicit project-owner review.
