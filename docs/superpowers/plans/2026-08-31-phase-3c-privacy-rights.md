@@ -419,11 +419,11 @@ git commit -m "feat: add typed correction workflow"
 - Modify: `tests/integration/policy-fixtures.ts`
 - Modify: targeted integration tests only where regressions require explicit coverage
 
-- [ ] **Step 1: Neutralize fixture helper wording**
+- [x] **Step 1: Neutralize fixture helper wording**
 
 Rename deletion-specific default fixture wording to privacy-policy wording while retaining only synthetic values. Add a helper for multiple identities linked to one synthetic contact.
 
-- [ ] **Step 2: Add cross-feature failure tests**
+- [x] **Step 2: Add cross-feature failure tests**
 
 Cover:
 
@@ -434,7 +434,7 @@ Cover:
 - overlapping access and correction holds release independently;
 - transaction timeout/deadlock/retry leaves no partial request, notification, suppression, consent, correction, or aggregate evidence.
 
-- [ ] **Step 3: Run all privacy/policy integration files**
+- [x] **Step 3: Run all privacy/policy integration files**
 
 ```powershell
 npm run test:integration -- tests/integration/postgres-deletion-policy.test.ts tests/integration/postgres-restore-deletion-gate.test.ts tests/integration/postgres-privacy-rights-policy.test.ts tests/integration/postgres-marketing-opt-out-policy.test.ts tests/integration/postgres-access-export.test.ts tests/integration/postgres-correction-policy.test.ts tests/integration/postgres-consent-policy.test.ts tests/integration/postgres-takeover-policy.test.ts tests/integration/postgres-retention-policy.test.ts tests/integration/postgres-retention-job.test.ts
@@ -442,11 +442,11 @@ npm run test:integration -- tests/integration/postgres-deletion-policy.test.ts t
 
 Expected: all existing and new privacy/policy cases PASS.
 
-- [ ] **Step 4: Verify database test hygiene**
+- [x] **Step 4: Verify database test hygiene**
 
 Query the isolated test cluster for leaked `fcd_test_%` schemas and lingering advisory locks. Expected counts: zero.
 
-- [ ] **Step 5: Commit Task 7**
+- [x] **Step 5: Commit Task 7**
 
 ```bash
 git add tests/integration/policy-fixtures.ts tests/integration

@@ -86,7 +86,7 @@ export async function insertSyntheticAppliedCustomerEvent(
     eventKind: 'customer_message',
     fixtureKey: input.fixtureKey,
     messageText:
-      input.messageText ?? 'Synthetic deletion-policy source text excluded from privacy state',
+      input.messageText ?? 'Synthetic privacy-policy source text excluded from governed state',
     occurredAt: input.occurredAt,
   });
   const result = await new PostgresConversationEventProcessor(pool).processEvent(eventId);
@@ -95,7 +95,82 @@ export async function insertSyntheticAppliedCustomerEvent(
     result.outcome !== 'customer_message_applied' ||
     result.conversationId === undefined
   ) {
-    throw new Error('Synthetic deletion-policy customer source was not applied');
+    throw new Error('Synthetic privacy-policy customer source was not applied');
   }
   return { conversationId: result.conversationId, eventId };
+}
+
+export interface SyntheticLinkedIdentitySeed {
+  readonly identity: ChannelIdentitySelector;
+  readonly messageText?: string;
+  readonly occurredAt: Date;
+}
+
+export interface SyntheticLinkedIdentityFixture {
+  readonly contactId: string;
+  readonly conversationIds: readonly string[];
+  readonly eventIds: readonly string[];
+}
+
+export async function insertSyntheticLinkedCustomerIdentities(
+  pool: pg.Pool,
+  input: {
+    readonly fixtureKey: string;
+    readonly seeds: readonly SyntheticLinkedIdentitySeed[];
+  },
+): Promise<SyntheticLinkedIdentityFixture> {
+  if (input.seeds.length < 2) {
+    throw new TypeError('Synthetic linked fixture requires at least two identities');
+  }
+
+  const applied = [];
+  for (const [index, seed] of input.seeds.entries()) {
+    applied.push(
+      await insertSyntheticAppliedCustomerEvent(pool, {
+        fixtureKey: `${input.fixtureKey}-${String(index)}`,
+        identity: seed.identity,
+        occurredAt: seed.occurredAt,
+        ...(seed.messageText === undefined ? {} : { messageText: seed.messageText }),
+      }),
+    );
+  }
+
+  const primary = input.seeds[0];
+  if (primary === undefined) throw new Error('Synthetic primary identity is missing');
+  const selected = await pool.query<{ readonly contact_id: string }>(
+    `select contact_id
+     from channel_identities
+     where channel = $1
+       and channel_account_id = $2
+       and external_contact_id = $3`,
+    [
+      primary.identity.channel,
+      primary.identity.channelAccountId,
+      primary.identity.externalContactId,
+    ],
+  );
+  const contactId = selected.rows[0]?.contact_id;
+  if (contactId === undefined) throw new Error('Synthetic primary contact was not found');
+
+  for (const seed of input.seeds.slice(1)) {
+    await pool.query(
+      `update channel_identities
+       set contact_id = $1
+       where channel = $2
+         and channel_account_id = $3
+         and external_contact_id = $4`,
+      [
+        contactId,
+        seed.identity.channel,
+        seed.identity.channelAccountId,
+        seed.identity.externalContactId,
+      ],
+    );
+  }
+
+  return {
+    contactId,
+    conversationIds: applied.map(({ conversationId }) => conversationId),
+    eventIds: applied.map(({ eventId }) => eventId),
+  };
 }

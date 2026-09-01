@@ -243,6 +243,15 @@ export class PostgresAccessExport {
              and request.request_type = 'access'
              and request.state in ('in_progress', 'completed')
              and request.decision_code in ('same_channel_context', 'known_name')
+             and not exists (
+               select 1
+               from channel_identities as deleted_identity
+               where deleted_identity.contact_id = request.contact_id
+                 and (
+                   deleted_identity.channel_account_id like 'deleted:%'
+                   or deleted_identity.external_contact_id like 'deleted:%'
+                 )
+             )
            for update of request, contact`,
           [command.requestRef],
         );
