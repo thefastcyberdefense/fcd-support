@@ -73,12 +73,12 @@
 
 **Steps:**
 
-- [ ] Write tests for strict parsing, bilingual requirements, provenance requirements, URL restrictions, bounded arrays/text, request keys, and unknown-field rejection.
-- [ ] Write English and Bangla normalization tests covering NFKC, Unicode punctuation, whitespace, Bangla digits/marks, English case, and input bounds.
-- [ ] Run `npm test -- --run tests/knowledge-input.test.ts tests/faq-normalization.test.ts` and confirm module-not-found failures.
-- [ ] Implement the closed types, Zod parsers, and deterministic normalizer without database or model dependencies.
-- [ ] Run the focused tests and then `npm run check`.
-- [ ] Commit with `feat: define phase 4 knowledge contracts` and push `main`.
+- [x] Write tests for strict parsing, bilingual requirements, provenance requirements, URL restrictions, bounded arrays/text, request keys, and unknown-field rejection.
+- [x] Write English and Bangla normalization tests covering NFKC, Unicode punctuation, whitespace, Bangla digits/marks, English case, and input bounds.
+- [x] Run `npm test -- --run tests/knowledge-input.test.ts tests/faq-normalization.test.ts` and confirm module-not-found failures.
+- [x] Implement the closed types, Zod parsers, and deterministic normalizer without database or model dependencies.
+- [x] Run the focused tests and then `npm run check`.
+- [x] Commit with `feat: define phase 4 knowledge contracts` and push `main`.
 
 ## Task 3: Implement proposal creation and immutable versioning
 
