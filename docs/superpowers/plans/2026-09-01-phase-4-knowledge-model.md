@@ -176,11 +176,11 @@
 
 **Steps:**
 
-- [ ] Write failing tests for password hash uniqueness/verification/wrong-password/tamper/upgrade, TOTP current-window/replay/outside-window behavior, AES-GCM tamper failure, session entropy/hash comparison, and CSRF origin/token rejection.
-- [ ] Run the focused test and confirm module-not-found failures.
-- [ ] Implement the primitives with injected randomness/time for deterministic tests and bounded inputs.
-- [ ] Run focused tests and `npm run check`.
-- [ ] Commit with `feat: add private admin authentication primitives` and push `main`.
+- [x] Write failing tests for password hash uniqueness/verification/wrong-password/tamper/upgrade, TOTP current-window/replay/outside-window behavior, AES-GCM tamper failure, session entropy/hash comparison, and CSRF origin/token rejection.
+- [x] Run the focused test and confirm module-not-found failures.
+- [x] Implement the primitives with injected randomness/time for deterministic tests and bounded inputs.
+- [x] Run focused tests and `npm run check`.
+- [x] Commit with `feat: add private admin authentication primitives` and push `main`.
 
 ## Task 7: Implement PostgreSQL admin accounts and sessions
 
