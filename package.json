@@ -8,6 +8,7 @@
   },
   "packageManager": "npm@11.16.0",
   "scripts": {
+    "admin:bootstrap": "npm run build --silent && node dist/admin/admin-bootstrap.js",
     "build": "tsc --project tsconfig.build.json",
     "check": "npm run validate:phase0 && npm run format:check && npm run lint && npm run typecheck && npm test && npm run build",
     "db:migrate": "node-pg-migrate up --migrations-dir migrations --migrations-table pgmigrations --database-url-var DATABASE_URL",

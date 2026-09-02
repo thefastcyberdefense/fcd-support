@@ -201,12 +201,12 @@
 
 **Steps:**
 
-- [ ] Add failing integration tests for individual accounts, normalized login collision, password/MFA flow, generic failure, role changes, session rotation/expiry/revocation, concurrent replay, and content-free audit history.
-- [ ] Add failing unit tests for bootstrap input handling and secret-free output/error behavior.
-- [ ] Run focused tests and confirm failure.
-- [ ] Implement the transactional identity service and one-shot bootstrap entrypoint using bounded queries and append-only audit.
-- [ ] Run focused tests, `npm run check`, and all guarded PostgreSQL tests.
-- [ ] Commit with `feat: implement private admin identity store` and push `main`.
+- [x] Add failing integration tests for individual accounts, normalized login collision, password/MFA flow, generic failure, role changes, session rotation/expiry/revocation, concurrent replay, and content-free audit history.
+- [x] Add failing unit tests for bootstrap input handling and secret-free output/error behavior.
+- [x] Run focused tests and confirm failure.
+- [x] Implement the transactional identity service and one-shot bootstrap entrypoint using bounded queries and append-only audit.
+- [x] Run focused tests, `npm run check`, and all guarded PostgreSQL tests.
+- [x] Commit with `feat: implement private admin identity store` and push `main`.
 
 ## Task 8: Build the loopback-only admin service and knowledge dashboard
 
