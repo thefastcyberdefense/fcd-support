@@ -383,6 +383,49 @@ describe('Postgres admin identity', () => {
     ).resolves.toBeUndefined();
   });
 
+  test('binds CSRF to unexpired sessions through MFA rotation and revocation', async () => {
+    const at = new Date('2026-09-02T07:00:00.000Z');
+    trustedNow = at;
+    const preauth = await identity.beginPasswordAuthentication({
+      loginName: rootLogin,
+      password: new AdminSecretText(rootPassword),
+    });
+    if (preauth.status !== 'mfa_required') throw new Error('Synthetic login failed');
+    const input = {
+      csrfToken: preauth.csrfToken,
+      expectedOrigin: 'http://127.0.0.1:3004',
+      requestOrigin: 'http://127.0.0.1:3004',
+      sessionToken: preauth.sessionToken,
+    };
+    await expect(identity.validateCsrf(input)).resolves.toBe(true);
+    await expect(
+      identity.validateCsrf({ ...input, requestOrigin: 'https://example.invalid' }),
+    ).resolves.toBe(false);
+    await expect(
+      identity.validateCsrf({ ...input, csrfToken: new AdminSecretText('synthetic-wrong-csrf') }),
+    ).resolves.toBe(false);
+    const active = await identity.completeMfaAuthentication({
+      code: generateTotpCode(rootMfaSeed, at, totpPolicy),
+      preauthenticationToken: preauth.sessionToken,
+    });
+    if (active.status !== 'authenticated') throw new Error('Synthetic MFA failed');
+    await expect(identity.validateCsrf(input)).resolves.toBe(false);
+    const activeInput = {
+      ...input,
+      csrfToken: active.csrfToken,
+      sessionToken: active.sessionToken,
+    };
+    await expect(identity.validateCsrf(activeInput)).resolves.toBe(true);
+    await expect(
+      identity.validateCsrf({ ...activeInput, csrfToken: preauth.csrfToken }),
+    ).resolves.toBe(false);
+    trustedNow = active.expiresAt;
+    await expect(identity.validateCsrf(activeInput)).resolves.toBe(false);
+    trustedNow = at;
+    await identity.revokeSession({ sessionToken: active.sessionToken });
+    await expect(identity.validateCsrf(activeInput)).resolves.toBe(false);
+  });
+
   test('stores content-free append-only authentication and authorization audit history', async () => {
     const rows = await pool.query<{
       readonly action: string;

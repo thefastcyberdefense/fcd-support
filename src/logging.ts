@@ -1,4 +1,8 @@
 export type SafeLogEvent =
+  | 'admin_request_failed'
+  | 'admin_request_rejected'
+  | 'admin_service_start_failed'
+  | 'admin_service_started'
   | 'database_pool_error'
   | 'meta_verification_accepted'
   | 'meta_verification_rejected'
@@ -8,6 +12,8 @@ export type SafeLogEvent =
   | 'service_started';
 
 export type SafeLogReason =
+  | 'csrf_denied'
+  | 'invalid_origin'
   | 'invalid_body'
   | 'invalid_json'
   | 'invalid_signature'
@@ -36,6 +42,10 @@ interface CreateSafeLoggerOptions {
 type LogLevel = 'error' | 'info' | 'warn';
 
 const safeEvents = new Set<SafeLogEvent>([
+  'admin_request_failed',
+  'admin_request_rejected',
+  'admin_service_start_failed',
+  'admin_service_started',
   'database_pool_error',
   'meta_verification_accepted',
   'meta_verification_rejected',
@@ -46,6 +56,8 @@ const safeEvents = new Set<SafeLogEvent>([
 ]);
 
 const safeReasons = new Set<SafeLogReason>([
+  'csrf_denied',
+  'invalid_origin',
   'invalid_body',
   'invalid_json',
   'invalid_signature',

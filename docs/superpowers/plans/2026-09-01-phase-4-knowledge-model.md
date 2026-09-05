@@ -233,14 +233,14 @@
 
 **Steps:**
 
-- [ ] Write config tests proving loopback default, invalid key/port failure, and non-loopback refusal.
-- [ ] Write Fastify injection tests for login/MFA/session/logout, CSRF/origin checks, role denial, exact version confirmation, safe error pages, security headers, and module route coverage.
-- [ ] Extend public app tests to prove representative `/admin` and `/api/admin` routes remain absent.
-- [ ] Run focused tests and confirm failures.
-- [ ] Implement the separate admin app/runtime and minimal server-rendered dashboard using typed domain-service ports; add `start:admin` without changing `start`.
-- [ ] Add only configuration names and blank secret values to `.env.example`: admin host/port, session-HMAC key, MFA-encryption key, origin, and secure-cookie mode.
-- [ ] Run focused tests and `npm run check`.
-- [ ] Commit with `feat: add private knowledge administration service` and push `main`.
+- [x] Write config tests proving loopback default, invalid key/port failure, and non-loopback refusal.
+- [x] Write Fastify injection tests for login/MFA/session/logout, CSRF/origin checks, role denial, exact version confirmation, safe error pages, security headers, and module route coverage.
+- [x] Extend public app tests to prove representative `/admin` and `/api/admin` routes remain absent.
+- [x] Run focused tests and confirm failures.
+- [x] Implement the separate admin app/runtime and minimal server-rendered dashboard using typed domain-service ports; add `start:admin` without changing `start`.
+- [x] Add only configuration names and blank secret values to `.env.example`: admin host/port, session-HMAC key, MFA-encryption key, origin, and secure-cookie mode.
+- [x] Run focused tests and `npm run check`.
+- [x] Commit with `feat: add private knowledge administration service` and push `main`.
 
 ## Task 9: Implement proposal-only learning and owner questions
 

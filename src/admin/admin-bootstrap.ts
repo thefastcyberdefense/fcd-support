@@ -7,6 +7,7 @@ import pg from 'pg';
 import { PostgresAdminIdentity } from '../persistence/postgres-admin-identity.js';
 import { AdminSecretBytes, AdminSecretText } from './admin-types.js';
 import { AesGcmAdminSecretProtector } from './mfa.js';
+import { loadAdminConfig } from './admin-config.js';
 
 export interface AdminBootstrapIo {
   readonly readSecret: (prompt: string) => Promise<AdminSecretText>;
@@ -26,29 +27,6 @@ interface RunAdminBootstrapDependencies {
   readonly io: AdminBootstrapIo;
   readonly now: () => Date;
   readonly requestKeySource: () => string;
-}
-
-interface AdminBootstrapEnvironment {
-  readonly databaseUrl: string;
-  readonly encryptionKey: AdminSecretBytes;
-  readonly hmacKey: AdminSecretBytes;
-  readonly keyVersion: string;
-  readonly passwordPolicy: {
-    readonly algorithm: 'scrypt_v1';
-    readonly blockSize: number;
-    readonly cost: number;
-    readonly keyLength: number;
-    readonly parallelization: number;
-    readonly saltLength: number;
-  };
-  readonly preauthenticationTtlMilliseconds: number;
-  readonly sessionTtlMilliseconds: number;
-  readonly totpPolicy: {
-    readonly algorithm: 'sha1';
-    readonly digits: number;
-    readonly periodSeconds: number;
-    readonly verificationWindow: number;
-  };
 }
 
 export class AdminBootstrapError extends Error {
@@ -123,72 +101,6 @@ export async function runAdminBootstrap(
   }
 }
 
-function parseInteger(
-  environment: Readonly<Record<string, string | undefined>>,
-  key: string,
-): number {
-  const value = environment[key];
-  if (value === undefined || !/^[0-9]+$/.test(value)) {
-    throw new AdminBootstrapError('Admin bootstrap configuration is invalid');
-  }
-  const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed)) {
-    throw new AdminBootstrapError('Admin bootstrap configuration is invalid');
-  }
-  return parsed;
-}
-
-function parseKey(value: string | undefined): AdminSecretBytes {
-  if (value === undefined || !/^[A-Za-z0-9_-]{43}$/.test(value)) {
-    throw new AdminBootstrapError('Admin bootstrap configuration is invalid');
-  }
-  const bytes = Buffer.from(value, 'base64url');
-  if (bytes.length !== 32) {
-    bytes.fill(0);
-    throw new AdminBootstrapError('Admin bootstrap configuration is invalid');
-  }
-  const secret = new AdminSecretBytes(bytes);
-  bytes.fill(0);
-  return secret;
-}
-
-function parseBootstrapEnvironment(
-  environment: Readonly<Record<string, string | undefined>>,
-): AdminBootstrapEnvironment {
-  const databaseUrl = environment.DATABASE_URL;
-  const keyVersion = environment.ADMIN_MFA_KEY_VERSION;
-  if (
-    databaseUrl === undefined ||
-    !/^postgres(?:ql)?:\/\//.test(databaseUrl) ||
-    keyVersion === undefined ||
-    !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(keyVersion)
-  ) {
-    throw new AdminBootstrapError('Admin bootstrap configuration is invalid');
-  }
-  return {
-    databaseUrl,
-    encryptionKey: parseKey(environment.ADMIN_MFA_ENCRYPTION_KEY),
-    hmacKey: parseKey(environment.ADMIN_SESSION_HMAC_KEY),
-    keyVersion,
-    passwordPolicy: {
-      algorithm: 'scrypt_v1',
-      blockSize: parseInteger(environment, 'ADMIN_PASSWORD_BLOCK_SIZE'),
-      cost: parseInteger(environment, 'ADMIN_PASSWORD_COST'),
-      keyLength: parseInteger(environment, 'ADMIN_PASSWORD_KEY_LENGTH'),
-      parallelization: parseInteger(environment, 'ADMIN_PASSWORD_PARALLELIZATION'),
-      saltLength: parseInteger(environment, 'ADMIN_PASSWORD_SALT_LENGTH'),
-    },
-    preauthenticationTtlMilliseconds: parseInteger(environment, 'ADMIN_PREAUTH_TTL_MS'),
-    sessionTtlMilliseconds: parseInteger(environment, 'ADMIN_SESSION_TTL_MS'),
-    totpPolicy: {
-      algorithm: 'sha1',
-      digits: parseInteger(environment, 'ADMIN_TOTP_DIGITS'),
-      periodSeconds: parseInteger(environment, 'ADMIN_TOTP_PERIOD_SECONDS'),
-      verificationWindow: parseInteger(environment, 'ADMIN_TOTP_VERIFICATION_WINDOW'),
-    },
-  };
-}
-
 function createMaskedTerminalIo(): AdminBootstrapIo {
   return {
     readSecret: (prompt) =>
@@ -245,7 +157,7 @@ async function runEntrypoint(): Promise<void> {
   let pool: pg.Pool | undefined;
   let bootstrapStarted = false;
   try {
-    const configuration = parseBootstrapEnvironment(process.env);
+    const configuration = loadAdminConfig(process.env);
     pool = new pg.Pool({
       connectionString: configuration.databaseUrl,
       connectionTimeoutMillis: 5_000,
@@ -253,12 +165,12 @@ async function runEntrypoint(): Promise<void> {
     });
     const identity = new PostgresAdminIdentity(pool, {
       mfaProtector: new AesGcmAdminSecretProtector(
-        configuration.keyVersion,
-        configuration.encryptionKey,
+        configuration.mfaKeyVersion,
+        configuration.mfaEncryptionKey,
       ),
       passwordPolicy: configuration.passwordPolicy,
       preauthenticationTtlMilliseconds: configuration.preauthenticationTtlMilliseconds,
-      sessionHmacKey: configuration.hmacKey,
+      sessionHmacKey: configuration.sessionHmacKey,
       sessionTtlMilliseconds: configuration.sessionTtlMilliseconds,
       totpPolicy: configuration.totpPolicy,
     });

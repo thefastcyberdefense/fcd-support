@@ -5,11 +5,15 @@ export interface BoundedTransactionOptions {
   readonly lockTimeoutMilliseconds?: 750 | 2_000;
 }
 
+/** Allows domain services to join an already bounded transaction without committing it. */
+export type TransactionSource = pg.Pool | { readonly transactionClient: pg.PoolClient };
+
 export async function withBoundedTransaction<T>(
-  pool: pg.Pool,
+  pool: TransactionSource,
   operation: (client: pg.PoolClient) => Promise<T>,
   options: BoundedTransactionOptions = {},
 ): Promise<T> {
+  if ('transactionClient' in pool) return operation(pool.transactionClient);
   const client = await pool.connect();
   let destroyClient = false;
   const lockTimeoutMilliseconds = options.lockTimeoutMilliseconds ?? 2_000;

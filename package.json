@@ -17,6 +17,7 @@
     "format:check": "prettier --check .",
     "lint": "eslint .",
     "start": "node dist/main.js",
+    "start:admin": "node dist/admin-main.js",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:watch": "vitest",

@@ -16,7 +16,7 @@ import {
   PolicyIdempotencyConflictError,
   PolicyRecordNotFoundError,
 } from './postgres-takeover-policy.js';
-import { withBoundedTransaction } from './postgres-transaction.js';
+import { withBoundedTransaction, type TransactionSource } from './postgres-transaction.js';
 
 const opaqueReference = z
   .string()
@@ -212,7 +212,7 @@ function proposalMatchesView(
 }
 
 export class PostgresKnowledgeRepository {
-  public constructor(private readonly pool: pg.Pool) {}
+  public constructor(private readonly pool: TransactionSource) {}
 
   public async createSource(
     input: unknown,

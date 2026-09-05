@@ -334,4 +334,16 @@ describe('Meta webhook HTTP boundary', () => {
     expect(response.statusCode).toBe(404);
     expect(response.headers['x-fcd-route-scope']).toBe('application');
   });
+
+  test.each(['/admin', '/admin/knowledge', '/api/admin', '/api/admin/knowledge'])(
+    'keeps private administration route %s absent from the public app',
+    async (url) => {
+      const { app } = createTestApp();
+
+      const response = await app.inject({ method: 'GET', url });
+
+      expect(response.statusCode).toBe(404);
+      expect(response.headers['x-fcd-route-scope']).toBe('application');
+    },
+  );
 });

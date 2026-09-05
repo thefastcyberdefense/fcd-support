@@ -1,0 +1,174 @@
+import { Buffer } from 'node:buffer';
+
+import { z } from 'zod';
+
+import { AdminSecretBytes } from './admin-types.js';
+
+const encodedKeySchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
+const environmentSchema = z.object({
+  ADMIN_ACTION_TTL_MS: z.coerce.number().int().min(60_000).max(3_600_000).default(900_000),
+  ADMIN_HOST: z.string().trim().default('127.0.0.1'),
+  ADMIN_LIST_LIMIT: z.coerce.number().int().min(1).max(500).default(100),
+  ADMIN_MFA_ENCRYPTION_KEY: encodedKeySchema,
+  ADMIN_MFA_KEY_VERSION: z
+    .string()
+    .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/)
+    .default('local-v1'),
+  ADMIN_ORIGIN: z.url().optional(),
+  ADMIN_PASSWORD_BLOCK_SIZE: z.coerce.number().int().min(8).max(16).default(8),
+  ADMIN_PASSWORD_COST: z.coerce.number().int().min(16_384).max(262_144).default(65_536),
+  ADMIN_PASSWORD_KEY_LENGTH: z.coerce.number().int().min(32).max(64).default(32),
+  ADMIN_PASSWORD_PARALLELIZATION: z.coerce.number().int().min(1).max(4).default(1),
+  ADMIN_PASSWORD_SALT_LENGTH: z.coerce.number().int().min(16).max(64).default(32),
+  ADMIN_PORT: z.coerce.number().int().min(1).max(65_535).default(3004),
+  ADMIN_PREAUTH_TTL_MS: z.coerce.number().int().min(60_000).max(900_000).default(300_000),
+  ADMIN_SECURE_COOKIE: z.enum(['false', 'true']).default('false'),
+  ADMIN_SESSION_HMAC_KEY: encodedKeySchema,
+  ADMIN_SESSION_TTL_MS: z.coerce.number().int().min(300_000).max(86_400_000).default(28_800_000),
+  ADMIN_TOTP_DIGITS: z.coerce.number().int().min(6).max(8).default(6),
+  ADMIN_TOTP_PERIOD_SECONDS: z.coerce.number().int().min(15).max(120).default(30),
+  ADMIN_TOTP_VERIFICATION_WINDOW: z.coerce.number().int().min(0).max(2).default(1),
+  DATABASE_URL: z
+    .url()
+    .refine((value) => ['postgres:', 'postgresql:'].includes(new URL(value).protocol)),
+});
+
+const settingOrder = [
+  'ADMIN_ACTION_TTL_MS',
+  'DATABASE_URL',
+  'ADMIN_HOST',
+  'ADMIN_LIST_LIMIT',
+  'ADMIN_PORT',
+  'ADMIN_ORIGIN',
+  'ADMIN_SECURE_COOKIE',
+  'ADMIN_SESSION_HMAC_KEY',
+  'ADMIN_MFA_ENCRYPTION_KEY',
+  'ADMIN_MFA_KEY_VERSION',
+  'ADMIN_PASSWORD_COST',
+  'ADMIN_PASSWORD_BLOCK_SIZE',
+  'ADMIN_PASSWORD_PARALLELIZATION',
+  'ADMIN_PASSWORD_KEY_LENGTH',
+  'ADMIN_PASSWORD_SALT_LENGTH',
+  'ADMIN_PREAUTH_TTL_MS',
+  'ADMIN_SESSION_TTL_MS',
+  'ADMIN_TOTP_DIGITS',
+  'ADMIN_TOTP_PERIOD_SECONDS',
+  'ADMIN_TOTP_VERIFICATION_WINDOW',
+] as const;
+
+export interface AdminConfig {
+  readonly listLimit: number;
+  readonly actionTtlMilliseconds: number;
+  readonly databaseUrl: string;
+  readonly host: '127.0.0.1' | '::1';
+  readonly mfaEncryptionKey: AdminSecretBytes;
+  readonly mfaKeyVersion: string;
+  readonly origin: string;
+  readonly passwordPolicy: {
+    readonly algorithm: 'scrypt_v1';
+    readonly blockSize: number;
+    readonly cost: number;
+    readonly keyLength: number;
+    readonly parallelization: number;
+    readonly saltLength: number;
+  };
+  readonly port: number;
+  readonly preauthenticationTtlMilliseconds: number;
+  readonly secureCookie: boolean;
+  readonly sessionHmacKey: AdminSecretBytes;
+  readonly sessionTtlMilliseconds: number;
+  readonly totpPolicy: {
+    readonly algorithm: 'sha1';
+    readonly digits: number;
+    readonly periodSeconds: number;
+    readonly verificationWindow: number;
+  };
+}
+
+function fail(settings: readonly (typeof settingOrder)[number][]): never {
+  const selected = new Set(settings);
+  const names = settingOrder.filter((name) => selected.has(name));
+  throw new Error(`Invalid admin configuration: ${names.join(', ')}`);
+}
+
+function decodeKey(value: string, setting: 'ADMIN_MFA_ENCRYPTION_KEY' | 'ADMIN_SESSION_HMAC_KEY') {
+  const bytes = Buffer.from(value, 'base64url');
+  if (bytes.length !== 32) {
+    bytes.fill(0);
+    fail([setting]);
+  }
+  const result = new AdminSecretBytes(bytes);
+  bytes.fill(0);
+  return result;
+}
+
+export function loadAdminConfig(
+  environment: Readonly<Record<string, string | undefined>>,
+): AdminConfig {
+  const result = environmentSchema.safeParse(environment);
+  if (!result.success) {
+    const invalid = new Set(
+      result.error.issues
+        .map((issue) => issue.path[0])
+        .filter((path): path is (typeof settingOrder)[number] =>
+          settingOrder.includes(path as (typeof settingOrder)[number]),
+        ),
+    );
+    fail([...invalid]);
+  }
+
+  const host = result.data.ADMIN_HOST;
+  if (host !== '127.0.0.1' && host !== '::1') fail(['ADMIN_HOST']);
+  const defaultOrigin =
+    host === '::1'
+      ? `http://[::1]:${String(result.data.ADMIN_PORT)}`
+      : `http://${host}:${String(result.data.ADMIN_PORT)}`;
+  const origin = result.data.ADMIN_ORIGIN ?? defaultOrigin;
+  const parsedOrigin = new URL(origin);
+  const expectedHostname = host === '::1' ? '[::1]' : host;
+  const secureCookie = result.data.ADMIN_SECURE_COOKIE === 'true';
+  if (
+    parsedOrigin.origin !== origin ||
+    parsedOrigin.hostname !== expectedHostname ||
+    parsedOrigin.port !== String(result.data.ADMIN_PORT) ||
+    parsedOrigin.protocol !== 'http:' ||
+    secureCookie
+  ) {
+    fail(['ADMIN_ORIGIN']);
+  }
+  if ((result.data.ADMIN_PASSWORD_COST & (result.data.ADMIN_PASSWORD_COST - 1)) !== 0) {
+    fail(['ADMIN_PASSWORD_COST']);
+  }
+  if (result.data.ADMIN_PREAUTH_TTL_MS >= result.data.ADMIN_SESSION_TTL_MS) {
+    fail(['ADMIN_PREAUTH_TTL_MS', 'ADMIN_SESSION_TTL_MS']);
+  }
+
+  return {
+    listLimit: result.data.ADMIN_LIST_LIMIT,
+    actionTtlMilliseconds: result.data.ADMIN_ACTION_TTL_MS,
+    databaseUrl: result.data.DATABASE_URL,
+    host,
+    mfaEncryptionKey: decodeKey(result.data.ADMIN_MFA_ENCRYPTION_KEY, 'ADMIN_MFA_ENCRYPTION_KEY'),
+    mfaKeyVersion: result.data.ADMIN_MFA_KEY_VERSION,
+    origin,
+    passwordPolicy: {
+      algorithm: 'scrypt_v1',
+      blockSize: result.data.ADMIN_PASSWORD_BLOCK_SIZE,
+      cost: result.data.ADMIN_PASSWORD_COST,
+      keyLength: result.data.ADMIN_PASSWORD_KEY_LENGTH,
+      parallelization: result.data.ADMIN_PASSWORD_PARALLELIZATION,
+      saltLength: result.data.ADMIN_PASSWORD_SALT_LENGTH,
+    },
+    port: result.data.ADMIN_PORT,
+    preauthenticationTtlMilliseconds: result.data.ADMIN_PREAUTH_TTL_MS,
+    secureCookie,
+    sessionHmacKey: decodeKey(result.data.ADMIN_SESSION_HMAC_KEY, 'ADMIN_SESSION_HMAC_KEY'),
+    sessionTtlMilliseconds: result.data.ADMIN_SESSION_TTL_MS,
+    totpPolicy: {
+      algorithm: 'sha1',
+      digits: result.data.ADMIN_TOTP_DIGITS,
+      periodSeconds: result.data.ADMIN_TOTP_PERIOD_SECONDS,
+      verificationWindow: result.data.ADMIN_TOTP_VERIFICATION_WINDOW,
+    },
+  };
+}

@@ -5,6 +5,7 @@ import type pg from 'pg';
 import { z } from 'zod';
 
 import { AdminSecretBytes, AdminSecretText } from '../admin/admin-types.js';
+import { validateAdminCsrf } from '../admin/csrf.js';
 import {
   type AdminSecretProtector,
   type ProtectedMfaSeed,
@@ -59,6 +60,11 @@ const completeAuthenticationSchema = z.strictObject({
 });
 const sessionCommandSchema = z.strictObject({
   sessionToken: secretTextSchema,
+});
+const csrfCommandSchema = sessionCommandSchema.extend({
+  csrfToken: secretTextSchema,
+  expectedOrigin: z.string().max(256),
+  requestOrigin: z.string().max(256).optional(),
 });
 const revokeAllSchema = z.strictObject({
   targetAccountRef: accountRefSchema,
@@ -721,6 +727,74 @@ export class PostgresAdminIdentity {
         const roles = await this.currentRoles(client, row.account_id, at);
         return { accountRef: row.account_ref, expiresAt: row.expires_at, roles };
       });
+    } finally {
+      sessionHash.fill(0);
+    }
+  }
+
+  public async validateCsrf(input: unknown): Promise<boolean> {
+    const parsed = csrfCommandSchema.safeParse(input);
+    if (!parsed.success) return false;
+    const command = parsed.data;
+    const sessionHash = hashAdminSessionToken(
+      command.sessionToken,
+      this.options.sessionHmacKey,
+      'admin-session-v1',
+    ).copy();
+    try {
+      return await withBoundedTransaction(this.pool, async (client) => {
+        const selected = await client.query<{ readonly csrf_hash: Buffer }>(
+          `select session.csrf_hash from admin_sessions as session
+           join admin_accounts as account on account.id = session.account_id
+           where session.session_hash = $1 and session.state in ('active', 'preauth')
+             and session.expires_at > $2 and account.state = 'active'`,
+          [sessionHash, this.trustedNow()],
+        );
+        const row = selected.rows[0];
+        return (
+          row !== undefined &&
+          validateAdminCsrf({
+            expectedOrigin: command.expectedOrigin,
+            requestOrigin: command.requestOrigin,
+            providedToken: command.csrfToken,
+            hmacKey: this.options.sessionHmacKey,
+            storedHash: new AdminSecretBytes(row.csrf_hash),
+          })
+        );
+      });
+    } finally {
+      sessionHash.fill(0);
+    }
+  }
+
+  public async authorizeSession(
+    client: pg.PoolClient,
+    sessionToken: AdminSecretText,
+    requiredRoles: readonly AdminRole[],
+  ): Promise<ResolvedAdminSession> {
+    const sessionHash = hashAdminSessionToken(
+      sessionToken,
+      this.options.sessionHmacKey,
+      'admin-session-v1',
+    ).copy();
+    try {
+      const selected = await client.query<ActiveSessionRow>(
+        `select session.id as session_id, session.account_id, session.state, session.expires_at,
+                account.account_ref, account.state as account_state
+         from admin_sessions as session join admin_accounts as account on account.id = session.account_id
+         where session.session_hash = $1 for update of session, account`,
+        [sessionHash],
+      );
+      const at = this.trustedNow();
+      const row = selected.rows[0];
+      if (row?.state !== 'active' || row.account_state !== 'active' || row.expires_at <= at) {
+        throw new AdminIdentityNotAuthorizedError('Admin action is not authorized');
+      }
+      const roles = await this.currentRoles(client, row.account_id, at);
+      if (!roles.includes('administrator') && !requiredRoles.some((role) => roles.includes(role))) {
+        throw new AdminIdentityNotAuthorizedError('Admin action is not authorized');
+      }
+      return { accountRef: row.account_ref, expiresAt: row.expires_at, roles };
     } finally {
       sessionHash.fill(0);
     }

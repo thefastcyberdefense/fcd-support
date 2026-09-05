@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900">
+  <rect width="1440" height="900" fill="#f4f7f6"/>
+  <rect width="224" height="900" fill="#102d28"/>
+  <rect x="24" y="28" width="34" height="34" rx="9" fill="#52c8ad"/>
+  <path d="M34 40h14v5H39v9h-5z" fill="#102d28"/>
+  <text x="72" y="51" font-family="Segoe UI, Arial, sans-serif" font-size="17" font-weight="700" fill="#ffffff">FCD Support</text>
+  <text x="24" y="99" font-family="Segoe UI, Arial, sans-serif" font-size="11" font-weight="700" letter-spacing="1.4" fill="#87aaa2">OPERATIONS</text>
+  <rect x="12" y="118" width="200" height="44" rx="8" fill="#1d4a42"/>
+  <rect x="12" y="118" width="3" height="44" rx="2" fill="#52c8ad"/>
+  <text x="30" y="146" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="600" fill="#ffffff">Knowledge</text>
+  <text x="30" y="194" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#c6d8d3">Questions</text>
+  <text x="30" y="238" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#c6d8d3">Insights</text>
+  <text x="30" y="282" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#c6d8d3">Policy</text>
+  <text x="30" y="326" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#c6d8d3">Escalations</text>
+  <text x="30" y="370" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#c6d8d3">Audit</text>
+  <line x1="24" y1="780" x2="200" y2="780" stroke="#31554e"/>
+  <text x="24" y="812" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="600" fill="#dce9e6">Private administration</text>
+  <text x="24" y="834" font-family="Segoe UI, Arial, sans-serif" font-size="11" fill="#87aaa2">Loopback access only</text>
+  <text x="24" y="870" font-family="Segoe UI, Arial, sans-serif" font-size="12" fill="#c6d8d3">Synthetic Reviewer</text>
+
+  <rect x="224" y="0" width="1216" height="68" fill="#ffffff"/>
+  <line x1="224" y1="68" x2="1440" y2="68" stroke="#d9e3df"/>
+  <text x="264" y="43" font-family="Segoe UI, Arial, sans-serif" font-size="13" fill="#5f726c">Reviewed facts stay authoritative. Proposals never publish automatically.</text>
+  <text x="1347" y="42" text-anchor="end" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="600" fill="#24453e">Sign out</text>
+
+  <text x="264" y="123" font-family="Segoe UI, Arial, sans-serif" font-size="29" font-weight="700" fill="#12231f">Knowledge proposals</text>
+  <text x="264" y="151" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#5f726c">Review provenance and bilingual answers before publication.</text>
+  <rect x="1240" y="104" width="160" height="44" rx="8" fill="#0d6b5c"/>
+  <text x="1320" y="132" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="650" fill="#ffffff">New proposal</text>
+
+  <rect x="264" y="184" width="186" height="40" rx="7" fill="#ffffff" stroke="#cbd9d5"/>
+  <text x="280" y="209" font-family="Segoe UI, Arial, sans-serif" font-size="13" fill="#526963">Search proposals</text>
+  <rect x="462" y="184" width="132" height="40" rx="7" fill="#ffffff" stroke="#cbd9d5"/>
+  <text x="478" y="209" font-family="Segoe UI, Arial, sans-serif" font-size="13" fill="#24453e">All states</text>
+  <path d="M570 200l5 5 5-5" fill="none" stroke="#526963" stroke-width="1.7" stroke-linecap="round"/>
+
+  <rect x="264" y="244" width="730" height="610" rx="10" fill="#ffffff" stroke="#d9e3df"/>
+  <rect x="264" y="244" width="730" height="50" rx="10" fill="#edf3f1"/>
+  <rect x="264" y="284" width="730" height="10" fill="#edf3f1"/>
+  <text x="286" y="275" font-family="Segoe UI, Arial, sans-serif" font-size="11" font-weight="700" letter-spacing=".6" fill="#5f726c">VERSION</text>
+  <text x="416" y="275" font-family="Segoe UI, Arial, sans-serif" font-size="11" font-weight="700" letter-spacing=".6" fill="#5f726c">TOPIC</text>
+  <text x="624" y="275" font-family="Segoe UI, Arial, sans-serif" font-size="11" font-weight="700" letter-spacing=".6" fill="#5f726c">SOURCE</text>
+  <text x="772" y="275" font-family="Segoe UI, Arial, sans-serif" font-size="11" font-weight="700" letter-spacing=".6" fill="#5f726c">STATE</text>
+  <text x="884" y="275" font-family="Segoe UI, Arial, sans-serif" font-size="11" font-weight="700" letter-spacing=".6" fill="#5f726c">UPDATED</text>
+
+  <rect x="270" y="300" width="718" height="92" rx="7" fill="#eaf5f2"/>
+  <rect x="270" y="300" width="4" height="92" rx="2" fill="#0d6b5c"/>
+  <text x="286" y="333" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="650" fill="#12231f">VERSION_TEST_hours_3</text>
+  <text x="416" y="333" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="650" fill="#12231f">Office hours</text>
+  <text x="416" y="357" font-family="Segoe UI, Arial, sans-serif" font-size="12" fill="#5f726c">English + Bangla</text>
+  <text x="624" y="333" font-family="Segoe UI, Arial, sans-serif" font-size="13" fill="#24453e">Manual business</text>
+  <text x="772" y="333" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="700" fill="#0d6b5c">SUBMITTED</text>
+  <text x="884" y="333" font-family="Segoe UI, Arial, sans-serif" font-size="12" fill="#5f726c">2 Sep</text>
+
+  <line x1="286" y1="405" x2="972" y2="405" stroke="#e3ebe8"/>
+  <text x="286" y="442" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="650" fill="#12231f">VERSION_TEST_password_2</text>
+  <text x="416" y="442" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="650" fill="#12231f">Password reset guidance</text>
+  <text x="416" y="466" font-family="Segoe UI, Arial, sans-serif" font-size="12" fill="#5f726c">English + Bangla</text>
+  <text x="624" y="442" font-family="Segoe UI, Arial, sans-serif" font-size="13" fill="#24453e">Policy</text>
+  <text x="772" y="442" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="700" fill="#9a5a12">DRAFT</text>
+  <text x="884" y="442" font-family="Segoe UI, Arial, sans-serif" font-size="12" fill="#5f726c">1 Sep</text>
+  <line x1="286" y1="497" x2="972" y2="497" stroke="#e3ebe8"/>
+  <text x="286" y="534" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="650" fill="#12231f">VERSION_TEST_payment_1</text>
+  <text x="416" y="534" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="650" fill="#12231f">Payment safety</text>
+  <text x="416" y="558" font-family="Segoe UI, Arial, sans-serif" font-size="12" fill="#5f726c">English + Bangla</text>
+  <text x="624" y="534" font-family="Segoe UI, Arial, sans-serif" font-size="13" fill="#24453e">Manual business</text>
+  <text x="772" y="534" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="700" fill="#44635c">APPROVED</text>
+  <text x="884" y="534" font-family="Segoe UI, Arial, sans-serif" font-size="12" fill="#5f726c">31 Aug</text>
+  <text x="286" y="825" font-family="Segoe UI, Arial, sans-serif" font-size="12" fill="#5f726c">3 synthetic proposals</text>
+
+  <rect x="1014" y="244" width="386" height="610" rx="10" fill="#ffffff" stroke="#d9e3df"/>
+  <text x="1042" y="282" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="700" letter-spacing=".7" fill="#0d6b5c">SELECTED VERSION</text>
+  <text x="1042" y="316" font-family="Segoe UI, Arial, sans-serif" font-size="21" font-weight="700" fill="#12231f">Office hours</text>
+  <text x="1042" y="342" font-family="Segoe UI, Arial, sans-serif" font-size="12" fill="#5f726c">VERSION_TEST_hours_3 · submitted</text>
+  <line x1="1042" y1="365" x2="1372" y2="365" stroke="#e3ebe8"/>
+  <text x="1042" y="397" font-family="Segoe UI, Arial, sans-serif" font-size="11" font-weight="700" letter-spacing=".6" fill="#5f726c">PROVENANCE</text>
+  <text x="1042" y="424" font-family="Segoe UI, Arial, sans-serif" font-size="13" fill="#24453e">Manual business source</text>
+  <text x="1042" y="446" font-family="Segoe UI, Arial, sans-serif" font-size="12" fill="#5f726c">Authored by ADMIN_TEST_editor</text>
+  <text x="1042" y="485" font-family="Segoe UI, Arial, sans-serif" font-size="11" font-weight="700" letter-spacing=".6" fill="#5f726c">ENGLISH ANSWER</text>
+  <text x="1042" y="512" font-family="Segoe UI, Arial, sans-serif" font-size="13" fill="#24453e">Support is available during the</text>
+  <text x="1042" y="533" font-family="Segoe UI, Arial, sans-serif" font-size="13" fill="#24453e">reviewed synthetic office hours.</text>
+  <text x="1042" y="574" font-family="Segoe UI, Arial, sans-serif" font-size="11" font-weight="700" letter-spacing=".6" fill="#5f726c">BANGLA ANSWER</text>
+  <text x="1042" y="603" font-family="Noto Sans Bengali, Segoe UI, sans-serif" font-size="13" fill="#24453e">পর্যালোচিত সিনথেটিক সময়ে</text>
+  <text x="1042" y="625" font-family="Noto Sans Bengali, Segoe UI, sans-serif" font-size="13" fill="#24453e">সহায়তা পাওয়া যায়।</text>
+  <line x1="1042" y1="656" x2="1372" y2="656" stroke="#e3ebe8"/>
+  <text x="1042" y="690" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="700" fill="#12231f">Exact version confirmation required</text>
+  <rect x="1042" y="708" width="330" height="40" rx="7" fill="#ffffff" stroke="#b9ccc6"/>
+  <text x="1057" y="733" font-family="Segoe UI, Arial, sans-serif" font-size="12" fill="#74867f">Type VERSION_TEST_hours_3</text>
+  <rect x="1042" y="770" width="154" height="42" rx="8" fill="#0d6b5c"/>
+  <text x="1119" y="797" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="650" fill="#ffffff">Review version</text>
+  <rect x="1208" y="770" width="164" height="42" rx="8" fill="#ffffff" stroke="#b9ccc6"/>
+  <text x="1290" y="797" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="650" fill="#24453e">Open full detail</text>
+</svg>

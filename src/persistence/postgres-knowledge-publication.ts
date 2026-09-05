@@ -19,7 +19,7 @@ import {
   PolicyIdempotencyConflictError,
   PolicyRecordNotFoundError,
 } from './postgres-takeover-policy.js';
-import { withBoundedTransaction } from './postgres-transaction.js';
+import { withBoundedTransaction, type TransactionSource } from './postgres-transaction.js';
 
 const itemKeySchema = z
   .string()
@@ -100,7 +100,7 @@ function priorVersionRef(command: KnowledgePublicationCommand): string | undefin
 }
 
 export class PostgresKnowledgePublication {
-  public constructor(private readonly pool: pg.Pool) {}
+  public constructor(private readonly pool: TransactionSource) {}
 
   public submitVersion(input: unknown, principalInput: unknown): Promise<KnowledgeReviewResult> {
     const command = parseKnowledgeReviewCommand(input);
