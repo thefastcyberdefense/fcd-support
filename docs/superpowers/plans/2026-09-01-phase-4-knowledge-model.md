@@ -291,12 +291,12 @@
 
 **Steps:**
 
-- [ ] Add synthetic unit cases for every hard-block class, allowed false-positive controls, multi-secret input, unsafe ambiguity, typed redaction, malformed/excessive input, and English/Bangla response selection.
-- [ ] Add assertions that serialized results, errors, and logger-shaped contexts contain no original matched value.
-- [ ] Run focused tests and confirm failures.
-- [ ] Implement bounded deterministic recognizers, context checks, typed markers, and closed result unions without model use.
-- [ ] Run focused tests and `npm run check`.
-- [ ] Commit with `feat: add sensitive data inference gate` and push `main`.
+- [x] Add synthetic unit cases for every hard-block class, allowed false-positive controls, multi-secret input, unsafe ambiguity, typed redaction, malformed/excessive input, and English/Bangla response selection.
+- [x] Add assertions that serialized results, errors, and logger-shaped contexts contain no original matched value.
+- [x] Run focused tests and confirm failures.
+- [x] Implement bounded deterministic recognizers, context checks, typed markers, and closed result unions without model use.
+- [x] Run focused tests and `npm run check`.
+- [x] Commit with `feat: add sensitive data inference gate` and push `main`.
 
 ## Task 11: Implement FAQ-first resolution from effective knowledge
 
