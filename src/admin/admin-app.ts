@@ -741,13 +741,11 @@ export function buildAdminApp(options: BuildAdminAppOptions): FastifyInstance {
 
   app.post('/questions/:questionRef/answers', async (request, reply) => {
     const questionRef = routeReference(request, 'questionRef');
-    const context = await requireMutation(request, reply, [
-      'knowledge_editor',
-      'knowledge_reviewer',
-    ]);
+    const context = await requireMutation(request, reply, ['knowledge_editor']);
     if (context === undefined) return;
     const answerText = formValue(context.form, 'answerText', 4000);
-    if (questionRef === undefined || answerText === undefined) {
+    const answerBn = formValue(context.form, 'answerBn', 4000);
+    if (questionRef === undefined || answerText === undefined || answerBn === undefined) {
       const nonce = nonceSource();
       return html(reply, nonce, renderSafeErrorPage(nonce, 400), 400);
     }
@@ -755,7 +753,7 @@ export function buildAdminApp(options: BuildAdminAppOptions): FastifyInstance {
     await options.dashboard.answerQuestion(
       {
         answerText,
-        answerBn: formValue(context.form, 'answerBn', 4000),
+        answerBn,
         answeredAt: new Date(action.effectiveAt),
         questionRef,
         requestKey: action.requestKey,

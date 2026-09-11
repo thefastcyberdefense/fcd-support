@@ -263,14 +263,14 @@
 
 **Steps:**
 
-- [ ] Write unit tests for closed inputs, bounded summaries, no external identities, and forbidden raw/sensitive fields.
-- [ ] Write failing integration tests for event authority, replay/conflict, aggregate-only insights, low-count suppression, three-day/max-five digests, cooldown, concurrent digest creation, and empty runs.
-- [ ] Add failing tests proving owner answers create only draft proposals and cannot use a publication shortcut.
-- [ ] Run focused tests and confirm failures.
-- [ ] Implement the learning service with transaction/advisory locks, typed joins, and content-minimized evidence.
-- [ ] Wire dashboard question/insight reads and answer commands through typed ports.
-- [ ] Run focused tests, `npm run check`, and all guarded PostgreSQL tests.
-- [ ] Commit with `feat: implement proposal-only knowledge learning` and push `main`.
+- [x] Write unit tests for closed inputs, bounded summaries, no external identities, and forbidden raw/sensitive fields.
+- [x] Write failing integration tests for event authority, replay/conflict, aggregate-only insights, low-count suppression, three-day/max-five digests, cooldown, concurrent digest creation, and empty runs.
+- [x] Add failing tests proving owner answers create only draft proposals and cannot use a publication shortcut.
+- [x] Run focused tests and confirm failures.
+- [x] Implement the learning service with transaction/advisory locks, typed joins, and content-minimized evidence.
+- [x] Wire dashboard question/insight reads and answer commands through typed ports.
+- [x] Run focused tests, `npm run check`, and all guarded PostgreSQL tests.
+- [x] Commit with `feat: implement proposal-only knowledge learning` and push `main`.
 
 ## Task 10: Implement the fail-closed sensitive-data gate
 

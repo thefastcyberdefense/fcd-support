@@ -317,6 +317,63 @@ describe('private admin application', () => {
     );
   });
 
+  test('submits bilingual owner answers through an editor-only authenticated action', async () => {
+    const { app, dashboard } = createTestApp({ roles: ['knowledge_editor'] });
+    const page = await app.inject({
+      headers: { cookie: activeCookies() },
+      method: 'GET',
+      url: '/questions',
+    });
+    const actionToken = hiddenValue(page.body, 'actionToken');
+    const response = await app.inject({
+      headers: formHeaders(activeCookies()),
+      method: 'POST',
+      payload: new URLSearchParams({
+        actionToken,
+        answerText: 'Synthetic reviewed owner answer.',
+        answerBn: 'সিনথেটিক পর্যালোচিত মালিকের উত্তর।',
+        csrfToken: activeCsrf.reveal(),
+      }).toString(),
+      url: '/questions/QUESTION_TEST_hours/answers',
+    });
+    expect(response.statusCode).toBe(303);
+    expect(dashboard.answerQuestion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        questionRef: 'QUESTION_TEST_hours',
+        answerText: 'Synthetic reviewed owner answer.',
+        answerBn: 'সিনথেটিক পর্যালোচিত মালিকের উত্তর।',
+      }),
+      expect.objectContaining({ accountRef: 'ADMIN_TEST_dashboard_reviewer' }),
+    );
+
+    const missingBangla = await app.inject({
+      headers: formHeaders(activeCookies()),
+      method: 'POST',
+      payload: new URLSearchParams({
+        actionToken,
+        answerText: 'Synthetic reviewed owner answer.',
+        csrfToken: activeCsrf.reveal(),
+      }).toString(),
+      url: '/questions/QUESTION_TEST_hours/answers',
+    });
+    expect(missingBangla.statusCode).toBe(400);
+
+    const reviewerOnly = createTestApp({ roles: ['knowledge_reviewer'] });
+    const denied = await reviewerOnly.app.inject({
+      headers: formHeaders(activeCookies()),
+      method: 'POST',
+      payload: new URLSearchParams({
+        actionToken,
+        answerText: 'Synthetic reviewed owner answer.',
+        answerBn: 'সিনথেটিক পর্যালোচিত মালিকের উত্তর।',
+        csrfToken: activeCsrf.reveal(),
+      }).toString(),
+      url: '/questions/QUESTION_TEST_hours/answers',
+    });
+    expect(denied.statusCode).toBe(403);
+    expect(reviewerOnly.dashboard.answerQuestion).not.toHaveBeenCalled();
+  });
+
   test('binds confirmation to session, action, prior version, and stable retry material', async () => {
     let at = new Date('2026-09-02T06:00:00.000Z');
     const { app, dashboard } = createTestApp({ now: () => at });

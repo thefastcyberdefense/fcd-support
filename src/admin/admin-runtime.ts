@@ -45,6 +45,7 @@ export function createAdminRuntime(options: CreateAdminRuntimeOptions): AdminRun
   const dashboard = new PostgresAdminDashboard(pool, identity, {
     ...(options.now === undefined ? {} : { now: options.now }),
     listLimit: config.listLimit,
+    learningPolicy: config.learningPolicy,
   });
   const app = buildAdminApp({
     listLimit: config.listLimit,

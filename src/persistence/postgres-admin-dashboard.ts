@@ -12,9 +12,14 @@ import type {
   AdminQuestionSummary,
 } from '../admin/admin-html.js';
 import type { ReviewerPrincipal } from '../policy/policy-types.js';
+import type { LearningPolicy } from '../learning/learning-types.js';
 import { PostgresAdminIdentity, type AdminRole } from './postgres-admin-identity.js';
 import { PostgresKnowledgeRepository } from './postgres-knowledge-repository.js';
 import { PostgresKnowledgePublication } from './postgres-knowledge-publication.js';
+import {
+  currentInsightEligibilityLateralSql,
+  PostgresLearningService,
+} from './postgres-learning-service.js';
 import { withBoundedTransaction } from './postgres-transaction.js';
 
 const reference = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/);
@@ -82,7 +87,7 @@ const proposalSelect = `select version.version_ref, item.item_key, coalesce(vers
 export interface AdminDashboardOptions {
   readonly now?: () => Date;
   readonly listLimit?: number;
-  readonly answerQuestion?: AdminDashboardPort['answerQuestion'];
+  readonly learningPolicy?: LearningPolicy;
 }
 
 export class PostgresAdminDashboard implements AdminDashboardPort {
@@ -388,8 +393,22 @@ export class PostgresAdminDashboard implements AdminDashboardPort {
         priority: AdminQuestionSummary['priority'];
         state: AdminQuestionSummary['state'];
       }>(
-        `select question_ref, question_en, priority, state from owner_questions order by created_at desc, id desc limit $1`,
-        [this.#listLimit],
+        `with eligible_open_questions as (
+           select distinct link.question_id
+           from owner_question_insights as link
+           join customer_insight_entries as insight on insight.id = link.insight_id
+           join customer_insight_runs as run on run.id = insight.run_id
+           join ${currentInsightEligibilityLateralSql}
+             on current_insight.person_count >= run.minimum_group_count
+           where run.state = 'completed' and insight.erased_at is null
+             and insight.retention_deadline > $1
+         )
+         select question.question_ref, question.question_en, question.priority, question.state
+         from owner_questions as question
+         where question.state <> 'open'
+            or exists (select 1 from eligible_open_questions where question_id = question.id)
+         order by question.created_at desc, question.id desc limit $2`,
+        [this.#now(), this.#listLimit],
       );
       return result.rows.map((row) => ({
         questionRef: row.question_ref,
@@ -400,9 +419,14 @@ export class PostgresAdminDashboard implements AdminDashboardPort {
     });
   }
   public async answerQuestion(input: unknown, actor: AdminActor): Promise<void> {
-    if (this.options.answerQuestion === undefined)
-      throw new Error('Owner question service is not configured');
-    await this.options.answerQuestion(input, actor);
+    const learningPolicy = this.options.learningPolicy;
+    if (learningPolicy === undefined) throw new Error('Owner question service is not configured');
+    await this.withActor(actor, ['knowledge_editor'], async (client, principal) => {
+      await new PostgresLearningService(
+        { transactionClient: client },
+        { now: this.#now, policy: learningPolicy },
+      ).answerOwnerQuestion(input, principal);
+    });
   }
   public async listInsights(): Promise<readonly AdminInsightSummary[]> {
     return withBoundedTransaction(this.pool, async (client) => {
@@ -411,10 +435,15 @@ export class PostgresAdminDashboard implements AdminDashboardPort {
         category_code: string;
         occurrence_count: number;
       }>(
-        `select entry.topic_code, entry.category_code, entry.occurrence_count from customer_insight_entries as entry
-         join customer_insight_runs as run on run.id = entry.run_id where run.state = 'completed' and entry.erased_at is null
-           and entry.retention_deadline > $1 and entry.occurrence_count >= run.minimum_group_count
-         order by entry.created_at desc, entry.id desc limit $2`,
+        `select insight.topic_code, insight.category_code,
+                current_insight.occurrence_count
+         from customer_insight_entries as insight
+         join customer_insight_runs as run on run.id = insight.run_id
+         join ${currentInsightEligibilityLateralSql}
+           on current_insight.person_count >= run.minimum_group_count
+         where run.state = 'completed' and insight.erased_at is null
+           and insight.retention_deadline > $1
+         order by insight.created_at desc, insight.id desc limit $2`,
         [this.#now(), this.#listLimit],
       );
       return result.rows.map((row) => ({

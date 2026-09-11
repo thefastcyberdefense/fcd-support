@@ -37,6 +37,14 @@ describe('admin configuration', () => {
       periodSeconds: 30,
       verificationWindow: 1,
     });
+    expect(config.learningPolicy).toEqual({
+      minimumGroupCount: 3,
+      digestIntervalMilliseconds: 259_200_000,
+      maximumQuestionsPerDigest: 5,
+      questionCooldownMilliseconds: 604_800_000,
+      maximumDigestAppearances: 2,
+      maximumObservationsPerRun: 1000,
+    });
     expect(config.sessionHmacKey.copy()).toHaveLength(32);
     expect(config.mfaEncryptionKey.copy()).toHaveLength(32);
   });
@@ -48,6 +56,12 @@ describe('admin configuration', () => {
         ADMIN_PREAUTH_TTL_MS: '420000',
         ADMIN_SESSION_TTL_MS: '14400000',
         ADMIN_TOTP_VERIFICATION_WINDOW: '0',
+        LEARNING_MINIMUM_GROUP_COUNT: '4',
+        LEARNING_DIGEST_INTERVAL_MS: '345600000',
+        LEARNING_MAX_QUESTIONS_PER_DIGEST: '3',
+        LEARNING_QUESTION_COOLDOWN_MS: '691200000',
+        LEARNING_MAX_DIGEST_APPEARANCES: '4',
+        LEARNING_MAX_OBSERVATIONS_PER_RUN: '2500',
       }),
     );
 
@@ -55,6 +69,14 @@ describe('admin configuration', () => {
     expect(config.preauthenticationTtlMilliseconds).toBe(420_000);
     expect(config.sessionTtlMilliseconds).toBe(14_400_000);
     expect(config.totpPolicy.verificationWindow).toBe(0);
+    expect(config.learningPolicy).toEqual({
+      minimumGroupCount: 4,
+      digestIntervalMilliseconds: 345_600_000,
+      maximumQuestionsPerDigest: 3,
+      questionCooldownMilliseconds: 691_200_000,
+      maximumDigestAppearances: 4,
+      maximumObservationsPerRun: 2500,
+    });
   });
 
   test.each([
@@ -63,6 +85,15 @@ describe('admin configuration', () => {
     [{ ADMIN_MFA_ENCRYPTION_KEY: '' }, 'ADMIN_MFA_ENCRYPTION_KEY'],
     [{ ADMIN_ORIGIN: 'http://127.0.0.1:3004/path' }, 'ADMIN_ORIGIN'],
     [{ ADMIN_SECURE_COOKIE: 'true' }, 'ADMIN_ORIGIN'],
+    [{ LEARNING_DIGEST_INTERVAL_MS: '86400000' }, 'LEARNING_DIGEST_INTERVAL_MS'],
+    [
+      {
+        LEARNING_DIGEST_INTERVAL_MS: '604800000',
+        LEARNING_QUESTION_COOLDOWN_MS: '259200000',
+      },
+      'LEARNING_DIGEST_INTERVAL_MS, LEARNING_QUESTION_COOLDOWN_MS',
+    ],
+    [{ LEARNING_MAX_QUESTIONS_PER_DIGEST: '6' }, 'LEARNING_MAX_QUESTIONS_PER_DIGEST'],
   ])('rejects invalid bounded settings without echoing values', (overrides, setting) => {
     expect(() => loadAdminConfig(environment(overrides))).toThrow(
       `Invalid admin configuration: ${setting}`,

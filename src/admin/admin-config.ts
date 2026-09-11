@@ -2,6 +2,7 @@ import { Buffer } from 'node:buffer';
 
 import { z } from 'zod';
 
+import type { LearningPolicy } from '../learning/learning-types.js';
 import { AdminSecretBytes } from './admin-types.js';
 
 const encodedKeySchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
@@ -31,6 +32,22 @@ const environmentSchema = z.object({
   DATABASE_URL: z
     .url()
     .refine((value) => ['postgres:', 'postgresql:'].includes(new URL(value).protocol)),
+  LEARNING_DIGEST_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .min(259_200_000)
+    .max(31_536_000_000)
+    .default(259_200_000),
+  LEARNING_MAX_DIGEST_APPEARANCES: z.coerce.number().int().min(1).max(10).default(2),
+  LEARNING_MAX_OBSERVATIONS_PER_RUN: z.coerce.number().int().min(2).max(10_000).default(1000),
+  LEARNING_MAX_QUESTIONS_PER_DIGEST: z.coerce.number().int().min(1).max(5).default(5),
+  LEARNING_MINIMUM_GROUP_COUNT: z.coerce.number().int().min(2).max(1000).default(3),
+  LEARNING_QUESTION_COOLDOWN_MS: z.coerce
+    .number()
+    .int()
+    .min(60_000)
+    .max(31_536_000_000)
+    .default(604_800_000),
 });
 
 const settingOrder = [
@@ -54,10 +71,17 @@ const settingOrder = [
   'ADMIN_TOTP_DIGITS',
   'ADMIN_TOTP_PERIOD_SECONDS',
   'ADMIN_TOTP_VERIFICATION_WINDOW',
+  'LEARNING_DIGEST_INTERVAL_MS',
+  'LEARNING_QUESTION_COOLDOWN_MS',
+  'LEARNING_MAX_QUESTIONS_PER_DIGEST',
+  'LEARNING_MAX_DIGEST_APPEARANCES',
+  'LEARNING_MINIMUM_GROUP_COUNT',
+  'LEARNING_MAX_OBSERVATIONS_PER_RUN',
 ] as const;
 
 export interface AdminConfig {
   readonly listLimit: number;
+  readonly learningPolicy: LearningPolicy;
   readonly actionTtlMilliseconds: number;
   readonly databaseUrl: string;
   readonly host: '127.0.0.1' | '::1';
@@ -142,9 +166,23 @@ export function loadAdminConfig(
   if (result.data.ADMIN_PREAUTH_TTL_MS >= result.data.ADMIN_SESSION_TTL_MS) {
     fail(['ADMIN_PREAUTH_TTL_MS', 'ADMIN_SESSION_TTL_MS']);
   }
+  if (result.data.LEARNING_QUESTION_COOLDOWN_MS < result.data.LEARNING_DIGEST_INTERVAL_MS) {
+    fail(['LEARNING_DIGEST_INTERVAL_MS', 'LEARNING_QUESTION_COOLDOWN_MS']);
+  }
+  if (result.data.LEARNING_MAX_OBSERVATIONS_PER_RUN < result.data.LEARNING_MINIMUM_GROUP_COUNT) {
+    fail(['LEARNING_MINIMUM_GROUP_COUNT', 'LEARNING_MAX_OBSERVATIONS_PER_RUN']);
+  }
 
   return {
     listLimit: result.data.ADMIN_LIST_LIMIT,
+    learningPolicy: {
+      minimumGroupCount: result.data.LEARNING_MINIMUM_GROUP_COUNT,
+      digestIntervalMilliseconds: result.data.LEARNING_DIGEST_INTERVAL_MS,
+      maximumQuestionsPerDigest: result.data.LEARNING_MAX_QUESTIONS_PER_DIGEST,
+      questionCooldownMilliseconds: result.data.LEARNING_QUESTION_COOLDOWN_MS,
+      maximumDigestAppearances: result.data.LEARNING_MAX_DIGEST_APPEARANCES,
+      maximumObservationsPerRun: result.data.LEARNING_MAX_OBSERVATIONS_PER_RUN,
+    },
     actionTtlMilliseconds: result.data.ADMIN_ACTION_TTL_MS,
     databaseUrl: result.data.DATABASE_URL,
     host,
