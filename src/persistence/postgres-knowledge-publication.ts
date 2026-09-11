@@ -162,7 +162,9 @@ export class PostgresKnowledgePublication {
          join knowledge_versions as version on version.id = event.version_id
          where item.item_key = $1
            and event.action <> 'retire'
-           and version.state = 'approved'`,
+           and version.state = 'approved'
+           and version.decided_at is not null
+           and version.decided_at <= $2`,
         [parsedItemKey.data, evaluatedAt],
       );
       const row = selected.rows[0];
@@ -195,6 +197,8 @@ export class PostgresKnowledgePublication {
          where item.kind = $1
            and event.action <> 'retire'
            and version.state = 'approved'
+           and version.decided_at is not null
+           and version.decided_at <= $2
          order by item.item_key`,
         [parsedKind.data, evaluatedAt],
       );

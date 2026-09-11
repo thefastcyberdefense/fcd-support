@@ -315,12 +315,12 @@
 
 **Steps:**
 
-- [ ] Write pure ranking tests for exact precedence, strong single score, close-score ambiguity, below-threshold miss, language selection, and deterministic ties.
-- [ ] Write integration tests with approved published/future/retired/rejected/incomplete bilingual versions proving only one effective eligible version can answer.
-- [ ] Run focused tests and confirm failures before implementation.
-- [ ] Implement query and pure decision layers with bounded candidate count and no model dependency.
-- [ ] Run focused tests, migration tests, `npm run check`, and all guarded PostgreSQL tests.
-- [ ] Commit with `feat: implement published faq first resolution` and push `main`.
+- [x] Write pure ranking tests for exact precedence, strong single score, close-score ambiguity, below-threshold miss, language selection, and deterministic ties.
+- [x] Write integration tests with approved published/future/retired/rejected/incomplete bilingual versions proving only one effective eligible version can answer.
+- [x] Run focused tests and confirm failures before implementation.
+- [x] Implement query and pure decision layers with bounded candidate count and no model dependency.
+- [x] Run focused tests, migration tests, `npm run check`, and all guarded PostgreSQL tests.
+- [x] Commit with `feat: implement published faq first resolution` and push `main`.
 
 ## Task 12: Add the Phase 4 reply-decision boundary and Phase 3 guards
 

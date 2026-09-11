@@ -10,6 +10,7 @@ import {
 const defaultPolicy: SensitiveDataPolicy = Object.freeze({
   maximumInputCodePoints: 4000,
 });
+const issuedInspections = new WeakSet<object>();
 
 const markerByCategory: Readonly<
   Record<SensitiveDataCategory, SensitiveRedactionMarker['marker']>
@@ -123,6 +124,15 @@ interface SensitiveMatch {
   readonly start: number;
 }
 
+function issueInspection<T extends SensitiveTextInspection>(inspection: T): T {
+  issuedInspections.add(inspection);
+  return inspection;
+}
+
+export function isIssuedSensitiveTextInspection(input: unknown): input is SensitiveTextInspection {
+  return typeof input === 'object' && input !== null && issuedInspections.has(input);
+}
+
 function containsUnpairedSurrogate(value: string): boolean {
   for (let index = 0; index < value.length; index += 1) {
     const current = value.charCodeAt(index);
@@ -153,13 +163,15 @@ function blocked(
   const markers = uniqueCategories.map((category) =>
     Object.freeze({ category, marker: markerByCategory[category] }),
   );
-  return Object.freeze({
-    status: 'blocked',
-    language,
-    reasonCode,
-    categories: Object.freeze(uniqueCategories),
-    markers: Object.freeze(markers),
-  });
+  return issueInspection(
+    Object.freeze({
+      status: 'blocked',
+      language,
+      reasonCode,
+      categories: Object.freeze(uniqueCategories),
+      markers: Object.freeze(markers),
+    }),
+  );
 }
 
 function findMatches(value: string): readonly SensitiveMatch[] {
@@ -244,14 +256,16 @@ export function inspectSensitiveText(
 
   const matches = findMatches(normalized);
   if (matches.length === 0) {
-    return Object.freeze({
-      status: 'safe',
-      language,
-      reasonCode: 'no_sensitive_data',
-      categories: Object.freeze([]),
-      markers: Object.freeze([]),
-      sanitizedText: normalized,
-    });
+    return issueInspection(
+      Object.freeze({
+        status: 'safe',
+        language,
+        reasonCode: 'no_sensitive_data',
+        categories: Object.freeze([]),
+        markers: Object.freeze([]),
+        sanitizedText: normalized,
+      }),
+    );
   }
 
   const categories = matches.map(({ category }) => category);
@@ -267,17 +281,19 @@ export function inspectSensitiveText(
 
   const category = matches[0]?.category;
   if (category === undefined) return blocked(language, 'redaction_ambiguous');
-  return Object.freeze({
-    status: 'redacted',
-    language,
-    reasonCode: 'sensitive_value_redacted',
-    categories: Object.freeze([category]),
-    markers: Object.freeze([
-      Object.freeze({
-        category,
-        marker: markerByCategory[category],
-      }),
-    ]),
-    sanitizedText,
-  });
+  return issueInspection(
+    Object.freeze({
+      status: 'redacted',
+      language,
+      reasonCode: 'sensitive_value_redacted',
+      categories: Object.freeze([category]),
+      markers: Object.freeze([
+        Object.freeze({
+          category,
+          marker: markerByCategory[category],
+        }),
+      ]),
+      sanitizedText,
+    }),
+  );
 }
