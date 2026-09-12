@@ -260,6 +260,9 @@ export const ACCESS_EXPORT_CATEGORIES = Object.freeze([
   'consent_history',
   'privacy_requests',
   'privacy_checklist',
+  'support_reply_drafts',
+  'knowledge_gap_observations',
+  'support_escalation_outcomes',
 ] as const);
 
 export type AccessExportCategory = (typeof ACCESS_EXPORT_CATEGORIES)[number];
@@ -346,13 +349,54 @@ export interface AccessPrivacyChecklistRecord {
   readonly state: 'completed' | 'failed' | 'not_applicable' | 'pending';
 }
 
+export interface AccessSupportReplyDraftRecord {
+  readonly answerText: string | null;
+  readonly createdAt: Date;
+  readonly decisionType: 'faq' | 'model' | 'safe_failure';
+  readonly draftRef: string;
+  readonly erasedAt: Date | null;
+  readonly knowledgeVersionRef: string | null;
+  readonly language: 'bn' | 'en';
+  readonly state: 'erased' | 'ready';
+}
+
+export interface AccessKnowledgeGapObservationRecord {
+  readonly createdAt: Date;
+  readonly erasedAt: Date | null;
+  readonly gapKind:
+    | 'bilingual_coverage_gap'
+    | 'escalation'
+    | 'faq_ambiguous'
+    | 'faq_miss'
+    | 'human_correction'
+    | 'repeated_topic'
+    | 'unsupported_model_claim';
+  readonly language: 'bn' | 'en';
+  readonly observationRef: string;
+  readonly sanitizedSummary: string | null;
+}
+
+export interface AccessSupportEscalationOutcomeRecord {
+  readonly acknowledgedAt: Date | null;
+  readonly createdAt: Date;
+  readonly escalationRef: string;
+  readonly reasonCode: string;
+  readonly replyDraftRef: string | null;
+  readonly resolvedAt: Date | null;
+  readonly state: 'acknowledged' | 'open' | 'resolved';
+  readonly updatedAt: Date;
+}
+
 export interface AccessExportRecords {
   readonly channel_identities: readonly AccessChannelIdentityRecord[];
   readonly consent_history: readonly AccessConsentRecord[];
   readonly conversation_lifecycle: readonly AccessConversationLifecycleRecord[];
   readonly conversations: readonly AccessConversationRecord[];
+  readonly knowledge_gap_observations: readonly AccessKnowledgeGapObservationRecord[];
   readonly privacy_checklist: readonly AccessPrivacyChecklistRecord[];
   readonly privacy_requests: readonly AccessPrivacyRequestRecord[];
+  readonly support_escalation_outcomes: readonly AccessSupportEscalationOutcomeRecord[];
+  readonly support_reply_drafts: readonly AccessSupportReplyDraftRecord[];
   readonly webhook_events: readonly AccessWebhookEventRecord[];
 }
 
@@ -361,7 +405,7 @@ export interface AccessDataExport {
     readonly collectedAt: Date;
     readonly recordCount: number;
     readonly requestRef: string;
-    readonly schemaVersion: 'fcd-support.access.v1';
+    readonly schemaVersion: 'fcd-support.access.v2';
     readonly sourceCategories: readonly AccessExportCategory[];
   };
   readonly records: AccessExportRecords;

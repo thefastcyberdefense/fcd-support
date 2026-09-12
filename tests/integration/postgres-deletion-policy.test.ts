@@ -732,7 +732,7 @@ describe('PostgresDeletionPolicy approved local erasure', () => {
     const requestedAt = new Date('2026-08-31T06:00:00.000Z');
     const prepared = await prepareDeletionRequest({ fixtureKey: 'execute', requestedAt });
     const messengerIdentity = identity('execute-linked', 'messenger');
-    await insertSyntheticAppliedCustomerEvent(pool, {
+    const linkedMessage = await insertSyntheticAppliedCustomerEvent(pool, {
       fixtureKey: 'execute-linked-message',
       identity: messengerIdentity,
       messageText: 'Synthetic linked Messenger content',
@@ -820,6 +820,26 @@ describe('PostgresDeletionPolicy approved local erasure', () => {
       }),
       supportReviewer,
     );
+    await pool.query(
+      `insert into support_reply_drafts
+        (draft_ref, source_webhook_event_id, conversation_id, decision_type,
+         language, answer_text, state, retention_deadline, request_key, created_at)
+       select 'DRAFT_TEST_deletion_erasure', $1, $2, 'safe_failure', 'en',
+              'Synthetic pending reply content.', 'ready', expires_at,
+              'REQUEST_TEST_deletion_draft', $3
+       from conversation_retention_states where conversation_id = $2`,
+      [confirmation.eventId, confirmation.conversationId, new Date('2026-08-31T06:03:30.000Z')],
+    );
+    await pool.query(
+      `insert into knowledge_gap_observations
+        (observation_ref, source_webhook_event_id, conversation_id, language,
+         gap_kind, sanitized_summary, retention_deadline, request_key, created_at)
+       select 'GAP_TEST_deletion_erasure', $1, $2, 'en', 'faq_miss',
+              'No reviewed FAQ matched.', expires_at,
+              'REQUEST_TEST_deletion_gap', $3
+       from conversation_retention_states where conversation_id = $2`,
+      [linkedMessage.eventId, linkedMessage.conversationId, new Date('2026-08-31T06:03:30.000Z')],
+    );
 
     const result = await prepared.policy.executeApprovedRequest({
       executedAt: new Date('2026-08-31T06:04:00.000Z'),
@@ -884,6 +904,28 @@ describe('PostgresDeletionPolicy approved local erasure', () => {
         message_text: null,
       });
     }
+    const phase4Content = await pool.query(
+      `select
+         (select state from support_reply_drafts
+          where draft_ref = 'DRAFT_TEST_deletion_erasure') as draft_state,
+         (select answer_text from support_reply_drafts
+          where draft_ref = 'DRAFT_TEST_deletion_erasure') as draft_text,
+         (select erased_at is not null from support_reply_drafts
+          where draft_ref = 'DRAFT_TEST_deletion_erasure') as draft_erased,
+         (select sanitized_summary from knowledge_gap_observations
+          where observation_ref = 'GAP_TEST_deletion_erasure') as gap_summary,
+         (select erased_at is not null from knowledge_gap_observations
+          where observation_ref = 'GAP_TEST_deletion_erasure') as gap_erased`,
+    );
+    expect(phase4Content.rows).toEqual([
+      {
+        draft_erased: true,
+        draft_state: 'erased',
+        draft_text: null,
+        gap_erased: true,
+        gap_summary: null,
+      },
+    ]);
     const request = await pool.query(
       `select state, contact_id, source_webhook_event_id
        from privacy_requests where request_ref = $1`,

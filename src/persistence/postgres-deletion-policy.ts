@@ -306,7 +306,12 @@ export class PostgresDeletionPolicy {
         tombstonesCreated += inserted.rowCount ?? 0;
       }
 
-      const erasure = await eraseLockedIdentities(client, this.keyring, identities.rows);
+      const erasure = await eraseLockedIdentities(
+        client,
+        this.keyring,
+        identities.rows,
+        command.executedAt,
+      );
       await client.query(
         `update privacy_request_locations
          set state = 'completed',

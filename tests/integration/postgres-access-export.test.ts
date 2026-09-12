@@ -71,6 +71,7 @@ const otherIdentity = {
 interface ApprovedAccessFixture {
   readonly otherMarker: string;
   readonly receiptHash: string;
+  readonly replyMarker: string;
   readonly requestRef: string;
   readonly sensitiveMarker: string;
   readonly subjectMarker: string;
@@ -96,6 +97,7 @@ async function prepareApprovedAccessFixture(): Promise<ApprovedAccessFixture> {
   const sensitiveMarker = 'SYNTHETIC_ACCESS_SECRET_DO_NOT_USE';
   const otherMarker = 'Synthetic unrelated contact detail';
   const thirdPartyMarker = 'Synthetic third-party contact-card detail';
+  const replyMarker = 'Synthetic Phase 4 reply for the subject';
   const source = await insertSyntheticAppliedCustomerEvent(pool, {
     fixtureKey: 'access-subject-request',
     identity: subjectWhatsApp,
@@ -153,18 +155,57 @@ async function prepareApprovedAccessFixture(): Promise<ApprovedAccessFixture> {
       new Date('2026-08-31T08:02:00.000Z'),
     ],
   );
-  await insertSyntheticAppliedCustomerEvent(pool, {
+  const linkedSource = await insertSyntheticAppliedCustomerEvent(pool, {
     fixtureKey: 'access-subject-linked-message',
     identity: subjectMessenger,
     messageText: subjectMarker,
     occurredAt: new Date('2026-08-31T08:02:00.000Z'),
   });
-  await insertSyntheticAppliedCustomerEvent(pool, {
+  const sensitiveSource = await insertSyntheticAppliedCustomerEvent(pool, {
     fixtureKey: 'access-subject-sensitive-message',
     identity: subjectMessenger,
     messageText: `Password: ${sensitiveMarker}`,
     occurredAt: new Date('2026-08-31T08:02:30.000Z'),
   });
+  const replyDraft = await pool.query<{ readonly id: string }>(
+    `insert into support_reply_drafts
+      (draft_ref, source_webhook_event_id, conversation_id, decision_type,
+       language, answer_text, state, retention_deadline, request_key, created_at)
+     select 'DRAFT_TEST_access_subject', $1, $2, 'safe_failure', 'en', $3,
+            'ready', expires_at, 'REQUEST_TEST_access_subject_draft', $4
+     from conversation_retention_states where conversation_id = $2
+     returning id`,
+    [
+      linkedSource.eventId,
+      linkedSource.conversationId,
+      replyMarker,
+      new Date('2026-08-31T08:02:40.000Z'),
+    ],
+  );
+  await pool.query(
+    `insert into support_escalation_outcomes
+      (escalation_ref, conversation_id, source_webhook_event_id, reply_draft_id,
+       reason_code, state, request_key, created_at, updated_at)
+     values ('ESCALATION_TEST_access_subject', $1, $2, $3,
+             'sensitive_data_blocked', 'open',
+             'REQUEST_TEST_access_subject_escalation', $4, $4)`,
+    [
+      linkedSource.conversationId,
+      linkedSource.eventId,
+      replyDraft.rows[0]?.id,
+      new Date('2026-08-31T08:02:40.000Z'),
+    ],
+  );
+  await pool.query(
+    `insert into knowledge_gap_observations
+      (observation_ref, source_webhook_event_id, conversation_id, language,
+       gap_kind, sanitized_summary, retention_deadline, request_key, created_at)
+     select 'GAP_TEST_access_subject', $1, $2, 'en', 'faq_miss',
+            'No reviewed FAQ matched.', expires_at,
+            'REQUEST_TEST_access_subject_gap', $3
+     from conversation_retention_states where conversation_id = $2`,
+    [sensitiveSource.eventId, sensitiveSource.conversationId, new Date('2026-08-31T08:02:45.000Z')],
+  );
   await new PostgresConsentPolicy(pool, syntheticPrivacyKeyring).recordReviewerCommand(
     {
       action: 'grant',
@@ -227,6 +268,7 @@ async function prepareApprovedAccessFixture(): Promise<ApprovedAccessFixture> {
   return {
     otherMarker,
     receiptHash,
+    replyMarker,
     requestRef: opened.requestRef,
     sensitiveMarker,
     subjectMarker,
@@ -255,6 +297,9 @@ async function relevantTableCounts(): Promise<Record<string, number>> {
        'privacy_request_locations', (select count(*)::int from privacy_request_locations),
        'privacy_request_events', (select count(*)::int from privacy_request_events),
        'privacy_suppressions', (select count(*)::int from privacy_suppressions),
+       'support_reply_drafts', (select count(*)::int from support_reply_drafts),
+       'knowledge_gap_observations', (select count(*)::int from knowledge_gap_observations),
+       'support_escalation_outcomes', (select count(*)::int from support_escalation_outcomes),
        'privacy_access_runs', (select count(*)::int from privacy_access_runs)
      ) as counts`,
   );
@@ -300,7 +345,7 @@ describe('PostgresAccessExport', () => {
       expect(result.export.manifest).toMatchObject({
         collectedAt: new Date('2026-08-31T08:10:00.000Z'),
         requestRef: fixture.requestRef,
-        schemaVersion: 'fcd-support.access.v1',
+        schemaVersion: 'fcd-support.access.v2',
         sourceCategories: ACCESS_EXPORT_CATEGORIES,
       });
       expect(result.export.records.channel_identities).toHaveLength(2);
@@ -310,7 +355,10 @@ describe('PostgresAccessExport', () => {
       expect(result.export.records.consent_history).toHaveLength(1);
       expect(result.export.records.privacy_requests).toHaveLength(1);
       expect(result.export.records.privacy_checklist).toHaveLength(7);
-      expect(result.export.manifest.recordCount).toBe(18);
+      expect(result.export.records.support_reply_drafts).toHaveLength(1);
+      expect(result.export.records.knowledge_gap_observations).toHaveLength(1);
+      expect(result.export.records.support_escalation_outcomes).toHaveLength(1);
+      expect(result.export.manifest.recordCount).toBe(21);
 
       const serializationInputs: unknown[] = [];
       for (const call of stringifySpy.mock.calls) {
@@ -335,6 +383,9 @@ describe('PostgresAccessExport', () => {
       expect(serialized).toContain('[REDACTED SENSITIVE MESSAGE]');
       expect(serialized).not.toContain(fixture.sensitiveMarker);
       expect(serialized).toContain('Synthetic approved subject consent wording');
+      expect(serialized).toContain(fixture.replyMarker);
+      expect(serialized).toContain('No reviewed FAQ matched.');
+      expect(serialized).toContain('sensitive_data_blocked');
       expect(serialized).not.toContain(otherIdentity.externalContactId);
       expect(serialized).not.toContain(fixture.otherMarker);
       expect(serialized).not.toContain(fixture.thirdPartyMarker);

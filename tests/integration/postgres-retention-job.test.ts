@@ -191,6 +191,39 @@ describe('PostgresRetentionJob exact boundaries and preservation', () => {
       },
       supportReviewer,
     );
+    const gapEventId = await insertSyntheticPendingEvent(pool, {
+      channel: 'messenger',
+      channelAccountId: conversation.channelAccountId,
+      contactId: conversation.externalContactId,
+      eventKind: 'customer_message',
+      fixtureKey: 'casual-boundary-preservation-gap',
+      messageText: 'Synthetic retention job gap source',
+      occurredAt: anchorAt,
+    });
+    await new PostgresConversationEventProcessor(pool).processEvent(gapEventId);
+    await pool.query(
+      `insert into support_reply_drafts
+        (draft_ref, source_webhook_event_id, conversation_id, decision_type,
+         language, answer_text, state, retention_deadline, request_key, created_at)
+       values ('DRAFT_TEST_retention_erasure', $1, $2, 'safe_failure', 'en',
+               'Synthetic expiring reply content.', 'ready', $3,
+               'REQUEST_TEST_retention_draft', $4)`,
+      [
+        conversation.eventId,
+        conversation.conversationId,
+        expiresAt,
+        new Date(anchorAt.getTime() + 120_000),
+      ],
+    );
+    await pool.query(
+      `insert into knowledge_gap_observations
+        (observation_ref, source_webhook_event_id, conversation_id, language,
+         gap_kind, sanitized_summary, retention_deadline, request_key, created_at)
+       values ('GAP_TEST_retention_erasure', $1, $2, 'en', 'faq_miss',
+               'No reviewed FAQ matched.', $3,
+               'REQUEST_TEST_retention_gap', $4)`,
+      [gapEventId, conversation.conversationId, expiresAt, new Date(anchorAt.getTime() + 120_000)],
+    );
     const beforeCounts = await readPreservedCounts();
 
     await expect(
@@ -228,7 +261,7 @@ describe('PostgresRetentionJob exact boundaries and preservation', () => {
       }),
     ).resolves.toEqual({
       conversationsProcessed: 1,
-      messagesPurged: 1,
+      messagesPurged: 2,
       status: 'applied',
     });
 
@@ -238,13 +271,36 @@ describe('PostgresRetentionJob exact boundaries and preservation', () => {
     }>(
       `select id, message_text
        from webhook_events
-       where id in ($1, $2)
+       where id in ($1, $2, $3)
        order by id`,
-      [conversation.eventId, laterEchoId],
+      [conversation.eventId, laterEchoId, gapEventId],
     );
     expect(content.rows).toEqual([
       { id: conversation.eventId, message_text: null },
       { id: laterEchoId, message_text: 'Synthetic retention job later business echo' },
+      { id: gapEventId, message_text: null },
+    ]);
+    const phase4Content = await pool.query(
+      `select
+         (select state from support_reply_drafts
+          where draft_ref = 'DRAFT_TEST_retention_erasure') as draft_state,
+         (select answer_text from support_reply_drafts
+          where draft_ref = 'DRAFT_TEST_retention_erasure') as draft_text,
+         (select erased_at from support_reply_drafts
+          where draft_ref = 'DRAFT_TEST_retention_erasure') as draft_erased_at,
+         (select sanitized_summary from knowledge_gap_observations
+          where observation_ref = 'GAP_TEST_retention_erasure') as gap_summary,
+         (select erased_at from knowledge_gap_observations
+          where observation_ref = 'GAP_TEST_retention_erasure') as gap_erased_at`,
+    );
+    expect(phase4Content.rows).toEqual([
+      {
+        draft_erased_at: expiresAt,
+        draft_state: 'erased',
+        draft_text: null,
+        gap_erased_at: expiresAt,
+        gap_summary: null,
+      },
     ]);
     const state = await pool.query<{
       readonly anchor_at: Date;
@@ -264,6 +320,46 @@ describe('PostgresRetentionJob exact boundaries and preservation', () => {
       lifecycle_class: 'casual_chat',
     });
     await expect(readPreservedCounts()).resolves.toEqual(beforeCounts);
+  });
+
+  test('lets the current conversation deadline override a stale later Phase 4 artifact deadline', async () => {
+    const anchorAt = new Date('2026-01-01T00:00:00.000Z');
+    const conversation = await applyCustomerMessage({
+      fixtureKey: 'retention-reclassification-artifact',
+      occurredAt: anchorAt,
+    });
+    await pool.query(
+      `insert into support_reply_drafts
+        (draft_ref, source_webhook_event_id, conversation_id, decision_type,
+         language, answer_text, state, retention_deadline, request_key, created_at)
+       values ('DRAFT_TEST_retention_reclassified', $1, $2, 'safe_failure', 'en',
+               'Synthetic stale-deadline content.', 'ready', $3,
+               'REQUEST_TEST_retention_reclassified', $4)`,
+      [
+        conversation.eventId,
+        conversation.conversationId,
+        new Date('2027-01-01T00:00:00.000Z'),
+        new Date('2026-01-01T00:01:00.000Z'),
+      ],
+    );
+
+    await new PostgresRetentionJob(pool).runExpiredContentBatch({
+      evaluatedAt: new Date('2026-03-02T00:00:00.000Z'),
+      limit: 10,
+      requestKey: 'job-test-reclassified-artifact',
+    });
+
+    const stored = await pool.query(
+      `select answer_text, state, erased_at from support_reply_drafts
+       where draft_ref = 'DRAFT_TEST_retention_reclassified'`,
+    );
+    expect(stored.rows).toEqual([
+      {
+        answer_text: null,
+        erased_at: new Date('2026-03-02T00:00:00.000Z'),
+        state: 'erased',
+      },
+    ]);
   });
 });
 

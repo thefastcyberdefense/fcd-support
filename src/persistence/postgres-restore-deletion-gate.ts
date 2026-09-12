@@ -100,7 +100,12 @@ export class PostgresRestoreDeletionGate {
       const identities = await this.lockRawIdentities(client);
       const matches = this.findMatches(identities, tombstones, command.requiredKeyVersions);
       const selected = matches.slice(0, command.limit);
-      const erasure = await eraseLockedIdentities(client, this.keyring, selected);
+      const erasure = await eraseLockedIdentities(
+        client,
+        this.keyring,
+        selected,
+        command.evaluatedAt,
+      );
       const remainingMatches = matches.length - selected.length;
       await client.query(
         `insert into restore_deletion_gates

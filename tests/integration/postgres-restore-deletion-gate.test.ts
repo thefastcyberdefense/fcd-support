@@ -136,6 +136,46 @@ describe('PostgresRestoreDeletionGate reconciliation', () => {
       'survivor',
       new Date(effectiveAt.getTime() + 2_000),
     );
+    const restoredDraftSource = await insertSyntheticAppliedCustomerEvent(pool, {
+      fixtureKey: 'restore-first-draft',
+      identity: first,
+      messageText: 'Synthetic restored draft source content',
+      occurredAt: new Date(effectiveAt.getTime() + 3_000),
+    });
+    const restoredGapSource = await insertSyntheticAppliedCustomerEvent(pool, {
+      fixtureKey: 'restore-first-gap',
+      identity: first,
+      messageText: 'Synthetic restored gap source content',
+      occurredAt: new Date(effectiveAt.getTime() + 4_000),
+    });
+    await pool.query(
+      `insert into support_reply_drafts
+        (draft_ref, source_webhook_event_id, conversation_id, decision_type,
+         language, answer_text, state, retention_deadline, request_key, created_at)
+       select 'DRAFT_TEST_restore_erasure', $1, $2, 'safe_failure', 'en',
+              'Synthetic restored pending reply.', 'ready', expires_at,
+              'REQUEST_TEST_restore_draft', $3
+       from conversation_retention_states where conversation_id = $2`,
+      [
+        restoredDraftSource.eventId,
+        restoredDraftSource.conversationId,
+        new Date(effectiveAt.getTime() + 5_000),
+      ],
+    );
+    await pool.query(
+      `insert into knowledge_gap_observations
+        (observation_ref, source_webhook_event_id, conversation_id, language,
+         gap_kind, sanitized_summary, retention_deadline, request_key, created_at)
+       select 'GAP_TEST_restore_erasure', $1, $2, 'en', 'faq_miss',
+              'No reviewed FAQ matched.', expires_at,
+              'REQUEST_TEST_restore_gap', $3
+       from conversation_retention_states where conversation_id = $2`,
+      [
+        restoredGapSource.eventId,
+        restoredGapSource.conversationId,
+        new Date(effectiveAt.getTime() + 5_000),
+      ],
+    );
     await insertTombstone(first, 'test-v1', effectiveAt);
     await insertTombstone(second, 'test-v2', effectiveAt);
     const gate = new PostgresRestoreDeletionGate(pool, keyring);
@@ -158,6 +198,29 @@ describe('PostgresRestoreDeletionGate reconciliation', () => {
       channel_account_id: second.channelAccountId,
       external_contact_id: second.externalContactId,
     });
+    const erasedPhase4 = await pool.query(
+      `select
+         (select state from support_reply_drafts
+          where draft_ref = 'DRAFT_TEST_restore_erasure') as draft_state,
+         (select answer_text from support_reply_drafts
+          where draft_ref = 'DRAFT_TEST_restore_erasure') as draft_text,
+         (select sanitized_summary from knowledge_gap_observations
+          where observation_ref = 'GAP_TEST_restore_erasure') as gap_summary,
+         (select count(*)::int from support_reply_drafts
+          where draft_ref = 'DRAFT_TEST_restore_erasure' and erased_at = $1) as exact_draft_erasure,
+         (select count(*)::int from knowledge_gap_observations
+          where observation_ref = 'GAP_TEST_restore_erasure' and erased_at = $1) as exact_gap_erasure`,
+      [new Date('2026-08-31T07:01:00.000Z')],
+    );
+    expect(erasedPhase4.rows).toEqual([
+      {
+        draft_state: 'erased',
+        draft_text: null,
+        exact_draft_erasure: 1,
+        exact_gap_erasure: 1,
+        gap_summary: null,
+      },
+    ]);
 
     await expect(
       gate.reapplyBatch(

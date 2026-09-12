@@ -28,6 +28,7 @@ export async function eraseLockedIdentities(
   client: pg.PoolClient,
   keyring: PrivacyHmacKeyring,
   identities: readonly LockedDeletionIdentity[],
+  erasedAt: Date,
 ): Promise<LocalIdentityErasureResult> {
   if (identities.length === 0) {
     return { conversationsProcessed: 0, identitiesPseudonymized: 0, messagesCleared: 0 };
@@ -42,6 +43,19 @@ export async function eraseLockedIdentities(
      order by id
      for update`,
     [identityIds],
+  );
+  const conversationIds = conversations.rows.map((conversation) => conversation.id);
+  await client.query(
+    `update support_reply_drafts
+     set answer_text = null, state = 'erased', erased_at = $2
+     where conversation_id = any($1::bigint[]) and state = 'ready'`,
+    [conversationIds, erasedAt],
+  );
+  await client.query(
+    `update knowledge_gap_observations
+     set sanitized_summary = null, erased_at = $2
+     where conversation_id = any($1::bigint[]) and erased_at is null`,
+    [conversationIds, erasedAt],
   );
   const subjectEvents = await client.query<SubjectEventRow>(
     `with matched_events as (
@@ -99,7 +113,7 @@ export async function eraseLockedIdentities(
          updated_at = now(),
          row_version = row_version + 1
      where id = any($1::bigint[])`,
-    [conversations.rows.map((conversation) => conversation.id)],
+    [conversationIds],
   );
   for (const identity of identities) {
     await client.query(

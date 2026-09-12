@@ -9,8 +9,11 @@ import type {
   AccessDataExportResult,
   AccessExportCategory,
   AccessExportRecords,
+  AccessKnowledgeGapObservationRecord,
   AccessPrivacyChecklistRecord,
   AccessPrivacyRequestRecord,
+  AccessSupportEscalationOutcomeRecord,
+  AccessSupportReplyDraftRecord,
   AccessWebhookEventRecord,
 } from '../policy/policy-types.js';
 import { ACCESS_EXPORT_CATEGORIES } from '../policy/policy-types.js';
@@ -214,6 +217,79 @@ const privacyChecklistCollector = Object.freeze({
   },
 } satisfies AccessCollector<'privacy_checklist', AccessPrivacyChecklistRecord>);
 
+const supportReplyDraftCollector = Object.freeze({
+  name: 'support_reply_drafts',
+  async collect(client: pg.PoolClient, contactId: string) {
+    const result = await client.query<AccessSupportReplyDraftRecord>(
+      `select draft.draft_ref as "draftRef",
+              draft.decision_type as "decisionType",
+              draft.language,
+              draft.answer_text as "answerText",
+              version.version_ref as "knowledgeVersionRef",
+              draft.state,
+              draft.created_at as "createdAt",
+              draft.erased_at as "erasedAt"
+       from support_reply_drafts as draft
+       join conversations as conversation on conversation.id = draft.conversation_id
+       join channel_identities as identity on identity.id = conversation.channel_identity_id
+       left join knowledge_versions as version on version.id = draft.knowledge_version_id
+       where identity.contact_id = $1
+       order by draft.id`,
+      [contactId],
+    );
+    return result.rows.map((row) => ({
+      ...row,
+      answerText: redactAccessMessageText(row.answerText),
+    }));
+  },
+} satisfies AccessCollector<'support_reply_drafts', AccessSupportReplyDraftRecord>);
+
+const knowledgeGapObservationCollector = Object.freeze({
+  name: 'knowledge_gap_observations',
+  async collect(client: pg.PoolClient, contactId: string) {
+    const result = await client.query<AccessKnowledgeGapObservationRecord>(
+      `select observation.observation_ref as "observationRef",
+              observation.language,
+              observation.gap_kind as "gapKind",
+              observation.sanitized_summary as "sanitizedSummary",
+              observation.created_at as "createdAt",
+              observation.erased_at as "erasedAt"
+       from knowledge_gap_observations as observation
+       join conversations as conversation on conversation.id = observation.conversation_id
+       join channel_identities as identity on identity.id = conversation.channel_identity_id
+       where identity.contact_id = $1
+       order by observation.id`,
+      [contactId],
+    );
+    return result.rows;
+  },
+} satisfies AccessCollector<'knowledge_gap_observations', AccessKnowledgeGapObservationRecord>);
+
+const supportEscalationOutcomeCollector = Object.freeze({
+  name: 'support_escalation_outcomes',
+  async collect(client: pg.PoolClient, contactId: string) {
+    const result = await client.query<AccessSupportEscalationOutcomeRecord>(
+      `select escalation.escalation_ref as "escalationRef",
+              draft.draft_ref as "replyDraftRef",
+              escalation.reason_code as "reasonCode",
+              escalation.state,
+              escalation.created_at as "createdAt",
+              escalation.updated_at as "updatedAt",
+              escalation.acknowledged_at as "acknowledgedAt",
+              escalation.resolved_at as "resolvedAt"
+       from support_escalation_outcomes as escalation
+       left join support_reply_drafts as draft on draft.id = escalation.reply_draft_id
+       join conversations as conversation
+         on conversation.id = coalesce(escalation.conversation_id, draft.conversation_id)
+       join channel_identities as identity on identity.id = conversation.channel_identity_id
+       where identity.contact_id = $1
+       order by escalation.id`,
+      [contactId],
+    );
+    return result.rows;
+  },
+} satisfies AccessCollector<'support_escalation_outcomes', AccessSupportEscalationOutcomeRecord>);
+
 const productionAccessCollectors = Object.freeze([
   channelIdentityCollector,
   conversationCollector,
@@ -222,6 +298,9 @@ const productionAccessCollectors = Object.freeze([
   consentHistoryCollector,
   privacyRequestCollector,
   privacyChecklistCollector,
+  supportReplyDraftCollector,
+  knowledgeGapObservationCollector,
+  supportEscalationOutcomeCollector,
 ]);
 
 export const ACCESS_EXPORT_COLLECTOR_NAMES: readonly AccessExportCategory[] = Object.freeze(
@@ -324,6 +403,18 @@ export class PostgresAccessExport {
           consent_history: await consentHistoryCollector.collect(client, request.contact_id),
           privacy_requests: await privacyRequestCollector.collect(client, request.contact_id),
           privacy_checklist: await privacyChecklistCollector.collect(client, request.contact_id),
+          support_reply_drafts: await supportReplyDraftCollector.collect(
+            client,
+            request.contact_id,
+          ),
+          knowledge_gap_observations: await knowledgeGapObservationCollector.collect(
+            client,
+            request.contact_id,
+          ),
+          support_escalation_outcomes: await supportEscalationOutcomeCollector.collect(
+            client,
+            request.contact_id,
+          ),
         };
         const totalRecords = recordCount(records);
 
@@ -351,7 +442,7 @@ export class PostgresAccessExport {
               collectedAt: command.collectedAt,
               recordCount: totalRecords,
               requestRef: request.request_ref,
-              schemaVersion: 'fcd-support.access.v1',
+              schemaVersion: 'fcd-support.access.v2',
               sourceCategories: ACCESS_EXPORT_CATEGORIES,
             },
             records,

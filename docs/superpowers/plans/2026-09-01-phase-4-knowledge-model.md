@@ -349,13 +349,13 @@
 
 **Steps:**
 
-- [ ] Write failing unit tests for ordering, no-model FAQ path, hard-block escalation, ambiguity/miss gap creation, and guard-race outcomes using injected ports.
-- [ ] Write failing PostgreSQL tests for exact replay, concurrent claim/draft, takeover/privacy/deletion/suppression races, and no unauthorized draft.
-- [ ] Extend deletion, retention, restore, and access-export tests for all new customer-derived columns and records.
-- [ ] Run focused tests and confirm the expected failures.
-- [ ] Implement the decision service and draft store, then extend Phase 3 privacy services transactionally.
-- [ ] Run focused tests, `npm run check`, and all guarded PostgreSQL tests.
-- [ ] Commit with `feat: integrate faq decisions with policy core` and push `main`.
+- [x] Write failing unit tests for ordering, no-model FAQ path, hard-block escalation, ambiguity/miss gap creation, and guard-race outcomes using injected ports.
+- [x] Write failing PostgreSQL tests for exact replay, concurrent claim/draft, takeover/privacy/deletion/suppression races, and no unauthorized draft.
+- [x] Extend deletion, retention, restore, and access-export tests for all new customer-derived columns and records.
+- [x] Run focused tests and confirm the expected failures.
+- [x] Implement the decision service and draft store, then extend Phase 3 privacy services transactionally.
+- [x] Run focused tests, `npm run check`, and all guarded PostgreSQL tests.
+- [x] Commit with `feat: integrate faq decisions with policy core` and push `main`.
 
 ## Task 13: Add fail-closed Manifest configuration and request/output contracts
 

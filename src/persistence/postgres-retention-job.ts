@@ -109,6 +109,19 @@ export class PostgresRetentionJob {
         messagesPurged += cleared.rowCount ?? 0;
 
         await client.query(
+          `update support_reply_drafts
+           set answer_text = null, state = 'erased', erased_at = $2
+           where conversation_id = $1 and state = 'ready'`,
+          [state.conversation_id, input.evaluatedAt],
+        );
+        await client.query(
+          `update knowledge_gap_observations
+           set sanitized_summary = null, erased_at = $2
+           where conversation_id = $1 and erased_at is null`,
+          [state.conversation_id, input.evaluatedAt],
+        );
+
+        await client.query(
           `update conversation_retention_states
            set content_purged_through_at = $2,
                updated_at = now(),
