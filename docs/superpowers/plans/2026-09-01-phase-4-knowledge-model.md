@@ -379,13 +379,13 @@
 
 **Steps:**
 
-- [ ] Write failing configuration tests for each missing/false attestation, invalid `auto`, public/non-private URL, absent ceilings, and stricter-ceiling semantics.
-- [ ] Write request tests asserting exact keys and recursively proving forbidden tool/provider/function/plugin fields are absent and input is bounded/redacted.
-- [ ] Write output tests for every invalid schema/claim/reference/language/secret/URL/size outcome and valid answer/escalate envelopes.
-- [ ] Run focused tests and confirm failures.
-- [ ] Implement strict parsers/builders; expose only blank secret names and documented non-secret attestations/ceilings in `.env.example`.
-- [ ] Run focused tests, `npm run check`, credential-name/value scans, and `git diff --check`.
-- [ ] Commit with `feat: define fail closed manifest contracts` and push `main`.
+- [x] Write failing configuration tests for each missing/false attestation, invalid `auto`, public/non-private URL, absent ceilings, and stricter-ceiling semantics.
+- [x] Write request tests asserting exact keys and recursively proving forbidden tool/provider/function/plugin fields are absent and input is bounded/redacted.
+- [x] Write output tests for every invalid schema/claim/reference/language/secret/URL/size outcome and valid answer/escalate envelopes.
+- [x] Run focused tests and confirm failures.
+- [x] Implement strict parsers/builders; expose only blank secret names and documented non-secret attestations/ceilings in `.env.example`.
+- [x] Run focused tests, `npm run check`, credential-name/value scans, and `git diff --check`.
+- [x] Commit with `feat: define fail closed manifest contracts` and push `main`.
 
 ## Task 14: Implement the single-attempt Manifest HTTP client with local fakes
 

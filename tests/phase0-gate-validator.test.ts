@@ -159,11 +159,11 @@ describe('Phase 0 gate validator', () => {
     const root = await createFixture();
     const threatPath = join(root, 'docs', 'security', 'threat-model.md');
     const threatModel = await readFile(threatPath, 'utf8');
-    await writeFile(threatPath, threatModel.replace('`docs/PLAN.md:18`', '`docs/PLAN.md:9999`'));
+    await writeFile(threatPath, threatModel.replace('`AGENTS.md:14`', '`AGENTS.md:9999`'));
 
     const result = runValidator(root);
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain('Citation out of range: docs/PLAN.md:9999');
+    expect(result.stderr).toContain('Citation out of range: AGENTS.md:9999');
   });
 });
