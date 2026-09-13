@@ -27,7 +27,7 @@ function isPrivateHostname(hostnameValue: string): boolean {
   return hostname !== 'localhost' && privateSingleLabel.test(hostname);
 }
 
-function isPrivateManifestBaseUrl(value: string): boolean {
+export function isPrivateManifestBaseUrl(value: string): boolean {
   try {
     const url = new URL(value);
     return (

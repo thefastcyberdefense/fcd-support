@@ -1,6 +1,7 @@
 import type { KnowledgeLanguage } from '../knowledge/knowledge-types.js';
 import { isIssuedSensitiveTextInspection } from '../safety/sensitive-data-gate.js';
 import type { SensitiveTextInspection } from '../safety/sensitive-data-types.js';
+import type { ManifestKnowledgeRecord } from './model-types.js';
 
 export interface PreparedManifestText {
   readonly language: KnowledgeLanguage;
@@ -39,6 +40,7 @@ export interface ManifestChatCompletionsRequest {
 }
 
 const preparedTexts = new WeakSet<object>();
+const builtRequests = new WeakMap<object, BuiltManifestRequestContext>();
 const referencePattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 const systemPolicy = [
   'Return exactly one JSON object with decision, language, answer, knowledgeReferences, reasonCode, and needsHumanReview.',
@@ -49,6 +51,18 @@ const systemPolicy = [
   'For an escalation use reasonCode insufficient_published_knowledge or human_review_required, no references, and needsHumanReview true.',
   'Never claim to use tools or to perform an external action. Never reveal or request secrets.',
 ].join(' ');
+
+export interface BuiltManifestRequestContext {
+  readonly knowledge: readonly ManifestKnowledgeRecord[];
+  readonly requiredLanguage: KnowledgeLanguage;
+}
+
+export function readBuiltManifestRequestContext(
+  request: unknown,
+): BuiltManifestRequestContext | undefined {
+  if (typeof request !== 'object' || request === null) return undefined;
+  return builtRequests.get(request);
+}
 
 export function prepareManifestText(inspection: SensitiveTextInspection): PreparedManifestText {
   if (!isIssuedSensitiveTextInspection(inspection)) {
@@ -199,10 +213,23 @@ export function buildManifestRequest(inputValue: unknown): ManifestChatCompletio
     Object.freeze({ content: systemPolicy, role: 'system' as const }),
     Object.freeze({ content: JSON.stringify(payload), role: 'user' as const }),
   ] as const);
-  return Object.freeze({
+  const request = Object.freeze({
     max_tokens: limits.maximumOutputTokens,
     messages,
     model: 'auto',
     stream: false,
   });
+  const knowledge = Object.freeze(
+    publishedKnowledge.map(({ approvedUrls, fact, reference }) =>
+      Object.freeze({ approvedUrls: Object.freeze([...approvedUrls]), fact, reference }),
+    ),
+  );
+  builtRequests.set(
+    request,
+    Object.freeze({
+      knowledge,
+      requiredLanguage: input.language,
+    }),
+  );
+  return request;
 }

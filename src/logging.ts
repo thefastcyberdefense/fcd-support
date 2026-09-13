@@ -4,6 +4,8 @@ export type SafeLogEvent =
   | 'admin_service_start_failed'
   | 'admin_service_started'
   | 'database_pool_error'
+  | 'manifest_request_completed'
+  | 'manifest_request_failed'
   | 'meta_verification_accepted'
   | 'meta_verification_rejected'
   | 'meta_webhook_accepted'
@@ -14,11 +16,20 @@ export type SafeLogEvent =
 export type SafeLogReason =
   | 'csrf_denied'
   | 'invalid_origin'
+  | 'invalid_envelope'
+  | 'invalid_request'
   | 'invalid_body'
   | 'invalid_json'
   | 'invalid_signature'
   | 'invalid_verification'
-  | 'receipt_unavailable';
+  | 'malformed_body'
+  | 'network_failure'
+  | 'non_2xx'
+  | 'oversized_body'
+  | 'provider_exhausted'
+  | 'receipt_unavailable'
+  | 'timeout'
+  | 'aborted';
 
 export interface SafeLogContext {
   readonly channel?: 'messenger' | 'unknown' | 'whatsapp';
@@ -47,6 +58,8 @@ const safeEvents = new Set<SafeLogEvent>([
   'admin_service_start_failed',
   'admin_service_started',
   'database_pool_error',
+  'manifest_request_completed',
+  'manifest_request_failed',
   'meta_verification_accepted',
   'meta_verification_rejected',
   'meta_webhook_accepted',
@@ -58,11 +71,20 @@ const safeEvents = new Set<SafeLogEvent>([
 const safeReasons = new Set<SafeLogReason>([
   'csrf_denied',
   'invalid_origin',
+  'invalid_envelope',
+  'invalid_request',
   'invalid_body',
   'invalid_json',
   'invalid_signature',
   'invalid_verification',
+  'malformed_body',
+  'network_failure',
+  'non_2xx',
+  'oversized_body',
+  'provider_exhausted',
   'receipt_unavailable',
+  'timeout',
+  'aborted',
 ]);
 
 const safeChannels = new Set<NonNullable<SafeLogContext['channel']>>([

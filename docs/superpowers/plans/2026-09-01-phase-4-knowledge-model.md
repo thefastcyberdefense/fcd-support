@@ -405,12 +405,12 @@
 
 **Steps:**
 
-- [ ] Build an in-process loopback HTTP fake that captures only sanitized request structure and never accepts or records real secrets.
-- [ ] Write failing contract tests for URL/path, auth header presence without value snapshots, `auto`, no tools/provider fields, redacted input, timeout/abort, one request only, non-2xx, malformed/oversized bodies, and valid structured output.
-- [ ] Run focused tests and confirm failures.
-- [ ] Implement the client with injected `fetch`, timers, and safe logger events.
-- [ ] Run focused tests and `npm run check`.
-- [ ] Commit with `feat: add tool free manifest http client` and push `main`.
+- [x] Build an in-process loopback HTTP fake that captures only sanitized request structure and never accepts or records real secrets.
+- [x] Write failing contract tests for URL/path, auth header presence without value snapshots, `auto`, no tools/provider fields, redacted input, timeout/abort, one request only, non-2xx, malformed/oversized bodies, and valid structured output.
+- [x] Run focused tests and confirm failures.
+- [x] Implement the client with injected `fetch`, timers, and safe logger events.
+- [x] Run focused tests and `npm run check`.
+- [x] Commit with `feat: add tool free manifest http client` and push `main`.
 
 ## Task 15: Add customizable model policy, usage, and lease schema
 

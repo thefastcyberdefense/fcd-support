@@ -44,4 +44,22 @@ describe('privacy-safe structured logging', () => {
     expect(lines).toHaveLength(1);
     expect(lines[0]).not.toContain('SYNTHETIC_CUSTOMER_CONTENT_MUST_NOT_APPEAR');
   });
+
+  test('allows only closed Manifest client events and failure reasons', () => {
+    const lines: string[] = [];
+    const logger = createSafeLogger({ write: (line) => lines.push(line) });
+
+    logger.warn('manifest_request_failed', {
+      reason: 'provider_exhausted',
+      requestId: 'VERSION_TEST_manifest_log',
+      statusCode: 429,
+    });
+
+    expect(JSON.parse(lines[0] ?? '{}')).toMatchObject({
+      event: 'manifest_request_failed',
+      reason: 'provider_exhausted',
+      requestId: 'VERSION_TEST_manifest_log',
+      statusCode: 429,
+    });
+  });
 });
