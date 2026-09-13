@@ -1,6 +1,6 @@
 # Project Context
 
-Last reviewed: 2026-09-11 (Asia/Dhaka)
+Last reviewed: 2026-09-13 (Asia/Dhaka)
 
 ## Confirmed Decisions
 
@@ -69,7 +69,7 @@ All secret values are intentionally absent from this repository. Create them dur
 
 ## Current Phase 4 Checkpoint
 
-- Approved plan Tasks 1 through 15 are locally complete: knowledge schema/repository/publication, admin and learning schema, password/MFA/session primitives, PostgreSQL identity, the loopback-only dashboard foundation, proposal-only learning with owner questions, the fail-closed sensitive-data gate, FAQ-first resolution, the guarded reply-decision boundary, local fail-closed Manifest contracts/client, and the authoritative customizable model-policy schema.
+- Approved plan Tasks 1 through 16 are locally complete: knowledge schema/repository/publication, admin and learning schema, password/MFA/session primitives, PostgreSQL identity, the loopback-only dashboard foundation, proposal-only learning with owner questions, the fail-closed sensitive-data gate, FAQ-first resolution, the guarded reply-decision boundary, local fail-closed Manifest contracts/client, and authoritative customizable model-policy enforcement.
 - The private service supports reviewed bilingual proposals, provenance, replacements, submit/approve/reject, exact-version publication/scheduling/retirement/rollback, stable retry material, and transactional session/role checks. Public webhook routes remain unchanged.
 - Proposal-only learning accepts only applied internal customer events, stores closed content-minimized gap evidence, suppresses groups below the configured distinct-person threshold, inherits the earliest retention deadline, and reuses stable open questions across repeated aggregate runs while allowing a new generation after a terminal answer or dismissal. Aggregation rechecks current privacy holds, deletion state, and purging. Digest cadence, maximum questions, cooldown, repeat ceiling, group threshold, and observation bound are environment-configurable inside approved safety bounds.
 - Authenticated knowledge editors answer English/Bangla owner questions through the private dashboard. Each answer creates an append-only answer record and a `support_gap` draft proposal; no review or publication event is created.
@@ -80,13 +80,15 @@ All secret values are intentionally absent from this repository. Create them dur
 - Manifest request construction accepts only process-issued sanitized text, preserves injection as user data, fixes `model: "auto"`, bounds all content, and emits no tool/provider/fallback fields. Structured output is byte-bounded and strict, with closed rejections for schema, reference, factual grounding, language, secret, URL, and action claims in English/Bangla.
 - The Manifest HTTP client accepts only builder-issued requests and snapshots validated settings. It makes exactly one non-streaming POST to the configured private `/v1/chat/completions` endpoint, rejects redirects and tool-call responses, bounds bytes before JSON parsing, never reads/logs error bodies, races transport/body reads against caller abort and total timeout, and returns only closed local outcomes. The loopback fake records structure and booleans only and rejects non-synthetic authorization values.
 - Migration eleven stores immutable model-policy versions and append-only submit/approve/activate/retire evidence. Operational and FAQ limits have no database defaults; active policy is unique, provider attempts cannot exceed the architecture ceiling, usage windows are closed and pseudonymous, and leases contain only internal references, closed lifecycle/outcome values, and timestamps. Populated downgrade fails closed.
-- Validation on 2026-09-13: `npm run check` passed 450 unit tests across 36 files plus formatting, lint, strict type checking, build, and the Phase 0 validator; all 319 guarded PostgreSQL tests across 23 files passed. No browser run, deployment, Manifest call, provider call, external mutation, or production action was performed. Detailed evidence: `docs/testing/phase-4-model-policy-schema.md`.
-- Next is P4-005 Task 16: implement active policy resolution, atomic counters/leases, content-free escalation, and private dashboard policy operations.
+- Effective policy requires exactly one event-time-active PostgreSQL version plus verified Manifest limits, then intersects policy, protected deployment, and Manifest values field by field. Allowance transactions derive a pseudonymous scope from the authoritative internal contact, serialize rolling 15-minute/24-hour and global UTC-day counts, cooldown, concurrency, queueing, exact replay, and expiry. Eleven model-failure categories persist content-free source-bound escalation evidence.
+- The loopback/private policy page is administrator-only and uses live-session authorization, CSRF/origin checks, session-bound signed actions, explicit inputs for every customizable value, and content-free audit. Existing escalation views remain aggregate-only.
+- Validation on 2026-09-13: `npm run check` passed 461 unit tests across 37 files plus formatting, lint, strict type checking, build, and the Phase 0 validator; all 335 guarded PostgreSQL tests across 26 files passed. No browser run, deployment, Manifest call, provider call, external mutation, or production action was performed. Detailed evidence: `docs/testing/phase-4-model-limits-and-escalation.md`.
+- Next is Task 17: compose FAQ/model/safe-failure decisions, complete the synthetic English/Bangla evaluation, and prepare P4-GATE evidence.
 
 ## Launch Blockers
 
 - The admission-only test deployment is approved and running under a narrow exception. Outbound messaging, models, n8n actions, live customer data, and production deployment remain unauthorized.
-- P3-GATE passed on 2026-09-01 at validated revision `bb95803`. The project owner approved the major P4-001 architecture decisions and delegated the remaining local Phase 4 design/implementation approvals on 2026-09-01. The Phase 4 design is recorded in `docs/superpowers/specs/2026-09-01-phase-4-knowledge-model-design.md`, and the executable sequence is recorded in `docs/superpowers/plans/2026-09-01-phase-4-knowledge-model.md`. P4-002, P4-003, and local P4-004 are complete. Active PostgreSQL model policy/limits, end-to-end provider safe failure/escalation, and bilingual evaluation remain pending.
+- P3-GATE passed on 2026-09-01 at validated revision `bb95803`. The project owner approved the major P4-001 architecture decisions and delegated the remaining local Phase 4 design/implementation approvals on 2026-09-01. The Phase 4 design is recorded in `docs/superpowers/specs/2026-09-01-phase-4-knowledge-model-design.md`, and the executable sequence is recorded in `docs/superpowers/plans/2026-09-01-phase-4-knowledge-model.md`. P4-002, P4-003, local P4-004, and P4-005 policy/allowance primitives are complete. End-to-end model safe-failure composition and bilingual evaluation remain pending.
 - Phase 0 is evidence-complete: the threat model, acceptance matrix, and planning-only gate review are recorded in `docs/security/threat-model.md`, `docs/testing/acceptance-matrix.md`, and `docs/reviews/phase-0-gate.md`. This closes architectural planning only; every `PARTIAL`, `PLANNED`, or `BLOCKED` acceptance row remains a launch blocker. The project owner authorized reversible local development through Phase 5; exceptions and current contracts are tracked in `docs/TODO.md`.
 - Meta test callback and subscription flows are validated only for development-mode test assets. App review, live permissions, and production assets remain unvalidated.
 - WhatsApp coexistence for the production number has not been confirmed.
@@ -96,7 +98,7 @@ All secret values are intentionally absent from this repository. Create them dur
 - Website privacy and support wording must disclose AI assistance, external inference, retention, deletion, and marketing consent before production launch.
 - Actual encrypted backup/restore procedures and deployed human-takeover behavior must still pass their acceptance tests; the local restore-gate primitive alone does not satisfy P6-004.
 
-The current tracker action is P4-005 Task 16 test-first implementation from the
+The current tracker action is Task 17 test-first model-decision composition and evaluation from the
 approved architecture and detailed plan. All live Manifest, network, deployment,
 test-asset, and production actions remain separately gated. P1-GATE remains a
 separate explicit review record.

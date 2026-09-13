@@ -1,4 +1,5 @@
 import type { AdminRole, ResolvedAdminSession } from '../persistence/postgres-admin-identity.js';
+import type { ModelPolicyValues, ModelPolicyVersionView } from '../model/model-policy-types.js';
 
 export interface AdminProposalSummary {
   readonly itemKey: string;
@@ -47,10 +48,7 @@ export interface AdminInsightSummary {
   readonly topicCode: string;
 }
 
-export interface AdminPolicySummary {
-  readonly policyRef: string;
-  readonly state: string;
-}
+export type AdminPolicySummary = ModelPolicyVersionView;
 
 export interface AdminEscalationCount {
   readonly count: number;
@@ -294,6 +292,82 @@ export function renderSimpleModulePage(input: {
     nonce: input.nonce,
     session: input.session,
     title: input.title,
+  });
+}
+
+const policyFields = [
+  ['perContact15MinuteCalls', 'Per-contact calls / 15 minutes', '1'],
+  ['perContact24HourCalls', 'Per-contact calls / rolling 24 hours', '1'],
+  ['globalUtcDayCalls', 'Global calls / UTC day', '1'],
+  ['concurrentCalls', 'Concurrent calls', '1'],
+  ['queueCapacity', 'Queue capacity', '1'],
+  ['totalTimeoutMs', 'Total timeout (ms)', '1'],
+  ['outputTokens', 'Output token ceiling', '1'],
+  ['cooldownMs', 'Per-contact cooldown (ms)', '1'],
+  ['faqMinimumSimilarity', 'FAQ minimum similarity', '0.00001'],
+  ['faqAmbiguityMargin', 'FAQ ambiguity margin', '0.00001'],
+  ['maximumFaqCandidates', 'Maximum FAQ candidates', '1'],
+  ['approvedProviderAttempts', 'Approved provider attempts', '1'],
+  ['architectureProviderCeiling', 'Architecture provider ceiling', '1'],
+] as const satisfies readonly (readonly [keyof ModelPolicyValues, string, string])[];
+
+export function renderModelPolicyPage(input: {
+  readonly actionTokens: Readonly<
+    Record<string, Partial<Record<'activate' | 'approve' | 'retire' | 'submit', string>>>
+  >;
+  readonly createActionToken: string;
+  readonly createPolicyRef: string;
+  readonly csrfToken: string;
+  readonly evaluatedAt: Date;
+  readonly nonce: string;
+  readonly policies: readonly AdminPolicySummary[];
+  readonly session: ResolvedAdminSession;
+}): string {
+  const policyRows = input.policies
+    .map((policy) => {
+      const displayState =
+        policy.state === 'active' &&
+        policy.activatedAt !== undefined &&
+        policy.activatedAt > input.evaluatedAt
+          ? `scheduled activation ${policy.activatedAt.toISOString()}`
+          : policy.state === 'retired' &&
+              policy.retiredAt !== undefined &&
+              policy.retiredAt > input.evaluatedAt
+            ? `active; retirement scheduled ${policy.retiredAt.toISOString()}`
+            : policy.state;
+      const nextAction =
+        policy.state === 'draft'
+          ? 'submit'
+          : policy.state === 'submitted'
+            ? 'approve'
+            : policy.state === 'approved'
+              ? 'activate'
+              : policy.state === 'active'
+                ? 'retire'
+                : undefined;
+      const actionForm =
+        nextAction === undefined
+          ? ''
+          : `<form method="post" action="/policy/${escapeHtml(policy.policyRef)}/${nextAction}"><input type="hidden" name="csrfToken" value="${escapeHtml(input.csrfToken)}"><input type="hidden" name="actionToken" value="${escapeHtml(input.actionTokens[policy.policyRef]?.[nextAction] ?? '')}"><button class="button ${nextAction === 'retire' ? 'danger' : 'primary'}" type="submit">${escapeHtml(nextAction)}</button></form>`;
+      const values = policyFields
+        .map(([field, label]) => `${label}: ${escapeHtml(String(policy.values[field]))}`)
+        .join(' · ');
+      return `<article class="list-row"><h2>${escapeHtml(policy.policyRef)}</h2><p>${escapeHtml(displayState)} · version ${String(policy.versionNumber)}</p><p class="subtle">${values}</p><div class="actions">${actionForm}</div></article>`;
+    })
+    .join('');
+  const inputs = policyFields
+    .map(
+      ([field, label, step]) =>
+        `<div class="field"><label for="${field}">${escapeHtml(label)}</label><input id="${field}" name="${field}" type="number" step="${step}" required></div>`,
+    )
+    .join('');
+  return page({
+    body: `<div class="heading-row"><div><h1>Model policy</h1><p>Administrator-reviewed limits and FAQ thresholds. No value is hardcoded by this form.</p></div></div><section class="module-list">${policyRows || '<div class="panel empty">No model policy exists.</div>'}</section><hr class="section-rule"><section class="panel form-panel"><h2>Create policy draft</h2><div class="notice">Assigned reference: <span class="confirm-ref">${escapeHtml(input.createPolicyRef)}</span>. Creation never activates a policy.</div><form method="post" action="/policy"><input type="hidden" name="actionToken" value="${escapeHtml(input.createActionToken)}"><input type="hidden" name="csrfToken" value="${escapeHtml(input.csrfToken)}">${inputs}<button class="button primary" type="submit">Create policy draft</button></form></section>`,
+    csrfToken: input.csrfToken,
+    currentPath: '/policy',
+    nonce: input.nonce,
+    session: input.session,
+    title: 'Model policy',
   });
 }
 

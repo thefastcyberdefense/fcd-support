@@ -462,15 +462,15 @@
 
 **Steps:**
 
-- [ ] Write parser tests proving all limits are customizable positive bounded values and no source default silently enables inference.
-- [ ] Write integration tests for active/future/retired policies, stricter intersections, exact replay/conflict, role checks, and concurrent activation.
-- [ ] Write concurrency tests for 3/15m, 20/24h, 300/UTC-day, four active, queue 25, cooldown, expiry, crash/retry, and policy changes using synthetic inserted policy values rather than production constants.
-- [ ] Write escalation tests for every closed failure reason, idempotency, and absence of content/provider fields.
-- [ ] Run focused tests and confirm failures.
-- [ ] Implement policy, allowance, lease, and escalation services with bounded transactions/advisory locks.
-- [ ] Add dashboard policy review/activation and aggregate failure views through exact typed commands.
-- [ ] Run focused tests, `npm run check`, and all guarded PostgreSQL tests.
-- [ ] Commit with `feat: enforce customizable model limits and leases` and push `main`.
+- [x] Write parser tests proving all limits are customizable positive bounded values and no source default silently enables inference.
+- [x] Write integration tests for active/future/retired policies, stricter intersections, exact replay/conflict, role checks, and concurrent activation.
+- [x] Write concurrency tests for 3/15m, 20/24h, 300/UTC-day, four active, queue 25, cooldown, expiry, crash/retry, and policy changes using synthetic inserted policy values rather than production constants.
+- [x] Write escalation tests for every closed failure reason, idempotency, and absence of content/provider fields.
+- [x] Run focused tests and confirm failures.
+- [x] Implement policy, allowance, lease, and escalation services with bounded transactions/advisory locks.
+- [x] Add dashboard policy review/activation and aggregate failure views through exact typed commands.
+- [x] Run focused tests, `npm run check`, and all guarded PostgreSQL tests.
+- [x] Commit with `feat: enforce customizable model limits and leases` and push `main`.
 
 ## Task 17: Compose safe model decisions and create Phase 4 evidence
 

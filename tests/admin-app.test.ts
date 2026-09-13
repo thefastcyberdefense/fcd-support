@@ -7,6 +7,7 @@ import {
   type AdminIdentityPort,
 } from '../src/admin/admin-app.js';
 import type {
+  AdminPolicySummary,
   AdminProposalDetail,
   AdminProposalSummary,
   AdminQuestionSummary,
@@ -28,6 +29,7 @@ afterEach(async () => {
 function dashboardPort(overrides: Partial<AdminDashboardPort> = {}): AdminDashboardPort {
   return {
     answerQuestion: vi.fn(() => Promise.resolve()),
+    createModelPolicy: vi.fn(() => Promise.resolve()),
     createProposal: vi.fn(() => Promise.resolve()),
     getProposal: vi.fn(() =>
       Promise.resolve({
@@ -61,6 +63,34 @@ function dashboardPort(overrides: Partial<AdminDashboardPort> = {}): AdminDashbo
         { categoryCode: 'support_gap', occurrenceCount: 4, topicCode: 'office_hours' },
       ]),
     ),
+    listModelPolicies: vi.fn(() =>
+      Promise.resolve([
+        {
+          activatedAt: new Date('2026-09-02T05:00:00.000Z'),
+          createdAt: new Date('2026-09-01T05:00:00.000Z'),
+          createdByAccountRef: 'ADMIN_TEST_dashboard_reviewer',
+          policyRef: 'POLICY_TEST_balanced',
+          requestKey: 'REQUEST_TEST_policy_balanced',
+          state: 'active',
+          values: {
+            approvedProviderAttempts: 2,
+            architectureProviderCeiling: 3,
+            concurrentCalls: 4,
+            cooldownMs: 1000,
+            faqAmbiguityMargin: 0.05,
+            faqMinimumSimilarity: 0.7,
+            globalUtcDayCalls: 300,
+            maximumFaqCandidates: 10,
+            outputTokens: 600,
+            perContact15MinuteCalls: 3,
+            perContact24HourCalls: 20,
+            queueCapacity: 25,
+            totalTimeoutMs: 20000,
+          },
+          versionNumber: 1,
+        },
+      ] satisfies readonly AdminPolicySummary[]),
+    ),
     listProposals: vi.fn(() =>
       Promise.resolve([
         {
@@ -84,13 +114,11 @@ function dashboardPort(overrides: Partial<AdminDashboardPort> = {}): AdminDashbo
       ] satisfies readonly AdminQuestionSummary[]),
     ),
     publishVersion: vi.fn(() => Promise.resolve()),
-    resolveActivePolicy: vi.fn(() =>
-      Promise.resolve({ policyRef: 'POLICY_TEST_balanced', state: 'active' }),
-    ),
     retireVersion: vi.fn(() => Promise.resolve()),
     reviewVersion: vi.fn(() => Promise.resolve()),
     rollbackVersion: vi.fn(() => Promise.resolve()),
     submitVersion: vi.fn(() => Promise.resolve()),
+    transitionModelPolicy: vi.fn(() => Promise.resolve()),
     ...overrides,
   };
 }
@@ -160,6 +188,15 @@ function hiddenValue(body: string, name: string): string {
   const match = new RegExp(`name="${name}" value="([^"]+)"`).exec(body);
   if (match?.[1] === undefined) throw new Error('Expected form field was absent');
   return match[1];
+}
+
+function formHiddenValue(body: string, action: string, name: string): string {
+  const escapedAction = action.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+  const form = new RegExp(`<form[^>]+action="${escapedAction}"[^>]*>([\\s\\S]*?)</form>`, 'u').exec(
+    body,
+  )?.[1];
+  if (form === undefined) throw new Error('Expected action form was absent');
+  return hiddenValue(form, name);
 }
 
 function formHeaders(cookie?: string, requestOrigin = origin) {
@@ -547,6 +584,154 @@ describe('private admin application', () => {
     expect(error.statusCode).toBe(500);
     expect(error.body).toContain('The private service could not complete this request.');
     expect(error.body).not.toContain('SYNTHETIC_REPOSITORY_MARKER');
+  });
+
+  test('creates and transitions customizable model policies through exact signed actions', async () => {
+    const dashboard = dashboardPort();
+    const { app } = createTestApp({ dashboard });
+    const page = await app.inject({
+      headers: { cookie: activeCookies() },
+      method: 'GET',
+      url: '/policy',
+    });
+    expect(page.statusCode).toBe(200);
+    expect(page.body).toContain('No value is hardcoded by this form.');
+    const fieldNames = [
+      'perContact15MinuteCalls',
+      'perContact24HourCalls',
+      'globalUtcDayCalls',
+      'concurrentCalls',
+      'queueCapacity',
+      'totalTimeoutMs',
+      'outputTokens',
+      'cooldownMs',
+      'faqMinimumSimilarity',
+      'faqAmbiguityMargin',
+      'maximumFaqCandidates',
+      'approvedProviderAttempts',
+      'architectureProviderCeiling',
+    ];
+    for (const field of fieldNames) expect(page.body).toContain(`name="${field}"`);
+
+    const createToken = formHiddenValue(page.body, '/policy', 'actionToken');
+    const values = {
+      approvedProviderAttempts: '2',
+      architectureProviderCeiling: '3',
+      concurrentCalls: '4',
+      cooldownMs: '1000',
+      faqAmbiguityMargin: '0.05',
+      faqMinimumSimilarity: '0.7',
+      globalUtcDayCalls: '300',
+      maximumFaqCandidates: '10',
+      outputTokens: '600',
+      perContact15MinuteCalls: '3',
+      perContact24HourCalls: '20',
+      queueCapacity: '25',
+      totalTimeoutMs: '20000',
+    };
+    const created = await app.inject({
+      headers: formHeaders(activeCookies()),
+      method: 'POST',
+      payload: new URLSearchParams({
+        actionToken: createToken,
+        csrfToken: activeCsrf.reveal(),
+        ...values,
+      }).toString(),
+      url: '/policy',
+    });
+    expect(created.statusCode).toBe(303);
+    expect(dashboard.createModelPolicy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        createdByAccountRef: 'ADMIN_TEST_dashboard_reviewer',
+        values: Object.fromEntries(
+          Object.entries(values).map(([key, value]) => [key, Number(value)]),
+        ),
+      }),
+      expect.objectContaining({ accountRef: 'ADMIN_TEST_dashboard_reviewer' }),
+    );
+
+    const current = (await dashboard.listModelPolicies())[0];
+    if (current === undefined) throw new Error('Synthetic policy was absent');
+    const draftDashboard = dashboardPort({
+      listModelPolicies: vi.fn(() => Promise.resolve([{ ...current, state: 'draft' as const }])),
+    });
+    const draftApp = createTestApp({ dashboard: draftDashboard }).app;
+    const draftPage = await draftApp.inject({
+      headers: { cookie: activeCookies() },
+      method: 'GET',
+      url: '/policy',
+    });
+    const submitToken = formHiddenValue(
+      draftPage.body,
+      '/policy/POLICY_TEST_balanced/submit',
+      'actionToken',
+    );
+    const submitted = await draftApp.inject({
+      headers: formHeaders(activeCookies()),
+      method: 'POST',
+      payload: new URLSearchParams({
+        actionToken: submitToken,
+        csrfToken: activeCsrf.reveal(),
+      }).toString(),
+      url: '/policy/POLICY_TEST_balanced/submit',
+    });
+    expect(submitted.statusCode).toBe(303);
+    expect(draftDashboard.transitionModelPolicy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'submit',
+        policyRef: 'POLICY_TEST_balanced',
+        reasonCode: 'submit_reviewed',
+      }),
+      expect.objectContaining({ accountRef: 'ADMIN_TEST_dashboard_reviewer' }),
+    );
+    const changedAction = await draftApp.inject({
+      headers: formHeaders(activeCookies()),
+      method: 'POST',
+      payload: new URLSearchParams({
+        actionToken: submitToken,
+        csrfToken: activeCsrf.reveal(),
+      }).toString(),
+      url: '/policy/POLICY_TEST_balanced/approve',
+    });
+    expect(changedAction.statusCode).toBe(400);
+    expect(draftDashboard.transitionModelPolicy).toHaveBeenCalledTimes(1);
+  });
+
+  test('restricts policy management to administrators and preserves CSRF enforcement', async () => {
+    const editor = createTestApp({ roles: ['knowledge_editor'] });
+    const page = await editor.app.inject({
+      headers: { cookie: activeCookies() },
+      method: 'GET',
+      url: '/policy',
+    });
+    expect(page.statusCode).toBe(403);
+    const denied = await editor.app.inject({
+      headers: formHeaders(activeCookies()),
+      method: 'POST',
+      payload: `csrfToken=${activeCsrf.reveal()}&actionToken=synthetic-denied`,
+      url: '/policy',
+    });
+    expect(denied.statusCode).toBe(403);
+    expect(editor.dashboard.createModelPolicy).not.toHaveBeenCalled();
+
+    const csrfDenied = createTestApp({ validateCsrf: false });
+    const allowedPage = await csrfDenied.app.inject({
+      headers: { cookie: activeCookies() },
+      method: 'GET',
+      url: '/policy',
+    });
+    const token = formHiddenValue(allowedPage.body, '/policy', 'actionToken');
+    const response = await csrfDenied.app.inject({
+      headers: formHeaders(activeCookies()),
+      method: 'POST',
+      payload: new URLSearchParams({
+        actionToken: token,
+        csrfToken: activeCsrf.reveal(),
+      }).toString(),
+      url: '/policy',
+    });
+    expect(response.statusCode).toBe(403);
+    expect(csrfDenied.dashboard.createModelPolicy).not.toHaveBeenCalled();
   });
 
   test.each([

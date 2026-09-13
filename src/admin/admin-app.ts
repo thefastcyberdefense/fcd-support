@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 
 import { noopSafeLogger, type SafeLogger } from '../logging.js';
+import { parseModelPolicyValues } from '../model/model-policy-input.js';
 import type {
   AdminAuthenticationResult,
   AdminMfaAuthenticationResult,
@@ -21,6 +22,7 @@ import {
   renderKnowledgePage,
   renderLoginPage,
   renderMfaPage,
+  renderModelPolicyPage,
   renderNewProposalPage,
   renderQuestionsPage,
   renderSafeErrorPage,
@@ -66,8 +68,10 @@ export interface AdminDashboardPort {
     filter?: AdminProposalFilter,
   ) => Promise<readonly AdminProposalSummary[]>;
   readonly listQuestions: () => Promise<readonly AdminQuestionSummary[]>;
+  readonly listModelPolicies: () => Promise<readonly AdminPolicySummary[]>;
+  readonly createModelPolicy: (input: unknown, actor: AdminActor) => Promise<void>;
+  readonly transitionModelPolicy: (input: unknown, actor: AdminActor) => Promise<void>;
   readonly publishVersion: (input: unknown, actor: AdminActor) => Promise<void>;
-  readonly resolveActivePolicy: () => Promise<AdminPolicySummary | undefined>;
   readonly retireVersion: (input: unknown, actor: AdminActor) => Promise<void>;
   readonly reviewVersion: (input: unknown, actor: AdminActor) => Promise<void>;
   readonly rollbackVersion: (input: unknown, actor: AdminActor) => Promise<void>;
@@ -148,6 +152,35 @@ function formValue(
   return value === undefined || value.length === 0 || value.length > maximumLength
     ? undefined
     : value;
+}
+
+function formNumber(form: Readonly<Record<string, string>>, name: string): number | undefined {
+  const value = formValue(form, name, 32);
+  if (value === undefined || !/^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/u.test(value)) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function policyValues(form: Readonly<Record<string, string>>) {
+  try {
+    return parseModelPolicyValues({
+      approvedProviderAttempts: formNumber(form, 'approvedProviderAttempts'),
+      architectureProviderCeiling: formNumber(form, 'architectureProviderCeiling'),
+      concurrentCalls: formNumber(form, 'concurrentCalls'),
+      cooldownMs: formNumber(form, 'cooldownMs'),
+      faqAmbiguityMargin: formNumber(form, 'faqAmbiguityMargin'),
+      faqMinimumSimilarity: formNumber(form, 'faqMinimumSimilarity'),
+      globalUtcDayCalls: formNumber(form, 'globalUtcDayCalls'),
+      maximumFaqCandidates: formNumber(form, 'maximumFaqCandidates'),
+      outputTokens: formNumber(form, 'outputTokens'),
+      perContact15MinuteCalls: formNumber(form, 'perContact15MinuteCalls'),
+      perContact24HourCalls: formNumber(form, 'perContact24HourCalls'),
+      queueCapacity: formNumber(form, 'queueCapacity'),
+      totalTimeoutMs: formNumber(form, 'totalTimeoutMs'),
+    });
+  } catch {
+    return undefined;
+  }
 }
 
 function cookie(name: string, value: string, secure: boolean, httpOnly: boolean): string {
@@ -787,23 +820,87 @@ export function buildAdminApp(options: BuildAdminAppOptions): FastifyInstance {
   });
 
   app.get('/policy', async (request, reply) => {
-    const context = await requireSession(request, reply);
+    const context = await requireSession(request, reply, ['administrator']);
     if (context === undefined) return;
-    const policy = await options.dashboard.resolveActivePolicy();
+    const policies = await options.dashboard.listModelPolicies();
+    const createPolicyRef = `POLICY_admin_${randomBytes(18).toString('hex')}`;
     const nonce = nonceSource();
     return html(
       reply,
       nonce,
-      renderSimpleModulePage({
+      renderModelPolicyPage({
+        actionTokens: Object.fromEntries(
+          policies.map((policy) => [
+            policy.policyRef,
+            Object.fromEntries(
+              (['submit', 'approve', 'activate', 'retire'] as const).map((action) => [
+                action,
+                issueAction(context, `policy_${action}`, policy.policyRef),
+              ]),
+            ),
+          ]),
+        ),
+        createActionToken: issueAction(context, 'policy_create', createPolicyRef),
+        createPolicyRef,
         csrfToken: context.csrfToken,
-        currentPath: '/policy',
-        description: 'The active versioned model policy; operational limits remain configurable.',
+        evaluatedAt: now(),
         nonce,
-        rows: policy === undefined ? [] : [{ label: policy.policyRef, meta: policy.state }],
+        policies,
         session: context.session,
-        title: 'Active policy',
       }),
     );
+  });
+
+  app.post('/policy', async (request, reply) => {
+    const context = await requireMutation(request, reply, ['administrator']);
+    if (context === undefined) return;
+    const values = policyValues(context.form);
+    if (values === undefined) {
+      const nonce = nonceSource();
+      return html(reply, nonce, renderSafeErrorPage(nonce, 400), 400);
+    }
+    const action = readAction(context, 'policy_create');
+    await options.dashboard.createModelPolicy(
+      {
+        createdAt: new Date(action.effectiveAt),
+        createdByAccountRef: context.actor.accountRef,
+        policyRef: action.reference,
+        requestKey: action.requestKey,
+        values,
+      },
+      context.actor,
+    );
+    return redirect(reply, '/policy');
+  });
+
+  app.post('/policy/:policyRef/:policyAction', async (request, reply) => {
+    const context = await requireMutation(request, reply, ['administrator']);
+    if (context === undefined) return;
+    const policyRef = routeReference(request, 'policyRef');
+    const policyAction = routeReference(request, 'policyAction');
+    if (
+      policyRef === undefined ||
+      (policyAction !== 'submit' &&
+        policyAction !== 'approve' &&
+        policyAction !== 'activate' &&
+        policyAction !== 'retire')
+    ) {
+      const nonce = nonceSource();
+      return html(reply, nonce, renderSafeErrorPage(nonce, 400), 400);
+    }
+    const action = readAction(context, `policy_${policyAction}`, policyRef);
+    await options.dashboard.transitionModelPolicy(
+      {
+        action: policyAction,
+        effectiveAt: new Date(action.effectiveAt),
+        policyRef,
+        reasonCode: `${policyAction}_reviewed`,
+        requestKey: action.requestKey,
+        reviewerAccountRef: context.actor.accountRef,
+      },
+      context.actor,
+    );
+    return redirect(reply, '/policy');
   });
 
   app.get('/escalations', async (request, reply) => {

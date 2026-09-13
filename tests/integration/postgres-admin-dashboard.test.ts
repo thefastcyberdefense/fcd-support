@@ -404,6 +404,60 @@ describe('Postgres private admin dashboard', () => {
       ),
     ).toMatchObject({ state: 'draft', publicationState: 'unpublished' });
   });
+  test('creates, reviews, activates, and audits customizable model policy through the session', async () => {
+    const policyRef = 'POLICY_TEST_dashboard_balanced';
+    const createdAt = now();
+    const create = {
+      createdAt,
+      createdByAccountRef: actor.accountRef,
+      policyRef,
+      requestKey: 'REQUEST_TEST_dashboard_policy_create',
+      values: {
+        approvedProviderAttempts: 2,
+        architectureProviderCeiling: 3,
+        concurrentCalls: 4,
+        cooldownMs: 1000,
+        faqAmbiguityMargin: 0.05,
+        faqMinimumSimilarity: 0.7,
+        globalUtcDayCalls: 300,
+        maximumFaqCandidates: 10,
+        outputTokens: 600,
+        perContact15MinuteCalls: 3,
+        perContact24HourCalls: 20,
+        queueCapacity: 25,
+        totalTimeoutMs: 20_000,
+      },
+    };
+    await dashboard.createModelPolicy(create, actor);
+    await dashboard.createModelPolicy(create, actor);
+    for (const action of ['submit', 'approve', 'activate'] as const) {
+      const transition = {
+        action,
+        effectiveAt: now(),
+        policyRef,
+        reasonCode: `${action}_reviewed`,
+        requestKey: `REQUEST_TEST_dashboard_policy_${action}`,
+        reviewerAccountRef: actor.accountRef,
+      };
+      await dashboard.transitionModelPolicy(transition, actor);
+      await dashboard.transitionModelPolicy(transition, actor);
+    }
+    expect(await dashboard.listModelPolicies()).toEqual([
+      expect.objectContaining({
+        policyRef,
+        state: 'active',
+        values: create.values,
+        versionNumber: 1,
+      }),
+    ]);
+    const audit = await database.pool.query<{ readonly count: number }>(
+      `select count(*)::int as count from admin_audit_events
+       where action = 'model_policy_changed' and object_type = 'model_policy'
+         and object_ref = $1`,
+      [policyRef],
+    );
+    expect(audit.rows[0]?.count).toBe(4);
+  });
   test('rejects forged actors and revoked sessions inside the mutation transaction', async () => {
     const before = await database.pool.query<{ count: number }>(
       `select count(*)::int as count from knowledge_versions`,

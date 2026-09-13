@@ -20,6 +20,7 @@ import {
   currentInsightEligibilityLateralSql,
   PostgresLearningService,
 } from './postgres-learning-service.js';
+import { PostgresModelPolicy } from './postgres-model-policy.js';
 import { withBoundedTransaction } from './postgres-transaction.js';
 
 const reference = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/);
@@ -453,8 +454,55 @@ export class PostgresAdminDashboard implements AdminDashboardPort {
       }));
     });
   }
-  public resolveActivePolicy(): Promise<AdminPolicySummary | undefined> {
-    return Promise.resolve(undefined);
+  public listModelPolicies(): Promise<readonly AdminPolicySummary[]> {
+    return new PostgresModelPolicy(this.pool).listPolicies(this.#listLimit);
+  }
+  public async createModelPolicy(input: unknown, actor: AdminActor): Promise<void> {
+    await this.withActor(actor, ['administrator'], async (client, principal) => {
+      const result = await new PostgresModelPolicy({ transactionClient: client }).createPolicy(
+        input,
+        principal,
+      );
+      if (result.status !== 'duplicate') {
+        const policy = await new PostgresModelPolicy({ transactionClient: client }).getPolicy(
+          result.policyRef,
+        );
+        await this.auditModelPolicy(
+          client,
+          principal,
+          result.policyRef,
+          policy.requestKey,
+          policy.createdAt,
+        );
+      }
+    });
+  }
+  public async transitionModelPolicy(input: unknown, actor: AdminActor): Promise<void> {
+    await this.withActor(actor, ['administrator'], async (client, principal) => {
+      const result = await new PostgresModelPolicy({ transactionClient: client }).transitionPolicy(
+        input,
+        principal,
+      );
+      if (result.status !== 'duplicate') {
+        const command = z
+          .strictObject({
+            action: z.enum(['submit', 'approve', 'activate', 'retire']),
+            effectiveAt: date,
+            policyRef: reference,
+            reasonCode: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}$/),
+            requestKey: reference,
+            reviewerAccountRef: reference,
+          })
+          .parse(input);
+        await this.auditModelPolicy(
+          client,
+          principal,
+          result.policyRef,
+          command.requestKey,
+          command.effectiveAt,
+        );
+      }
+    });
   }
   public async listEscalationCounts(): Promise<readonly AdminEscalationCount[]> {
     return withBoundedTransaction(this.pool, async (client) => {
@@ -511,6 +559,23 @@ export class PostgresAdminDashboard implements AdminDashboardPort {
       `insert into admin_audit_events (actor_account_id, action, result, object_type, object_ref, reason_code, request_key, effective_at)
       values ((select id from admin_accounts where account_ref = $1), $2, 'applied', 'knowledge_version', $3, 'reviewed_dashboard_action', $4, $5)`,
       [principal.reviewerRef, action, versionRef, requestKey, effectiveAt],
+    );
+  }
+  private async auditModelPolicy(
+    client: pg.PoolClient,
+    principal: ReviewerPrincipal,
+    policyRef: string,
+    requestKey: string,
+    effectiveAt: Date,
+  ): Promise<void> {
+    await client.query(
+      `insert into admin_audit_events
+         (actor_account_id, action, result, object_type, object_ref,
+          reason_code, request_key, effective_at)
+       values ((select id from admin_accounts where account_ref = $1),
+               'model_policy_changed', 'applied', 'model_policy', $2,
+               'reviewed_dashboard_action', $3, $4)`,
+      [principal.reviewerRef, policyRef, requestKey, effectiveAt],
     );
   }
 }
