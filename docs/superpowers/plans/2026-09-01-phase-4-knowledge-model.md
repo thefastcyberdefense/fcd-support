@@ -429,12 +429,12 @@
 
 **Steps:**
 
-- [ ] Add migration tests for tables, columns, closed constraints, immutable policy/history, migration count eleven, and absence of prompt/response/provider-name fields.
-- [ ] Add guarded downgrade refusal and clean down/reapply tests.
-- [ ] Run the focused migration test and confirm failure.
-- [ ] Implement migration 000011 with the balanced approved values represented only in synthetic test inserts, never column defaults or source constants.
-- [ ] Run migration tests, typecheck, formatting, and diff checks.
-- [ ] Commit with `feat: add customizable model policy schema` and push `main`.
+- [x] Add migration tests for tables, columns, closed constraints, immutable policy/history, migration count eleven, and absence of prompt/response/provider-name fields.
+- [x] Add guarded downgrade refusal and clean down/reapply tests.
+- [x] Run the focused migration test and confirm failure.
+- [x] Implement migration 000011 with the balanced approved values represented only in synthetic test inserts, never column defaults or source constants.
+- [x] Run migration tests, typecheck, formatting, and diff checks.
+- [x] Commit with `feat: add customizable model policy schema` and push `main`.
 
 ## Task 16: Implement active policy resolution, counters, leases, and escalation
 

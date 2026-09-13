@@ -150,7 +150,7 @@ describe('Phase 2 database migrations', () => {
       { table_name: 'knowledge_tags' },
       { table_name: 'knowledge_versions' },
     ]);
-    expect(migrations.rows[0]?.count).toBe(10);
+    expect(migrations.rows[0]?.count).toBe(11);
     expect(trigramExtension.rows).toEqual([{ installed: true }]);
     expect(aliasIndexes.rows.map(({ indexname }) => indexname)).toEqual(
       expect.arrayContaining([
@@ -210,7 +210,246 @@ describe('Phase 2 database migrations', () => {
       'support_reply_draft_knowledge',
       'support_reply_drafts',
     ]);
-    expect(migrations.rows[0]?.count).toBe(10);
+    expect(migrations.rows[0]?.count).toBe(11);
+  });
+
+  test('create customizable model policy, usage, and lease schema as migration eleven', async () => {
+    const tables = await pool.query<{ readonly table_name: string }>(
+      `select table_name
+       from information_schema.tables
+       where table_schema = $1
+         and table_name in (
+           'model_call_leases', 'model_policy_review_events',
+           'model_policy_versions', 'model_usage_windows'
+         )
+       order by table_name`,
+      [schema],
+    );
+    const policyColumns = await pool.query<{
+      readonly column_default: string | null;
+      readonly column_name: string;
+    }>(
+      `select column_name, column_default
+       from information_schema.columns
+       where table_schema = $1
+         and table_name = 'model_policy_versions'
+         and column_name in (
+           'per_contact_15_minute_calls', 'per_contact_24_hour_calls',
+           'global_utc_day_calls', 'concurrent_calls', 'queue_capacity',
+           'total_timeout_ms', 'output_tokens', 'cooldown_ms',
+           'faq_minimum_similarity', 'faq_ambiguity_margin',
+           'maximum_faq_candidates', 'approved_provider_attempts',
+           'architecture_provider_ceiling'
+         )
+       order by column_name`,
+      [schema],
+    );
+    const prohibitedColumns = await pool.query<{ readonly column_name: string }>(
+      `select column_name
+       from information_schema.columns
+       where table_schema = $1
+         and table_name in (
+           'model_call_leases', 'model_policy_review_events',
+           'model_policy_versions', 'model_usage_windows'
+         )
+         and column_name in (
+           'prompt', 'request_body', 'response', 'response_body',
+           'provider', 'provider_name', 'api_key', 'access_token'
+         )`,
+      [schema],
+    );
+    const migrations = await pool.query<{ readonly count: number }>(
+      `select count(*)::int as count from pgmigrations`,
+    );
+
+    expect(tables.rows).toEqual([
+      { table_name: 'model_call_leases' },
+      { table_name: 'model_policy_review_events' },
+      { table_name: 'model_policy_versions' },
+      { table_name: 'model_usage_windows' },
+    ]);
+    expect(policyColumns.rows).toHaveLength(13);
+    expect(policyColumns.rows.every(({ column_default }) => column_default === null)).toBe(true);
+    expect(prohibitedColumns.rows).toEqual([]);
+    expect(migrations.rows[0]?.count).toBe(11);
+  });
+
+  test('enforce model policy bounds, reviewed transitions, and append-only history', async () => {
+    const account = await pool.query<{ readonly id: string }>(
+      `insert into admin_accounts
+         (account_ref, login_name, password_algorithm, password_cost,
+          password_block_size, password_parallelization, password_key_length,
+          password_salt, password_hash, state, created_at, updated_at,
+          password_changed_at)
+       values ('ADMIN_TEST_model_schema', 'synthetic.model.schema', 'scrypt_v1', 16384,
+               8, 1, 32, $1, $2, 'active',
+               '2026-09-13T00:00:00Z', '2026-09-13T00:00:00Z',
+               '2026-09-13T00:00:00Z')
+       returning id`,
+      [Buffer.alloc(16, 0x51), Buffer.alloc(32, 0x52)],
+    );
+    const accountId = account.rows[0]?.id;
+    try {
+      const invalidPolicy = await captureRolledBackMutation(
+        `insert into model_policy_versions
+           (policy_ref, version_number, request_key, state,
+            per_contact_15_minute_calls, per_contact_24_hour_calls,
+            global_utc_day_calls, concurrent_calls, queue_capacity,
+            total_timeout_ms, output_tokens, cooldown_ms,
+            faq_minimum_similarity, faq_ambiguity_margin,
+            maximum_faq_candidates, approved_provider_attempts,
+            architecture_provider_ceiling, created_by_account_id, created_at)
+         values ('POLICY_TEST_invalid', 1, 'REQUEST_TEST_policy_invalid', 'draft',
+                 3, 20, 300, 4, 25, 20000, 600, 1000,
+                 0.70, 0.05, 10, 4, 3, $1, '2026-09-13T00:01:00Z')`,
+        [accountId],
+      );
+      expect(invalidPolicy).toEqual(expect.objectContaining({ code: '23514' }));
+
+      const policy = await pool.query<{ readonly id: string }>(
+        `insert into model_policy_versions
+           (policy_ref, version_number, request_key, state,
+            per_contact_15_minute_calls, per_contact_24_hour_calls,
+            global_utc_day_calls, concurrent_calls, queue_capacity,
+            total_timeout_ms, output_tokens, cooldown_ms,
+            faq_minimum_similarity, faq_ambiguity_margin,
+            maximum_faq_candidates, approved_provider_attempts,
+            architecture_provider_ceiling, created_by_account_id, created_at)
+         values ('POLICY_TEST_schema', 1, 'REQUEST_TEST_policy_schema', 'draft',
+                 3, 20, 300, 4, 25, 20000, 600, 1000,
+                 0.70, 0.05, 10, 3, 5, $1, '2026-09-13T00:01:00Z')
+         returning id`,
+        [accountId],
+      );
+      const policyId = policy.rows[0]?.id;
+      const directMutation = await captureRolledBackMutation(
+        `update model_policy_versions set total_timeout_ms = 25000 where id = $1`,
+        [policyId],
+      );
+      expect(directMutation).toEqual(expect.objectContaining({ code: '23514' }));
+
+      const submit = await pool.query<{ readonly id: string }>(
+        `insert into model_policy_review_events
+           (policy_version_id, action, reviewer_account_id, reason_code,
+            request_key, effective_at)
+         values ($1, 'submit', $2, 'ready_for_review',
+                 'REQUEST_TEST_policy_submit', '2026-09-13T00:02:00Z')
+         returning id`,
+        [policyId, accountId],
+      );
+      await pool.query(
+        `insert into model_policy_review_events
+           (policy_version_id, action, reviewer_account_id, reason_code,
+            request_key, effective_at)
+         values ($1, 'approve', $2, 'limits_reviewed',
+                 'REQUEST_TEST_policy_approve', '2026-09-13T00:03:00Z')`,
+        [policyId, accountId],
+      );
+      await pool.query(
+        `insert into model_policy_review_events
+           (policy_version_id, action, reviewer_account_id, reason_code,
+            request_key, effective_at)
+         values ($1, 'activate', $2, 'approved_activation',
+                 'REQUEST_TEST_policy_activate', '2026-09-13T00:04:00Z')`,
+        [policyId, accountId],
+      );
+      await expect(
+        pool.query(
+          `select state, approved_by_account_id, approved_at, activated_at
+           from model_policy_versions where id = $1`,
+          [policyId],
+        ),
+      ).resolves.toMatchObject({
+        rows: [
+          {
+            activated_at: new Date('2026-09-13T00:04:00Z'),
+            approved_at: new Date('2026-09-13T00:03:00Z'),
+            approved_by_account_id: accountId,
+            state: 'active',
+          },
+        ],
+      });
+
+      const eventMutation = await captureRolledBackMutation(
+        `update model_policy_review_events set reason_code = 'changed' where id = $1`,
+        [submit.rows[0]?.id],
+      );
+      const invalidWindow = await captureRolledBackMutation(
+        `insert into model_usage_windows
+           (policy_version_id, window_kind, contact_scope_key,
+            window_started_at, window_ended_at, call_count, expires_at)
+         values ($1, 'contact_15_minute', null,
+                 '2026-09-13T00:00:00Z', '2026-09-13T00:15:00Z', 1,
+                 '2026-09-14T00:15:00Z')`,
+        [policyId],
+      );
+      expect([eventMutation, invalidWindow]).toEqual([
+        expect.objectContaining({ code: '23514' }),
+        expect.objectContaining({ code: '23514' }),
+      ]);
+    } finally {
+      await pool.query(`
+        truncate table
+          model_call_leases, model_usage_windows,
+          model_policy_review_events, model_policy_versions,
+          admin_accounts
+        restart identity cascade
+      `);
+    }
+  });
+
+  test('refuse populated model-policy downgrade, then cleanly down and reapply migration eleven', async () => {
+    const account = await pool.query<{ readonly id: string }>(
+      `insert into admin_accounts
+         (account_ref, login_name, password_algorithm, password_cost,
+          password_block_size, password_parallelization, password_key_length,
+          password_salt, password_hash, state, created_at, updated_at,
+          password_changed_at)
+       values ('ADMIN_TEST_model_down', 'synthetic.model.down', 'scrypt_v1', 16384,
+               8, 1, 32, $1, $2, 'active',
+               '2026-09-13T00:00:00Z', '2026-09-13T00:00:00Z',
+               '2026-09-13T00:00:00Z')
+       returning id`,
+      [Buffer.alloc(16, 0x53), Buffer.alloc(32, 0x54)],
+    );
+    await pool.query(
+      `insert into model_policy_versions
+         (policy_ref, version_number, request_key, state,
+          per_contact_15_minute_calls, per_contact_24_hour_calls,
+          global_utc_day_calls, concurrent_calls, queue_capacity,
+          total_timeout_ms, output_tokens, cooldown_ms,
+          faq_minimum_similarity, faq_ambiguity_margin,
+          maximum_faq_candidates, approved_provider_attempts,
+          architecture_provider_ceiling, created_by_account_id, created_at)
+       values ('POLICY_TEST_down', 1, 'REQUEST_TEST_policy_down', 'draft',
+               3, 20, 300, 4, 25, 20000, 600, 1000,
+               0.70, 0.05, 10, 3, 5, $1, '2026-09-13T00:01:00Z')`,
+      [account.rows[0]?.id],
+    );
+
+    let rollbackError: unknown;
+    try {
+      await runMigrations('down', 1);
+    } catch (error: unknown) {
+      rollbackError = error;
+    }
+    expect(rollbackError).toBeInstanceOf(Error);
+    if (!(rollbackError instanceof Error)) {
+      throw new Error('Expected populated model policy rollback to fail');
+    }
+    expect(rollbackError.message).toContain('P4-005 rollback blocked');
+    expect((rollbackError as Error & { code?: string }).code).toBe('55000');
+    await expect(
+      pool.query(`select count(*)::int as count from pgmigrations`),
+    ).resolves.toMatchObject({ rows: [{ count: 11 }] });
+
+    await pool.query(`truncate table model_policy_versions restart identity cascade`);
+    await runMigrations('down', 1);
+    await expect(
+      pool.query(`select to_regclass('model_policy_versions') as table_name`),
+    ).resolves.toMatchObject({ rows: [{ table_name: null }] });
+    await runMigrations('up');
+    await pool.query(`truncate table admin_accounts restart identity cascade`);
   });
 
   test('exclude plaintext admin credentials and enforce closed append-only evidence', async () => {
@@ -328,7 +567,7 @@ describe('Phase 2 database migrations', () => {
 
     let rollbackError: unknown;
     try {
-      await runMigrations('down', 1);
+      await runMigrations('down', 2);
     } catch (error: unknown) {
       rollbackError = error;
     }
@@ -475,7 +714,7 @@ describe('Phase 2 database migrations', () => {
 
     let rollbackError: unknown;
     try {
-      await runMigrations('down', 2);
+      await runMigrations('down', 3);
     } catch (error: unknown) {
       rollbackError = error;
     }
@@ -527,7 +766,7 @@ describe('Phase 2 database migrations', () => {
       { table_name: 'privacy_suppressions' },
       { table_name: 'restore_deletion_gates' },
     ]);
-    expect(migrations.rows[0]?.count).toBe(10);
+    expect(migrations.rows[0]?.count).toBe(11);
   });
 
   test('create the bounded privacy rights workflow tables as migration five', async () => {
@@ -1922,7 +2161,7 @@ describe('Phase 2 database migrations', () => {
     ]);
   });
 
-  test('guards populated privacy evidence, then rolls back and reapplies all ten migrations', async () => {
+  test('guards populated privacy evidence, then rolls back and reapplies all eleven migrations', async () => {
     const receipt = await pool.query<{ readonly id: string }>(
       `insert into webhook_receipts (payload_sha256, event_count)
        values ($1, 1)
@@ -2049,7 +2288,7 @@ describe('Phase 2 database migrations', () => {
     ]);
 
     await runMigrations('up');
-    await runMigrations('down', 10);
+    await runMigrations('down', 11);
 
     const afterRollback = await pool.query<{ readonly table_name: string }>(
       `select table_name
