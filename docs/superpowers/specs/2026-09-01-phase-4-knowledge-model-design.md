@@ -386,6 +386,9 @@ worker follows this order:
 10. P5 later rechecks all send-time policy and delivers through a PostgreSQL
     outbox. Phase 4 does not send to Meta.
 
+The sequence is intentionally numbered once from 1 through 10; this editorial
+correction does not change the approved control order.
+
 ## Sensitive-Data Gate
 
 The hard-block classes are passwords, authentication secrets, OTP/recovery

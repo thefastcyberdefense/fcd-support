@@ -9,6 +9,8 @@ import {
 import { withBoundedTransaction, type TransactionSource } from './postgres-transaction.js';
 
 export const MODEL_ESCALATION_REASON_CODES = Object.freeze([
+  'sensitive_data_blocked',
+  'unsafe_redaction',
   'model_disabled',
   'rate_limited',
   'global_limit',
@@ -18,6 +20,8 @@ export const MODEL_ESCALATION_REASON_CODES = Object.freeze([
   'provider_failure',
   'provider_exhausted',
   'invalid_response',
+  'unsupported_claim',
+  'wrong_language',
   'policy_blocked',
   'database_failure',
 ] as const);

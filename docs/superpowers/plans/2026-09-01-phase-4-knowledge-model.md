@@ -501,16 +501,16 @@
 
 **Steps:**
 
-- [ ] Write failing unit tests for the complete FAQ/model/safe-failure composition, exactly one logical request, allowance completion, timeout, invalid output, unsupported claim, guard race, and escalation idempotency.
-- [ ] Write guarded PostgreSQL flow tests proving crash/replay safety, no duplicate drafts/calls, customizable policy use, and deletion/takeover/privacy precedence.
-- [ ] Author the reviewed synthetic English/Bangla fixture set with provenance comments in the review document; run the repository fixture-policy scan before accepting it.
-- [ ] Write the deterministic scorer and failing threshold/critical-case tests, then implement until all local fixture outcomes pass.
-- [ ] Run focused tests, `npm run check`, and `npm run test:integration` with the guarded isolated test environment. Record exact file/test counts from actual output only.
-- [ ] Run `git diff --check`, a changed-file credential/secret/customer-data scan, tracked synthetic-fixture scan, schema/lock hygiene checks, and staged-file review.
-- [ ] Update the architecture contract, private operations guide, threat model, acceptance items, tracker, project context, and Phase 4 gate with exact local evidence and explicit unresolved live Manifest/test-asset/P6/P7 blockers.
-- [ ] Correct the duplicated numbered line in the P4-001 spec while preserving its approved meaning.
-- [ ] Re-run the complete local and guarded PostgreSQL gates after documentation formatting.
-- [ ] Commit with `feat: complete phase 4 knowledge and model boundary` and push `main`.
+- [x] Write failing unit tests for the complete FAQ/model/safe-failure composition, exactly one logical request, allowance completion, timeout, invalid output, unsupported claim, guard race, and escalation idempotency.
+- [x] Write guarded PostgreSQL flow tests proving crash/replay safety, no duplicate drafts/calls, customizable policy use, and deletion/takeover/privacy precedence.
+- [x] Author the reviewed synthetic English/Bangla fixture set with provenance comments in the review document; run the repository fixture-policy scan before accepting it.
+- [x] Write the deterministic scorer and failing threshold/critical-case tests, then implement until all local fixture outcomes pass.
+- [x] Run focused tests, `npm run check`, and `npm run test:integration` with the guarded isolated test environment. Record exact file/test counts from actual output only.
+- [x] Run `git diff --check`, a changed-file credential/secret/customer-data scan, tracked synthetic-fixture scan, schema/lock hygiene checks, and staged-file review.
+- [x] Update the architecture contract, private operations guide, threat model, acceptance items, tracker, project context, and Phase 4 gate with exact local evidence and explicit unresolved live Manifest/test-asset/P6/P7 blockers.
+- [x] Correct the duplicated numbered line in the P4-001 spec while preserving its approved meaning.
+- [x] Re-run the complete local and guarded PostgreSQL gates after documentation formatting.
+- [x] Commit with `feat: complete phase 4 knowledge and model boundary` and push `main`.
 
 ## Final Completion Conditions
 

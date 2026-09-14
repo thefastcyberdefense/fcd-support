@@ -150,9 +150,7 @@ export class PostgresModelAllowance {
         if (
           prior.logical_call_key !== input.logicalCallKey ||
           prior.source_webhook_event_id !== input.webhookEventId ||
-          prior.conversation_id !== input.conversationId ||
-          prior.policy_version_id !== input.effectivePolicy.policyVersionId ||
-          prior.created_at.getTime() !== input.evaluatedAt.getTime()
+          prior.conversation_id !== input.conversationId
         ) {
           throw new PolicyIdempotencyConflictError();
         }

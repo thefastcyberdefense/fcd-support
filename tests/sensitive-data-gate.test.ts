@@ -68,6 +68,11 @@ describe('sensitive-data inference gate', () => {
     },
     {
       category: 'payment_card',
+      input: 'Synthetic request with card number 4111 1111 1111 1111',
+      matchedValue: '4111 1111 1111 1111',
+    },
+    {
+      category: 'payment_card',
       input: 'CVV: 123',
       matchedValue: '123',
     },

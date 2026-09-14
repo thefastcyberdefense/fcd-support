@@ -86,7 +86,7 @@ const recognizers: readonly Recognizer[] = [
     category: 'payment_card',
     alwaysBlock: true,
     expression:
-      /(?:\bcard(?:\s+(?:number|no))?\b\s*(?::|=|\bis\b)\s*(?:[0-9][ -]?){12,18}[0-9]|\b(?:cvv|cvc)\b\s*(?::|=|\bis\b)\s*[0-9]{3,4})/giu,
+      /(?:\bcard(?:\s+(?:number|no))?\b\s*(?:(?::|=|\bis\b)\s*)?(?:[0-9][ -]?){12,18}[0-9]|\b(?:cvv|cvc)\b\s*(?::|=|\bis\b)\s*[0-9]{3,4})/giu,
   },
   {
     category: 'bank_account',

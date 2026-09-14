@@ -69,7 +69,7 @@ All secret values are intentionally absent from this repository. Create them dur
 
 ## Current Phase 4 Checkpoint
 
-- Approved plan Tasks 1 through 16 are locally complete: knowledge schema/repository/publication, admin and learning schema, password/MFA/session primitives, PostgreSQL identity, the loopback-only dashboard foundation, proposal-only learning with owner questions, the fail-closed sensitive-data gate, FAQ-first resolution, the guarded reply-decision boundary, local fail-closed Manifest contracts/client, and authoritative customizable model-policy enforcement.
+- Approved plan Tasks 1 through 17 and P4-GATE are locally complete: knowledge schema/repository/publication, admin and learning schema, password/MFA/session primitives, PostgreSQL identity, the loopback-only dashboard foundation, proposal-only learning with owner questions, the fail-closed sensitive-data gate, FAQ-first resolution, guarded reply/model decisions, local fail-closed Manifest contracts/client, authoritative customizable model-policy enforcement, and the reviewed synthetic evaluation gate.
 - The private service supports reviewed bilingual proposals, provenance, replacements, submit/approve/reject, exact-version publication/scheduling/retirement/rollback, stable retry material, and transactional session/role checks. Public webhook routes remain unchanged.
 - Proposal-only learning accepts only applied internal customer events, stores closed content-minimized gap evidence, suppresses groups below the configured distinct-person threshold, inherits the earliest retention deadline, and reuses stable open questions across repeated aggregate runs while allowing a new generation after a terminal answer or dismissal. Aggregation rechecks current privacy holds, deletion state, and purging. Digest cadence, maximum questions, cooldown, repeat ceiling, group threshold, and observation bound are environment-configurable inside approved safety bounds.
 - Authenticated knowledge editors answer English/Bangla owner questions through the private dashboard. Each answer creates an append-only answer record and a `support_gap` draft proposal; no review or publication event is created.
@@ -82,13 +82,15 @@ All secret values are intentionally absent from this repository. Create them dur
 - Migration eleven stores immutable model-policy versions and append-only submit/approve/activate/retire evidence. Operational and FAQ limits have no database defaults; active policy is unique, provider attempts cannot exceed the architecture ceiling, usage windows are closed and pseudonymous, and leases contain only internal references, closed lifecycle/outcome values, and timestamps. Populated downgrade fails closed.
 - Effective policy requires exactly one event-time-active PostgreSQL version plus verified Manifest limits, then intersects policy, protected deployment, and Manifest values field by field. Allowance transactions derive a pseudonymous scope from the authoritative internal contact, serialize rolling 15-minute/24-hour and global UTC-day counts, cooldown, concurrency, queueing, exact replay, and expiry. Eleven model-failure categories persist content-free source-bound escalation evidence.
 - The loopback/private policy page is administrator-only and uses live-session authorization, CSRF/origin checks, session-bound signed actions, explicit inputs for every customizable value, and content-free audit. Existing escalation views remain aggregate-only.
-- Validation on 2026-09-13: `npm run check` passed 461 unit tests across 37 files plus formatting, lint, strict type checking, build, and the Phase 0 validator; all 335 guarded PostgreSQL tests across 26 files passed. No browser run, deployment, Manifest call, provider call, external mutation, or production action was performed. Detailed evidence: `docs/testing/phase-4-model-limits-and-escalation.md`.
-- Next is Task 17: compose FAQ/model/safe-failure decisions, complete the synthetic English/Bangla evaluation, and prepare P4-GATE evidence.
+- The model stage is reachable only from an authoritative FAQ gap for the same applied event. It re-inspects content, loads bounded effective reviewed facts, acquires one lease, issues at most one tool-free auto request, validates output twice, and rechecks takeover, privacy, deletion, retention, and current publication before storing a fact-linked model draft. Every exhausted, invalid, stale, or failed path creates a reviewed safe draft plus one content-free escalation when policy permits; exact/crash replay cannot issue an unbounded second request.
+- The newly authored evaluation corpus contains 35 synthetic cases (18 English, 17 Bangla), covers AC-05/10/21/22/25 and every approved sensitive class, scores all seven declared local-fake invariants at 100%, records 12/12 acceptable self-reviewed scripted outcomes, and has zero critical failures. Negative controls prove the scorer rejects invariant, rating, critical, and provenance failures. This does not claim independent human or real-provider quality.
+- Validation on 2026-09-14: `npm run check` passed 473 tests across 39 files plus formatting, lint, strict type checking, build, and the Phase 0 validator; all 345 guarded PostgreSQL tests across 27 files passed. No browser run, deployment, Manifest call, provider call, external mutation, or production action was performed. Detailed evidence: `docs/testing/phase-4-evaluation-review.md` and `docs/reviews/phase-4-gate.md`.
+- Next is P5-001: write the detailed test-first outbound messaging plan. P4-GATE authorizes local Phase 5 planning only.
 
 ## Launch Blockers
 
 - The admission-only test deployment is approved and running under a narrow exception. Outbound messaging, models, n8n actions, live customer data, and production deployment remain unauthorized.
-- P3-GATE passed on 2026-09-01 at validated revision `bb95803`. The project owner approved the major P4-001 architecture decisions and delegated the remaining local Phase 4 design/implementation approvals on 2026-09-01. The Phase 4 design is recorded in `docs/superpowers/specs/2026-09-01-phase-4-knowledge-model-design.md`, and the executable sequence is recorded in `docs/superpowers/plans/2026-09-01-phase-4-knowledge-model.md`. P4-002, P4-003, local P4-004, and P4-005 policy/allowance primitives are complete. End-to-end model safe-failure composition and bilingual evaluation remain pending.
+- P3-GATE passed on 2026-09-01 at validated revision `bb95803`. The project owner approved the major P4-001 architecture decisions and delegated the remaining local Phase 4 design/implementation approvals on 2026-09-01. P4-002 through P4-006 and the local P4-GATE now pass. Live recording-off, private-network, provider, test-asset, outbound, and production evidence remains governed by later gates.
 - Phase 0 is evidence-complete: the threat model, acceptance matrix, and planning-only gate review are recorded in `docs/security/threat-model.md`, `docs/testing/acceptance-matrix.md`, and `docs/reviews/phase-0-gate.md`. This closes architectural planning only; every `PARTIAL`, `PLANNED`, or `BLOCKED` acceptance row remains a launch blocker. The project owner authorized reversible local development through Phase 5; exceptions and current contracts are tracked in `docs/TODO.md`.
 - Meta test callback and subscription flows are validated only for development-mode test assets. App review, live permissions, and production assets remain unvalidated.
 - WhatsApp coexistence for the production number has not been confirmed.
@@ -98,10 +100,10 @@ All secret values are intentionally absent from this repository. Create them dur
 - Website privacy and support wording must disclose AI assistance, external inference, retention, deletion, and marketing consent before production launch.
 - Actual encrypted backup/restore procedures and deployed human-takeover behavior must still pass their acceptance tests; the local restore-gate primitive alone does not satisfy P6-004.
 
-The current tracker action is Task 17 test-first model-decision composition and evaluation from the
-approved architecture and detailed plan. All live Manifest, network, deployment,
-test-asset, and production actions remain separately gated. P1-GATE remains a
-separate explicit review record.
+The current tracker action is P5-001 outbound architecture and test-first
+planning. All live Manifest, network, deployment, test-asset, and production
+actions remain separately gated. P1-GATE remains a separate explicit review
+record.
 
 ## First Session Checklist
 
