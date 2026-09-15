@@ -67,7 +67,7 @@ All secret values are intentionally absent from this repository. Create them dur
 - P3-007 exact intake, reviewer holds, redacting one-run access collection, typed correction boundaries, category-scoped opt-out/re-opt-in, and evidence-preserving rollback pass locally. Security scan `1f4a68bb-5290-480f-89f4-6297d840ec87` reviewed 15 production surfaces; its five medium findings in the original range all have guarded remediation tests.
 - No Meta/Manifest/provider deletion, access delivery, export/offline/archive cleanup, notification delivery, actual backup creation/restore/promotion, Ubuntu redeployment, or production action occurred. Those locations remain pending or belong to P6-004 and later test gates.
 
-## Current Phase 4 Checkpoint
+## Current Phase 5 Checkpoint
 
 - Approved plan Tasks 1 through 17 and P4-GATE are locally complete: knowledge schema/repository/publication, admin and learning schema, password/MFA/session primitives, PostgreSQL identity, the loopback-only dashboard foundation, proposal-only learning with owner questions, the fail-closed sensitive-data gate, FAQ-first resolution, guarded reply/model decisions, local fail-closed Manifest contracts/client, authoritative customizable model-policy enforcement, and the reviewed synthetic evaluation gate.
 - The private service supports reviewed bilingual proposals, provenance, replacements, submit/approve/reject, exact-version publication/scheduling/retirement/rollback, stable retry material, and transactional session/role checks. Public webhook routes remain unchanged.
@@ -85,7 +85,8 @@ All secret values are intentionally absent from this repository. Create them dur
 - The model stage is reachable only from an authoritative FAQ gap for the same applied event. It re-inspects content, loads bounded effective reviewed facts, acquires one lease, issues at most one tool-free auto request, validates output twice, and rechecks takeover, privacy, deletion, retention, and current publication before storing a fact-linked model draft. Every exhausted, invalid, stale, or failed path creates a reviewed safe draft plus one content-free escalation when policy permits; exact/crash replay cannot issue an unbounded second request.
 - The newly authored evaluation corpus contains 35 synthetic cases (18 English, 17 Bangla), covers AC-05/10/21/22/25 and every approved sensitive class, scores all seven declared local-fake invariants at 100%, records 12/12 acceptable self-reviewed scripted outcomes, and has zero critical failures. Negative controls prove the scorer rejects invariant, rating, critical, and provenance failures. This does not claim independent human or real-provider quality.
 - Validation on 2026-09-14: `npm run check` passed 473 tests across 39 files plus formatting, lint, strict type checking, build, and the Phase 0 validator; all 345 guarded PostgreSQL tests across 27 files passed. No browser run, deployment, Manifest call, provider call, external mutation, or production action was performed. Detailed evidence: `docs/testing/phase-4-evaluation-review.md` and `docs/reviews/phase-4-gate.md`.
-- Next is P5-001: write the detailed test-first outbound messaging plan. P4-GATE authorizes local Phase 5 planning only.
+- P5-001 is complete under the owner's delegated local approval. The committed architecture and implementation plan select one PostgreSQL intent per source, last-moment policy rechecks, customizable reviewed rate/retry limits, an at-most-once bias for ambiguous dispatch, Graph API `v25.0`, loopback-only adapter evidence, monotonic status handling, and a bounded Messenger echo-correlation hold. No live provider call or deployment was made.
+- Next is P5-002: implement the PostgreSQL outbox schema, states, leases, retries, and terminal failure test-first. P5-003 through P5-005 remain dependency-gated.
 
 ## Launch Blockers
 
@@ -100,8 +101,8 @@ All secret values are intentionally absent from this repository. Create them dur
 - Website privacy and support wording must disclose AI assistance, external inference, retention, deletion, and marketing consent before production launch.
 - Actual encrypted backup/restore procedures and deployed human-takeover behavior must still pass their acceptance tests; the local restore-gate primitive alone does not satisfy P6-004.
 
-The current tracker action is P5-001 outbound architecture and test-first
-planning. All live Manifest, network, deployment, test-asset, and production
+The current tracker action is P5-002 PostgreSQL outbox development. All live
+Meta, Manifest, network, deployment, test-asset, and production
 actions remain separately gated. P1-GATE remains a separate explicit review
 record.
 
