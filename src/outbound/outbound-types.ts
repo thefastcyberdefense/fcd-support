@@ -128,3 +128,40 @@ export interface OutboundProviderConfig {
   readonly toJSON: () => OutboundConfigSnapshot;
   readonly [inspect.custom]: () => OutboundConfigSnapshot;
 }
+
+export interface OutboundPolicyMutationResult {
+  readonly policyRef: string;
+  readonly status: 'applied' | 'duplicate';
+}
+
+export type EffectiveOutboundPolicy =
+  | { readonly status: 'disabled'; readonly reasonCode: 'no_active_policy' }
+  | {
+      readonly status: 'enabled';
+      readonly policyRef: string;
+      readonly policyVersionId: string;
+      readonly values: OutboundPolicyValues;
+    };
+
+export interface OutboundTemplateMutationResult {
+  readonly status: 'applied' | 'duplicate';
+  readonly templateRef: string;
+  readonly versionNumber: number;
+}
+
+export type EffectiveFixedTemplate =
+  | { readonly status: 'disabled'; readonly reasonCode: 'no_active_template' }
+  | {
+      readonly status: 'enabled';
+      readonly category: OutboundPurpose;
+      readonly channel: 'whatsapp';
+      readonly channelAccountId: string;
+      readonly contentSha256: string;
+      readonly locale: 'bn_BD' | 'en_US';
+      readonly providerTemplateId: string;
+      readonly templateName: string;
+      readonly templateRef: string;
+      readonly templateVersionId: string;
+      readonly variableCount: 0;
+      readonly versionNumber: number;
+    };

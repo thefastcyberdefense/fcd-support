@@ -321,7 +321,7 @@ git push origin main
 - Produces: create/submit/approve/activate/retire/resolve policy methods and
   create/submit/approve/activate/retire/resolve fixed-template methods.
 
-- [ ] **Step 1: Write failing input tests**
+- [x] **Step 1: Write failing input tests**
 
 The template command is strict and zero-variable:
 
@@ -348,21 +348,21 @@ export interface FixedTemplateVersionInput {
 Reject component/parameter/body fields, invalid references/digests, Messenger
 templates, and unknown categories/locales.
 
-- [ ] **Step 2: Write failing guarded repository tests**
+- [x] **Step 2: Write failing guarded repository tests**
 
 Cover immutable versions, separate submit/approve/activate, reviewer roles,
 event-time activation, retirement, exact/conflicting replay, two-active
 corruption failure, cross-account lookup denial, concurrent activation, and
 transaction rollback.
 
-- [ ] **Step 3: Run focused tests and confirm failure**
+- [x] **Step 3: Run focused tests and confirm failure**
 
 ~~~powershell
 npm test -- --run tests/outbound-template-input.test.ts
 npm run test:integration -- tests/integration/postgres-outbound-policy.test.ts tests/integration/postgres-outbound-template.test.ts
 ~~~
 
-- [ ] **Step 4: Implement repositories**
+- [x] **Step 4: Implement repositories**
 
 Expose exact methods:
 
@@ -391,7 +391,7 @@ class PostgresOutboundTemplate {
 
 All review evidence is append-only, request-key idempotent, and content-safe.
 
-- [ ] **Step 5: Run focused suites and checkpoint**
+- [x] **Step 5: Run focused suites and checkpoint**
 
 Run the commands from Step 3, then npm run check.
 
