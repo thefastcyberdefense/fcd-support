@@ -66,7 +66,7 @@ Compose isolated PostgreSQL.
 - Produces: outbound policy/template history, intents, attempts, rate windows,
   statuses, echo holds, and escalation tables used by every later task.
 
-- [ ] **Step 1: Write the failing migration inventory test**
+- [x] **Step 1: Write the failing migration inventory test**
 
 Add assertions that migration 000012 creates exactly these new tables:
 
@@ -90,7 +90,7 @@ channel/account/provider-message correlation, append-only history, and the
 absence of columns named payload, request_body, response_body, token,
 authorization, external_contact_id, or message_text in Phase 5 tables.
 
-- [ ] **Step 2: Write failing downgrade and impossible-state tests**
+- [x] **Step 2: Write failing downgrade and impossible-state tests**
 
 The empty schema must down/up cleanly. Any populated policy, template, intent,
 attempt, status, hold, rate, or escalation table must make down fail before
@@ -98,7 +98,7 @@ mutation with SQLSTATE 55000. Add direct inserts that try invalid state/source,
 accepted-without-provider-ID, dispatch-started-without-start-time,
 terminal-without-finish-time, and cross-source intent shapes.
 
-- [ ] **Step 3: Run the focused migration tests and confirm failure**
+- [x] **Step 3: Run the focused migration tests and confirm failure**
 
 Run:
 
@@ -108,7 +108,7 @@ npm run test:integration -- tests/integration/migrations.test.ts tests/integrati
 
 Expected: FAIL because migration 000012 and its tables do not exist.
 
-- [ ] **Step 4: Implement migration 000012**
+- [x] **Step 4: Implement migration 000012**
 
 Use explicit SQL with no operational defaults. Required core shapes:
 
@@ -166,14 +166,14 @@ append-only triggers, controlled intent/attempt/hold transition triggers, and a
 populated downgrade guard. Extend restore-location schema checks so
 pending_outbound remains a required deletion location.
 
-- [ ] **Step 5: Run migration tests**
+- [x] **Step 5: Run migration tests**
 
 Run the command from Step 3.
 
 Expected: PASS with all twelve migrations applied, guarded down refusal, clean
 empty down/up, and zero leftover test schemas/advisory locks.
 
-- [ ] **Step 6: Run task validation and checkpoint**
+- [x] **Step 6: Run task validation and checkpoint**
 
 Run:
 

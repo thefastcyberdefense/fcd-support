@@ -128,6 +128,36 @@ function finalizeCommand(input: {
 }
 
 describe('PostgresRestoreDeletionGate reconciliation', () => {
+  test('retains pending_outbound as a required deletion location', async () => {
+    const request = await pool.query<{ readonly id: string }>(
+      `insert into privacy_requests
+         (request_ref, request_type, state, received_at, decision_at,
+          reviewer_reference, decision_code, reason_code, open_request_key)
+       values ('PRIVACY_TEST_restore_pending_outbound', 'deletion', 'in_progress',
+               '2026-09-15T00:00:00Z', '2026-09-15T00:01:00Z',
+               'REVIEWER_TEST_restore_pending_outbound', 'same_channel_context',
+               'identity_verified', 'privacy-test-restore-pending-outbound')
+       returning id`,
+    );
+    await pool.query(
+      `insert into privacy_request_locations
+         (request_id, location_code, required, state)
+       values ($1, 'pending_outbound', true, 'pending')`,
+      [request.rows[0]?.id],
+    );
+
+    await expect(
+      pool.query(
+        `select location_code, required, state
+         from privacy_request_locations
+         where request_id = $1`,
+        [request.rows[0]?.id],
+      ),
+    ).resolves.toMatchObject({
+      rows: [{ location_code: 'pending_outbound', required: true, state: 'pending' }],
+    });
+  });
+
   test('reapplies rotated tombstones in stable bounded batches without touching nonmatches', async () => {
     const effectiveAt = new Date('2026-08-31T07:00:00.000Z');
     const first = await insertRestoredIdentity('first', effectiveAt);

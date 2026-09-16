@@ -4,6 +4,10 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 
 import { createIsolatedTestDatabase, type IsolatedTestDatabase } from './test-database.js';
+import {
+  insertSyntheticAppliedCustomerEvent,
+  insertSyntheticPendingEvent,
+} from './policy-fixtures.js';
 
 let disposeDatabase: (() => Promise<void>) | undefined;
 let pool: pg.Pool;
@@ -150,7 +154,7 @@ describe('Phase 2 database migrations', () => {
       { table_name: 'knowledge_tags' },
       { table_name: 'knowledge_versions' },
     ]);
-    expect(migrations.rows[0]?.count).toBe(11);
+    expect(migrations.rows[0]?.count).toBe(12);
     expect(trigramExtension.rows).toEqual([{ installed: true }]);
     expect(aliasIndexes.rows.map(({ indexname }) => indexname)).toEqual(
       expect.arrayContaining([
@@ -210,7 +214,7 @@ describe('Phase 2 database migrations', () => {
       'support_reply_draft_knowledge',
       'support_reply_drafts',
     ]);
-    expect(migrations.rows[0]?.count).toBe(11);
+    expect(migrations.rows[0]?.count).toBe(12);
   });
 
   test('create customizable model policy, usage, and lease schema as migration eleven', async () => {
@@ -271,7 +275,455 @@ describe('Phase 2 database migrations', () => {
     expect(policyColumns.rows).toHaveLength(13);
     expect(policyColumns.rows.every(({ column_default }) => column_default === null)).toBe(true);
     expect(prohibitedColumns.rows).toEqual([]);
-    expect(migrations.rows[0]?.count).toBe(11);
+    expect(migrations.rows[0]?.count).toBe(12);
+  });
+
+  test('create the closed outbound messaging schema as migration twelve', async () => {
+    const tables = await pool.query<{ readonly table_name: string }>(
+      `select table_name
+       from information_schema.tables
+       where table_schema = $1
+         and table_name in (
+           'outbound_attempts', 'outbound_echo_correlation_holds',
+           'outbound_escalation_outcomes', 'outbound_intents',
+           'outbound_policy_review_events', 'outbound_policy_versions',
+           'outbound_rate_windows', 'outbound_status_events',
+           'outbound_template_review_events', 'outbound_template_versions'
+         )
+       order by table_name`,
+      [schema],
+    );
+    const policyColumns = await pool.query<{
+      readonly column_default: string | null;
+      readonly column_name: string;
+    }>(
+      `select column_name, column_default
+       from information_schema.columns
+       where table_schema = $1
+         and table_name = 'outbound_policy_versions'
+         and column_name in (
+           'per_contact_15_minute', 'per_contact_24_hour',
+           'whatsapp_account_1_minute', 'messenger_account_1_minute',
+           'global_1_minute', 'global_utc_day', 'worker_batch_size',
+           'lease_ms', 'provider_timeout_ms', 'maximum_definite_retries',
+           'retry_base_ms', 'retry_maximum_ms'
+         )
+       order by column_name`,
+      [schema],
+    );
+    const prohibitedColumns = await pool.query<{ readonly column_name: string }>(
+      `select column_name
+       from information_schema.columns
+       where table_schema = $1
+         and table_name in (
+           'outbound_attempts', 'outbound_echo_correlation_holds',
+           'outbound_escalation_outcomes', 'outbound_intents',
+           'outbound_policy_review_events', 'outbound_policy_versions',
+           'outbound_rate_windows', 'outbound_status_events',
+           'outbound_template_review_events', 'outbound_template_versions'
+         )
+         and column_name in (
+           'payload', 'request_body', 'response_body', 'token',
+           'authorization', 'external_contact_id', 'message_text'
+         )`,
+      [schema],
+    );
+    const migrations = await pool.query<{ readonly count: number }>(
+      `select count(*)::int as count from pgmigrations`,
+    );
+
+    expect(tables.rows.map(({ table_name }) => table_name)).toEqual([
+      'outbound_attempts',
+      'outbound_echo_correlation_holds',
+      'outbound_escalation_outcomes',
+      'outbound_intents',
+      'outbound_policy_review_events',
+      'outbound_policy_versions',
+      'outbound_rate_windows',
+      'outbound_status_events',
+      'outbound_template_review_events',
+      'outbound_template_versions',
+    ]);
+    expect(policyColumns.rows).toHaveLength(12);
+    expect(policyColumns.rows.every(({ column_default }) => column_default === null)).toBe(true);
+    expect(prohibitedColumns.rows).toEqual([]);
+    expect(migrations.rows[0]?.count).toBe(12);
+  });
+
+  test('enforce outbound source, state, correlation, and append-only evidence constraints', async () => {
+    const account = await pool.query<{ readonly id: string }>(
+      `insert into admin_accounts
+         (account_ref, login_name, password_algorithm, password_cost,
+          password_block_size, password_parallelization, password_key_length,
+          password_salt, password_hash, state, created_at, updated_at,
+          password_changed_at)
+       values ('ADMIN_TEST_outbound_schema', 'synthetic.outbound.schema',
+               'scrypt_v1', 16384, 8, 1, 32, $1, $2, 'active',
+               '2026-09-15T00:00:00Z', '2026-09-15T00:00:00Z',
+               '2026-09-15T00:00:00Z')
+       returning id`,
+      [Buffer.alloc(16, 0x61), Buffer.alloc(32, 0x62)],
+    );
+    const accountId = account.rows[0]?.id;
+    try {
+      const invalidPolicyState = await captureRolledBackMutation(
+        `insert into outbound_policy_versions
+           (policy_ref, version_number, request_key,
+            per_contact_15_minute, per_contact_24_hour,
+            whatsapp_account_1_minute, messenger_account_1_minute,
+            global_1_minute, global_utc_day, worker_batch_size, lease_ms,
+            provider_timeout_ms, maximum_definite_retries,
+            retry_base_ms, retry_maximum_ms, state,
+            created_by_account_id, created_at)
+         values ('POLICY_TEST_outbound_invalid', 99,
+                 'REQUEST_TEST_outbound_policy_invalid',
+                 4, 40, 100, 100, 150, 1000, 20, 30000,
+                 10000, 3, 1000, 60000, 'enabled', $1,
+                 '2026-09-15T00:01:00Z')`,
+        [accountId],
+      );
+      expect(invalidPolicyState).toEqual(expect.objectContaining({ code: '23514' }));
+
+      const policy = await pool.query<{ readonly id: string }>(
+        `insert into outbound_policy_versions
+           (policy_ref, version_number, request_key,
+            per_contact_15_minute, per_contact_24_hour,
+            whatsapp_account_1_minute, messenger_account_1_minute,
+            global_1_minute, global_utc_day, worker_batch_size, lease_ms,
+            provider_timeout_ms, maximum_definite_retries,
+            retry_base_ms, retry_maximum_ms, state,
+            created_by_account_id, created_at)
+         values ('POLICY_TEST_outbound_schema', 1,
+                 'REQUEST_TEST_outbound_policy_schema',
+                 4, 40, 100, 100, 150, 1000, 20, 30000,
+                 10000, 3, 1000, 60000, 'draft', $1,
+                 '2026-09-15T00:01:00Z')
+         returning id`,
+        [accountId],
+      );
+      const policyId = policy.rows[0]?.id;
+      const policyReview = await pool.query<{ readonly id: string }>(
+        `insert into outbound_policy_review_events
+           (policy_version_id, action, reviewer_account_id, reason_code,
+            request_key, effective_at)
+         values ($1, 'submit', $2, 'ready_for_review',
+                 'REQUEST_TEST_outbound_policy_submit',
+                 '2026-09-15T00:02:00Z')
+         returning id`,
+        [policyId, accountId],
+      );
+      const policyHistoryMutation = await captureRolledBackMutation(
+        `update outbound_policy_review_events
+         set reason_code = 'changed'
+         where id = $1`,
+        [policyReview.rows[0]?.id],
+      );
+      expect(policyHistoryMutation).toEqual(expect.objectContaining({ code: '23514' }));
+
+      const template = await pool.query<{ readonly id: string }>(
+        `insert into outbound_template_versions
+           (template_ref, version_number, request_key, channel,
+            channel_account_id, provider_template_id, template_name, locale,
+            category, variable_count, content_sha256, state,
+            created_by_account_id, created_at)
+         values ('TEMPLATE_TEST_outbound_schema', 1,
+                 'REQUEST_TEST_outbound_template_schema', 'whatsapp',
+                 'PHONE_TEST_outbound_schema', 'META_TEMPLATE_TEST_1',
+                 'synthetic_support_template', 'en_US', 'customer_support',
+                 0, $1, 'draft', $2, '2026-09-15T00:01:00Z')
+         returning id`,
+        ['1'.repeat(64), accountId],
+      );
+      const templateId = template.rows[0]?.id;
+      const source = await insertSyntheticAppliedCustomerEvent(pool, {
+        fixtureKey: 'outbound-schema-source',
+        identity: {
+          channel: 'whatsapp',
+          channelAccountId: 'PHONE_TEST_outbound_schema',
+          externalContactId: 'WA_TEST_outbound_schema',
+        },
+        messageText: 'Synthetic outbound schema customer question.',
+        occurredAt: new Date('2026-09-15T00:03:00.000Z'),
+      });
+      const identity = await pool.query<{ readonly channel_identity_id: string }>(
+        `select channel_identity_id
+         from conversations
+         where id = $1`,
+        [source.conversationId],
+      );
+      const identityId = identity.rows[0]?.channel_identity_id;
+      const draft = await pool.query<{ readonly id: string }>(
+        `insert into support_reply_drafts
+           (draft_ref, source_webhook_event_id, conversation_id, decision_type,
+            language, answer_text, state, retention_deadline, request_key, created_at)
+         values ('DRAFT_TEST_outbound_schema', $1, $2, 'safe_failure',
+                 'en', 'Synthetic safe outbound response.', 'ready',
+                 '2026-09-20T00:00:00Z', 'REQUEST_TEST_outbound_draft_schema',
+                 '2026-09-15T00:04:00Z')
+         returning id`,
+        [source.eventId, source.conversationId],
+      );
+      const draftId = draft.rows[0]?.id;
+
+      const crossSourceIntent = await captureRolledBackMutation(
+        `insert into outbound_intents
+           (intent_ref, request_key, reply_draft_id, template_version_id,
+            conversation_id, channel_identity_id, policy_version_id,
+            channel, channel_account_id, purpose, message_kind, state,
+            next_attempt_at, retention_deadline, created_at, updated_at)
+         values ('INTENT_TEST_cross_source', 'REQUEST_TEST_cross_source',
+                 $1, $2, $3, $4, $5, 'whatsapp',
+                 'PHONE_TEST_outbound_schema', 'customer_support',
+                 'support_text', 'pending', '2026-09-15T00:05:00Z',
+                 '2026-09-20T00:00:00Z', '2026-09-15T00:05:00Z',
+                 '2026-09-15T00:05:00Z')`,
+        [draftId, templateId, source.conversationId, identityId, policyId],
+      );
+      expect(crossSourceIntent).toEqual(expect.objectContaining({ code: '23514' }));
+      const mismatchedIdentityIntent = await captureRolledBackMutation(
+        `insert into outbound_intents
+           (intent_ref, request_key, reply_draft_id, conversation_id,
+            channel_identity_id, policy_version_id, channel,
+            channel_account_id, purpose, message_kind, state,
+            next_attempt_at, retention_deadline, created_at, updated_at)
+         values ('INTENT_TEST_wrong_account', 'REQUEST_TEST_wrong_account',
+                 $1, $2, $3, $4, 'whatsapp', 'PHONE_TEST_wrong_account',
+                 'customer_support', 'support_text', 'pending',
+                 '2026-09-15T00:05:00Z', '2026-09-20T00:00:00Z',
+                 '2026-09-15T00:05:00Z', '2026-09-15T00:05:00Z')`,
+        [draftId, source.conversationId, identityId, policyId],
+      );
+      expect(mismatchedIdentityIntent).toEqual(expect.objectContaining({ code: '23514' }));
+
+      const intent = await pool.query<{ readonly id: string }>(
+        `insert into outbound_intents
+           (intent_ref, request_key, reply_draft_id, conversation_id,
+            channel_identity_id, policy_version_id, channel,
+            channel_account_id, purpose, message_kind, state,
+            next_attempt_at, retention_deadline, created_at, updated_at)
+         values ('INTENT_TEST_outbound_schema', 'REQUEST_TEST_outbound_intent_schema',
+                 $1, $2, $3, $4, 'whatsapp', 'PHONE_TEST_outbound_schema',
+                 'customer_support', 'support_text', 'pending',
+                 '2026-09-15T00:05:00Z', '2026-09-20T00:00:00Z',
+                 '2026-09-15T00:05:00Z', '2026-09-15T00:05:00Z')
+         returning id`,
+        [draftId, source.conversationId, identityId, policyId],
+      );
+      const intentId = intent.rows[0]?.id;
+      const duplicateDraftIntent = await captureRolledBackMutation(
+        `insert into outbound_intents
+           (intent_ref, request_key, reply_draft_id, conversation_id,
+            channel_identity_id, policy_version_id, channel,
+            channel_account_id, purpose, message_kind, state,
+            next_attempt_at, retention_deadline, created_at, updated_at)
+         values ('INTENT_TEST_duplicate_draft', 'REQUEST_TEST_duplicate_draft',
+                 $1, $2, $3, $4, 'whatsapp', 'PHONE_TEST_outbound_schema',
+                 'customer_support', 'support_text', 'pending',
+                 '2026-09-15T00:05:00Z', '2026-09-20T00:00:00Z',
+                 '2026-09-15T00:05:00Z', '2026-09-15T00:05:00Z')`,
+        [draftId, source.conversationId, identityId, policyId],
+      );
+      expect(duplicateDraftIntent).toEqual(expect.objectContaining({ code: '23505' }));
+
+      const dispatchWithoutStart = await captureRolledBackMutation(
+        `insert into outbound_attempts
+           (intent_id, attempt_number, attempt_ref, policy_version_id,
+            rate_reservation_ref, channel, channel_account_id, state,
+            authorized_at)
+         values ($1, 1, 'ATTEMPT_TEST_missing_start', $2,
+                 'RATE_TEST_missing_start', 'whatsapp',
+                 'PHONE_TEST_outbound_schema', 'dispatch_started',
+                 '2026-09-15T00:06:00Z')`,
+        [intentId, policyId],
+      );
+      const acceptedWithoutProviderId = await captureRolledBackMutation(
+        `insert into outbound_attempts
+           (intent_id, attempt_number, attempt_ref, policy_version_id,
+            rate_reservation_ref, channel, channel_account_id, state,
+            outcome_code, authorized_at, dispatch_started_at,
+            provider_accepted_at, finished_at)
+         values ($1, 1, 'ATTEMPT_TEST_missing_provider', $2,
+                 'RATE_TEST_missing_provider', 'whatsapp',
+                 'PHONE_TEST_outbound_schema', 'provider_accepted',
+                 'provider_accepted', '2026-09-15T00:06:00Z',
+                 '2026-09-15T00:06:01Z', '2026-09-15T00:06:02Z',
+                 '2026-09-15T00:06:02Z')`,
+        [intentId, policyId],
+      );
+      const terminalWithoutFinish = await captureRolledBackMutation(
+        `insert into outbound_intents
+           (intent_ref, request_key, template_version_id, conversation_id,
+            channel_identity_id, policy_version_id, channel,
+            channel_account_id, purpose, message_kind, state,
+            retention_deadline, terminal_reason, created_at, updated_at)
+         values ('INTENT_TEST_missing_finish', 'REQUEST_TEST_missing_finish',
+                 $1, $2, $3, $4, 'whatsapp', 'PHONE_TEST_outbound_schema',
+                 'customer_support', 'fixed_template', 'terminal_failed',
+                 '2026-09-20T00:00:00Z', 'provider_rejected',
+                 '2026-09-15T00:05:00Z', '2026-09-15T00:05:00Z')`,
+        [templateId, source.conversationId, identityId, policyId],
+      );
+      expect([dispatchWithoutStart, acceptedWithoutProviderId, terminalWithoutFinish]).toEqual([
+        expect.objectContaining({ code: '23514' }),
+        expect.objectContaining({ code: '23514' }),
+        expect.objectContaining({ code: '23514' }),
+      ]);
+
+      const attempt = await pool.query<{ readonly id: string }>(
+        `insert into outbound_attempts
+           (intent_id, attempt_number, attempt_ref, policy_version_id,
+            rate_reservation_ref, channel, channel_account_id, state,
+            provider_message_id, outcome_code, authorized_at,
+            dispatch_started_at, provider_accepted_at, finished_at)
+         values ($1, 1, 'ATTEMPT_TEST_outbound_schema', $2,
+                 'RATE_TEST_outbound_schema', 'whatsapp',
+                 'PHONE_TEST_outbound_schema', 'provider_accepted',
+                 'wamid.TEST.outbound.schema', 'provider_accepted',
+                 '2026-09-15T00:06:00Z', '2026-09-15T00:06:01Z',
+                 '2026-09-15T00:06:02Z', '2026-09-15T00:06:02Z')
+         returning id`,
+        [intentId, policyId],
+      );
+      const attemptId = attempt.rows[0]?.id;
+      const acceptedAttemptMutation = await captureRolledBackMutation(
+        `update outbound_attempts
+         set provider_message_id = 'wamid.TEST.outbound.changed'
+         where id = $1`,
+        [attemptId],
+      );
+      expect(acceptedAttemptMutation).toEqual(expect.objectContaining({ code: '23514' }));
+      const duplicateProviderMessage = await captureRolledBackMutation(
+        `insert into outbound_attempts
+           (intent_id, attempt_number, attempt_ref, policy_version_id,
+            rate_reservation_ref, channel, channel_account_id, state,
+            provider_message_id, outcome_code, authorized_at,
+            dispatch_started_at, provider_accepted_at, finished_at)
+         values ($1, 2, 'ATTEMPT_TEST_duplicate_provider', $2,
+                 'RATE_TEST_duplicate_provider', 'whatsapp',
+                 'PHONE_TEST_outbound_schema', 'provider_accepted',
+                 'wamid.TEST.outbound.schema', 'provider_accepted',
+                 '2026-09-15T00:07:00Z', '2026-09-15T00:07:01Z',
+                 '2026-09-15T00:07:02Z', '2026-09-15T00:07:02Z')`,
+        [intentId, policyId],
+      );
+      expect(duplicateProviderMessage).toEqual(expect.objectContaining({ code: '23505' }));
+
+      const statusEventId = await insertSyntheticPendingEvent(pool, {
+        channel: 'whatsapp',
+        channelAccountId: 'PHONE_TEST_outbound_schema',
+        eventKind: 'message_status',
+        externalMessageId: 'wamid.TEST.outbound.schema',
+        fixtureKey: 'outbound-schema-status',
+        messageStatus: 'delivered',
+        occurredAt: new Date('2026-09-15T00:08:00.000Z'),
+      });
+      const status = await pool.query<{ readonly id: string }>(
+        `insert into outbound_status_events
+           (webhook_event_id, intent_id, attempt_id, status, provider_occurred_at)
+         values ($1, $2, $3, 'delivered', '2026-09-15T00:08:00Z')
+         returning id`,
+        [statusEventId, intentId, attemptId],
+      );
+      const statusMutation = await captureRolledBackMutation(
+        `update outbound_status_events set status = 'read' where id = $1`,
+        [status.rows[0]?.id],
+      );
+      expect(statusMutation).toEqual(expect.objectContaining({ code: '23514' }));
+
+      const invalidHold = await captureRolledBackMutation(
+        `insert into outbound_echo_correlation_holds
+           (hold_ref, conversation_id, attempt_id, state, created_at, expires_at)
+         values ('HOLD_TEST_accepted_attempt', $1, $2, 'open',
+                 '2026-09-15T00:06:01Z', '2026-09-15T00:11:01Z')`,
+        [source.conversationId, attemptId],
+      );
+      expect(invalidHold).toEqual(expect.objectContaining({ code: '23514' }));
+      const dispatchAttempt = await pool.query<{ readonly id: string }>(
+        `insert into outbound_attempts
+           (intent_id, attempt_number, attempt_ref, policy_version_id,
+            rate_reservation_ref, channel, channel_account_id, state,
+            authorized_at, dispatch_started_at)
+         values ($1, 2, 'ATTEMPT_TEST_outbound_dispatch', $2,
+                 'RATE_TEST_outbound_dispatch', 'whatsapp',
+                 'PHONE_TEST_outbound_schema', 'dispatch_started',
+                 '2026-09-15T00:09:00Z', '2026-09-15T00:09:01Z')
+         returning id`,
+        [intentId, policyId],
+      );
+      const hold = await pool.query<{ readonly id: string }>(
+        `insert into outbound_echo_correlation_holds
+           (hold_ref, conversation_id, attempt_id, state, created_at, expires_at)
+         values ('HOLD_TEST_outbound_schema', $1, $2, 'open',
+                 '2026-09-15T00:09:01Z', '2026-09-15T00:14:01Z')
+         returning id`,
+        [source.conversationId, dispatchAttempt.rows[0]?.id],
+      );
+      const holdDelete = await captureRolledBackMutation(
+        `delete from outbound_echo_correlation_holds where id = $1`,
+        [hold.rows[0]?.id],
+      );
+      expect(holdDelete).toEqual(expect.objectContaining({ code: '23514' }));
+    } finally {
+      await pool.query(`
+        truncate table admin_accounts, webhook_receipts, contacts
+        restart identity cascade
+      `);
+    }
+  });
+
+  test('refuse populated outbound downgrade, then cleanly down and reapply migration twelve', async () => {
+    const account = await pool.query<{ readonly id: string }>(
+      `insert into admin_accounts
+         (account_ref, login_name, password_algorithm, password_cost,
+          password_block_size, password_parallelization, password_key_length,
+          password_salt, password_hash, state, created_at, updated_at,
+          password_changed_at)
+       values ('ADMIN_TEST_outbound_down', 'synthetic.outbound.down',
+               'scrypt_v1', 16384, 8, 1, 32, $1, $2, 'active',
+               '2026-09-15T01:00:00Z', '2026-09-15T01:00:00Z',
+               '2026-09-15T01:00:00Z')
+       returning id`,
+      [Buffer.alloc(16, 0x63), Buffer.alloc(32, 0x64)],
+    );
+    await pool.query(
+      `insert into outbound_policy_versions
+         (policy_ref, version_number, request_key,
+          per_contact_15_minute, per_contact_24_hour,
+          whatsapp_account_1_minute, messenger_account_1_minute,
+          global_1_minute, global_utc_day, worker_batch_size, lease_ms,
+          provider_timeout_ms, maximum_definite_retries,
+          retry_base_ms, retry_maximum_ms, state,
+          created_by_account_id, created_at)
+       values ('POLICY_TEST_outbound_down', 1, 'REQUEST_TEST_outbound_policy_down',
+               4, 40, 100, 100, 150, 1000, 20, 30000,
+               10000, 3, 1000, 60000, 'draft', $1,
+               '2026-09-15T01:01:00Z')`,
+      [account.rows[0]?.id],
+    );
+
+    let rollbackError: unknown;
+    try {
+      await runMigrations('down', 1);
+    } catch (error: unknown) {
+      rollbackError = error;
+    }
+    expect(rollbackError).toBeInstanceOf(Error);
+    if (!(rollbackError instanceof Error)) {
+      throw new Error('Expected populated outbound rollback to fail');
+    }
+    expect(rollbackError.message).toContain('P5-001 rollback blocked');
+    expect((rollbackError as Error & { code?: string }).code).toBe('55000');
+    await expect(
+      pool.query(`select count(*)::int as count from pgmigrations`),
+    ).resolves.toMatchObject({ rows: [{ count: 12 }] });
+
+    await pool.query(`truncate table outbound_policy_versions restart identity cascade`);
+    await runMigrations('down', 1);
+    await expect(
+      pool.query(`select to_regclass('outbound_policy_versions') as table_name`),
+    ).resolves.toMatchObject({ rows: [{ table_name: null }] });
+    await runMigrations('up');
+    await pool.query(`truncate table admin_accounts restart identity cascade`);
   });
 
   test('enforce model policy bounds, reviewed transitions, and append-only history', async () => {
@@ -429,7 +881,7 @@ describe('Phase 2 database migrations', () => {
 
     let rollbackError: unknown;
     try {
-      await runMigrations('down', 1);
+      await runMigrations('down', 2);
     } catch (error: unknown) {
       rollbackError = error;
     }
@@ -567,7 +1019,7 @@ describe('Phase 2 database migrations', () => {
 
     let rollbackError: unknown;
     try {
-      await runMigrations('down', 2);
+      await runMigrations('down', 3);
     } catch (error: unknown) {
       rollbackError = error;
     }
@@ -714,7 +1166,7 @@ describe('Phase 2 database migrations', () => {
 
     let rollbackError: unknown;
     try {
-      await runMigrations('down', 3);
+      await runMigrations('down', 4);
     } catch (error: unknown) {
       rollbackError = error;
     }
@@ -766,7 +1218,7 @@ describe('Phase 2 database migrations', () => {
       { table_name: 'privacy_suppressions' },
       { table_name: 'restore_deletion_gates' },
     ]);
-    expect(migrations.rows[0]?.count).toBe(11);
+    expect(migrations.rows[0]?.count).toBe(12);
   });
 
   test('create the bounded privacy rights workflow tables as migration five', async () => {
@@ -2161,7 +2613,7 @@ describe('Phase 2 database migrations', () => {
     ]);
   });
 
-  test('guards populated privacy evidence, then rolls back and reapplies all eleven migrations', async () => {
+  test('guards populated privacy evidence, then rolls back and reapplies all twelve migrations', async () => {
     const receipt = await pool.query<{ readonly id: string }>(
       `insert into webhook_receipts (payload_sha256, event_count)
        values ($1, 1)
@@ -2231,7 +2683,7 @@ describe('Phase 2 database migrations', () => {
 
     let rollbackError: unknown;
     try {
-      await runMigrations('down', 4);
+      await runMigrations('down', 5);
     } catch (error: unknown) {
       rollbackError = error;
     }
@@ -2288,7 +2740,7 @@ describe('Phase 2 database migrations', () => {
     ]);
 
     await runMigrations('up');
-    await runMigrations('down', 11);
+    await runMigrations('down', 12);
 
     const afterRollback = await pool.query<{ readonly table_name: string }>(
       `select table_name
