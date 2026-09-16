@@ -208,7 +208,7 @@ git push origin main
 - Produces: OutboundPolicyValues, OutboundDeploymentBounds,
   OutboundProviderConfig, parseOutboundPolicyInput, loadOutboundConfig.
 
-- [ ] **Step 1: Write failing closed-contract tests**
+- [x] **Step 1: Write failing closed-contract tests**
 
 Define expected public types:
 
@@ -251,7 +251,7 @@ Test every enum, unknown key, non-integer, unsafe range, retry maximum below
 base, lease not longer than timeout plus safety margin, and two-source bound
 intersection.
 
-- [ ] **Step 2: Write failing configuration tests**
+- [x] **Step 2: Write failing configuration tests**
 
 Require exact META_GRAPH_API_VERSION=v25.0 and explicit values for every
 deployment ceiling/floor. Require HTTPS graph.facebook.com for production
@@ -262,7 +262,7 @@ fragment, redirects, missing account credential references, and all defaults.
 Test that returned credential wrappers cannot stringify or serialize their
 secret and that safe snapshots contain booleans/counts only.
 
-- [ ] **Step 3: Run tests and confirm module-not-found failures**
+- [x] **Step 3: Run tests and confirm module-not-found failures**
 
 Run:
 
@@ -270,7 +270,7 @@ Run:
 npm test -- --run tests/outbound-policy-input.test.ts tests/outbound-config.test.ts
 ~~~
 
-- [ ] **Step 4: Implement types, parsers, and configuration**
+- [x] **Step 4: Implement types, parsers, and configuration**
 
 Use strict Zod objects. Keep the version as a literal:
 
@@ -287,7 +287,7 @@ Counts, batch size, attempts, lease, and timeout take the smaller allowed
 value. Retry base/maximum take the longer required value while preserving
 base <= maximum. Add blank keys only to .env.example; never add values.
 
-- [ ] **Step 5: Run focused and complete local checks**
+- [x] **Step 5: Run focused and complete local checks**
 
 Run:
 
@@ -296,7 +296,7 @@ npm test -- --run tests/outbound-policy-input.test.ts tests/outbound-config.test
 npm run check
 ~~~
 
-- [ ] **Step 6: Commit and push**
+- [x] **Step 6: Commit and push**
 
 ~~~powershell
 git add .env.example src/outbound/outbound-types.ts src/outbound/outbound-policy-input.ts src/outbound/outbound-config.ts tests/outbound-policy-input.test.ts tests/outbound-config.test.ts
