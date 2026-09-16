@@ -514,7 +514,7 @@ git push origin main
 - Produces: claimBatch, authorizeAttempt, markDispatchStarted,
   recordProviderResult, expireLeases.
 
-- [ ] **Step 1: Write failing worker-state tests**
+- [x] **Step 1: Write failing worker-state tests**
 
 Use these signatures:
 
@@ -556,20 +556,20 @@ dispatch returning to pending, expiry after dispatch becoming unknown, exact
 result replay, invalid transitions, crash points, definite retry scheduling,
 maximum retry terminal failure, and one escalation.
 
-- [ ] **Step 2: Write failing rate-limit tests**
+- [x] **Step 2: Write failing rate-limit tests**
 
 Prove serialized per-contact 15-minute/24-hour, channel-account minute,
 global-minute, global-UTC-day limits; exact boundary expiry; WhatsApp/Messenger
 separation; no attempt on denial; and customized stricter deployment values.
 Hold advisory locks to prove bounded rollback and clean retry.
 
-- [ ] **Step 3: Run focused test and confirm failure**
+- [x] **Step 3: Run focused test and confirm failure**
 
 ~~~powershell
 npm run test:integration -- tests/integration/postgres-outbound-work-store.test.ts
 ~~~
 
-- [ ] **Step 4: Implement transactional work state**
+- [x] **Step 4: Implement transactional work state**
 
 Use SKIP LOCKED only for claim. Use one fixed advisory-lock namespace and
 deterministic scope ordering for authorization. Re-run every eligibility query
@@ -585,7 +585,7 @@ recordProviderResult must:
 - aborted_before_dispatch: return safely to pending without incrementing a
   provider retry.
 
-- [ ] **Step 5: Run tests and checkpoint**
+- [x] **Step 5: Run tests and checkpoint**
 
 ~~~powershell
 npm run test:integration -- tests/integration/postgres-outbound-work-store.test.ts
