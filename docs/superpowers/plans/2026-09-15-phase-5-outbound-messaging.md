@@ -607,7 +607,7 @@ git push origin main
 - Consumes: locked dispatch material from PostgresOutboundWorkStore.
 - Produces: PreparedOutboundRequest objects recognized by adapter provenance.
 
-- [ ] **Step 1: Write failing request-builder tests**
+- [x] **Step 1: Write failing request-builder tests**
 
 Expected builders:
 
@@ -627,13 +627,13 @@ messaging_type RESPONSE, fixed template with name/locale and no components,
 bounded text, no arbitrary URL, no unknown fields, no secret in object
 inspection/JSON, and WeakMap/WeakSet process provenance.
 
-- [ ] **Step 2: Run test and confirm failure**
+- [x] **Step 2: Run test and confirm failure**
 
 ~~~powershell
 npm test -- --run tests/outbound-request.test.ts
 ~~~
 
-- [ ] **Step 3: Implement strict builders**
+- [x] **Step 3: Implement strict builders**
 
 WhatsApp text body:
 
@@ -660,7 +660,7 @@ Messenger text body:
 Fixed WhatsApp template body contains messaging_product, to, type template,
 name, and language.code only. Freeze all returned structures.
 
-- [ ] **Step 4: Run tests, check, commit, and push**
+- [x] **Step 4: Run tests, check, commit, and push**
 
 ~~~powershell
 npm test -- --run tests/outbound-request.test.ts
