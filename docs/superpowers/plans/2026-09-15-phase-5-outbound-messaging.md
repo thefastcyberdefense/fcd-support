@@ -419,7 +419,7 @@ git push origin main
 - Produces: createSupportIntent, createFixedTemplateIntent and closed
   created/duplicate/denied outcomes.
 
-- [ ] **Step 1: Write failing pure eligibility tests**
+- [x] **Step 1: Write failing pure eligibility tests**
 
 Define:
 
@@ -449,21 +449,21 @@ event extension, Messenger and WhatsApp behavior, marketing exact-category
 consent, legacy/global and scoped suppression precedence, fixed-template
 category/locale/account scope, and active-client review deadline.
 
-- [ ] **Step 2: Write failing PostgreSQL intent tests**
+- [x] **Step 2: Write failing PostgreSQL intent tests**
 
 Seed only synthetic applied events/drafts. Prove one intent under exact replay
 and concurrent workers; conflicting request keys throw; no draft text or
 external contact is copied; all guard denials create no intent; a source is
 rechecked under lock; outside-window support cannot silently become a template.
 
-- [ ] **Step 3: Run focused tests and confirm failure**
+- [x] **Step 3: Run focused tests and confirm failure**
 
 ~~~powershell
 npm test -- --run tests/outbound-eligibility.test.ts
 npm run test:integration -- tests/integration/postgres-outbound-intent-store.test.ts
 ~~~
 
-- [ ] **Step 4: Implement the transactional store**
+- [x] **Step 4: Implement the transactional store**
 
 Expose:
 
@@ -490,7 +490,7 @@ retention, active policy, and last qualifying customer event in deterministic
 order. Derive all IDs/scopes server-side. Insert one content-free escalation
 for terminal enqueue denial where the spec requires human follow-up.
 
-- [ ] **Step 5: Run tests, check, commit, and push**
+- [x] **Step 5: Run tests, check, commit, and push**
 
 ~~~powershell
 npm test -- --run tests/outbound-eligibility.test.ts

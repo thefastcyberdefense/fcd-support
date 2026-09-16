@@ -256,6 +256,12 @@ conversation, channel identity, and current policy projection. It denies when:
   channel, and category; or
 - a global or scoped opt-out applies.
 
+Phase 5 maps its closed outbound purposes onto the existing reviewed Phase 3
+consent categories: marketing_education to security_updates, marketing_events
+to product_updates, marketing_news to newsletter, and marketing_offers to
+product_offers. This same mapping selects scoped opt-outs. Marketing opt-outs
+do not suppress customer-support replies.
+
 The exact checks repeat immediately before dispatch. Earlier eligibility is
 evidence, not authority for a later send.
 
