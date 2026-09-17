@@ -1193,7 +1193,7 @@ describe('PostgresConversationEventProcessor', () => {
     });
   });
 
-  test('ignores a message status without creating identity or conversation state', async () => {
+  test('records an uncorrelated message status without creating identity or conversation state', async () => {
     const webhookEventId = await insertSyntheticPendingEvent(pool, {
       channel: 'whatsapp',
       channelAccountId: 'PHONE_TEST_status',
@@ -1209,7 +1209,7 @@ describe('PostgresConversationEventProcessor', () => {
 
     expect(result).toEqual({
       eventId: webhookEventId,
-      outcome: 'message_status_ignored',
+      outcome: 'message_status_uncorrelated',
       status: 'applied',
     });
     const counts = await pool.query(
@@ -1225,7 +1225,7 @@ describe('PostgresConversationEventProcessor', () => {
     expect(counts.rows).toEqual([
       {
         applications: 1,
-        audits: 1,
+        audits: 0,
         contacts: 0,
         conversations: 0,
         identities: 0,

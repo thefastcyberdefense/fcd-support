@@ -1,9 +1,12 @@
+import { createHash } from 'node:crypto';
+
 import { z } from 'zod';
 
 import type { NormalizedMetaEvent } from './normalized-event.js';
 
 const messagingEventSchema = z
   .object({
+    delivery: z.unknown().optional(),
     message: z
       .object({
         is_echo: z.boolean().optional(),
@@ -15,6 +18,13 @@ const messagingEventSchema = z
     recipient: z.object({ id: z.string() }).loose(),
     sender: z.object({ id: z.string() }).loose(),
     timestamp: z.number(),
+  })
+  .loose();
+
+const deliverySchema = z
+  .object({
+    mids: z.array(z.string().min(1)).min(1).max(100),
+    watermark: z.number(),
   })
   .loose();
 
@@ -40,6 +50,17 @@ function parseMessengerTimestamp(timestamp: number): Date | undefined {
 
   const occurredAt = new Date(timestamp);
   return Number.isNaN(occurredAt.getTime()) ? undefined : occurredAt;
+}
+
+function deliveryIdempotencyKey(
+  pageId: string,
+  peerId: string,
+  mid: string,
+  timestamp: number,
+): string {
+  const canonical = JSON.stringify({ kind: 'delivery', mid, pageId, peerId, timestamp });
+  const digest = createHash('sha256').update(canonical).digest('hex');
+  return `messenger:delivery:${pageId}:${peerId}:${String(timestamp)}:${digest}`;
 }
 
 export function normalizeMessengerWebhook(payload: unknown): readonly NormalizedMetaEvent[] {
@@ -77,6 +98,44 @@ export function normalizeMessengerWebhook(payload: unknown): readonly Normalized
       }
 
       const messagingEvent = parsedMessagingEvent.data;
+      if (messagingEvent.delivery !== undefined) {
+        const delivery = deliverySchema.safeParse(messagingEvent.delivery);
+        if (!delivery.success) {
+          events.push({
+            kind: 'unsupported',
+            channel: 'messenger',
+            reasonCode: 'invalid_delivery_item',
+          });
+          continue;
+        }
+        const occurredAt = parseMessengerTimestamp(delivery.data.watermark);
+        if (occurredAt === undefined) {
+          events.push({
+            kind: 'unsupported',
+            channel: 'messenger',
+            reasonCode: 'invalid_delivery_timestamp',
+          });
+          continue;
+        }
+        for (const mid of delivery.data.mids) {
+          events.push({
+            kind: 'message_status',
+            channel: 'messenger',
+            channelAccountId: entry.id,
+            contactId: messagingEvent.sender.id,
+            externalMessageId: mid,
+            idempotencyKey: deliveryIdempotencyKey(
+              entry.id,
+              messagingEvent.sender.id,
+              mid,
+              delivery.data.watermark,
+            ),
+            occurredAt,
+            status: 'delivered',
+          });
+        }
+        continue;
+      }
       const message = messagingEvent.message;
       if (message?.text === undefined) {
         events.push({

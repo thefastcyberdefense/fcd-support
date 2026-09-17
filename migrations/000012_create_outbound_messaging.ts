@@ -2,6 +2,38 @@ import type { MigrationBuilder } from 'node-pg-migrate';
 
 export function up(pgm: MigrationBuilder): void {
   pgm.sql(`
+    alter table webhook_event_applications
+      drop constraint webhook_event_applications_outcome_check,
+      drop constraint webhook_event_applications_check;
+    alter table webhook_event_applications
+      add constraint webhook_event_applications_outcome_check
+        check (outcome in (
+          'customer_message_applied',
+          'business_echo_paused',
+          'business_echo_ignored_before_resume',
+          'message_status_ignored',
+          'message_status_applied',
+          'message_status_uncorrelated',
+          'identity_suppressed'
+        )),
+      add constraint webhook_event_applications_check
+        check (
+          (
+            outcome in (
+              'message_status_ignored', 'message_status_applied',
+              'message_status_uncorrelated', 'identity_suppressed'
+            )
+            and conversation_id is null
+          )
+          or (
+            outcome not in (
+              'message_status_ignored', 'message_status_applied',
+              'message_status_uncorrelated', 'identity_suppressed'
+            )
+            and conversation_id is not null
+          )
+        );
+
     create table outbound_policy_versions (
       id bigint generated always as identity primary key,
       policy_ref text not null unique check (
@@ -999,7 +1031,11 @@ export function down(pgm: MigrationBuilder): void {
          or exists (select 1 from outbound_rate_windows)
          or exists (select 1 from outbound_status_events)
          or exists (select 1 from outbound_echo_correlation_holds)
-         or exists (select 1 from outbound_escalation_outcomes) then
+         or exists (select 1 from outbound_escalation_outcomes)
+         or exists (
+           select 1 from webhook_event_applications
+           where outcome in ('message_status_applied', 'message_status_uncorrelated')
+         ) then
         raise exception using
           errcode = '55000',
           message = 'P5-001 rollback blocked: preserve outbound authority and evidence before schema downgrade';
@@ -1045,5 +1081,29 @@ export function down(pgm: MigrationBuilder): void {
     drop table outbound_template_versions;
     drop table outbound_policy_review_events;
     drop table outbound_policy_versions;
+
+    alter table webhook_event_applications
+      drop constraint webhook_event_applications_outcome_check,
+      drop constraint webhook_event_applications_check;
+    alter table webhook_event_applications
+      add constraint webhook_event_applications_outcome_check
+        check (outcome in (
+          'customer_message_applied',
+          'business_echo_paused',
+          'business_echo_ignored_before_resume',
+          'message_status_ignored',
+          'identity_suppressed'
+        )),
+      add constraint webhook_event_applications_check
+        check (
+          (
+            outcome in ('message_status_ignored', 'identity_suppressed')
+            and conversation_id is null
+          )
+          or (
+            outcome not in ('message_status_ignored', 'identity_suppressed')
+            and conversation_id is not null
+          )
+        );
   `);
 }

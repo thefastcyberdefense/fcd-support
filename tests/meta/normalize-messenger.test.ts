@@ -1,8 +1,16 @@
+import { createHash } from 'node:crypto';
+
 import { describe, expect, test } from 'vitest';
 
 import { normalizeMessengerWebhook } from '../../src/meta/normalize-messenger.js';
 
 describe('normalizeMessengerWebhook', () => {
+  function deliveryKey(pageId: string, peerId: string, mid: string, timestamp: number): string {
+    const canonical = JSON.stringify({ kind: 'delivery', mid, pageId, peerId, timestamp });
+    const digest = createHash('sha256').update(canonical).digest('hex');
+    return `messenger:delivery:${pageId}:${peerId}:${String(timestamp)}:${digest}`;
+  }
+
   test('distinguishes customer messages from business echoes', () => {
     const events = normalizeMessengerWebhook({
       object: 'page',
@@ -150,6 +158,107 @@ describe('normalizeMessengerWebhook', () => {
         occurredAt: new Date('2026-08-10T22:13:21.000Z'),
         text: 'Synthetic valid sibling',
       },
+    ]);
+  });
+
+  test('splits a delivery item with stable mids into canonical delivered statuses', () => {
+    const events = normalizeMessengerWebhook({
+      object: 'page',
+      entry: [
+        {
+          id: 'PAGE_TEST',
+          time: 1786400002000,
+          messaging: [
+            {
+              sender: { id: 'PSID_TEST_customer' },
+              recipient: { id: 'PAGE_TEST' },
+              timestamp: 1786400002000,
+              delivery: {
+                mids: ['m_TEST_delivery_one', 'm_TEST_delivery_two'],
+                watermark: 1786400001500,
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(events).toEqual([
+      {
+        kind: 'message_status',
+        channel: 'messenger',
+        channelAccountId: 'PAGE_TEST',
+        contactId: 'PSID_TEST_customer',
+        externalMessageId: 'm_TEST_delivery_one',
+        idempotencyKey: deliveryKey(
+          'PAGE_TEST',
+          'PSID_TEST_customer',
+          'm_TEST_delivery_one',
+          1786400001500,
+        ),
+        occurredAt: new Date('2026-08-10T22:13:21.500Z'),
+        status: 'delivered',
+      },
+      {
+        kind: 'message_status',
+        channel: 'messenger',
+        channelAccountId: 'PAGE_TEST',
+        contactId: 'PSID_TEST_customer',
+        externalMessageId: 'm_TEST_delivery_two',
+        idempotencyKey: deliveryKey(
+          'PAGE_TEST',
+          'PSID_TEST_customer',
+          'm_TEST_delivery_two',
+          1786400001500,
+        ),
+        occurredAt: new Date('2026-08-10T22:13:21.500Z'),
+        status: 'delivered',
+      },
+    ]);
+  });
+
+  test('keeps read-watermark-only, missing-mid, reaction, and unknown items unsupported', () => {
+    const events = normalizeMessengerWebhook({
+      object: 'page',
+      entry: [
+        {
+          id: 'PAGE_TEST',
+          time: 1786400003000,
+          messaging: [
+            {
+              sender: { id: 'PSID_TEST_customer' },
+              recipient: { id: 'PAGE_TEST' },
+              timestamp: 1786400003000,
+              read: { watermark: 1786400002500 },
+            },
+            {
+              sender: { id: 'PSID_TEST_customer' },
+              recipient: { id: 'PAGE_TEST' },
+              timestamp: 1786400003000,
+              delivery: { mids: [], watermark: 1786400002500 },
+            },
+            {
+              sender: { id: 'PSID_TEST_customer' },
+              recipient: { id: 'PAGE_TEST' },
+              timestamp: 1786400003000,
+              reaction: { action: 'react', emoji: '👍', mid: 'm_TEST_old' },
+            },
+            {
+              sender: { id: 'PSID_TEST_customer' },
+              recipient: { id: 'PAGE_TEST' },
+              timestamp: 1786400003000,
+              unknown_test_item: true,
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(events).toEqual([
+      { kind: 'unsupported', channel: 'messenger', reasonCode: 'unsupported_messaging_event' },
+      { kind: 'unsupported', channel: 'messenger', reasonCode: 'invalid_delivery_item' },
+      { kind: 'unsupported', channel: 'messenger', reasonCode: 'unsupported_messaging_event' },
+      { kind: 'unsupported', channel: 'messenger', reasonCode: 'unsupported_messaging_event' },
     ]);
   });
 });

@@ -819,14 +819,14 @@ git push origin main
 - Consumes: admitted normalized message_status events and accepted attempts.
 - Produces: append-only status evidence and monotonic intent delivery state.
 
-- [ ] **Step 1: Write failing Messenger normalization tests**
+- [x] **Step 1: Write failing Messenger normalization tests**
 
 Add Messenger delivery items with stable mids and split each mid into a
 message_status event. Use the canonical fallback idempotency key from
 docs/architecture/webhook-admission.md. Keep read-watermark-only, malformed,
 missing-mid, reaction, and unknown events unsupported with no status effect.
 
-- [ ] **Step 2: Write failing PostgreSQL status tests**
+- [x] **Step 2: Write failing PostgreSQL status tests**
 
 Expected method:
 
@@ -844,14 +844,14 @@ unknown provider ID, cross-account/cross-channel collision, lower-rank no
 downgrade, failed then later delivered/read correction, and no retention anchor
 movement.
 
-- [ ] **Step 3: Run tests and confirm failure**
+- [x] **Step 3: Run tests and confirm failure**
 
 ~~~powershell
 npm test -- --run tests/meta/normalize-messenger.test.ts
 npm run test:integration -- tests/integration/postgres-outbound-status.test.ts
 ~~~
 
-- [ ] **Step 4: Implement normalization and status repository**
+- [x] **Step 4: Implement normalization and status repository**
 
 Lock webhook event and correlated intent. Insert one status row per authoritative
 event. Use success rank provider_accepted < sent < delivered < read. Failed is
@@ -859,7 +859,7 @@ terminal only without delivered/read evidence; later delivered/read may correct
 it. Extend event application outcomes with message_status_applied and
 message_status_uncorrelated without treating either as conversation activity.
 
-- [ ] **Step 5: Run tests and checkpoint**
+- [x] **Step 5: Run tests and checkpoint**
 
 ~~~powershell
 npm test -- --run tests/meta/normalize-messenger.test.ts

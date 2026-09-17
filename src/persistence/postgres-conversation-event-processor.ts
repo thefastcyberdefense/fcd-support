@@ -7,6 +7,7 @@ import {
   resolveChannelIdentity,
   resolveIdentityAndConversation,
 } from './postgres-policy-helpers.js';
+import { applyOutboundStatusEvent } from './postgres-outbound-status.js';
 import { applyCustomerMessageRetention } from './postgres-retention-policy.js';
 import { withBoundedTransaction } from './postgres-transaction.js';
 
@@ -134,22 +135,36 @@ export class PostgresConversationEventProcessor {
     }
 
     if (event.event_kind === 'message_status') {
-      const normalized = requireNormalizedIdentity(event);
-      await client.query(
-        `insert into webhook_event_applications (webhook_event_id, outcome)
-         values ($1, 'message_status_ignored')`,
-        [event.id],
-      );
-      await insertPolicyAuditOutcome(client, {
-        decisionType: 'event_application',
-        evaluatedAt: normalized.occurredAt,
-        outcome: 'ignored',
-        reasonCode: 'message_status_ignored',
-        relatedWebhookEventId: event.id,
-      });
+      const status = await applyOutboundStatusEvent(client, event.id);
+      if (status.status === 'not_processable') {
+        await client.query(
+          `insert into webhook_event_applications (webhook_event_id, outcome)
+           values ($1, 'message_status_uncorrelated')`,
+          [event.id],
+        );
+        return {
+          eventId: event.id,
+          outcome: 'message_status_uncorrelated',
+          status: 'applied',
+        };
+      }
+      if (status.status === 'duplicate') {
+        const duplicate = await client.query<EventApplicationRow>(
+          `select conversation_id, outcome
+           from webhook_event_applications
+           where webhook_event_id = $1`,
+          [event.id],
+        );
+        const duplicateApplication = duplicate.rows[0];
+        if (duplicateApplication === undefined) {
+          throw new InvalidPendingWebhookEventError('Duplicate message status has no application');
+        }
+        return existingResult(event.id, duplicateApplication);
+      }
       return {
         eventId: event.id,
-        outcome: 'message_status_ignored',
+        outcome:
+          status.status === 'applied' ? 'message_status_applied' : 'message_status_uncorrelated',
         status: 'applied',
       };
     }

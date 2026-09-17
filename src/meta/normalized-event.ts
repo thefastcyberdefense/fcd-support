@@ -1,4 +1,6 @@
 export type MetaChannel = 'messenger' | 'whatsapp';
+export type ProviderMessageStatus = 'delivered' | 'failed' | 'read' | 'sent';
+export type DeliveryState = 'provider_accepted' | ProviderMessageStatus;
 
 interface NormalizedMessageBase {
   readonly channel: MetaChannel;
@@ -21,7 +23,7 @@ export interface NormalizedBusinessMessageEcho extends NormalizedMessageBase {
 
 export interface NormalizedMessageStatus extends NormalizedMessageBase {
   readonly kind: 'message_status';
-  readonly status: 'delivered' | 'failed' | 'read' | 'sent';
+  readonly status: ProviderMessageStatus;
 }
 
 export interface NormalizedUnsupportedEvent {
