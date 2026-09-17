@@ -12,6 +12,10 @@ import {
   type SupportTextEligibilitySource,
 } from '../outbound/outbound-eligibility.js';
 import { resolveOutboundBounds } from '../outbound/outbound-policy-input.js';
+import {
+  MESSENGER_TEXT_MAX_CODE_POINTS,
+  WHATSAPP_TEXT_MAX_CODE_POINTS,
+} from '../outbound/outbound-request.js';
 import type {
   OutboundChannel,
   OutboundDeploymentBounds,
@@ -83,8 +87,32 @@ export interface ClaimedOutboundIntent {
   readonly purpose: OutboundPurpose;
 }
 
+interface OutboundDispatchMaterialBase {
+  readonly channelAccountId: string;
+  readonly providerTimeoutMs: number;
+  readonly recipient: string;
+}
+
+export type AuthorizedOutboundDispatchMaterial =
+  | (OutboundDispatchMaterialBase & {
+      readonly channel: 'messenger' | 'whatsapp';
+      readonly messageKind: 'support_text';
+      readonly text: string;
+    })
+  | (OutboundDispatchMaterialBase & {
+      readonly channel: 'whatsapp';
+      readonly locale: 'bn_BD' | 'en_US';
+      readonly messageKind: 'fixed_template';
+      readonly templateName: string;
+    });
+
 export type AuthorizeAttemptResult =
-  | { readonly attemptNumber: number; readonly attemptRef: string; readonly status: 'authorized' }
+  | {
+      readonly attemptNumber: number;
+      readonly attemptRef: string;
+      readonly dispatch: AuthorizedOutboundDispatchMaterial;
+      readonly status: 'authorized';
+    }
   | { readonly attemptNumber: number; readonly attemptRef: string; readonly status: 'duplicate' }
   | {
       readonly reason:
@@ -170,6 +198,7 @@ interface RetentionRow {
 }
 
 interface SourceRow {
+  readonly answer_text: string | null;
   readonly category: OutboundPurpose | null;
   readonly channel: 'whatsapp' | null;
   readonly channel_account_id: string | null;
@@ -433,7 +462,13 @@ export class PostgresOutboundWorkStore {
          where id = $1`,
         [intent.id, input.evaluatedAt],
       );
-      return { attemptNumber, attemptRef, status: 'authorized' };
+      const dispatch = await this.loadDispatchMaterial(
+        client,
+        intent,
+        authority,
+        policy.values.providerTimeoutMs,
+      );
+      return { attemptNumber, attemptRef, dispatch, status: 'authorized' };
     });
   }
 
@@ -759,12 +794,13 @@ export class PostgresOutboundWorkStore {
         : (retentionRow?.expires_at ?? evaluatedAt);
     const sourceQuery = await client.query<SourceRow>(
       intent.message_kind === 'support_text'
-        ? `select draft.state as source_state, draft.erased_at,
+        ? `select draft.state as source_state, draft.erased_at, draft.answer_text,
                   null::text as channel, null::text as channel_account_id,
                   null::text as category, null::text as locale,
                   null::integer as variable_count
            from support_reply_drafts as draft where draft.id = $1 for update`
         : `select template.state as source_state, null::timestamptz as erased_at,
+                  null::text as answer_text,
                   template.channel, template.channel_account_id,
                   template.category, template.locale, template.variable_count
            from outbound_template_versions as template where template.id = $1 for update`,
@@ -844,11 +880,21 @@ export class PostgresOutboundWorkStore {
         kind: 'support_text',
         ready: source !== undefined,
       };
-      return evaluateOutboundEligibility({
+      const eligibility = evaluateOutboundEligibility({
         ...common,
         requestedLocale: 'en_US',
         source: supportSource,
       });
+      if (!eligibility.eligible) return eligibility;
+      const maximumCodePoints =
+        intent.channel === 'messenger'
+          ? MESSENGER_TEXT_MAX_CODE_POINTS
+          : WHATSAPP_TEXT_MAX_CODE_POINTS;
+      return source?.answer_text !== null &&
+        source?.answer_text !== undefined &&
+        Array.from(source.answer_text).length <= maximumCodePoints
+        ? eligibility
+        : { eligible: false, reason: 'template_required' };
     }
     const templateSource: FixedTemplateEligibilitySource = {
       active: source?.source_state === 'active',
@@ -865,6 +911,50 @@ export class PostgresOutboundWorkStore {
       ...common,
       requestedLocale: templateSource.locale,
       source: templateSource,
+    });
+  }
+
+  private async loadDispatchMaterial(
+    client: pg.PoolClient,
+    intent: IntentRow,
+    authority: AuthorityRow,
+    providerTimeoutMs: number,
+  ): Promise<AuthorizedOutboundDispatchMaterial> {
+    const common = {
+      channelAccountId: intent.channel_account_id,
+      providerTimeoutMs,
+      recipient: authority.external_contact_id,
+    } as const;
+    if (intent.message_kind === 'support_text') {
+      const selected = await client.query<{ readonly answer_text: string | null }>(
+        `select answer_text from support_reply_drafts where id = $1 for update`,
+        [intent.reply_draft_id],
+      );
+      const text = selected.rows[0]?.answer_text;
+      if (text === null || text === undefined) {
+        throw new Error('Authorized outbound support content is unavailable');
+      }
+      return Object.freeze({
+        ...common,
+        channel: intent.channel,
+        messageKind: 'support_text',
+        text,
+      });
+    }
+    const selected = await client.query<{
+      readonly locale: 'bn_BD' | 'en_US';
+      readonly template_name: string;
+    }>(`select locale, template_name from outbound_template_versions where id = $1 for update`, [
+      intent.template_version_id,
+    ]);
+    const template = selected.rows[0];
+    if (template === undefined) throw new Error('Authorized outbound template is unavailable');
+    return Object.freeze({
+      ...common,
+      channel: 'whatsapp',
+      locale: template.locale,
+      messageKind: 'fixed_template',
+      templateName: template.template_name,
     });
   }
 

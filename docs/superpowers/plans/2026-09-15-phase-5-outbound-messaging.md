@@ -734,6 +734,7 @@ git push origin main
 
 **Files:**
 
+- Modify: src/persistence/postgres-outbound-work-store.ts
 - Create: src/outbound/outbound-worker.ts
 - Create: tests/outbound-worker.test.ts
 - Create: tests/integration/postgres-outbound-flow.test.ts
@@ -743,7 +744,7 @@ git push origin main
 - Consumes: PostgresOutboundWorkStore, builders, MetaOutboundClient.
 - Produces: runBatch with aggregate, content-free outcomes.
 
-- [ ] **Step 1: Write failing unit composition tests**
+- [x] **Step 1: Write failing unit composition tests**
 
 Define:
 
@@ -770,28 +771,28 @@ Prove claim then authorize then dispatch-start then exactly one adapter call
 then result persistence. FAQ/model origin must not alter provider behavior.
 Denied authorization never builds/calls. Active duplicate/replay does not call.
 
-- [ ] **Step 2: Write failing end-to-end PostgreSQL flow tests**
+- [x] **Step 2: Write failing end-to-end PostgreSQL flow tests**
 
 Cover one ready draft to one accepted intent/attempt, concurrent workers, crash
 before/after dispatch start, timeout unknown, definite retry/exhaustion,
 customized limits, late pause/privacy/deletion/suppression/window/retention
 races, erased draft, and zero duplicate calls.
 
-- [ ] **Step 3: Run tests and confirm failure**
+- [x] **Step 3: Run tests and confirm failure**
 
 ~~~powershell
 npm test -- --run tests/outbound-worker.test.ts
 npm run test:integration -- tests/integration/postgres-outbound-flow.test.ts
 ~~~
 
-- [ ] **Step 4: Implement minimal worker composition**
+- [x] **Step 4: Implement minimal worker composition**
 
 The worker catches only expected closed provider outcomes. Database exceptions
 before dispatch cause no provider call. Database failure after dispatch start
 is allowed to leave the lease for expiry-to-unknown; never issue a compensating
 send.
 
-- [ ] **Step 5: Run suites and checkpoint**
+- [x] **Step 5: Run suites and checkpoint**
 
 ~~~powershell
 npm test -- --run tests/outbound-worker.test.ts
