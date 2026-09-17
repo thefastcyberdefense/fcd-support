@@ -886,20 +886,20 @@ git push origin main
 - Consumes: Messenger business echoes, accepted or dispatch-started attempts.
 - Produces: correlated self-echo, bounded hold, or existing authoritative pause.
 
-- [ ] **Step 1: Write failing correlation race tests**
+- [x] **Step 1: Write failing correlation race tests**
 
 Cover echo after stored provider ID, echo before response, exact echo replay,
 provider ID mismatch, two concurrent in-flight attempts, attempt unknown,
 attempt expiry, hold expiry, actual staff echo during dispatch, no text-based
 matching, and no further enqueue/send while a hold is open.
 
-- [ ] **Step 2: Run focused tests and confirm failure**
+- [x] **Step 2: Run focused tests and confirm failure**
 
 ~~~powershell
 npm run test:integration -- tests/integration/postgres-conversation-event-processor.test.ts tests/integration/postgres-outbound-echo-correlation.test.ts
 ~~~
 
-- [ ] **Step 3: Implement correlation**
+- [x] **Step 3: Implement correlation**
 
 Expose:
 
@@ -924,7 +924,7 @@ conversation. Hold presence is a send-time guard. Exact provider-ID match
 records service_echo_correlated. Unknown/expired/no-match applies the existing
 pause from the echo provider timestamp.
 
-- [ ] **Step 4: Run tests and checkpoint**
+- [x] **Step 4: Run tests and checkpoint**
 
 ~~~powershell
 npm run test:integration -- tests/integration/postgres-conversation-event-processor.test.ts tests/integration/postgres-outbound-echo-correlation.test.ts

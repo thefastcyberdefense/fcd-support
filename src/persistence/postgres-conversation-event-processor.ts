@@ -7,6 +7,7 @@ import {
   resolveChannelIdentity,
   resolveIdentityAndConversation,
 } from './postgres-policy-helpers.js';
+import { processMessengerBusinessEcho } from './postgres-outbound-echo-correlation.js';
 import { applyOutboundStatusEvent } from './postgres-outbound-status.js';
 import { applyCustomerMessageRetention } from './postgres-retention-policy.js';
 import { withBoundedTransaction } from './postgres-transaction.js';
@@ -171,6 +172,33 @@ export class PostgresConversationEventProcessor {
 
     if (event.event_kind === 'business_message_echo') {
       const normalized = requireNormalizedIdentity(event);
+      if (normalized.channel === 'messenger') {
+        const echo = await processMessengerBusinessEcho(client, event.id);
+        if (echo.status === 'correlation_pending') {
+          return { eventId: event.id, status: 'correlation_pending' };
+        }
+        if (echo.status === 'self_echo' || echo.status === 'human_pause_applied') {
+          return {
+            conversationId: echo.conversationId,
+            eventId: event.id,
+            outcome: echo.outcome,
+            status: 'applied',
+          };
+        }
+        if (echo.status === 'duplicate') {
+          const duplicate = await client.query<EventApplicationRow>(
+            `select conversation_id, outcome
+             from webhook_event_applications
+             where webhook_event_id = $1`,
+            [event.id],
+          );
+          const duplicateApplication = duplicate.rows[0];
+          if (duplicateApplication === undefined) {
+            throw new InvalidPendingWebhookEventError('Duplicate business echo has no application');
+          }
+          return existingResult(event.id, duplicateApplication);
+        }
+      }
       const identityId = await resolveChannelIdentity(client, normalized, normalized.occurredAt);
       const conversation = await lockOrCreateConversation(
         client,

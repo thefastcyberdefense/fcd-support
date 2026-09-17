@@ -129,7 +129,8 @@ export type EventApplicationOutcome =
   | 'identity_suppressed'
   | 'message_status_applied'
   | 'message_status_uncorrelated'
-  | 'message_status_ignored';
+  | 'message_status_ignored'
+  | 'service_echo_correlated';
 
 export type EventProcessResult =
   | {
@@ -143,6 +144,10 @@ export type EventProcessResult =
       readonly eventId: string;
       readonly outcome: EventApplicationOutcome;
       readonly conversationId?: string;
+    }
+  | {
+      readonly status: 'correlation_pending';
+      readonly eventId: string;
     }
   | { readonly status: 'not_processable' }
   | { readonly status: 'no_pending_event' };

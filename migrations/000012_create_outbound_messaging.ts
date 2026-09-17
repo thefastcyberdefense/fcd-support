@@ -14,6 +14,7 @@ export function up(pgm: MigrationBuilder): void {
           'message_status_ignored',
           'message_status_applied',
           'message_status_uncorrelated',
+          'service_echo_correlated',
           'identity_suppressed'
         )),
       add constraint webhook_event_applications_check
@@ -1034,7 +1035,10 @@ export function down(pgm: MigrationBuilder): void {
          or exists (select 1 from outbound_escalation_outcomes)
          or exists (
            select 1 from webhook_event_applications
-           where outcome in ('message_status_applied', 'message_status_uncorrelated')
+           where outcome in (
+             'message_status_applied', 'message_status_uncorrelated',
+             'service_echo_correlated'
+           )
          ) then
         raise exception using
           errcode = '55000',

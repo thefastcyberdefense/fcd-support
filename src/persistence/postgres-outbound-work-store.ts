@@ -26,6 +26,7 @@ import type {
 } from '../outbound/outbound-types.js';
 import { createIdentityHmac, requirePrivacyHmacKeyring } from '../policy/privacy-identity.js';
 import type { PrivacyHmacKeyring } from '../policy/policy-types.js';
+import { resolvePendingMessengerEchoes } from './postgres-outbound-echo-correlation.js';
 import {
   PolicyIdempotencyConflictError,
   PolicyRecordNotFoundError,
@@ -475,6 +476,21 @@ export class PostgresOutboundWorkStore {
   public async markDispatchStarted(inputValue: unknown): Promise<DispatchStartResult> {
     const input = dispatchSchema.parse(inputValue);
     return withBoundedTransaction(this.pool, async (client) => {
+      const scope = await client.query<{ readonly conversation_id: string }>(
+        `select intent.conversation_id
+         from outbound_attempts as attempt
+         join outbound_intents as intent on intent.id = attempt.intent_id
+         where attempt.attempt_ref = $1`,
+        [input.attemptRef],
+      );
+      const conversationId = scope.rows[0]?.conversation_id;
+      if (conversationId === undefined) {
+        throw new PolicyRecordNotFoundError('Outbound attempt not found');
+      }
+      const conversation = await client.query<{ readonly ai_paused_until: Date | null }>(
+        `select ai_paused_until from conversations where id = $1 for update`,
+        [conversationId],
+      );
       const row = await this.lockAttemptAndIntent(client, input.attemptRef);
       if (row === undefined) throw new PolicyRecordNotFoundError('Outbound attempt not found');
       if (row.state === 'dispatch_started') {
@@ -495,6 +511,19 @@ export class PostgresOutboundWorkStore {
       ) {
         throw new PolicyIdempotencyConflictError();
       }
+      if (
+        conversation.rows[0]?.ai_paused_until !== null &&
+        conversation.rows[0]?.ai_paused_until !== undefined &&
+        conversation.rows[0].ai_paused_until.getTime() > input.startedAt.getTime()
+      ) {
+        throw new PolicyIdempotencyConflictError();
+      }
+      const openHold = await client.query(
+        `select 1 from outbound_echo_correlation_holds
+         where conversation_id = $1 and state = 'open'`,
+        [row.conversation_id],
+      );
+      if (openHold.rowCount !== 0) throw new PolicyIdempotencyConflictError();
       await client.query(
         `update outbound_attempts set state = 'dispatch_started', dispatch_started_at = $2
          where id = $1`,
@@ -504,6 +533,23 @@ export class PostgresOutboundWorkStore {
         row.intent_id,
         input.startedAt,
       ]);
+      if (row.channel === 'messenger') {
+        await client.query(
+          `insert into outbound_echo_correlation_holds
+             (hold_ref, conversation_id, attempt_id, state, created_at, expires_at)
+           select $1, $2, $3, 'open', $4::timestamptz,
+                  $4::timestamptz + policy.provider_timeout_ms * interval '1 millisecond'
+           from outbound_policy_versions as policy
+           where policy.id = $5`,
+          [
+            `HOLD_${randomUUID()}`,
+            row.conversation_id,
+            row.id,
+            input.startedAt,
+            row.policy_version_id,
+          ],
+        );
+      }
       return { status: 'started' };
     });
   }
@@ -515,11 +561,17 @@ export class PostgresOutboundWorkStore {
       readonly leaseRef: string;
       readonly result: OutboundProviderResult;
     };
-    return withBoundedTransaction(this.pool, async (client) => {
+    let messengerConversationId: string | undefined;
+    const persist = async (client: pg.PoolClient): Promise<RecordProviderResultResult> => {
       const row = await this.lockAttemptAndIntent(client, input.attemptRef);
       if (row === undefined) throw new PolicyRecordNotFoundError('Outbound attempt not found');
       const replay = this.providerReplay(row, input.result, input.completedAt);
-      if (replay !== null) return replay;
+      if (replay !== null) {
+        if (row.channel === 'messenger' && replay.intentState === 'provider_accepted') {
+          messengerConversationId = row.conversation_id;
+        }
+        return replay;
+      }
 
       if (input.result.status === 'aborted_before_dispatch') {
         if (
@@ -565,6 +617,9 @@ export class PostgresOutboundWorkStore {
                lease_expires_at = null, updated_at = $2 where id = $1`,
           [row.intent_id, input.completedAt],
         );
+        if (row.channel === 'messenger') {
+          messengerConversationId = row.conversation_id;
+        }
         return { intentState: 'provider_accepted', status: 'recorded' };
       }
       if (input.result.status === 'delivery_unknown') {
@@ -630,7 +685,15 @@ export class PostgresOutboundWorkStore {
         input.completedAt,
       );
       return { intentState: 'terminal_failed', status: 'recorded' };
-    });
+    };
+    const recorded = await withBoundedTransaction(this.pool, persist);
+    if (messengerConversationId !== undefined) {
+      const conversationId = messengerConversationId;
+      await withBoundedTransaction(this.pool, (client) =>
+        resolvePendingMessengerEchoes(client, conversationId),
+      );
+    }
+    return recorded;
   }
 
   public async expireLeases(inputValue: unknown): Promise<ExpireOutboundResult> {
