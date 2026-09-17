@@ -98,7 +98,9 @@ All secret values are intentionally absent from this repository. Create them dur
 - Task 5 validation on 2026-09-16: the required RED run failed on the missing work-store module; added RED regressions exposed wrong-owner replay and channel-identity-scoped contact limits before fixes. The final focused PostgreSQL file passed 14/14 tests; `npm run check` passed 576 tests across 43 files plus formatting, lint, strict type checking, build, and gate validation; all 383 guarded PostgreSQL tests across 31 files passed. No provider, network, deployment, external mutation, customer data, or production action occurred.
 - Implementation-plan Task 6 adds strict WhatsApp text/fixed-template and Messenger text builders. Requests have exact Graph `v25.0` account paths, closed frozen JSON bodies, bounded Unicode text, no caller URL/credential/metadata fields, content-free inspection/serialization, and process-local WeakMap/WeakSet provenance that copied or forged objects cannot reproduce.
 - Task 6 validation on 2026-09-16: the required RED run failed only on the missing request-builder module; the focused suite passed 24/24 tests. The full repository gate passed 600 tests across 44 files plus formatting, lint, strict type checking, build, and gate validation. No HTTP request, provider call, network access, deployment, external mutation, customer data, or production action occurred.
-- Next is implementation-plan Task 7: implement the one-attempt Meta client against a loopback-only fake. P5-003 is in progress; P5-004 and P5-005 remain gated by their remaining plan tasks.
+- Implementation-plan Task 7 adds a one-attempt Meta client with exact issued-request provenance and account binding, redirect rejection, total timeout and caller cancellation, bounded streaming success reads, strict per-channel response schemas, reviewed 400/429 definite classifications, delivery-unknown closure for uncertain outcomes, and closed logging. Its test-only HTTP server binds only to loopback, accepts only an obvious synthetic credential sentinel, and records shape/outcome metadata rather than content or authorization values.
+- Task 7 validation on 2026-09-17: the required RED run failed on the missing client module; the focused suite passed 23/23 tests. `npm run check` passed 623 tests across 45 files plus formatting, lint, strict type checking, build, and gate validation. HTTP tests used only the loopback synthetic fake. No live Meta/provider call, external network access, deployment, external mutation, customer data, or production action occurred.
+- P5-003 is complete. Next is implementation-plan Task 8: compose the outbound worker and prove send-boundary checks and outcome recording end to end. P5-004 is in progress; P5-005 remains gated by P5-004.
 
 ## Launch Blockers
 
@@ -113,7 +115,7 @@ All secret values are intentionally absent from this repository. Create them dur
 - Website privacy and support wording must disclose AI assistance, external inference, retention, deletion, and marketing consent before production launch.
 - Actual encrypted backup/restore procedures and deployed human-takeover behavior must still pass their acceptance tests; the local restore-gate primitive alone does not satisfy P6-004.
 
-The current tracker action is P5-003 local provider-contract development. All live
+The current tracker action is P5-004 outbound worker and send-boundary integration. All live
 Meta, Manifest, network, deployment, test-asset, and production
 actions remain separately gated. P1-GATE remains a separate explicit review
 record.

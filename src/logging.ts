@@ -6,6 +6,8 @@ export type SafeLogEvent =
   | 'database_pool_error'
   | 'manifest_request_completed'
   | 'manifest_request_failed'
+  | 'meta_outbound_completed'
+  | 'meta_outbound_failed'
   | 'meta_verification_accepted'
   | 'meta_verification_rejected'
   | 'meta_webhook_accepted'
@@ -60,6 +62,8 @@ const safeEvents = new Set<SafeLogEvent>([
   'database_pool_error',
   'manifest_request_completed',
   'manifest_request_failed',
+  'meta_outbound_completed',
+  'meta_outbound_failed',
   'meta_verification_accepted',
   'meta_verification_rejected',
   'meta_webhook_accepted',

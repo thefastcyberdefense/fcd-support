@@ -683,7 +683,7 @@ git push origin main
 - Consumes: builder-issued PreparedOutboundRequest and protected credential.
 - Produces: Promise<OutboundProviderResult>.
 
-- [ ] **Step 1: Write failing adapter contract tests**
+- [x] **Step 1: Write failing adapter contract tests**
 
 Test one POST, exact host/path/version, authorization presence without value
 capture, timeout, caller abort, connect failure, redirect rejection, maximum
@@ -695,13 +695,13 @@ The fake must reject any non-loopback bind and any credential not matching an
 obvious synthetic sentinel. It records only method, path, body shape booleans,
 call count, abort count, and closed outcome.
 
-- [ ] **Step 2: Run test and confirm failure**
+- [x] **Step 2: Run test and confirm failure**
 
 ~~~powershell
 npm test -- --run tests/meta-outbound-client.test.ts
 ~~~
 
-- [ ] **Step 3: Implement one-attempt client**
+- [x] **Step 3: Implement one-attempt client**
 
 Expose:
 
@@ -720,7 +720,7 @@ strict per-channel success schemas. Never read non-2xx bodies. Treat only the
 reviewed response-code allowlist as definitely rejected; classify every
 uncertain result as delivery_unknown.
 
-- [ ] **Step 4: Run tests and checkpoint**
+- [x] **Step 4: Run tests and checkpoint**
 
 ~~~powershell
 npm test -- --run tests/meta-outbound-client.test.ts
