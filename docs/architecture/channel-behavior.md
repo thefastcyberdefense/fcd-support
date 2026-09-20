@@ -35,13 +35,14 @@ enqueue an outbound message, change consent, or pause or resume AI.
 ## Messenger Mapping
 
 Messenger uses a Page envelope with `object: "page"`, one or more `entry[]`
-objects, and zero or more `entry[].messaging[]` items. The initial mapping is:
+objects, and zero or more `entry[].messaging[]` items. The implemented mapping is:
 
 | Messenger input | Normalized result | Identity and ordering |
 |---|---|---|
 | Text `message` without `message.is_echo === true` | `customer_message` | Page from `entry.id`; contact from `sender.id`; provider message from `message.mid`; provider time from `timestamp` |
 | Text `message` with `message.is_echo === true`, received through the `message_echoes` subscription | `business_message_echo` | Page from `entry.id`; contact from `recipient.id`; provider message from `message.mid`; provider time from `timestamp` |
-| Delivery or read notification | Reserved `message_status` mapping | Must use its documented peer identity, provider time, and stable or canonical fallback key before it may update outbound state |
+| Delivery notification with non-empty stable `delivery.mids[]` | One canonical `delivered` `message_status` per `mid` | Page and recipient scope plus watermark provider time; exact provider-message correlation is required before state advances |
+| Read-watermark-only or delivery without a stable `mid` | `unsupported` | No guessed range correlation or outbound state change |
 | Reaction, edit, postback, attachment-only message, or unknown shape not yet implemented | `unsupported` | No reply or policy side effect |
 
 Messenger message and echo idempotency is
@@ -67,12 +68,11 @@ An admitted Messenger `business_message_echo` is handled as follows:
    other business-authored reply. Pause the matching conversation until the
    later of its current deadline and `occurred_at + 24 hours`.
 
-Correlation must use durable identifiers associated with the outbound intent
-and provider response. Message text, display names, sender/recipient direction,
-timing proximity, or process memory are not sufficient. Phase 3 has no outbound
-provider path, so its admitted Messenger echoes are currently unmatched and
-are intentionally processed as business replies. Phase 5 must add correlation
-before it enables service-originated Messenger sends.
+Correlation uses durable identifiers associated with the outbound intent and
+provider response. Message text, display names, sender/recipient direction,
+timing proximity, and process memory are insufficient. Phase 5 implements a
+bounded PostgreSQL correlation hold at dispatch start; until an exact provider
+ID exists, a candidate service echo remains pending only within that hold.
 
 The provider event timestamp is authoritative for the deadline. An exact retry
 or logical duplicate cannot append another pause or extend the deadline. A
@@ -96,9 +96,9 @@ available through the public Meta callback or Cloudflare Tunnel.
 - Reply eligibility is checked immediately before creating an outbound intent
   and again immediately before provider send. An earlier cached result cannot
   authorize a later send.
-- Phase 5 must test the race between provider-send correlation and echo
-  processing. It must not enable Messenger outbound delivery until a
-  service-originated echo can be distinguished without using message content.
+- Phase 5 tests both provider-response/echo orders and the staff-echo/dispatch
+  race. Open holds block another send; exact provider-ID correlation closes a
+  self-echo; unknown, expired, text-only, or mismatched echoes pause automation.
 
 ## Current Implementation And Evidence
 
@@ -108,6 +108,11 @@ shown above, and uses the Page-plus-`mid` idempotency key. The Phase 3 policy
 core already applies unmatched echoes exactly once, uses provider time for the
 24-hour deadline, and implements duplicate, resume, expiry, and concurrency
 rules.
+
+Phase 5 adds exact-scope monotonic delivery projection and the bounded
+Messenger echo hold described above. Its local evidence covers eleven
+correlation cases without a live Page send. Deployed worker and test-Page
+evidence remains P7-005.
 
 On 2026-08-26, a role-scoped customer message and a manual reply from the
 dedicated Messenger test Page reached durable ingestion through the restricted

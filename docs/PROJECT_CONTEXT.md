@@ -108,7 +108,8 @@ All secret values are intentionally absent from this repository. Create them dur
 - Task 10 validation on 2026-09-17: required RED runs first produced a false `business_echo_paused` result for echo-before-response and exposed the missing correlation service; focused debugging also caught SQL type inference and PostgreSQL microsecond-boundary regressions before correction. The final echo matrix passed 11/11 tests, the focused migration/processor/work-store/correlation gate passed 89/89, `npm run check` passed 634 tests across 46 files plus formatting, lint, strict type checking, build, and gate validation, and all 414 guarded PostgreSQL tests across 34 files passed. Only synthetic fixtures and the local PostgreSQL test container were used. No live Meta/provider call, external network access, deployment, external mutation, customer data, or production action occurred.
 - Implementation-plan Task 11 adds one transaction-local outbound privacy reconciler shared by deletion, all-linked marketing opt-out, and retention. It locks eligible intents and active attempts in ascending internal-ID order, cancels pending/leased/authorized-before-dispatch work with closed reasons, abandons authorized attempts before dispatch, converts `dispatch_started` to `delivery_unknown` without retry, preserves delivered content-free attempt/status evidence, erases dependent drafts, and completes deletion's `pending_outbound` location only after reconciliation. Re-opt-in cannot revive terminal canceled intents, retention preserves lifecycle anchors, older isolated restore schemas receive the only table-existence guard, and access export retains its existing fixed allowlist without outbound provider/request evidence.
 - Task 11 validation on 2026-09-20: the required RED runs exposed uncanceled deletion, marketing, and retention intents. The final five-file privacy/lifecycle gate passed 50/50 guarded PostgreSQL tests; `npm run check` passed 634 tests across 46 files plus formatting, lint, strict type checking, build, and gate validation; and all 417 guarded PostgreSQL tests across 35 files passed. Only synthetic fixtures and the local PostgreSQL test container were used. No live Meta/provider call, external network access, deployment, external mutation, customer data, or production action occurred.
-- P5-004 is complete. P5-005 implementation Tasks 9-11 are complete pending Task 12 consolidated Phase 5 evidence and gate review.
+- Task 12 consolidates the Phase 5 architecture, local/loopback test evidence, private operations contract, acceptance/threat updates, and gate decision. Focused evidence is 164/164 unit tests across 8 files and 68/68 PostgreSQL tests across 8 files; complete evidence is 634/634 local tests across 46 files and 417/417 guarded PostgreSQL tests across 35 files, with zero leftover test schemas or advisory locks.
+- P5-002 through P5-005 and P5-GATE are locally complete under delegated approval. The gate is local-only and unblocks P6-001 design/planning; no worker is packaged or deployed, and no live Meta/provider/test-asset action is authorized.
 
 ## Launch Blockers
 
@@ -123,8 +124,8 @@ All secret values are intentionally absent from this repository. Create them dur
 - Website privacy and support wording must disclose AI assistance, external inference, retention, deletion, and marketing consent before production launch.
 - Actual encrypted backup/restore procedures and deployed human-takeover behavior must still pass their acceptance tests; the local restore-gate primitive alone does not satisfy P6-004.
 
-The current tracker action is implementation-plan Task 12 Phase 5 evidence
-and gate review. All live
+The current tracker action is P6-001 hardened-local-operations design and
+implementation planning. All live
 Meta, Manifest, network, deployment, test-asset, and production
 actions remain separately gated. P1-GATE remains a separate explicit review
 record.

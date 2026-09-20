@@ -1014,7 +1014,7 @@ git push origin main
 - Consumes: exact evidence from Tasks 1 through 11.
 - Produces: P5-002 through P5-005 completion evidence and P5-GATE decision.
 
-- [ ] **Step 1: Run all focused Phase 5 tests**
+- [x] **Step 1: Run all focused Phase 5 tests**
 
 Run:
 
@@ -1025,7 +1025,7 @@ npm run test:integration -- tests/integration/postgres-outbound-policy.test.ts t
 
 Record exact counts from output only.
 
-- [ ] **Step 2: Run complete gates**
+- [x] **Step 2: Run complete gates**
 
 ~~~powershell
 npm run check
@@ -1035,14 +1035,14 @@ docker compose -f infra/compose.test.yml run --rm runner
 Record exact file/test counts. Query aggregates only to confirm zero leftover
 test schemas and zero advisory locks.
 
-- [ ] **Step 3: Run repository safety review**
+- [x] **Step 3: Run repository safety review**
 
 Run git diff --check, formatting, changed/staged file review, targeted
 credential patterns, and synthetic fixture scan. Confirm no environment file,
 dump, export, recording, screenshot, raw provider body, external identity, or
 credential was added.
 
-- [ ] **Step 4: Write evidence and operations documents**
+- [x] **Step 4: Write evidence and operations documents**
 
 Document:
 
@@ -1053,19 +1053,19 @@ Document:
 - no live provider/test-asset/deployment claim;
 - AC-06/07/23/24/25 outcomes and remaining P6/P7/P8 gates.
 
-- [ ] **Step 5: Update tracker and gate**
+- [x] **Step 5: Update tracker and gate**
 
 Mark P5-002 through P5-005 complete only if their evidence passes. Record
 P5-GATE local pass under delegated approval only if every Phase 5 exit
 condition passes. Unblock P6-001 planning only; do not authorize deployment,
 Meta sends, credentials, test assets, or production.
 
-- [ ] **Step 6: Re-run validation after documentation formatting**
+- [x] **Step 6: Re-run validation after documentation formatting**
 
 Run npm run check and the complete guarded PostgreSQL suite again. Re-run
 git diff --check and safety scans.
 
-- [ ] **Step 7: Commit and push**
+- [x] **Step 7: Commit and push**
 
 ~~~powershell
 git add docs src tests migrations .env.example

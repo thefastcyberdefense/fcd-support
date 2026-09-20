@@ -58,13 +58,14 @@ Keys never include message text:
 | WhatsApp inbound text | `whatsapp:message:<message-id>` |
 | WhatsApp status | `whatsapp:status:<message-id>:<status>:<provider-timestamp>` |
 | Messenger message or echo | `messenger:message:<page-id>:<message-mid>` |
-| Messenger delivery/read with no stable item ID | `messenger:<kind>:<page-id>:<peer-id>:<event-timestamp>:<canonical-subset-sha256>` |
+| Messenger delivery with stable `mid` | `messenger:delivery:<page-id>:<peer-id>:<event-timestamp>:<canonical-subset-sha256>` |
 | Unsupported item | `meta:unsupported:<payload-sha256>:<batch-index>` |
 
-The Messenger delivery/read fallback is reserved for the later provider-status
-adapter; current unsupported Messenger items receive only the minimal unsupported
-key. Its canonical hash may contain documented identifiers, kind, and timestamp,
-but never user content.
+Each implemented Messenger delivery item requires non-empty stable `mids[]` and
+normalizes to one status per `mid`. Read-watermark-only and missing-`mid`
+delivery items remain unsupported rather than guessing range correlation. The
+canonical hash contains only documented identifiers, kind, and timestamp—never
+user content.
 
 ## WhatsApp v26 Identity Compatibility
 
@@ -89,7 +90,7 @@ payloads. Both constraints are authoritative under concurrent delivery.
 - Customer messages and business echoes more than five minutes old at first receipt are recorded as `stale` and cannot trigger automated effects.
 - Status events are not made stale solely because of age. They remain available for later monotonic status correlation.
 - Events more than 60 seconds in the future are recorded as `unsupported` with reason `event_time_too_far_future` and cannot trigger automated effects.
-- Out-of-order statuses are stored independently. Phase 5 must apply provider time and status precedence without rolling state backward.
+- Out-of-order statuses are stored independently. The Phase 5 status repository correlates exact channel/account/provider IDs and applies monotonic precedence without rolling state backward.
 
 ## Durable Boundary
 
