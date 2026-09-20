@@ -16,6 +16,7 @@ import type {
 import { MARKETING_CATEGORIES } from '../policy/policy-types.js';
 import { requireSupportReviewer } from '../policy/reviewer-principal.js';
 import { lockAppliedCustomerEvent } from './postgres-policy-helpers.js';
+import { reconcileOutboundPrivacy } from './postgres-outbound-privacy.js';
 import {
   PolicyIdempotencyConflictError,
   PolicyRecordNotFoundError,
@@ -222,13 +223,34 @@ export class PostgresMarketingOptOutPolicy {
         }
       }
 
+      const conversations = await client.query<IdentifierRow>(
+        `select id
+         from conversations
+         where channel_identity_id = any($1::bigint[])
+         order by id
+         for update`,
+        [identities.rows.map(({ id }) => id)],
+      );
+      const reconciled = await reconcileOutboundPrivacy(client, {
+        conversationIds: conversations.rows.map(({ id }) => id),
+        effectiveAt: command.effectiveAt,
+        purposeCodes: [
+          'marketing_education',
+          'marketing_events',
+          'marketing_news',
+          'marketing_offers',
+        ],
+        reason: 'suppressed',
+        templateOnly: true,
+      });
+
       const run = await client.query<IdentifierRow>(
         `insert into privacy_marketing_opt_out_runs
            (source_webhook_event_id, request_key, effective_at,
             linked_identities_count, category_revocations_count,
             suppressions_created_count, pending_intents_cancelled_count,
             status)
-         values ($1, $2, $3, $4, $5, $6, 0, 'applied')
+         values ($1, $2, $3, $4, $5, $6, $7, 'applied')
          returning id`,
         [
           command.sourceWebhookEventId,
@@ -237,6 +259,7 @@ export class PostgresMarketingOptOutPolicy {
           identities.rows.length,
           categoryRevocations,
           suppressionsCreated,
+          reconciled.canceled,
         ],
       );
       const runId = run.rows[0]?.id;
@@ -253,7 +276,7 @@ export class PostgresMarketingOptOutPolicy {
       return {
         categoryRevocations,
         linkedIdentities: identities.rows.length,
-        pendingIntentsCancelled: 0,
+        pendingIntentsCancelled: reconciled.canceled,
         status: 'applied',
         suppressionsCreated,
       };

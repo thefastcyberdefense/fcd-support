@@ -38,7 +38,7 @@ beforeEach(async () => {
        retention_job_runs, retention_events, conversation_retention_states,
        policy_audit_outcomes, consent_events, human_pause_events,
        webhook_event_applications, conversations, channel_identities,
-       contacts, webhook_events, webhook_receipts
+       contacts, webhook_events, webhook_receipts, admin_accounts
      restart identity cascade`,
   );
 });
@@ -67,6 +67,8 @@ const otherIdentity = {
   channelAccountId: 'ACCOUNT_TEST_access_other',
   externalContactId: 'CONTACT_TEST_access_other',
 } as const;
+const outboundProviderMarker = 'META_MESSAGE_TEST_access_export_excluded';
+const outboundRequestMarker = 'REQUEST_TEST_access_export_outbound_excluded';
 
 interface ApprovedAccessFixture {
   readonly otherMarker: string;
@@ -180,6 +182,76 @@ async function prepareApprovedAccessFixture(): Promise<ApprovedAccessFixture> {
       linkedSource.conversationId,
       replyMarker,
       new Date('2026-08-31T08:02:40.000Z'),
+    ],
+  );
+  const outboundAdmin = await pool.query<{ readonly id: string }>(
+    `insert into admin_accounts
+       (account_ref, login_name, password_algorithm, password_cost,
+        password_block_size, password_parallelization, password_key_length,
+        password_salt, password_hash, state, created_at, updated_at,
+        password_changed_at)
+     values ('ADMIN_TEST_access_outbound', 'synthetic.access.outbound',
+             'scrypt_v1', 16384, 8, 1, 32,
+             decode(repeat('31', 16), 'hex'), decode(repeat('32', 32), 'hex'),
+             'active', $1, $1, $1)
+     returning id`,
+    [new Date('2026-08-31T08:00:00.000Z')],
+  );
+  const outboundPolicy = await pool.query<{ readonly id: string }>(
+    `insert into outbound_policy_versions
+       (policy_ref, version_number, request_key, per_contact_15_minute,
+        per_contact_24_hour, whatsapp_account_1_minute,
+        messenger_account_1_minute, global_1_minute, global_utc_day,
+        worker_batch_size, lease_ms, provider_timeout_ms,
+        maximum_definite_retries, retry_base_ms, retry_maximum_ms, state,
+        created_by_account_id, approved_by_account_id, created_at,
+        submitted_at, decided_at, activated_at)
+     values ('POLICY_TEST_access_outbound', 1, 'REQUEST_TEST_access_outbound_policy',
+             100, 1000, 100, 100, 100, 10000, 20, 30000, 8000, 2, 1000,
+             8000, 'active', $1, $1, $2, $2, $2, $2)
+     returning id`,
+    [outboundAdmin.rows[0]?.id, new Date('2026-08-31T08:00:00.000Z')],
+  );
+  const outboundIntent = await pool.query<{ readonly id: string }>(
+    `insert into outbound_intents
+       (intent_ref, request_key, reply_draft_id, conversation_id,
+        channel_identity_id, policy_version_id, channel, channel_account_id,
+        purpose, message_kind, state, attempt_count, retention_deadline,
+        created_at, updated_at)
+     select 'INTENT_TEST_access_outbound', $1, $2, $3, $4, $5,
+            'messenger', $6, 'customer_support', 'support_text',
+            'provider_accepted', 1, retention.expires_at, $7, $8
+     from conversation_retention_states as retention
+     where retention.conversation_id = $3
+     returning id`,
+    [
+      outboundRequestMarker,
+      replyDraft.rows[0]?.id,
+      linkedSource.conversationId,
+      await identityId(subjectMessenger),
+      outboundPolicy.rows[0]?.id,
+      subjectMessenger.channelAccountId,
+      new Date('2026-08-31T08:03:00.000Z'),
+      new Date('2026-08-31T08:04:00.000Z'),
+    ],
+  );
+  await pool.query(
+    `insert into outbound_attempts
+       (intent_id, attempt_number, attempt_ref, policy_version_id,
+        rate_reservation_ref, channel, channel_account_id, state,
+        provider_message_id, outcome_code, authorized_at,
+        dispatch_started_at, provider_accepted_at, finished_at, created_at)
+     values ($1, 1, 'ATTEMPT_TEST_access_outbound', $2,
+             'RESERVATION_TEST_access_outbound', 'messenger', $3,
+             'provider_accepted', $4, 'provider_accepted', $5, $6, $7, $7, $5)`,
+    [
+      outboundIntent.rows[0]?.id,
+      outboundPolicy.rows[0]?.id,
+      subjectMessenger.channelAccountId,
+      outboundProviderMarker,
+      new Date('2026-08-31T08:03:00.000Z'),
+      new Date('2026-08-31T08:03:30.000Z'),
+      new Date('2026-08-31T08:04:00.000Z'),
     ],
   );
   await pool.query(
@@ -392,6 +464,10 @@ describe('PostgresAccessExport', () => {
       expect(serialized).not.toContain(fixture.receiptHash);
       expect(serialized).not.toContain(reviewer.reviewerRef);
       expect(serialized).not.toContain('a'.repeat(64));
+      expect(serialized).not.toContain(outboundProviderMarker);
+      expect(serialized).not.toContain(outboundRequestMarker);
+      expect(Object.keys(result.export.records)).not.toContain('outbound_intents');
+      expect(Object.keys(result.export.records)).not.toContain('outbound_attempts');
     } finally {
       stringifySpy.mockRestore();
       stdoutSpy.mockRestore();

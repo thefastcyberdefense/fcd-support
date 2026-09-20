@@ -1,6 +1,6 @@
 # Project Context
 
-Last reviewed: 2026-09-13 (Asia/Dhaka)
+Last reviewed: 2026-09-20 (Asia/Dhaka)
 
 ## Confirmed Decisions
 
@@ -106,7 +106,9 @@ All secret values are intentionally absent from this repository. Create them dur
 - Task 9 validation on 2026-09-17: required RED runs failed on unsupported Messenger delivery items and the missing status repository. The focused Messenger suite passed 5/5 tests; the focused processor/status PostgreSQL suites passed 36/36 tests, including every permutation of sent/delivered/read/failed, exact/logical replay, unknown/collision cases, correction, and retention immutability. `npm run check` passed 634 tests across 46 files plus formatting, lint, strict type checking, build, and gate validation; all 403 guarded PostgreSQL tests across 33 files passed. Only synthetic fixtures and the local PostgreSQL test container were used. No live Meta/provider call, external network access, deployment, external mutation, customer data, or production action occurred.
 - Implementation-plan Task 10 adds a bounded Messenger echo-correlation hold at locked dispatch start, with its lifetime derived from the effective customizable provider timeout. Exact channel/account/provider-message matches become `service_echo_correlated`; echo-before-response remains unapplied until provider evidence arrives; unknown, expired, text-only, or mismatched echoes use the existing provider-time human pause. Conversation-first dispatch locking permits only one in-flight hold and refuses dispatch if a real staff echo wins the start race; open holds block later enqueue/send, and provider-result correlation runs after its state commit to avoid reversed event/attempt lock order.
 - Task 10 validation on 2026-09-17: required RED runs first produced a false `business_echo_paused` result for echo-before-response and exposed the missing correlation service; focused debugging also caught SQL type inference and PostgreSQL microsecond-boundary regressions before correction. The final echo matrix passed 11/11 tests, the focused migration/processor/work-store/correlation gate passed 89/89, `npm run check` passed 634 tests across 46 files plus formatting, lint, strict type checking, build, and gate validation, and all 414 guarded PostgreSQL tests across 34 files passed. Only synthetic fixtures and the local PostgreSQL test container were used. No live Meta/provider call, external network access, deployment, external mutation, customer data, or production action occurred.
-- P5-004 is complete. P5-005 implementation Tasks 9-10 are complete pending the consolidated Phase 5 evidence gate; implementation-plan Task 11 privacy/lifecycle integration is next.
+- Implementation-plan Task 11 adds one transaction-local outbound privacy reconciler shared by deletion, all-linked marketing opt-out, and retention. It locks eligible intents and active attempts in ascending internal-ID order, cancels pending/leased/authorized-before-dispatch work with closed reasons, abandons authorized attempts before dispatch, converts `dispatch_started` to `delivery_unknown` without retry, preserves delivered content-free attempt/status evidence, erases dependent drafts, and completes deletion's `pending_outbound` location only after reconciliation. Re-opt-in cannot revive terminal canceled intents, retention preserves lifecycle anchors, older isolated restore schemas receive the only table-existence guard, and access export retains its existing fixed allowlist without outbound provider/request evidence.
+- Task 11 validation on 2026-09-20: the required RED runs exposed uncanceled deletion, marketing, and retention intents. The final five-file privacy/lifecycle gate passed 50/50 guarded PostgreSQL tests; `npm run check` passed 634 tests across 46 files plus formatting, lint, strict type checking, build, and gate validation; and all 417 guarded PostgreSQL tests across 35 files passed. Only synthetic fixtures and the local PostgreSQL test container were used. No live Meta/provider call, external network access, deployment, external mutation, customer data, or production action occurred.
+- P5-004 is complete. P5-005 implementation Tasks 9-11 are complete pending Task 12 consolidated Phase 5 evidence and gate review.
 
 ## Launch Blockers
 
@@ -121,8 +123,8 @@ All secret values are intentionally absent from this repository. Create them dur
 - Website privacy and support wording must disclose AI assistance, external inference, retention, deletion, and marketing consent before production launch.
 - Actual encrypted backup/restore procedures and deployed human-takeover behavior must still pass their acceptance tests; the local restore-gate primitive alone does not satisfy P6-004.
 
-The current tracker action is implementation-plan Task 11 outbound
-privacy/lifecycle integration. All live
+The current tracker action is implementation-plan Task 12 Phase 5 evidence
+and gate review. All live
 Meta, Manifest, network, deployment, test-asset, and production
 actions remain separately gated. P1-GATE remains a separate explicit review
 record.

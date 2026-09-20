@@ -1,6 +1,7 @@
 import type pg from 'pg';
 
 import type { RetentionJobInput, RetentionJobResult } from '../policy/policy-types.js';
+import { reconcileOutboundPrivacy } from './postgres-outbound-privacy.js';
 import { withBoundedTransaction } from './postgres-transaction.js';
 
 interface ExistingRetentionJobRow {
@@ -96,6 +97,11 @@ export class PostgresRetentionJob {
 
       let messagesPurged = 0;
       for (const state of selected.rows) {
+        await reconcileOutboundPrivacy(client, {
+          conversationIds: [state.conversation_id],
+          effectiveAt: input.evaluatedAt,
+          reason: 'retention_expired',
+        });
         const cleared = await client.query(
           `update webhook_events as source
            set message_text = null

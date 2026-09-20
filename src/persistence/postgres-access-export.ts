@@ -290,6 +290,8 @@ const supportEscalationOutcomeCollector = Object.freeze({
   },
 } satisfies AccessCollector<'support_escalation_outcomes', AccessSupportEscalationOutcomeRecord>);
 
+// Outbound intents, leases, attempts, provider identifiers, and status evidence are
+// deliberately outside this fixed subject-access allowlist.
 const productionAccessCollectors = Object.freeze([
   channelIdentityCollector,
   conversationCollector,

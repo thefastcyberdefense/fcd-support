@@ -955,7 +955,7 @@ git push origin main
 - Produces: atomic cancellation/erasure of eligible outbound work and
   allowlisted access behavior.
 
-- [ ] **Step 1: Write failing cross-feature tests**
+- [x] **Step 1: Write failing cross-feature tests**
 
 Prove deletion cancels pending/leased/authorized-before-dispatch intents,
 erases dependent draft content, leaves content-free attempt/status evidence,
@@ -968,20 +968,20 @@ cancels/erases without moving anchors. Prove access output contains only the
 already approved allowlisted categories and no provider message ID, lease,
 recipient, token, request, response, or error detail.
 
-- [ ] **Step 2: Run focused tests and confirm failure**
+- [x] **Step 2: Run focused tests and confirm failure**
 
 ~~~powershell
 npm run test:integration -- tests/integration/postgres-deletion-policy.test.ts tests/integration/postgres-marketing-opt-out-policy.test.ts tests/integration/postgres-retention-job.test.ts tests/integration/postgres-access-export.test.ts tests/integration/postgres-outbound-privacy-interactions.test.ts
 ~~~
 
-- [ ] **Step 3: Implement transactional integration**
+- [x] **Step 3: Implement transactional integration**
 
 Use table existence guards only where older isolated restore schemas require
 them. Lock identities/intents in ascending internal ID order. Cancellation
 updates use closed reasons and cannot mutate append-only attempt/status
 evidence. Never select content or external identity into evidence queries.
 
-- [ ] **Step 4: Run tests and checkpoint**
+- [x] **Step 4: Run tests and checkpoint**
 
 Run the command from Step 2, then npm run check.
 
