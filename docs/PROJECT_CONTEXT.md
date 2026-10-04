@@ -111,6 +111,15 @@ All secret values are intentionally absent from this repository. Create them dur
 - Task 12 consolidates the Phase 5 architecture, local/loopback test evidence, private operations contract, acceptance/threat updates, and gate decision. Focused evidence is 164/164 unit tests across 8 files and 68/68 PostgreSQL tests across 8 files; complete evidence is 634/634 local tests across 46 files and 417/417 guarded PostgreSQL tests across 35 files, with zero leftover test schemas or advisory locks.
 - P5-002 through P5-005 and P5-GATE are locally complete under delegated approval. The gate is local-only and unblocks P6-001 design/planning; no worker is packaged or deployed, and no live Meta/provider/test-asset action is authorized.
 
+## Current Phase 6 Planning Checkpoint
+
+- The project owner approved the written Phase 6 specification on 2026-10-04: `docs/superpowers/specs/2026-09-21-phase-6-hardened-local-operations-design.md`.
+- The implementation plan is written for owner review: `docs/superpowers/plans/2026-10-04-phase-6-hardened-local-operations.md`. Its 16 sequential tasks package role-specific runtimes, mounted secrets, hardened layered Compose, private networks, encrypted backup/restore, current deletion checkpoints, inherited-work quarantine, host timers, dashboard/journal health, private n8n contracts, local failure evidence, and a concrete server deployment handoff.
+- First-version operational incidents use the authenticated private dashboard and sanitized host journal independently of n8n. Direct Telegram, SMTP, and external uptime notifications are deferred by owner; an offline host cannot notify while offline.
+- Backup creation uses only a public encryption recipient; a separate verification/restore job holds the private identity. Restore must import a complete current deletion checkpoint, including post-archive deletions, and fence inherited external-effect work before application attachment.
+- Deployment destination remains the existing Ubuntu server at `192.168.10.40`, with exact committed revisions pulled into `/home/redwan/apps/fcd-support`. The exact revision/action/rollback handoff still precedes server mutation; external execution starts disabled.
+- P6-001 remains in progress pending written-plan review. No P6 implementation, Docker validation, server access, provider call, or deployment occurred during planning.
+
 ## Launch Blockers
 
 - The admission-only test deployment is approved and running under a narrow exception. Outbound messaging, models, n8n actions, live customer data, and production deployment remain unauthorized.
@@ -124,8 +133,8 @@ All secret values are intentionally absent from this repository. Create them dur
 - Website privacy and support wording must disclose AI assistance, external inference, retention, deletion, and marketing consent before production launch.
 - Actual encrypted backup/restore procedures and deployed human-takeover behavior must still pass their acceptance tests; the local restore-gate primitive alone does not satisfy P6-004.
 
-The current tracker action is P6-001 hardened-local-operations design and
-implementation planning. All live
+The current tracker action is P6-001 written implementation-plan review; the
+written specification is approved. All live
 Meta, Manifest, network, deployment, test-asset, and production
 actions remain separately gated. P1-GATE remains a separate explicit review
 record.

@@ -188,13 +188,15 @@ Produce a reproducible, private, recoverable Docker deployment without exposing 
 - Validate forward migrations, backup-before-migration behavior, rollback procedures, and restoration into an isolated database.
 - Create encrypted backups on the approved schedule without unbounded startup copies; retain 45 daily and 6 monthly archives. Perform and record quarterly restore tests.
 - Reapply every unexpired deletion tombstone after an isolated restore and refuse to attach the restored database to the application until content-free deletion verification passes.
-- Add privacy-safe health monitoring for the API, database, tunnel, and Manifest path. Health alerting must not depend solely on n8n.
+- Add privacy-safe health monitoring for the API, database, tunnel, and Manifest path. First-version incidents use the authenticated private dashboard and sanitized host journal independently of n8n; direct external notification adapters are deferred by owner.
 - Keep n8n private and use authenticated, idempotent notification calls only. Do not disable its existing API until a dependency audit passes.
 
 ### Exit Gate
 
 - Compose validation, container hardening checks, migrations, backup, restore, deletion-after-restore, and failure recovery tests pass locally.
-- Network tests show only the intended container-to-container paths and no public host ports.
+- Network tests show only the intended container-to-container paths and no public host ports. The approved admin dashboard may bind only to host loopback for local or SSH-forwarded access.
+
+Phase 6 written specification: `docs/superpowers/specs/2026-09-21-phase-6-hardened-local-operations-design.md` (owner approved 2026-10-04). Implementation plan: `docs/superpowers/plans/2026-10-04-phase-6-hardened-local-operations.md` (awaiting written-plan review). P6 remains local implementation and validation before any separately approved server action.
 
 ## Phase 7: Approved Test-Asset Integration
 

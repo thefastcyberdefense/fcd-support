@@ -1,7 +1,7 @@
 # Phase 6 Hardened Local Operations Design
 
-Status: conversational design approved; written specification awaiting project
-owner review. This document authorizes planning only. Implementation, local
+Status: written specification approved by the project owner on 2026-10-04.
+This document authorizes implementation planning only. Implementation, local
 Docker execution, Ubuntu deployment, external-service changes, test-asset
 traffic, and production actions remain subject to their recorded gates.
 
@@ -113,15 +113,15 @@ network, migration, and rollback validation would otherwise drift.
 
 ## Runtime Roles
 
-| Role | Responsibility | Required attachments | Prohibited attachments |
-|---|---|---|---|
-| `postgres` | Authoritative state | data, database volume | ingress, model, provider-egress, notification, host port |
-| `webhook-api` | Meta verification and durable admission | ingress, data | model, provider-egress, notification, host port |
-| `admin` | Authenticated dashboard and reviewed controls | data, loopback host binding | ingress, model, provider-egress, notification, public host binding |
-| `reply-worker` | Apply admitted events, FAQ/model decisions, escalation creation | data, model | ingress, provider-egress, notification |
-| `outbound-worker` | Claim authorized outbox work and call exact Meta endpoints | data, provider-egress | ingress, model, notification |
-| `notification-worker` | Deliver minimized notification work to private n8n | data, notification | ingress, model, provider-egress |
-| operations jobs | Migrate, back up, restore, reconcile, verify, retain, delete | only the network/volume required by the command | ingress and unrelated service networks |
+| Role                  | Responsibility                                                  | Required attachments                            | Prohibited attachments                                             |
+| --------------------- | --------------------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------ |
+| `postgres`            | Authoritative state                                             | data, database volume                           | ingress, model, provider-egress, notification, host port           |
+| `webhook-api`         | Meta verification and durable admission                         | ingress, data                                   | model, provider-egress, notification, host port                    |
+| `admin`               | Authenticated dashboard and reviewed controls                   | data, loopback host binding                     | ingress, model, provider-egress, notification, public host binding |
+| `reply-worker`        | Apply admitted events, FAQ/model decisions, escalation creation | data, model                                     | ingress, provider-egress, notification                             |
+| `outbound-worker`     | Claim authorized outbox work and call exact Meta endpoints      | data, provider-egress                           | ingress, model, notification                                       |
+| `notification-worker` | Deliver minimized notification work to private n8n              | data, notification                              | ingress, model, provider-egress                                    |
+| operations jobs       | Migrate, back up, restore, reconcile, verify, retain, delete    | only the network/volume required by the command | ingress and unrelated service networks                             |
 
 The same revision-labelled application image may supply multiple application
 commands, but each command constructs only its own dependencies. A role must
@@ -322,10 +322,11 @@ is deferred to a later approved version.
 ## Encrypted Backup
 
 The backup job creates a PostgreSQL custom-format dump and streams it directly
-through a pinned authenticated encryption tool. Backup creation uses only an
-encryption recipient/public key. The decryption identity/private key is absent
-from the normal runtime and backup job and is mounted only for an approved
-restore.
+through the pinned `age` CLI with an X25519 recipient. Backup creation uses
+only the encryption recipient/public key. The decryption identity/private key
+is absent from the normal runtime and backup job and is mounted only into a
+separate approved verification or restore job. The operations image verifies
+the pinned encryption release checksum during its build.
 
 The encrypted archive is written to a staging name in a dedicated backup
 volume, synced, and atomically renamed only after dump and encryption success.
@@ -345,9 +346,13 @@ more but cannot configure fewer without a reviewed policy change. Pruning
 occurs only after a new archive is complete and verified and never removes the
 only known-good archive.
 
-Every backup run verifies the ciphertext digest and performs a non-destructive
-decrypt/list check without retaining plaintext. A full isolated restore is
-required quarterly and before relying on a materially changed backup toolchain.
+Every backup run verifies the ciphertext digest and successful completion of
+the dump/encryption pipeline. A separate verification job streams decryption
+into `pg_restore --list`, suppresses its content-bearing output, and retains
+no plaintext. A pre-migration archive must pass that separate verification
+before migration begins. A full isolated restore is required quarterly and
+before relying on a materially changed backup toolchain. Routine backup jobs
+never acquire the restore identity.
 
 ## Deployment And Migration
 
@@ -416,14 +421,22 @@ The restore workflow:
 2. Decrypt as a stream and restore into the new isolated PostgreSQL instance.
 3. Validate PostgreSQL/catalog health and the recorded source schema.
 4. Apply forward migrations required by the target application revision.
-5. Load every required active deletion-tombstone HMAC key version from mounted
-   secrets.
+5. Import a complete current deletion checkpoint from the quiesced authoritative
+   source, including deletions committed after the selected archive. Verify its
+   completeness watermark and signature, then load every required active
+   deletion-tombstone HMAC key version from mounted secrets. A checkpoint found
+   only inside the selected archive is insufficient. If the current source or
+   an independently preserved complete checkpoint is unavailable, promotion
+   fails closed.
 6. Reapply all unexpired deletion tombstones in bounded batches using the
    existing Phase 3 restore-deletion gate.
 7. Run the complete lock-safe content-free scan and verify its persisted pass
    record, unchanged revision material, zero remaining matches, and complete
    checklist state.
-8. Run migration, aggregate integrity, and application compatibility checks.
+8. Quarantine inherited model, reply, outbound, and notification work so that
+   a restored pre-dispatch state cannot repeat an external effect that occurred
+   after the archive. Record content-free recovery evidence and run migration,
+   aggregate integrity, and application compatibility checks.
 9. Record a content-free restore outcome.
 
 Any missing key, decryption error, migration failure, incomplete scan,
@@ -436,6 +449,11 @@ database is isolated, stops all application roles, selects the verified new
 volume in protected non-secret deployment state, starts PostgreSQL, and only
 then starts compatible application roles. The previous volume is retained
 unchanged until the rollback retention decision is reviewed.
+
+Planning review on 2026-10-04 clarified the encryption-verification role and
+the post-backup deletion/external-effect requirements above. They implement
+the approved key-isolation, deletion, and no-blind-resend guarantees; they do
+not grant new external-action authority.
 
 ## Private n8n Notification Integration
 
@@ -469,19 +487,19 @@ creation is not authorized by P6 implementation.
 
 ## Failure Behavior
 
-| Failure | Required behavior |
-|---|---|
-| PostgreSQL unavailable | Webhook work is not falsely acknowledged; workers stop claims; host journal receives a fixed code |
-| Manifest unavailable or unsafe | FAQ remains deterministic; model path produces the approved safe response and one escalation |
-| Meta timeout or ambiguous result | Existing outbox records `delivery_unknown`; no blind resend |
-| n8n unavailable | Notification work remains durable with bounded retry; core state is unchanged |
-| Tunnel unavailable | No alternate public port is opened; dashboard/history records the failure when possible; manual coverage applies |
-| Migration fails | New revision stays stopped; database and pre-migration backup are preserved |
-| Backup fails | No partial archive becomes eligible; deployment migration does not proceed |
-| Restore reconciliation fails | Restored volume remains isolated and promotion is refused |
-| Health collection fails | Fixed host-log event; bounded incident recorded after database recovery |
-| Worker shutdown exceeds grace | Process exits; existing lease/unknown-delivery rules determine recovery |
-| Required secret/config is missing | Only the affected role fails startup with a closed reason; no value is printed |
+| Failure                           | Required behavior                                                                                                |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| PostgreSQL unavailable            | Webhook work is not falsely acknowledged; workers stop claims; host journal receives a fixed code                |
+| Manifest unavailable or unsafe    | FAQ remains deterministic; model path produces the approved safe response and one escalation                     |
+| Meta timeout or ambiguous result  | Existing outbox records `delivery_unknown`; no blind resend                                                      |
+| n8n unavailable                   | Notification work remains durable with bounded retry; core state is unchanged                                    |
+| Tunnel unavailable                | No alternate public port is opened; dashboard/history records the failure when possible; manual coverage applies |
+| Migration fails                   | New revision stays stopped; database and pre-migration backup are preserved                                      |
+| Backup fails                      | No partial archive becomes eligible; deployment migration does not proceed                                       |
+| Restore reconciliation fails      | Restored volume remains isolated and promotion is refused                                                        |
+| Health collection fails           | Fixed host-log event; bounded incident recorded after database recovery                                          |
+| Worker shutdown exceeds grace     | Process exits; existing lease/unknown-delivery rules determine recovery                                          |
+| Required secret/config is missing | Only the affected role fails startup with a closed reason; no value is printed                                   |
 
 ## Validation Strategy
 
