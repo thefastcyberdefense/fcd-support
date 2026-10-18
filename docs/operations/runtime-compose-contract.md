@@ -25,18 +25,22 @@ ingress-only probe, masking this path. Those results are superseded, not a
 passing topology gate. The final harness preserves ordinary egress topology
 without making any provider call and refuses the unsafe measured state.
 
-Owner direction is needed for a focused architecture amendment:
+Owner direction received on 2026-10-18 for a focused architecture amendment:
 
-- Recommended: admin HTTP listens on an owner-only Unix socket, exposed to the
+- Selected: admin HTTP listens on an owner-only Unix socket, exposed to the
   browser through SSH forwarding. No admin container TCP port is published.
   The dashboard, loopback browser origin and existing MFA/session/CSRF rules
   remain unchanged. This needs a narrow private socket mount and changes the
   approved TCP/host-publication transport, so it is not implemented yet.
-- Alternative: retain TCP but design and verify explicit host-level Docker
+- Not selected: retain TCP but design and verify explicit host-level Docker
   firewall enforcement. This introduces privileged host rule lifecycle and
   separately approved server mutations; no such changes are authorized now.
 
-The specification/plan must record the selected amendment before implementation.
+The written amendment is in the Phase 6 specification's Management access
+section and awaits owner review. Its corresponding detailed plan revision
+follows written-spec approval. No socket implementation has started. The TCP
+configuration and measured-boundary description below describe the failed
+checkpoint only; they are not the selected target or deployment instructions.
 Do not launch these draft files. Synthetic containers, networks and volumes have
 been removed after validated scope checks. No live server or production service
 was changed.

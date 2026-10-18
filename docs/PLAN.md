@@ -194,7 +194,7 @@ Produce a reproducible, private, recoverable Docker deployment without exposing 
 ### Exit Gate
 
 - Compose validation, container hardening checks, migrations, backup, restore, deletion-after-restore, and failure recovery tests pass locally.
-- Network tests show only the intended container-to-container paths and no public host ports. The approved admin dashboard may bind only to host loopback for local or SSH-forwarded access.
+- Network tests show only the intended container-to-container paths and no public host ports. Task 8's host-loopback Docker TCP admin design failed isolation and must not be deployed. The owner selected private Unix-socket HTTP with a loopback SSH client forward; its written Phase 6 amendment awaits review before implementation. This proposed replacement publishes no admin Docker TCP port.
 
 Phase 6 written specification: `docs/superpowers/specs/2026-09-21-phase-6-hardened-local-operations-design.md` (owner approved 2026-10-04). Implementation plan: `docs/superpowers/plans/2026-10-04-phase-6-hardened-local-operations.md` (owner approved for sequential implementation 2026-10-18). P6 remains local implementation and validation before any separately approved server action.
 

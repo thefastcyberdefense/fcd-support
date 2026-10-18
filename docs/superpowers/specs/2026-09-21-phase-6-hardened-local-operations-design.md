@@ -1,6 +1,10 @@
 # Phase 6 Hardened Local Operations Design
 
 Status: written specification approved by the project owner on 2026-10-04.
+Amendment status (2026-10-18): the owner approved the private Unix-socket/SSH
+direction in chat after Task 8's TCP-isolation failure. The written amendment
+under Management access below is awaiting owner review; its implementation
+and the corresponding implementation-plan revision have not been approved.
 This document authorizes implementation planning only. Implementation, local
 Docker execution, Ubuntu deployment, external-service changes, test-asset
 traffic, and production actions remain subject to their recorded gates.
@@ -113,15 +117,15 @@ network, migration, and rollback validation would otherwise drift.
 
 ## Runtime Roles
 
-| Role                  | Responsibility                                                  | Required attachments                            | Prohibited attachments                                             |
-| --------------------- | --------------------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------ |
-| `postgres`            | Authoritative state                                             | data, database volume                           | ingress, model, provider-egress, notification, host port           |
-| `webhook-api`         | Meta verification and durable admission                         | ingress, data                                   | model, provider-egress, notification, host port                    |
-| `admin`               | Authenticated dashboard and reviewed controls                   | data, loopback host binding                     | ingress, model, provider-egress, notification, public host binding |
-| `reply-worker`        | Apply admitted events, FAQ/model decisions, escalation creation | data, model                                     | ingress, provider-egress, notification                             |
-| `outbound-worker`     | Claim authorized outbox work and call exact Meta endpoints      | data, provider-egress                           | ingress, model, notification                                       |
-| `notification-worker` | Deliver minimized notification work to private n8n              | data, notification                              | ingress, model, provider-egress                                    |
-| operations jobs       | Migrate, back up, restore, reconcile, verify, retain, delete    | only the network/volume required by the command | ingress and unrelated service networks                             |
+| Role                  | Responsibility                                                  | Required attachments                                     | Prohibited attachments                                             |
+| --------------------- | --------------------------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------ |
+| `postgres`            | Authoritative state                                             | data, database volume                                    | ingress, model, provider-egress, notification, host port           |
+| `webhook-api`         | Meta verification and durable admission                         | ingress, data                                            | model, provider-egress, notification, host port                    |
+| `admin`               | Authenticated dashboard and reviewed controls                   | data, private socket directory (pending amendment below) | ingress, model, provider-egress, notification, any TCP publication |
+| `reply-worker`        | Apply admitted events, FAQ/model decisions, escalation creation | data, model                                              | ingress, provider-egress, notification                             |
+| `outbound-worker`     | Claim authorized outbox work and call exact Meta endpoints      | data, provider-egress                                    | ingress, model, notification                                       |
+| `notification-worker` | Deliver minimized notification work to private n8n              | data, notification                                       | ingress, model, provider-egress                                    |
+| operations jobs       | Migrate, back up, restore, reconcile, verify, retain, delete    | only the network/volume required by the command          | ingress and unrelated service networks                             |
 
 The same revision-labelled application image may supply multiple application
 commands, but each command constructs only its own dependencies. A role must
@@ -172,10 +176,95 @@ credential-bearing, or outside the configured private origin contract.
 
 ### Management access
 
-The admin dashboard binds to `127.0.0.1` on the Ubuntu host. Remote operator
-access uses an SSH tunnel or a browser on the host. A later explicit decision
-may add an approved private management network, but Phase 6 creates no public
-admin route. Private health and metrics are dashboard data, not tunnel routes.
+The original host-loopback Docker TCP design failed Task 8's realistic local
+isolation gate. It must not be deployed. The following focused amendment
+replaces that transport if its written specification and revised implementation
+plan are approved. Private health and metrics remain dashboard data, not
+tunnel routes. All other Phase 6 authority and external-action gates remain.
+
+#### 2026-10-18 private-admin transport amendment — written review pending
+
+**Intent and evidence.** Keep the existing browser dashboard accessible to the
+operator without making its HTTP listener reachable from ingress or other
+runtime containers. The multihomed ingress probe and an outbound-egress probe
+reached admin TCP 3004 despite Docker host-loopback publication, explicit NAT
+and disabled management ICC. This proves TCP reachability on the tested local
+engine, not an authentication bypass or an exposure on the Ubuntu server.
+
+**Selected approach.** Admin serves HTTP over a filesystem Unix-domain socket,
+with no admin TCP listener, Docker port publication, or management bridge.
+Admin joins only its internal per-role database bridge. Operator browser access
+uses an explicit client-loopback SSH forward to the remote socket. This
+preserves the dashboard without relying on Docker TCP forwarding as its
+isolation boundary. Privileged host firewall enforcement was the alternative;
+it is not selected or authorized. Keeping the measured failing TCP design is
+not an acceptable release option.
+
+**Filesystem boundary.** The only new writable host bind is a dedicated socket
+directory selected by protected non-secret `FCD_ADMIN_SOCKET_ROOT`. Mount it
+only into admin at `/run/fcd-support-admin`, with automatic source-directory
+creation disabled. It contains only `admin.sock`, never configuration, secrets,
+archives, source, database files, or the Docker socket. The directory must be
+real, not symlinked, mode `0700`, and owned by the actual non-root admin runtime
+UID/GID (currently image UID/GID 1000). Validate the resolved source, protected
+ancestors and ownership before startup. The selected SSH account must be able
+to access the socket under this ownership mapping; do not assume the server's
+IDs match, widen permissions, or repair ownership inside a container. Host
+provisioning and SSH policy verification belong to the separately approved
+deployment runbook. Host root and the designated owning account remain trusted;
+this is not isolation from a compromised host or an actor with that same UID.
+
+**Listener and lifecycle.** Explicit `ADMIN_LISTEN_MODE=unix` and
+`ADMIN_SOCKET_PATH=/run/fcd-support-admin/admin.sock` select the packaged
+transport. Reject mixed socket/TCP settings, invalid or unsupported paths,
+unsafe directory ownership/modes, symlinks and any pre-existing socket-path
+entry, including a stale socket. Create the socket owner-only from the outset
+using a restrictive umask and verify mode `0600`. Do not expose a temporary TCP
+listener or fall back to TCP on failure. Startup fails with a closed code and
+closes its database pool. Shutdown closes the listener and must not remove an
+unrelated or replaced entry. After an unclean stop, a separate explicit recovery
+step may remove only the verified stale socket after confirming the owning
+service is stopped; no blind unlink, recursive deletion or active-listener
+replacement is permitted. Local authoring/test loopback TCP behavior remains
+available outside the packaged Phase 6 contract; the legacy container TCP mode
+must not satisfy that contract.
+
+**Browser and authentication.** Require an explicit `ADMIN_BROWSER_PORT` and
+matching loopback HTTP `ADMIN_ORIGIN`. The SSH client binds only `127.0.0.1`
+(or an explicitly validated IPv6 loopback equivalent), never a wildcard or LAN
+address. OpenSSH documents local TCP-to-remote-socket forwarding in
+[`ssh(1)`](https://man.openbsd.org/ssh#L); exact client/server support and
+forwarding permissions must still be tested at the later approved server gate.
+Do not change SSH server policy or disable host-key checking here. Filesystem
+access and SSH are transport controls, not reviewer authorization: password,
+MFA, live session, role checks, signed actions, browser-origin/CSRF checks and
+the existing no-forwarded-header-trust policy all remain unchanged. Admin
+health probes use the socket without exposing a separate health port. Missing
+SSH support is a fail-closed deployment blocker, not permission to restore TCP.
+
+**Required evidence before Task 8 closes.** Test configuration refusal before
+implementing the listener. In isolated Linux as the non-root runtime user,
+prove socket HTTP startup, owner/mode enforcement, wrong-UID denial, collision,
+symlink/non-socket/stale-entry refusal, graceful shutdown and crash recovery
+without unrelated-file removal. Prove login/session/origin/CSRF behavior through
+a local synthetic loopback-to-socket forward, without claiming a live SSH test.
+Validate rendered Compose data rejects every admin TCP publication/listener,
+extra mount and management attachment. Keep the realistic ingress probe's
+ordinary egress and all existing positive/negative network checks; prove no
+admin TCP listener is reachable on any admin interface, and no other role
+receives the socket directory. Run socket-specific Linux permission tests on
+a native Linux filesystem, not a Windows bind mount that cannot establish
+those permissions. Actual Ubuntu bind ownership, SSH forwarding and public
+route re-verification remain later server evidence. Update the relevant
+acceptance/threat evidence without relabelling the failed TCP run as a pass.
+
+**Review and continuation.** This amendment changes transport only, not the
+dashboard product scope, retention, consent, knowledge publication, model or
+outbound authority. Following written-spec approval, revise Task 8 and affected
+deployment/health/runbook steps in the existing 16-task plan and obtain that
+plan amendment's approval. Then implement test-first, rerun the realistic
+isolation gate, and continue Task 9 only after Task 8 actually passes. No server
+change, live provider call or production action is authorized by this amendment.
 
 ## Image And Container Contract
 
@@ -194,7 +283,8 @@ Every long-running container has:
 
 - a read-only root filesystem;
 - only named volumes, tmpfs paths, and narrowly scoped read-only secrets that
-  its role requires;
+  its role requires, plus the admin-only writable socket directory described
+  in the pending management amendment;
 - all Linux capabilities dropped;
 - `no-new-privileges` enabled;
 - an explicit PID limit;
@@ -526,7 +616,8 @@ external infrastructure mutation is required for P6 local completion.
 - non-root user, read-only root, capabilities, privilege, PID, CPU, memory,
   tmpfs, volumes, health checks, restart policy, and revision labels;
 - no Docker socket, device, host PID, host network, or broad bind mount;
-- no public host port, with admin limited to loopback;
+- no runtime Docker host port or admin TCP listener under the pending management
+  amendment; only the operator's explicit SSH client forward binds to loopback;
 - exact positive network reachability for each role; and
 - negative probes proving every unapproved cross-network path fails.
 

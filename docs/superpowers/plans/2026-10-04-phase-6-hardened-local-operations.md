@@ -36,8 +36,15 @@ is not gate evidence. Four real render validations pass; complete code gate
 828 passed across 57 files with two existing Linux-only skips. Temporary Docker
 resources are cleaned up. Do not deploy these draft Compose files or proceed to
 Task 9 until the private-admin transport section is amended and approved.
-Proposed options are private Unix-socket HTTP over SSH (recommended) or explicit
-privileged host firewall enforcement; neither is implemented or approved yet.
+The owner subsequently approved the private Unix-socket HTTP/SSH direction on
+2026-10-18; privileged host firewall enforcement was not selected. The written
+specification amendment under Management access now awaits owner review.
+No socket transport is implemented. Task 8's TCP instructions below and the
+host-loopback global constraint are retained as historical plan text, not
+permission to implement or deploy that failed design. After written-spec
+approval, revise the affected Task 8/deployment/health/runbook steps and obtain
+approval of that plan amendment before resuming implementation. Tasks 1–7 do
+not need to restart; Task 8's base remains `6df0111754232e4cf6c7524ca3a0600a4b2011d5`.
 See `docs/operations/runtime-compose-contract.md` for the exact evidence.
 
 Task 1 validation: 99/99 focused tests pass in the isolated Linux runner as
