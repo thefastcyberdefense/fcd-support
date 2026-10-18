@@ -132,5 +132,13 @@ installed schema, and migration tests assert the full current version. Productio
 deployment still must not run automatic down migrations.
 
 All validation uses authored synthetic data and scoped local Docker resources.
+The clean-source gate at `1962a1cf0f7056d68f64df0737501c82f1653aea` passes
+50 native units, 11 real crypto/CLI tests and 62 policy/fence regressions. The
+complete code gate passes 909 tests with 22 platform-specific skips across 61
+files; ordinary PostgreSQL passes 494 tests with 11 native-only skips across 44
+files. Every native-only integration case passes in the separate native gate.
+Post-suite hygiene is zero test schemas/advisory locks and zero labelled generated
+backup containers, volumes and candidate images.
+
 No server, customer, live model/provider, Cloudflare, n8n or production action is
 implied by these results.

@@ -24,8 +24,8 @@ the baseline.
 Date: 2026-10-04
 
 Status: approved by the project owner for sequential implementation on
-2026-10-18 (Asia/Dhaka). Tasks 1–9 are locally complete under the approved
-socket amendment below; Tasks 10–16 remain pending.
+2026-10-18 (Asia/Dhaka). Tasks 1–10 are locally complete under the approved
+socket amendment below; Tasks 11–16 remain pending.
 Tracker gates close only when their complete implementation evidence exists.
 
 Superseded 2026-10-18 Task 8 TCP checkpoint: its topology gate FAILED.
@@ -1071,7 +1071,7 @@ expected current completeness watermark. Exclude restored pending work from new
 reconciliation by the migration 000015 quarantine table; Task 3 adds only a
 conditional compatibility check until that table exists.
 
-- [ ] **Step 1: Add RED post-archive deletion and resend assertions.**
+- [x] **Step 1: Add RED post-archive deletion and resend assertions.**
 
 ```ts
 test('imports a deletion newer than the selected archive', async () => {
@@ -1099,20 +1099,20 @@ key-version mismatch, source changes after checkpoint, replay, notification
 ambiguity, pending model work, and newly admitted events blocked until recovery
 review completes.
 
-- [ ] **Step 2:** Run checkpoint unit and restore-fence integration; expect RED.
-- [ ] **Step 3:** Export exact unexpired tombstones from current authoritative
+- [x] **Step 2:** Run checkpoint unit and restore-fence integration; expect RED.
+- [x] **Step 3:** Export exact unexpired tombstones from current authoritative
       PostgreSQL under a consistent snapshot and source-write freeze during promotion.
       Never trust the archive's tombstones as the complete deletion set. Encrypt
       minimal tombstone records plus signed manifest; use durable snapshot sequence
       and required key set as completeness material. Routine maintenance exports
       new checkpoints; failures create a dashboard incident. Signed/encrypted
       checkpoint archives are ignored runtime data, not fixtures or evidence.
-- [ ] **Step 4:** Import checkpoint transactionally into isolated target,
+- [x] **Step 4:** Import checkpoint transactionally into isolated target,
       validate every field/version/count and bind restore evidence to its manifest.
       If source is down and latest complete independently preserved checkpoint
       cannot be proven, refuse promotion. A recently dated file alone is not proof.
       Do not drop tombstones merely because a previously used key rotated.
-- [ ] **Step 5:** Add runtime_restore_quarantine with internal source IDs,
+- [x] **Step 5:** Add runtime_restore_quarantine with internal source IDs,
       restoreRef and reason only. Atomically fence inherited admitted events,
       processing/model work, drafts, outbound work and notification deliveries.
       P5 inherited pending/leased/authorized work becomes terminal canceled
@@ -1122,7 +1122,7 @@ review completes.
       New events stay behind a recovery hold until approved current consent,
       suppression, pause, privacy-workflow and channel-policy reconciliation is
       recorded. This hold is distinct from tombstone deletion proof.
-- [ ] **Step 6:** Run source/target race and expiry tests, existing privacy/
+- [x] **Step 6:** Run source/target race and expiry tests, existing privacy/
       outbound regressions; expect PASS; commit
       `feat: preserve deletion authority and fence restored external work`; push.
 
