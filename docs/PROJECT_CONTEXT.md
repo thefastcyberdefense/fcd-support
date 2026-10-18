@@ -131,6 +131,9 @@ All secret values are intentionally absent from this repository. Create them dur
 - Task 3 adds migration 000014 and durable PostgreSQL processing stages, lease-owned transitions, restart reconciliation, minimized notification delivery work/attempts, configurable retry bounds and source/delivery quarantine compatibility. All four notification types retain their existing privacy, consent and escalation authority. Retention proof is required, and each work item keeps its original deadline even if source retention later extends.
 - Task 3 validation: the complete PostgreSQL suite passes 459/459 across 38 files; the local gate passes 731 tests across 49 files (two Linux-only skips). Added regression tests were observed failing before correction; populated downgrade refuses and empty rollback/reapply passes. No live n8n/provider traffic, server access or deployment occurred.
 
+- Task 4 adds single-batch polling, claim-stop and bounded drain/abort (even for non-cooperative callbacks), fresh schema/revision/policy/dependency readiness with a required timeout and clock, disabled outbound/notification handling, model-disabled FAQ readiness, and atomic content-free heartbeat files for the runtime tmpfs. A stopped lifecycle cannot restart in-process; a fresh process and durable leases handle recovery.
+- Task 4 validation: 32/32 focused lifecycle/readiness tests pass on Windows and as node in isolated Linux; the complete local gate passes 763 tests across 51 files with the same two Linux-only skips. Formatting, lint, strict typing, build and authority validation pass. The last complete PostgreSQL checkpoint remains Task 3's 459/459; Task 4 changes no database schema. No live server, provider or deployment action occurred.
+
 ## Launch Blockers
 
 - The admission-only test deployment is approved and running under a narrow exception. Outbound messaging, models, n8n actions, live customer data, and production deployment remain unauthorized.
@@ -145,7 +148,7 @@ All secret values are intentionally absent from this repository. Create them dur
 - Actual encrypted backup/restore procedures and deployed human-takeover behavior must still pass their acceptance tests; the local restore-gate primitive alone does not satisfy P6-004.
 
 The current tracker action is P6-002, following the approved implementation
-plan in sequence from Task 4. All live
+plan in sequence from Task 5. All live
 Meta, Manifest, network, deployment, test-asset, and production
 actions remain separately gated. P1-GATE remains a separate explicit review
 record.

@@ -24,7 +24,7 @@ the baseline.
 Date: 2026-10-04
 
 Status: approved by the project owner for sequential implementation on
-2026-10-18 (Asia/Dhaka). Tasks 1–3 are locally complete; Tasks 4–16 remain pending.
+2026-10-18 (Asia/Dhaka). Tasks 1–4 are locally complete; Tasks 5–16 remain pending.
 Tracker gates close only when their complete implementation evidence exists.
 
 Task 1 validation: 99/99 focused tests pass in the isolated Linux runner as
@@ -45,6 +45,12 @@ Linux-only skips. Regression RED runs covered premature completion, restore
 quarantine, source expiry and immutable notification retention deadlines.
 All four notification types retain existing business authority. No live n8n,
 provider, server or deployment action occurred.
+
+Task 4 validation: 32/32 lifecycle/readiness tests pass on Windows and as node
+in the isolated Linux runner. The complete local gate passes 763 tests across
+51 files (the same two Linux-only skips). Readiness has an explicit timeout
+and trusted clock; closed state/time heartbeats use atomic bounded files in
+the runtime tmpfs. No live infrastructure action occurred.
 
 ## Global Constraints
 
@@ -453,19 +459,20 @@ export function checkRuntimeReadiness(
     readonly revision: string;
     readonly expectedSchemaRevision: string;
     readonly externalExecutionEnabled: boolean;
+    readonly timeoutMilliseconds: number;
   },
   dependencies: RuntimeReadinessPorts,
 ): Promise<HealthObservation>;
 ```
 
 Define RuntimeReadinessPorts in runtime-readiness with
-`readSchemaRevision(): Promise<string>`,
+`now(): Date`, `readSchemaRevision(): Promise<string>`,
 `readDeployedRevision(): Promise<string>`,
 `hasRequiredPolicy(role: RuntimeRole, evaluatedAt: Date): Promise<boolean>` and
 `checkPrivateDependency(role: RuntimeRole): Promise<HealthState>`.
 No probe sends a model/provider request.
 
-- [ ] **Step 1: Add RED assertions** with fake timers and injected stubs.
+- [x] **Step 1: Add RED assertions** with fake timers and injected stubs.
 
 ```ts
 test('stop prevents new batches and aborts after supplied grace', async () => {
@@ -493,15 +500,15 @@ test('stop prevents new batches and aborts after supplied grace', async () => {
 Cover repeated start/stop, failed readiness, pool outage, no overlapping batch,
 never-settling callback deadline, stale heartbeat and schema mismatch.
 
-- [ ] **Step 2:** Run focused unit files; expect RED.
-- [ ] **Step 3:** Implement bounded lifecycle, single batch at a time, immediate
+- [x] **Step 2:** Run focused unit files; expect RED.
+- [x] **Step 3:** Implement bounded lifecycle, single batch at a time, immediate
       claim stop, bounded drain then abort. Heartbeat is aggregate metadata in tmpfs;
       Docker health reads only fixed state/time. Model-disabled reply runtime may
       continue FAQ and safe escalation; outbound/n8n execution remains idle when
       disabled. Missing core schema or DB closes readiness. Required active policy
       is checked at use time as well as startup.
-- [ ] **Step 4:** Run unit tests, lint/typecheck; expect PASS.
-- [ ] **Step 5:** Commit `feat: add bounded worker lifecycle and readiness`; push.
+- [x] **Step 4:** Run unit tests, lint/typecheck; expect PASS.
+- [x] **Step 5:** Commit `feat: add bounded worker lifecycle and readiness`; push.
 
 ### Task 5: Reply pipeline daemon and restart repair
 
