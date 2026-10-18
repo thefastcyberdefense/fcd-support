@@ -126,5 +126,11 @@ concurrent slot suppression. Unit cases also cover independent quotas,
 tampering, interrupted rename, reference collision, symlinks, readonly paths,
 timeout, pipeline failures and ENOSPC cleanup.
 
+Clean-source gate at `a627a844545a467d0ce4013c9f9fa08f102e5e89` passes:
+40/40 native backup/retention tests plus 1/1 real PostgreSQL/compiled CLI test.
+The full code gate passes 898 tests with 22 platform-specific skips across 60
+files. Ordinary PostgreSQL regression passes 484 tests with one explicit
+native-toolchain skip across 42 files; that case passes separately above.
+
 All fixtures are authored synthetic data. A passing local gate is not a real
 server, provider, production, full-restore or disaster-recovery claim.

@@ -1,6 +1,6 @@
 # Project Context
 
-Last reviewed: 2026-10-18 (Asia/Dhaka)
+Last reviewed: 2026-10-19 (Asia/Dhaka)
 
 ## Confirmed Decisions
 
@@ -122,7 +122,7 @@ All secret values are intentionally absent from this repository. Create them dur
 
 ## Phase 6 Implementation Progress
 
-- The project owner approved the 16-task plan for sequential local implementation on 2026-10-18 (Asia/Dhaka). P6-001 is complete; P6-002 is in progress.
+- The project owner approved the 16-task plan for sequential local implementation on 2026-10-18 (Asia/Dhaka). P6-001/P6-002/P6-003 are locally complete; P6-004 is in progress.
 - Task 1 adds per-role mounted-secret loading, bounded regular-file reads, Linux ownership/permissions and symlink checks, redacted secret-bearing environments/keyrings, strict rotated privacy key decoding, and explicit configurable operation/resource bounds. External execution flags remain false in examples. The normal backup role cannot receive a decryption identity.
 - Validation: the required first RED run failed on the three absent modules. The focused Linux suite passes 99/99 as the unprivileged Node user, including permission/symlink tests. The full Windows `npm run check` passes formatting, lint, strict type checking, 731 tests across 49 files (two Linux-only skips), build and authority validation. No live provider call, server access, deployment, or production action occurred.
 - Task 2 adds migration 000013 and bounded operations persistence: closed health/incident history, same-transaction real-session administrator acknowledgement, exact replay/concurrency handling, backup catalogue state and immutable material, deployment evidence, append-only audits, and populated downgrade refusal. Historical downgrade tests now target migration versions explicitly so newer migrations do not change the guard they exercise.
@@ -147,6 +147,7 @@ All secret values are intentionally absent from this repository. Create them dur
 
 ## Launch Blockers
 
+- Task 9 is locally complete at `a627a844545a467d0ce4013c9f9fa08f102e5e89`, with a passing clean-source task-done gate. Public-recipient custom-format backups stream through pinned age without persistent plaintext or an identity read. Signed atomic publication, ciphertext integrity, separate decrypt/list verification, bootstrap before operations tables, PostgreSQL catalog registration, concurrent/replayed scheduled slots and conservative independent UTC retention pass. A self-review collision-cleanup defect was reproduced RED and fixed so only exclusively created directories are removed. Complete code gate: 898 passed/22 platform-specific skips across 60 files; native/Linux backup gate: 40/40 plus 1/1 real synthetic PostgreSQL/compiled CLI test on a dedicated archive volume; ordinary PostgreSQL regression: 484 passed/1 separately covered native-toolchain skip across 42 files. No full isolated restore or restore_verified promotion is claimed. Host flock/timers remain Tasks 11/12; Task 10 current deletion checkpoints and inherited-work quarantine is next. See `docs/operations/encrypted-backups.md`.
 - Task 8 is locally complete at clean committed source `c9a904bab4d11e926dd4285c7ccad6f2220375c9`: strict Unix admin lifecycle/configuration/health, 0600 owner-only socket, no admin TCP publication/management bridge, narrow protected bind policy and realistic network boundaries pass. Complete code gate: 861 passed/19 Linux-only skips across 58 files; separate node/Linux gate: 47/47 including every skipped case; PostgreSQL: 484/484 across 41 files. Four renders, nine allowed/20 denied probes, kernel UID separation and negative controls pass; task-done records completion from original base 6df0111. Zero test schemas/advisory locks or generated topology resources remain. The earlier measured TCP failure and its masking-fixture correction remain documented. P6-002/P6-003 close locally; Task 9 is next. No actual Ubuntu bind/SSH, provider, deployment or production evidence is claimed.
 - Task 7 evidence correction: its full code gate ran before final documentation formatting. Prettier's padded tracker cells then exposed a single-space assumption in the Phase 0 validator. Task 8 adds whitespace-insensitive fixed-status-column parsing, with 8/9 RED then 9/9 GREEN including all existing authority/evidence negative controls. The fresh Task 8 complete code gate is the current passing evidence; no planning or production authority requirement changed.
 
@@ -162,7 +163,7 @@ All secret values are intentionally absent from this repository. Create them dur
 - Actual encrypted backup/restore procedures and deployed human-takeover behavior must still pass their acceptance tests; the local restore-gate primitive alone does not satisfy P6-004.
 
 The current tracker action is P6-004, following the approved implementation
-plan in sequence from Task 9 after Task 8's clean-revision gate passed.
+plan in sequence from Task 10 after Task 9's clean-revision gate passed.
 The owner-approved socket/SSH specification and plan are implemented locally;
 actual Ubuntu/SSH and all live
 Meta, Manifest, network, deployment, test-asset, and production

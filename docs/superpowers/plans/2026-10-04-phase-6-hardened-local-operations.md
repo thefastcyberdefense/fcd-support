@@ -24,8 +24,8 @@ the baseline.
 Date: 2026-10-04
 
 Status: approved by the project owner for sequential implementation on
-2026-10-18 (Asia/Dhaka). Tasks 1–8 are locally complete under the approved
-socket amendment below; Tasks 9–16 remain pending.
+2026-10-18 (Asia/Dhaka). Tasks 1–9 are locally complete under the approved
+socket amendment below; Tasks 10–16 remain pending.
 Tracker gates close only when their complete implementation evidence exists.
 
 Superseded 2026-10-18 Task 8 TCP checkpoint: its topology gate FAILED.
@@ -981,7 +981,7 @@ port. VerifyBackupOptions adds identityFile and expectedManifest.
 BackupManifest: opaque backupRef, createdAt, class, git/schema revision,
 ciphertextBytes, ciphertextSha256, verification state and manifest signature.
 
-- [ ] **Step 1: Add RED integrity and retention tests.**
+- [x] **Step 1: Add RED integrity and retention tests.**
 
 ```ts
 test('cannot prune below approved independent archive classes', () => {
@@ -1004,16 +1004,16 @@ month boundaries (calendar month UTC), missing/failed latest archive, partial
 pipeline failure, ENOSPC, readonly path, path traversal/symlink, corruption,
 wrong key, changed signed manifest and interrupted rename.
 
-- [ ] **Step 2:** Run unit files and encrypted-backup integration in isolated
+- [x] **Step 2:** Run unit files and encrypted-backup integration in isolated
       Docker; expect RED.
-- [ ] **Step 3:** Implement spawn with argument arrays and pipelines:
+- [x] **Step 3:** Implement spawn with argument arrays and pipelines:
       pg_dump --format=custom --no-owner --no-acl → age --encrypt --recipients-file.
       Use PGPASSFILE mounted or generated only in protected tmpfs; secret URLs never
       appear in child args. Pipeline status checks every child, bounded stderr is
       discarded, ciphertext staged with exclusive creation and fsync/atomic rename.
       Manifest signature uses mounted RECOVERY_MANIFEST_HMAC_FILE; no plaintext,
       SQL listing or content hash is emitted to evidence.
-- [ ] **Step 4:** Verification is a separate identity-mounted one-shot profile:
+- [x] **Step 4:** Verification is a separate identity-mounted one-shot profile:
       age --decrypt --identity → pg_restore --list with its listing sent to a sink.
       Successful decrypt/list is structural verification, not a full restore claim.
       Only isolated full restore adds restore_verified. Routine backup stores
@@ -1021,15 +1021,23 @@ wrong key, changed signed manifest and interrupted rename.
       Support bootstrap before operations tables exist: signed archive manifest is
       created first; register it in PostgreSQL after migration. Missing P6 tables
       never excuse a missing pre-migration archive.
-- [ ] **Step 5:** Prune only a closed validated archive reference list inside
+- [x] **Step 5:** Prune only a closed validated archive reference list inside
       the resolved dedicated archive directory. Preserve separate daily/monthly
       minimums and the last full-restore-verified archive; pre_migration archives
       cannot silently count toward both quotas. Back up on schedule only; no
-      per-startup archive. Suppress duplicate scheduled slot by PostgreSQL and
-      host flock. Add ignored encrypted archive, age identity and checkpoint patterns.
-- [ ] **Step 6:** Run focused tests/typecheck plus actual encrypt/decrypt/list
+      per-startup archive. Suppress duplicate scheduled slots by PostgreSQL here;
+      host flock wiring is sequenced with host procedures/timers in Tasks 11/12,
+      not installed by Task 9. Add ignored archive, identity and checkpoint patterns.
+- [x] **Step 6:** Run focused tests/typecheck plus actual encrypt/decrypt/list
       of synthetic DB; expect PASS; commit `feat: encrypt verify and retain database backups`;
       push.
+
+Task 9 completion evidence (2026-10-19 Asia/Dhaka): source commit
+`a627a844545a467d0ce4013c9f9fa08f102e5e89`, clean-source task-done PASS;
+898 unit tests passed/22 platform skips, native 40/40 backup tests plus 1/1
+real synthetic PostgreSQL/compiled CLI test, ordinary PostgreSQL 484 passed/
+1 separately covered native-toolchain skip across 42 files. No full restore,
+host timer, server or provider action. See `docs/operations/encrypted-backups.md`.
 
 ### Task 10: Current deletion checkpoints and inherited-work fence
 
