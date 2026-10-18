@@ -24,12 +24,12 @@ the baseline.
 Date: 2026-10-04
 
 Status: approved by the project owner for sequential implementation on
-2026-10-18 (Asia/Dhaka). Tasks 1–7 are locally complete; Task 8 is in progress
-under the approved socket amendment below; Tasks 9–16 remain pending.
+2026-10-18 (Asia/Dhaka). Tasks 1–8 are locally complete under the approved
+socket amendment below; Tasks 9–16 remain pending.
 Tracker gates close only when their complete implementation evidence exists.
 
-2026-10-18 Task 8 checkpoint: implementation is in progress but its topology
-gate FAILS. A tunnel-like container with ordinary egress reaches admin TCP 3004
+Superseded 2026-10-18 Task 8 TCP checkpoint: its topology gate FAILED.
+A tunnel-like container with ordinary egress reached admin TCP 3004
 despite 127.0.0.1 host publication, explicit NAT and disabled management ICC.
 Earlier internal-only fake egress did not reproduce the real connectivity and
 is not gate evidence. Four real render validations pass; complete code gate
@@ -41,8 +41,11 @@ then reviewed and approved its written specification amendment on 2026-10-18.
 Privileged host firewall enforcement was not selected. This plan revision
 replaces Task 8's failed TCP target and updates Tasks 11, 13, 15 and 16; it
 was explicitly approved by the owner for test-first implementation. Socket
-transport is implemented locally; realistic topology passes, and Task 8's final
-regression/evidence/commit gate is in progress, not complete.
+transport is implemented locally. Task 8's regression and clean-revision
+topology gate pass at `c9a904bab4d11e926dd4285c7ccad6f2220375c9`:
+861 Windows tests passed/19 Linux-only skips, 47/47 non-root Linux tests,
+484/484 PostgreSQL tests across 41 files, four Compose renders, nine allowed
+and 20 denied probes, UID separation and scoped cleanup. No server action.
 Tasks 1–7 remain complete, including Task 6's historical TCP evidence; do not
 redo them. Task 8's base remains `6df0111754232e4cf6c7524ca3a0600a4b2011d5`.
 See `docs/operations/runtime-compose-contract.md` for the exact evidence.
@@ -816,7 +819,7 @@ contract intact except where a demonstrated regression requires a scoped fix.
   Other CLI modes/validator signatures and failure codes remain unchanged.
   Do not trust a bind source merely because it is the only source in the JSON.
 
-- [ ] **Step 1: Add and observe RED configuration tests.** Define
+- [x] **Step 1: Add and observe RED configuration tests.** Define
       `unixEnvironment` from the existing synthetic-key helper with
       `ADMIN_LISTEN_MODE=unix`, the exact socket path, `ADMIN_BROWSER_PORT=4004`
       and `ADMIN_ORIGIN=http://127.0.0.1:4004`, but no ADMIN_HOST/ADMIN_PORT.
@@ -839,10 +842,10 @@ is invalid. Existing local/legacy TCP tests retain their meaning.
 Run `npx vitest run tests/admin-config.test.ts`; expected: FAIL on missing
 Unix support, without echoing input values.
 
-- [ ] **Step 2: Implement only the configuration union and rerun that command.**
+- [x] **Step 2: Implement only the configuration union and rerun that command.**
       Expected: PASS. Unix selection requires explicit settings; pre-existing
       TCP defaults must never select a second listener.
-- [ ] **Step 3: Add listener/lifecycle and forward-auth RED tests.**
+- [x] **Step 3: Add listener/lifecycle and forward-auth RED tests.**
       In `admin-socket.test.ts`, use native Linux `/tmp` directories explicitly
       created mode 0700, with `admin.sock` below them. Define the child helper
       to import compiled `dist` modules and accept only authored synthetic test
@@ -868,7 +871,7 @@ Unix support, without echoing input values.
       for the guarded DB case.
       Expected: FAIL on absent socket module/runtime selection, not on a missing
       mount or test-runner setup error.
-- [ ] **Step 4: Implement listener, safe stop and health probe; rerun Step 3.**
+- [x] **Step 4: Implement listener, safe stop and health probe; rerun Step 3.**
       Validate real non-symlink owner-only parent and absent socket entry before
       binding. On Linux use umask `0177` for socket creation, not the existing
       entrypoint's `0077` (which would permit socket execute bits); restore the
@@ -890,7 +893,7 @@ Unix support, without echoing input values.
       configured timeout, no redirects, credentials or response-body logging;
       always destroy request/response resources. Expected: all new Linux/auth
       cases PASS and normal shutdown/startup failures close the pool once.
-- [ ] **Step 5: Add and observe RED rendered-Compose assertions, then amend Compose.**
+- [x] **Step 5: Add and observe RED rendered-Compose assertions, then amend Compose.**
       Assert no service publishes a host port; admin has only `admin_data`,
       exact Unix environment, and one writable long-syntax bind at
       `/run/fcd-support-admin` from the independently validated absolute
@@ -910,7 +913,7 @@ Unix support, without echoing input values.
       Preserve `fcd-support-api` ingress alias and exact role/profile contracts.
       Operations jobs remain explicit migrate/backup/verify-backup/checkpoint/
       health/maintenance profiles; restore stays a separate fresh-volume project.
-- [ ] **Step 6: Amend and run the scoped Linux/container proof.**
+- [x] **Step 6: Amend and run the scoped Linux/container proof.**
       `scripts/test-phase6-admin-socket.sh PROJECT REVISION` accepts only the
       generated `fcd-support-phase6-test-*` scope and its full candidate revision.
       Main harness calls it after building and before topology startup, so its
@@ -940,7 +943,7 @@ Unix support, without echoing input values.
       Keep occupied-loopback tests only for the synthetic client-side forward;
       never treat them as admin Docker-publication evidence. Expected: PASS
       without dropping a probe or masking ordinary egress.
-- [ ] **Step 7: Run the complete remaining Task 8 gate.**
+- [x] **Step 7: Run the complete remaining Task 8 gate.**
       Run `npm run check`, `bash -n` on all changed shell scripts, focused
       non-root Linux socket tests, guarded admin socket integration plus existing
       admin identity/dashboard suites, and `bash scripts/test-phase6-local.sh`.
@@ -952,7 +955,7 @@ Unix support, without echoing input values.
       cleanup. No prune, real SSH, provider request or server mutation.
       Update runtime/acceptance/threat evidence, leaving Ubuntu permissions,
       SSH forwarding and live route checks pending. Preserve failed TCP evidence.
-- [ ] **Step 8: Commit/push and close only a passing task.**
+- [x] **Step 8: Commit/push and close only a passing task.**
       Commit `build: isolate runtime and recovery compose networks` after fresh
       verification and staged privacy/scope checks. Verify redwan-cse before
       push. Run task-done for Task 8 with its unchanged original BASE and

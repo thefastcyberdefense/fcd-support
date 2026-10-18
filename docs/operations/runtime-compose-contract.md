@@ -1,22 +1,26 @@
 # Phase 6 Local Runtime And Network Contract
 
-## Current status: amended local topology PASS; Task 8 closure pending
+## Current status: Task 8 local gate PASS
 
 The owner approved the written private Unix-socket/SSH specification and its
 revised implementation plan on 2026-10-18. Local implementation removes the
 admin TCP listener, management bridge and Docker port publication. This is not
-a deployment approval or a Phase 6 gate pass; Tasks 9–16 remain sequenced after
-Task 8's complete verification and committed checkpoint.
+a deployment approval or a Phase 6 gate pass; Tasks 9–16 remain required.
+The clean committed-source rerun at `c9a904bab4d11e926dd4285c7ccad6f2220375c9`
+passes and closes Task 8 under its original implementation base.
 
-The first realistic amended harness passes four production Compose render
+The final realistic amended harness passes four production Compose render
 validations, nine allowed and 20 denied TCP probes, no admin TCP listener,
 socket-only health, UID separation, execution-profile isolation, missing external
 network, extra participant, missing secret and occupied client-loopback checks.
 The native Linux suite passes 17 socket and 30 secret-file tests as node; guarded PostgreSQL
 admin identity/dashboard/forwarding regression passes 17 tests across three
-files. Complete PostgreSQL regression passes 484/484 across 41 files. Full-code
-and final clean-revision task verification are recorded in the tracker when
-completed, not inferred from these focused results.
+files. Complete PostgreSQL regression passes 484/484 across 41 files. The full
+Windows code gate passes 861 tests with 19 Linux-only skips across 58 files;
+all skipped platform-specific cases pass in the separate 47-test Linux gate.
+Formatting, lint, strict typing, build, gate authority, shell syntax and explicit
+documentation formatting pass. Post-suite hygiene is zero test schemas and
+advisory locks; generated topology containers/networks/volumes are removed.
 
 ### Retained failed checkpoint
 

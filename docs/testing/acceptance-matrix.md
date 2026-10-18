@@ -85,8 +85,8 @@ These rows map every validation gate named in `AGENTS.md:29`.
 7. PROD-001/002 require a separate exact promotion/rollback plan and immediate
    approval.
 
-The current local action is Phase 6 Task 8 under the owner-approved revised
-socket/SSH implementation plan. Task 9 follows only after its complete gate.
+The current local action is Phase 6 Task 9 after Task 8's clean-revision
+socket/SSH gate passed under the owner-approved implementation plan.
 Rows marked `PARTIAL`, `PLANNED`, or `BLOCKED` remain launch blockers.
 
 ### Phase 6 private-admin topology evidence (2026-10-18)

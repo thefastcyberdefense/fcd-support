@@ -147,7 +147,7 @@ All secret values are intentionally absent from this repository. Create them dur
 
 ## Launch Blockers
 
-- Task 8 amended implementation (2026-10-18): owner approved the written socket/SSH specification and revised plan. Strict Unix listener configuration, real-parent ownership/mode checks, 0600 socket creation, safe stop/replaced-entry handling, socket-only health and no TCP fallback are implemented locally. Production Compose removes management/host publication and grants only admin the dedicated protected socket bind. Four real render validations and the realistic network harness pass nine allowed/20 denied probes plus UID/negative controls. Real guarded forwarding authentication and lifecycle tests pass; final regression/evidence/commit closure remains in progress. The previous ordinary-egress TCP failure remains historical evidence, not an authenticated bypass or server result. Task 9 waits for Task 8 completion; all server, live provider and production actions remain separately gated.
+- Task 8 is locally complete at clean committed source `c9a904bab4d11e926dd4285c7ccad6f2220375c9`: strict Unix admin lifecycle/configuration/health, 0600 owner-only socket, no admin TCP publication/management bridge, narrow protected bind policy and realistic network boundaries pass. Complete code gate: 861 passed/19 Linux-only skips across 58 files; separate node/Linux gate: 47/47 including every skipped case; PostgreSQL: 484/484 across 41 files. Four renders, nine allowed/20 denied probes, kernel UID separation and negative controls pass; task-done records completion from original base 6df0111. Zero test schemas/advisory locks or generated topology resources remain. The earlier measured TCP failure and its masking-fixture correction remain documented. P6-002/P6-003 close locally; Task 9 is next. No actual Ubuntu bind/SSH, provider, deployment or production evidence is claimed.
 - Task 7 evidence correction: its full code gate ran before final documentation formatting. Prettier's padded tracker cells then exposed a single-space assumption in the Phase 0 validator. Task 8 adds whitespace-insensitive fixed-status-column parsing, with 8/9 RED then 9/9 GREEN including all existing authority/evidence negative controls. The fresh Task 8 complete code gate is the current passing evidence; no planning or production authority requirement changed.
 
 - The admission-only test deployment is approved and running under a narrow exception. Outbound messaging, models, n8n actions, live customer data, and production deployment remain unauthorized.
@@ -161,10 +161,10 @@ All secret values are intentionally absent from this repository. Create them dur
 - Website privacy and support wording must disclose AI assistance, external inference, retention, deletion, and marketing consent before production launch.
 - Actual encrypted backup/restore procedures and deployed human-takeover behavior must still pass their acceptance tests; the local restore-gate primitive alone does not satisfy P6-004.
 
-The current tracker action is P6-002, following the approved implementation
-plan in sequence from Task 8. The owner approved the written private-admin
-socket/SSH specification and revised implementation plan; local test-first
-implementation resumed. Task 9 follows only after Task 8's full closure. All live
+The current tracker action is P6-004, following the approved implementation
+plan in sequence from Task 9 after Task 8's clean-revision gate passed.
+The owner-approved socket/SSH specification and plan are implemented locally;
+actual Ubuntu/SSH and all live
 Meta, Manifest, network, deployment, test-asset, and production
 actions remain separately gated. P1-GATE remains a separate explicit review
 record.
