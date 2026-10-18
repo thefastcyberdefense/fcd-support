@@ -26,6 +26,13 @@ afterAll(async () => {
   await disposeDatabase?.();
 });
 
+async function migrateDownThrough(targetVersion: number): Promise<void> {
+  const installed = await pool.query<{ readonly name: string }>('select name from pgmigrations');
+  const versions = installed.rows.map((row) => Number.parseInt(row.name.split('_')[0] ?? '', 10));
+  if (!versions.includes(targetVersion)) throw new Error('Target test migration is not installed');
+  await runMigrations('down', versions.filter((version) => version >= targetVersion).length);
+}
+
 async function createSyntheticConversation(fixtureKey: string): Promise<string> {
   const contact = await pool.query<{ readonly id: string }>(
     `insert into contacts default values returning id`,
@@ -154,7 +161,7 @@ describe('Phase 2 database migrations', () => {
       { table_name: 'knowledge_tags' },
       { table_name: 'knowledge_versions' },
     ]);
-    expect(migrations.rows[0]?.count).toBe(12);
+    expect(migrations.rows[0]?.count).toBe(13);
     expect(trigramExtension.rows).toEqual([{ installed: true }]);
     expect(aliasIndexes.rows.map(({ indexname }) => indexname)).toEqual(
       expect.arrayContaining([
@@ -214,7 +221,7 @@ describe('Phase 2 database migrations', () => {
       'support_reply_draft_knowledge',
       'support_reply_drafts',
     ]);
-    expect(migrations.rows[0]?.count).toBe(12);
+    expect(migrations.rows[0]?.count).toBe(13);
   });
 
   test('create customizable model policy, usage, and lease schema as migration eleven', async () => {
@@ -275,7 +282,7 @@ describe('Phase 2 database migrations', () => {
     expect(policyColumns.rows).toHaveLength(13);
     expect(policyColumns.rows.every(({ column_default }) => column_default === null)).toBe(true);
     expect(prohibitedColumns.rows).toEqual([]);
-    expect(migrations.rows[0]?.count).toBe(12);
+    expect(migrations.rows[0]?.count).toBe(13);
   });
 
   test('create the closed outbound messaging schema as migration twelve', async () => {
@@ -347,7 +354,7 @@ describe('Phase 2 database migrations', () => {
     expect(policyColumns.rows).toHaveLength(12);
     expect(policyColumns.rows.every(({ column_default }) => column_default === null)).toBe(true);
     expect(prohibitedColumns.rows).toEqual([]);
-    expect(migrations.rows[0]?.count).toBe(12);
+    expect(migrations.rows[0]?.count).toBe(13);
   });
 
   test('enforce outbound source, state, correlation, and append-only evidence constraints', async () => {
@@ -703,7 +710,7 @@ describe('Phase 2 database migrations', () => {
 
     let rollbackError: unknown;
     try {
-      await runMigrations('down', 1);
+      await migrateDownThrough(12);
     } catch (error: unknown) {
       rollbackError = error;
     }
@@ -718,7 +725,7 @@ describe('Phase 2 database migrations', () => {
     ).resolves.toMatchObject({ rows: [{ count: 12 }] });
 
     await pool.query(`truncate table outbound_policy_versions restart identity cascade`);
-    await runMigrations('down', 1);
+    await migrateDownThrough(12);
     await expect(
       pool.query(`select to_regclass('outbound_policy_versions') as table_name`),
     ).resolves.toMatchObject({ rows: [{ table_name: null }] });
@@ -881,7 +888,7 @@ describe('Phase 2 database migrations', () => {
 
     let rollbackError: unknown;
     try {
-      await runMigrations('down', 2);
+      await migrateDownThrough(11);
     } catch (error: unknown) {
       rollbackError = error;
     }
@@ -896,7 +903,7 @@ describe('Phase 2 database migrations', () => {
     ).resolves.toMatchObject({ rows: [{ count: 11 }] });
 
     await pool.query(`truncate table model_policy_versions restart identity cascade`);
-    await runMigrations('down', 1);
+    await migrateDownThrough(11);
     await expect(
       pool.query(`select to_regclass('model_policy_versions') as table_name`),
     ).resolves.toMatchObject({ rows: [{ table_name: null }] });
@@ -1019,7 +1026,7 @@ describe('Phase 2 database migrations', () => {
 
     let rollbackError: unknown;
     try {
-      await runMigrations('down', 3);
+      await migrateDownThrough(10);
     } catch (error: unknown) {
       rollbackError = error;
     }
@@ -1034,7 +1041,7 @@ describe('Phase 2 database migrations', () => {
     ).resolves.toMatchObject({ rows: [{ count: 10 }] });
 
     await pool.query(`truncate table admin_accounts restart identity cascade`);
-    await runMigrations('down', 1);
+    await migrateDownThrough(10);
     await expect(
       pool.query(`select to_regclass('admin_accounts') as table_name`),
     ).resolves.toMatchObject({ rows: [{ table_name: null }] });
@@ -1166,7 +1173,7 @@ describe('Phase 2 database migrations', () => {
 
     let rollbackError: unknown;
     try {
-      await runMigrations('down', 4);
+      await migrateDownThrough(9);
     } catch (error: unknown) {
       rollbackError = error;
     }
@@ -1181,7 +1188,7 @@ describe('Phase 2 database migrations', () => {
     ).resolves.toMatchObject({ rows: [{ count: 9 }] });
 
     await pool.query(`truncate table knowledge_sources restart identity cascade`);
-    await runMigrations('down', 1);
+    await migrateDownThrough(9);
     await expect(
       pool.query(`select to_regclass('knowledge_sources') as table_name`),
     ).resolves.toMatchObject({ rows: [{ table_name: null }] });
@@ -1218,7 +1225,7 @@ describe('Phase 2 database migrations', () => {
       { table_name: 'privacy_suppressions' },
       { table_name: 'restore_deletion_gates' },
     ]);
-    expect(migrations.rows[0]?.count).toBe(12);
+    expect(migrations.rows[0]?.count).toBe(13);
   });
 
   test('create the bounded privacy rights workflow tables as migration five', async () => {
@@ -2613,7 +2620,7 @@ describe('Phase 2 database migrations', () => {
     ]);
   });
 
-  test('guards populated privacy evidence, then rolls back and reapplies all twelve migrations', async () => {
+  test('guards populated privacy evidence, then rolls back and reapplies all installed migrations', async () => {
     const receipt = await pool.query<{ readonly id: string }>(
       `insert into webhook_receipts (payload_sha256, event_count)
        values ($1, 1)
@@ -2683,7 +2690,7 @@ describe('Phase 2 database migrations', () => {
 
     let rollbackError: unknown;
     try {
-      await runMigrations('down', 5);
+      await migrateDownThrough(8);
     } catch (error: unknown) {
       rollbackError = error;
     }
@@ -2711,7 +2718,7 @@ describe('Phase 2 database migrations', () => {
        where reason_code in ('global_marketing_opt_out', 'privacy_request_open')`,
     );
 
-    await runMigrations('down', 4);
+    await migrateDownThrough(5);
 
     const retainedSuppressionEvidence = await pool.query<{
       readonly outcome: string;
@@ -2740,7 +2747,7 @@ describe('Phase 2 database migrations', () => {
     ]);
 
     await runMigrations('up');
-    await runMigrations('down', 12);
+    await migrateDownThrough(1);
 
     const afterRollback = await pool.query<{ readonly table_name: string }>(
       `select table_name

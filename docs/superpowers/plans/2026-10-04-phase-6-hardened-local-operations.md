@@ -24,7 +24,7 @@ the baseline.
 Date: 2026-10-04
 
 Status: approved by the project owner for sequential implementation on
-2026-10-18 (Asia/Dhaka). Task 1 is locally complete; Tasks 2–16 remain pending.
+2026-10-18 (Asia/Dhaka). Tasks 1–2 are locally complete; Tasks 3–16 remain pending.
 Tracker gates close only when their complete implementation evidence exists.
 
 Task 1 validation: 99/99 focused tests pass in the isolated Linux runner as
@@ -32,6 +32,12 @@ node. The complete Windows gate passes 731 tests across 49 files, with two
 Linux-specific skips separately passed in Linux, plus formatting, lint,
 strict type checking, build and authority validation. The first RED run failed
 on the three missing operations modules. No live provider/server action occurred.
+
+Task 2 validation: 50/50 focused PostgreSQL tests across two files; complete
+PostgreSQL suite 433/433 across 36 files; complete local gate 731 passed across
+49 files (the same two Linux-only skips), with zero test schemas/advisory locks
+left over. These tests created only synthetic operations/catalogue metadata.
+No backup archive, restored runtime, live integration or server action occurred.
 
 ## Global Constraints
 
@@ -288,20 +294,23 @@ A correctly owned 0600 file must work under the actual service UID.
 Modify `tests/integration/migrations.test.ts`.
 
 **Consumes:** HealthObservation, bounded transactions.
-**Produces:** `PostgresOperationsStore(pool: TransactionSource)` with
+**Produces:** `PostgresOperationsStore(pool: TransactionSource, options?: OperationsStoreOptions)` with
 `recordHealth(observation: HealthObservation): Promise<void>`,
 `listHealth(evaluatedAt: Date, staleMilliseconds: number): Promise<readonly HealthObservation[]>`,
 `acknowledgeIncident(input: {incidentRef:string; requestKey:string; acknowledgedAt:Date}, actor: AdminActor): Promise<void>`,
 `recordBackup(input: BackupCatalogInput): Promise<void>`,
 `recordDeployment(input: DeploymentEvidenceInput): Promise<void>`.
-Define BackupCatalogInput with backupRef, class (daily/monthly/pre_migration),
+OperationsStoreOptions contains an optional server-owned
+`Pick<PostgresAdminIdentity, 'authorizeSession'>` identity port and trusted
+`now: () => Date`; missing authorization denies acknowledgement. Define
+BackupCatalogInput with backupRef, class (daily/monthly/pre_migration),
 createdAt, gitRevision, schemaRevision, ciphertextBytes, ciphertextSha256,
 state (created/verified/restore_verified/pruned/failed); deployment input has
 revision, schema, time and closed status only. Define `Phase6OperationsFixture`
 helper with an isolated database, synthetic administrator/session, an operations
 store, and `dispose()`; create through existing createIsolatedTestDatabase.
 
-- [ ] **Step 1: Add RED schema and transition tests.**
+- [x] **Step 1: Add RED schema and transition tests.**
 
 ```ts
 test('opens one incident, preserves acknowledgement, resolves on recovery', async () => {
@@ -333,18 +342,18 @@ projected unknown, unauthenticated/wrong-role acknowledgement, exact/conflicting
 replay, no raw-text/URL/identity columns, append-only audit, populated downgrade
 refusal and rollback.
 
-- [ ] **Step 2:** Run `npm run test:integration -- tests/integration/postgres-operations-store.test.ts tests/integration/migrations.test.ts`
+- [x] **Step 2:** Run `npm run test:integration -- tests/integration/postgres-operations-store.test.ts tests/integration/migrations.test.ts`
       inside the guarded synthetic test database. Expect RED.
-- [ ] **Step 3:** Create closed operations_health_checks,
+- [x] **Step 3:** Create closed operations_health_checks,
       operations_incidents, operations_incident_events, operations_backups,
       operations_backup_events, operations_deployments, operations_restore_runs.
       Use unique open component incident, immutable evidence plus current projections.
       Backup catalog has no dump/key columns. Limit result pages by supplied list
       limit; timestamp ordering cannot clear a newer failure. Authorize AdminActor
       in the same transaction as acknowledgement.
-- [ ] **Step 4:** Test up/down/reapply, concurrency, trigger and atomic rollback;
+- [x] **Step 4:** Test up/down/reapply, concurrency, trigger and atomic rollback;
       run focused integration and strict typecheck. Expect PASS.
-- [ ] **Step 5:** Commit `feat: persist private operational health and recovery evidence`; push.
+- [x] **Step 5:** Commit `feat: persist private operational health and recovery evidence`; push.
 
 ### Task 3: Durable processing stages and notification leases
 

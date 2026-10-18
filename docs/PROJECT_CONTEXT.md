@@ -125,6 +125,8 @@ All secret values are intentionally absent from this repository. Create them dur
 - The project owner approved the 16-task plan for sequential local implementation on 2026-10-18 (Asia/Dhaka). P6-001 is complete; P6-002 is in progress.
 - Task 1 adds per-role mounted-secret loading, bounded regular-file reads, Linux ownership/permissions and symlink checks, redacted secret-bearing environments/keyrings, strict rotated privacy key decoding, and explicit configurable operation/resource bounds. External execution flags remain false in examples. The normal backup role cannot receive a decryption identity.
 - Validation: the required first RED run failed on the three absent modules. The focused Linux suite passes 99/99 as the unprivileged Node user, including permission/symlink tests. The full Windows `npm run check` passes formatting, lint, strict type checking, 731 tests across 49 files (two Linux-only skips), build and authority validation. No live provider call, server access, deployment, or production action occurred.
+- Task 2 adds migration 000013 and bounded operations persistence: closed health/incident history, same-transaction real-session administrator acknowledgement, exact replay/concurrency handling, backup catalogue state and immutable material, deployment evidence, append-only audits, and populated downgrade refusal. Historical downgrade tests now target migration versions explicitly so newer migrations do not change the guard they exercise.
+- Task 2 validation: focused PostgreSQL gate 50/50 across two files; complete PostgreSQL gate 433/433 across 36 files; complete local gate 731 passed across 49 files with the same two Windows/Linux-only skips. Cleanup reports zero test schemas and advisory locks. Backup rows are synthetic metadata only; no encrypted archive, restore, live service integration, or deployment occurred.
 
 ## Launch Blockers
 
@@ -140,7 +142,7 @@ All secret values are intentionally absent from this repository. Create them dur
 - Actual encrypted backup/restore procedures and deployed human-takeover behavior must still pass their acceptance tests; the local restore-gate primitive alone does not satisfy P6-004.
 
 The current tracker action is P6-002, following the approved implementation
-plan in sequence from Task 2. All live
+plan in sequence from Task 3. All live
 Meta, Manifest, network, deployment, test-asset, and production
 actions remain separately gated. P1-GATE remains a separate explicit review
 record.
