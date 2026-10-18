@@ -37,6 +37,7 @@ import {
   syntheticPrivacyKeyring,
 } from './policy-fixtures.js';
 import { createIsolatedTestDatabase, type IsolatedTestDatabase } from './test-database.js';
+import { seedReviewedRestore } from './restore-fixtures.js';
 
 const base = new Date('2025-02-01T00:00:00.000Z');
 const at = new Date('2025-02-01T00:01:00.000Z');
@@ -414,7 +415,7 @@ describe('PostgreSQL recoverable reply runtime', () => {
     await fixture.event();
     await db.pool.query(
       `insert into operations_deployments (git_revision,schema_revision,recorded_at,status)
-      values ($1,'000014',$2,'started')`,
+      values ($1,'000015',$2,'started')`,
       ['c'.repeat(40), at],
     );
     const runtime = await createReplyRuntime({
@@ -431,7 +432,7 @@ describe('PostgreSQL recoverable reply runtime', () => {
           ],
         }),
         OPS_GIT_REVISION: 'c'.repeat(40),
-        OPS_SCHEMA_REVISION: '000014',
+        OPS_SCHEMA_REVISION: '000015',
         REPLY_FAQ_POLICY_JSON: JSON.stringify({
           ambiguityMargin: 0.05,
           minimumSimilarity: 0.7,
@@ -461,19 +462,19 @@ describe('PostgreSQL recoverable reply runtime', () => {
 
   test('a receipt marked by restore quarantine never enters the reply pipeline', async () => {
     const id = await fixture.event();
-    await db.pool.query(
-      'create table runtime_restore_quarantine (source_kind text not null,source_id bigint not null,restore_ref text not null,primary key(source_kind,source_id))',
-    );
+    await seedReviewedRestore(db.pool, 'RESTORE_TEST_runtime', at);
     try {
       await db.pool.query(
-        "insert into runtime_restore_quarantine values ('webhook_event',$1,'RESTORE_TEST_runtime')",
-        [id],
+        "insert into runtime_restore_quarantine(source_kind,source_id,restore_ref,reason,recorded_at) values ('webhook_event',$1,'RESTORE_TEST_runtime','restore_quarantined',$2)",
+        [id, at],
       );
       expect(await fixture.work.reconcile(10, at)).toEqual({ created: 0 });
       expect(await fixture.count('support_reply_drafts')).toBe(0);
       expect(fixture.manifestCalls()).toBe(0);
     } finally {
-      await db.pool.query('drop table runtime_restore_quarantine');
+      await db.pool.query(
+        'truncate runtime_restore_quarantine,runtime_recovery_reviews,runtime_recovery_holds',
+      );
     }
   });
 

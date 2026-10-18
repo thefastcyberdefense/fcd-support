@@ -168,7 +168,7 @@ const childEnvironment = (): NodeJS.ProcessEnv => ({
 });
 async function runPipeline(
   commands: readonly { file: string; args: readonly string[]; env?: NodeJS.ProcessEnv }[],
-  options: BackupFiles,
+  options: Pick<BackupFiles, 'timeoutMilliseconds' | 'processes'>,
   input?: NodeJS.ReadableStream,
   output?: NodeJS.WritableStream,
 ): Promise<void> {
@@ -240,6 +240,14 @@ async function runPipeline(
     controller.signal.removeEventListener('abort', stop);
   }
 }
+
+export {
+  cipherDigest as archiveCipherDigest,
+  syncFile as syncArchiveFile,
+  syncDirectory as syncArchiveDirectory,
+  writeExclusive as writeArchiveExclusive,
+  runPipeline as runArchivePipeline,
+};
 function connection(value: string): { env: NodeJS.ProcessEnv; pass: string } {
   const url = new URL(value);
   if (!['postgres:', 'postgresql:'].includes(url.protocol) || url.search !== '' || url.hash !== '')

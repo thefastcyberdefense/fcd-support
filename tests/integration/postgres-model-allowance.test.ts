@@ -13,6 +13,7 @@ import type {
 } from '../../src/model/model-types.js';
 import { PostgresModelAllowance } from '../../src/persistence/postgres-model-allowance.js';
 import { PostgresModelPolicy } from '../../src/persistence/postgres-model-policy.js';
+import { PostgresRestoreFence } from '../../src/persistence/postgres-restore-fence.js';
 import { PolicyIdempotencyConflictError } from '../../src/persistence/postgres-takeover-policy.js';
 import { insertSyntheticAppliedCustomerEvent } from './policy-fixtures.js';
 import { createIsolatedTestDatabase } from './test-database.js';
@@ -51,7 +52,8 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await pool.query(
-    `truncate table contacts, webhook_receipts, model_policy_versions, admin_accounts
+    `truncate table contacts, webhook_receipts, model_policy_versions, admin_accounts,
+      runtime_restore_quarantine,runtime_recovery_reviews,runtime_recovery_holds
      restart identity cascade`,
   );
   policyService = new PostgresModelPolicy(pool);
@@ -168,6 +170,29 @@ function input(
 }
 
 describe('PostgreSQL model allowance and leases', () => {
+  test('restored model leases terminate and the recovery hold refuses a fresh call lease', async () => {
+    const policy = await activePolicy();
+    const event = await source('restore_model');
+    expect(
+      await allowance.acquireModelAllowance(input(event, 'CALL_TEST_restore_model', policy)),
+    ).toMatchObject({ status: 'acquired' });
+    await new PostgresRestoreFence(pool).quarantine({
+      restoreRef: 'RESTORE_TEST_model',
+      evaluatedAt: new Date(baseAt.getTime() + 7000),
+    });
+    expect((await pool.query('select state,outcome_code from model_call_leases')).rows).toEqual([
+      { state: 'failed', outcome_code: 'guard_blocked' },
+    ]);
+    const fresh = await source('restore_model_new', new Date(baseAt.getTime() + 8000));
+    await expect(
+      allowance.acquireModelAllowance(
+        input(fresh, 'CALL_TEST_restore_model_new', policy, new Date(baseAt.getTime() + 9000)),
+      ),
+    ).rejects.toMatchObject({ code: '55000' });
+    expect((await pool.query('select count(*)::int as count from model_call_leases')).rows).toEqual(
+      [{ count: 1 }],
+    );
+  });
   test('maintenance expiry respects its supplied batch bound', async () => {
     const policy = await activePolicy();
     for (const key of ['bounded_one', 'bounded_two']) {

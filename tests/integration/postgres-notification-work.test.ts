@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vitest';
 
 import { PostgresNotificationWork } from '../../src/persistence/postgres-notification-work.js';
+import { seedReviewedRestore } from './restore-fixtures.js';
 import { PostgresPrivacyRightsPolicy } from '../../src/persistence/postgres-privacy-rights-policy.js';
 import { insertSyntheticAppliedCustomerEvent, syntheticPrivacyKeyring } from './policy-fixtures.js';
 import {
@@ -203,24 +204,24 @@ describe('PostgreSQL notification delivery work', () => {
     const source = await db.pool.query<{ id: string }>(
       'select id from support_escalation_outcomes',
     );
-    await db.pool.query(`create table runtime_restore_quarantine (
-      source_kind text not null, source_id bigint not null, restore_ref text not null,
-      primary key(source_kind, source_id))`);
+    await seedReviewedRestore(db.pool, 'RESTORE_TEST_notification', at);
     try {
       await db.pool.query(
-        "insert into runtime_restore_quarantine values ('support_escalation',$1,'RESTORE_TEST_notification')",
-        [source.rows[0]?.id],
+        "insert into runtime_restore_quarantine(source_kind,source_id,restore_ref,reason,recorded_at) values ('support_escalation',$1,'RESTORE_TEST_notification','restore_quarantined',$2)",
+        [source.rows[0]?.id, at],
       );
       expect(await work.reconcile(10, at)).toEqual({ created: 0 });
       await db.pool.query('truncate runtime_restore_quarantine');
       expect(await work.reconcile(10, at)).toEqual({ created: 1 });
       await db.pool.query(
-        "insert into runtime_restore_quarantine values ('support_escalation',$1,'RESTORE_TEST_notification')",
-        [source.rows[0]?.id],
+        "insert into runtime_restore_quarantine(source_kind,source_id,restore_ref,reason,recorded_at) values ('support_escalation',$1,'RESTORE_TEST_notification','restore_quarantined',$2)",
+        [source.rows[0]?.id, at],
       );
       expect(await work.claim(claimInput())).toEqual([]);
     } finally {
-      await db.pool.query('drop table runtime_restore_quarantine');
+      await db.pool.query(
+        'truncate runtime_restore_quarantine,runtime_recovery_reviews,runtime_recovery_holds',
+      );
     }
   });
 

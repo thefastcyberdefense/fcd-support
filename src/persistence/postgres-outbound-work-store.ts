@@ -32,6 +32,7 @@ import {
   PolicyRecordNotFoundError,
 } from './postgres-takeover-policy.js';
 import { withBoundedTransaction } from './postgres-transaction.js';
+import { recoveryHeld } from './postgres-runtime-work-common.js';
 
 const opaqueReference = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u);
 const validDate = z.instanceof(Date).refine((value) => Number.isFinite(value.getTime()));
@@ -310,6 +311,7 @@ export class PostgresOutboundWorkStore {
   public async claimBatch(inputValue: unknown): Promise<readonly ClaimedOutboundIntent[]> {
     const input = claimSchema.parse(inputValue);
     return withBoundedTransaction(this.pool, async (client) => {
+      if (await recoveryHeld(client)) return [];
       const policy = await this.loadEffectivePolicy(client, input.claimedAt, true);
       if (policy === null) return [];
       const candidates = await client.query<IntentRow>(
@@ -846,6 +848,7 @@ export class PostgresOutboundWorkStore {
     authority: AuthorityRow,
     evaluatedAt: Date,
   ): Promise<OutboundEligibility> {
+    if (await recoveryHeld(client)) return { eligible: false, reason: 'restore_quarantined' };
     const retention = await client.query<RetentionRow>(
       `select lifecycle_class, relationship_status, expires_at, next_active_review_at
        from conversation_retention_states where conversation_id = $1 for update`,

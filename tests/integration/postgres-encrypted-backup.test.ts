@@ -79,7 +79,7 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
         recipientFile,
         manifestHmacFile,
         gitRevision: 'a'.repeat(40),
-        schemaRevision: '000014',
+        schemaRevision: '000015',
         backupClass: 'pre_migration' as const,
         now: new Date('2030-01-01T00:00:00.000Z'),
         timeoutMilliseconds: 10000,
@@ -159,7 +159,7 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
         BACKUP_ARCHIVE_DIRECTORY: archiveDirectory,
         BACKUP_TMPFS_DIRECTORY: temporaryDirectory,
         OPS_GIT_REVISION: 'a'.repeat(40),
-        OPS_SCHEMA_REVISION: '000014',
+        OPS_SCHEMA_REVISION: '000015',
       };
       async function cli(args: readonly string[], env: NodeJS.ProcessEnv) {
         const child = spawn(process.execPath, ['/app/dist/operations-main.js', ...args], {

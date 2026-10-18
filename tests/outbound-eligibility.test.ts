@@ -59,6 +59,16 @@ function templateInput(override: Partial<OutboundEligibilityInput> = {}): Outbou
 }
 
 describe('outbound eligibility', () => {
+  test('an unreconciled recovery hold blocks otherwise eligible support and marketing', () => {
+    expect(evaluateOutboundEligibility(supportInput({ recoveryHold: true }))).toEqual({
+      eligible: false,
+      reason: 'restore_quarantined',
+    });
+    expect(evaluateOutboundEligibility(templateInput({ recoveryHold: true }))).toEqual({
+      eligible: false,
+      reason: 'restore_quarantined',
+    });
+  });
   test('keeps the Meta response window open through the exact 24-hour boundary', () => {
     const boundary = new Date(customerAt.getTime() + META_RESPONSE_WINDOW_MS);
     expect(evaluateOutboundEligibility(supportInput({ evaluatedAt: boundary }))).toEqual({

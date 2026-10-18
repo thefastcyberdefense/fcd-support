@@ -5,6 +5,7 @@ import { z } from 'zod';
 import {
   parseWork,
   quarantinePresent,
+  recoveryHeld,
   workClaimSchema,
   workConflict,
   workDate,
@@ -44,6 +45,7 @@ export class PostgresProcessingWork {
     parseWork(z.number().int().min(1).max(1000), limit);
     parseWork(workDate, evaluatedAt);
     return withBoundedTransaction(this.pool, async (client) => {
+      if (await recoveryHeld(client)) return { created: 0 };
       const quarantine = await quarantinePresent(client);
       const candidates = await client.query<{ id: string; stage: ProcessingClaim['stage'] }>(
         `
@@ -74,6 +76,7 @@ export class PostgresProcessingWork {
   public async claim(input: z.infer<typeof workClaimSchema>): Promise<readonly ProcessingClaim[]> {
     const command = parseWork(workClaimSchema, input);
     return withBoundedTransaction(this.pool, async (client) => {
+      if (await recoveryHeld(client)) return [];
       const quarantine = await quarantinePresent(client);
       const selected = await client.query<WorkRow>(
         `select work.* from runtime_processing_work work

@@ -74,6 +74,7 @@ export async function createIsolatedTestDatabase(suiteName: string): Promise<Iso
       migrationsSchema: schema,
       migrationsTable: 'pgmigrations',
       schema,
+      singleTransaction: true,
       log: () => undefined,
       verbose: false,
     });

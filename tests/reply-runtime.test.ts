@@ -175,7 +175,7 @@ function environment() {
       keys: [{ version: 'TEST_v1', keyBase64url: Buffer.alloc(32, 0x51).toString('base64url') }],
     }),
     OPS_GIT_REVISION: 'c'.repeat(40),
-    OPS_SCHEMA_REVISION: '000014',
+    OPS_SCHEMA_REVISION: '000015',
     REPLY_FAQ_POLICY_JSON: JSON.stringify({
       ambiguityMargin: 0.05,
       minimumSimilarity: 0.7,

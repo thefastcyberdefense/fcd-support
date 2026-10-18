@@ -11,6 +11,7 @@ import type {
 import {
   parseWork,
   quarantinePresent,
+  recoveryHeld,
   workClaimSchema,
   workConflict,
   workDate,
@@ -78,6 +79,7 @@ export class PostgresNotificationWork {
     parseWork(z.number().int().min(1).max(1000), limit);
     parseWork(workDate, evaluatedAt);
     return withBoundedTransaction(this.pool, async (client) => {
+      if (await recoveryHeld(client)) return { created: 0 };
       const quarantine = await quarantinePresent(client);
       const sources = await client.query<SourceRow>(
         `select source.* from notification_delivery_sources source
@@ -129,6 +131,7 @@ export class PostgresNotificationWork {
   ): Promise<readonly NotificationClaim[]> {
     const command = parseWork(workClaimSchema, input);
     return withBoundedTransaction(this.pool, async (client) => {
+      if (await recoveryHeld(client)) return [];
       const quarantine = await quarantinePresent(client);
       const selected = await client.query<WorkRow>(
         `select work.* from notification_delivery_work work

@@ -22,6 +22,7 @@ import { createIdentityHmac, requirePrivacyHmacKeyring } from '../policy/privacy
 import type { PrivacyHmacKeyring } from '../policy/policy-types.js';
 import { PolicyIdempotencyConflictError } from './postgres-takeover-policy.js';
 import { withBoundedTransaction } from './postgres-transaction.js';
+import { recoveryHeld } from './postgres-runtime-work-common.js';
 
 const opaqueReference = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u);
 const decimalReference = z.string().regex(/^[1-9][0-9]*$/u);
@@ -211,6 +212,7 @@ export class PostgresOutboundIntentStore {
         ready: true,
       };
       const eligibility = evaluateOutboundEligibility({
+        recoveryHold: await recoveryHeld(client),
         activeClientReviewAt: projection.activeClientReviewAt,
         channel: draft.channel,
         channelAccountId: draft.channel_account_id,
@@ -318,6 +320,7 @@ export class PostgresOutboundIntentStore {
               variableCount: template.variable_count,
             };
       const eligibility = evaluateOutboundEligibility({
+        recoveryHold: await recoveryHeld(client),
         activeClientReviewAt: projection.activeClientReviewAt,
         channel: authority.channel,
         channelAccountId: authority.channel_account_id,

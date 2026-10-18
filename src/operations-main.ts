@@ -8,7 +8,9 @@ import { loadOperationsConfig } from './operations/operations-config.js';
 import { loadPrivacyKeyring } from './operations/privacy-keyring.js';
 import { databaseReadinessPorts } from './operations/role-runtime.js';
 import { checkRuntimeReadiness } from './operations/runtime-readiness.js';
-import { loadRoleEnvironment } from './operations/secret-files.js';
+import { loadRoleEnvironment, readSecretFile } from './operations/secret-files.js';
+import { AdminSecretBytes } from './admin/admin-types.js';
+import { exportDeletionCheckpoint } from './operations/deletion-checkpoint.js';
 import {
   createEncryptedBackup,
   readBackupManifest,
@@ -46,6 +48,58 @@ export async function runOperationsMain(): Promise<void> {
   let pool: pg.Pool | undefined;
   try {
     const args = process.argv.slice(2);
+    if (args[0] === 'checkpoint') {
+      z.tuple([z.literal('checkpoint')]).parse(args);
+      const environment = await loadRoleEnvironment('checkpoint', process.env);
+      const config = loadOperationsConfig('checkpoint', environment);
+      const file = (name: string) => z.string().min(1).parse(process.env[name]);
+      const number = (name: string) =>
+        z
+          .string()
+          .regex(/^[1-9][0-9]*$/u)
+          .transform(Number)
+          .pipe(z.number().int().positive().max(Number.MAX_SAFE_INTEGER))
+          .parse(environment[name]);
+      pool = new pg.Pool({
+        connectionString: environment.DATABASE_URL,
+        max: 1,
+        connectionTimeoutMillis: config.maximumCallMilliseconds,
+        query_timeout: config.maximumCallMilliseconds,
+        statement_timeout: config.maximumCallMilliseconds,
+      });
+      pool.on('error', () => {
+        logger.error('database_pool_error');
+      });
+      const bytes = await readSecretFile(file('RECOVERY_MANIFEST_HMAC_FILE'));
+      let signingKey: AdminSecretBytes;
+      try {
+        signingKey = new AdminSecretBytes(Buffer.from(bytes));
+      } finally {
+        bytes.fill(0);
+      }
+      const manifest = await exportDeletionCheckpoint({
+        sourcePool: pool,
+        recipientFile: file('BACKUP_ENCRYPTION_RECIPIENT_FILE'),
+        signingKey,
+        archiveDirectory: z.string().min(1).parse(environment.CHECKPOINT_ARCHIVE_DIRECTORY),
+        sourceRevision: z
+          .string()
+          .regex(/^[a-f0-9]{40}$/u)
+          .parse(environment.OPS_GIT_REVISION),
+        schemaRevision: z
+          .string()
+          .regex(/^[0-9]{6}$/u)
+          .parse(environment.OPS_SCHEMA_REVISION),
+        now: new Date(),
+        timeoutMilliseconds: config.maximumCallMilliseconds,
+        maximumRows: number('CHECKPOINT_MAX_ROWS'),
+        maximumPayloadBytes: number('CHECKPOINT_MAX_PAYLOAD_BYTES'),
+      });
+      process.stdout.write(
+        `${JSON.stringify({ status: 'completed', processed: manifest.rowCount, reasonCode: 'ok' })}\n`,
+      );
+      return;
+    }
     if (['backup', 'verify-backup', 'prune-backups'].includes(args[0] ?? '')) {
       const command = parseBackupCommand(args);
       const role = command.job === 'verify-backup' ? 'verify_backup' : 'backup';

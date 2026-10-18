@@ -11,6 +11,7 @@ import type { ReviewerPrincipal } from '../../src/policy/policy-types.js';
 import { PostgresOutboundIntentStore } from '../../src/persistence/postgres-outbound-intent-store.js';
 import { PostgresOutboundPolicy } from '../../src/persistence/postgres-outbound-policy.js';
 import { PostgresOutboundWorkStore } from '../../src/persistence/postgres-outbound-work-store.js';
+import { PostgresRestoreFence } from '../../src/persistence/postgres-restore-fence.js';
 import { PolicyIdempotencyConflictError } from '../../src/persistence/postgres-takeover-policy.js';
 import { insertSyntheticAppliedCustomerEvent, syntheticPrivacyKeyring } from './policy-fixtures.js';
 import { createIsolatedTestDatabase } from './test-database.js';
@@ -49,6 +50,7 @@ beforeEach(async () => {
   await pool.query(`
     truncate table
       contacts, webhook_receipts, privacy_suppressions, privacy_requests,
+      runtime_restore_quarantine,runtime_recovery_reviews,runtime_recovery_holds,
       outbound_echo_correlation_holds, outbound_status_events,
       outbound_escalation_outcomes, outbound_attempts, outbound_intents,
       outbound_rate_windows, outbound_template_review_events,
@@ -222,6 +224,58 @@ async function authorizeAndStart(
 }
 
 describe('PostgreSQL outbound work store', () => {
+  test.each(['pending', 'authorized', 'dispatch_started'] as const)(
+    'restored %s work cannot resume dispatch',
+    async (state) => {
+      await seedPolicy();
+      await seedIntent(`restore_${state}`);
+      const store = workStore();
+      if (state !== 'pending') {
+        const claim = await claimOne(store);
+        if (state === 'dispatch_started') await authorizeAndStart(store, claim);
+        else
+          expect(
+            (
+              await store.authorizeAttempt({
+                intentRef: claim.intentRef,
+                leaseRef: claim.leaseRef,
+                evaluatedAt: workAt,
+              })
+            ).status,
+          ).toBe('authorized');
+      }
+      await new PostgresRestoreFence(pool).quarantine({
+        restoreRef: `RESTORE_TEST_${state}`,
+        evaluatedAt: new Date(workAt.getTime() + 10),
+      });
+      expect((await pool.query('select state,terminal_reason from outbound_intents')).rows).toEqual(
+        [
+          {
+            state: state === 'dispatch_started' ? 'delivery_unknown' : 'canceled',
+            terminal_reason:
+              state === 'dispatch_started' ? 'delivery_unknown' : 'restore_quarantined',
+          },
+        ],
+      );
+      expect(
+        await store.claimBatch({
+          claimedAt: new Date(workAt.getTime() + 11),
+          workerRef: 'WORKER_TEST_restored',
+        }),
+      ).toEqual([]);
+      const attempts = (await pool.query('select state from outbound_attempts')).rows;
+      expect(attempts).toEqual(
+        state === 'pending'
+          ? []
+          : [
+              {
+                state:
+                  state === 'dispatch_started' ? 'delivery_unknown' : 'abandoned_before_dispatch',
+              },
+            ],
+      );
+    },
+  );
   test('dispatch start refuses a window that closed after attempt authorization', async () => {
     await seedPolicy();
     await seedIntent('late_dispatch');

@@ -2,6 +2,14 @@
 # Pinned, synthetic, non-root local backup proof. Never attaches a live project.
 set -Eeuo pipefail
 export MSYS_NO_PATHCONV=1
+MODE="${1:-backup}"
+[[ "$#" -le 1 && ( "$MODE" == backup || "$MODE" == checkpoint ) ]] || { echo backup_test_mode_invalid >&2; exit 1; }
+UNIT_FILES=(tests/backup.test.ts tests/backup-retention.test.ts)
+INTEGRATION_FILES=(tests/integration/postgres-encrypted-backup.test.ts)
+if [[ "$MODE" == checkpoint ]]; then
+  UNIT_FILES+=(tests/deletion-checkpoint.test.ts)
+  INTEGRATION_FILES+=(tests/integration/postgres-deletion-checkpoint.test.ts)
+fi
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NATIVE_ROOT="$ROOT"
 if command -v cygpath >/dev/null 2>&1; then NATIVE_ROOT="$(cygpath -m "$ROOT")"; fi
@@ -56,6 +64,6 @@ docker run --rm --name "$SCOPE-$job" --label "fcd-support.backup-test=$SCOPE" --
   --env BACKUP_TEST_ARCHIVE_ROOT=/var/lib/fcd-support/backups \
   "$RUNNER" "$@"
 }
-run_tests unit run tests/backup.test.ts tests/backup-retention.test.ts
-run_tests integration run --config vitest.integration.config.ts tests/integration/postgres-encrypted-backup.test.ts
+run_tests unit run "${UNIT_FILES[@]}"
+run_tests integration run --config vitest.integration.config.ts "${INTEGRATION_FILES[@]}"
 echo encrypted_backup_local=true

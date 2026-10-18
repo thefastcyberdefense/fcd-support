@@ -42,6 +42,7 @@ export type OutboundPurpose = (typeof OUTBOUND_PURPOSES)[number];
 export type OutboundMessageKind = (typeof OUTBOUND_MESSAGE_KINDS)[number];
 export type OutboundIntentState = (typeof OUTBOUND_INTENT_STATES)[number];
 export type OutboundAttemptState = (typeof OUTBOUND_ATTEMPT_STATES)[number];
+export type OutboundRestoreReason = 'restore_quarantined';
 
 export interface OutboundPolicyValues {
   readonly perContact15Minute: number;

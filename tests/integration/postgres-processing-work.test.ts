@@ -4,6 +4,7 @@ import { PostgresConversationEventProcessor } from '../../src/persistence/postgr
 import { PostgresProcessingWork } from '../../src/persistence/postgres-processing-work.js';
 import { insertSyntheticPendingEvent } from './policy-fixtures.js';
 import { createIsolatedTestDatabase, type IsolatedTestDatabase } from './test-database.js';
+import { seedReviewedRestore } from './restore-fixtures.js';
 
 let db: IsolatedTestDatabase;
 let work: PostgresProcessingWork;
@@ -168,24 +169,24 @@ describe('durable processing work', () => {
 
   test('quarantined source cannot be newly reconciled or claimed', async () => {
     const eventId = await event();
-    await db.pool.query(`create table runtime_restore_quarantine (
-      source_kind text not null, source_id bigint not null, restore_ref text not null,
-      primary key(source_kind, source_id))`);
+    await seedReviewedRestore(db.pool, 'RESTORE_TEST_quarantine', at);
     try {
       await db.pool.query(
-        "insert into runtime_restore_quarantine values ('webhook_event',$1,'RESTORE_TEST_quarantine')",
-        [eventId],
+        "insert into runtime_restore_quarantine(source_kind,source_id,restore_ref,reason,recorded_at) values ('webhook_event',$1,'RESTORE_TEST_quarantine','restore_quarantined',$2)",
+        [eventId, at],
       );
       expect(await work.reconcile(10, at)).toEqual({ created: 0 });
       await db.pool.query('truncate runtime_restore_quarantine');
       expect(await work.reconcile(10, at)).toEqual({ created: 1 });
       await db.pool.query(
-        "insert into runtime_restore_quarantine values ('webhook_event',$1,'RESTORE_TEST_quarantine')",
-        [eventId],
+        "insert into runtime_restore_quarantine(source_kind,source_id,restore_ref,reason,recorded_at) values ('webhook_event',$1,'RESTORE_TEST_quarantine','restore_quarantined',$2)",
+        [eventId, at],
       );
       expect(await work.claim(claimInput())).toEqual([]);
     } finally {
-      await db.pool.query('drop table runtime_restore_quarantine');
+      await db.pool.query(
+        'truncate runtime_restore_quarantine,runtime_recovery_reviews,runtime_recovery_holds',
+      );
     }
   });
 

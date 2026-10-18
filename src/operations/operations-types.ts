@@ -57,3 +57,9 @@ export interface RuntimeLifecycle {
   stop(): Promise<void>;
 }
 export type MaintenanceJob = 'retention' | 'deletion' | 'lease_recovery' | 'learning';
+export type {
+  CheckpointManifest,
+  CheckpointWatermark,
+  CheckpointExportOptions,
+  CheckpointImportOptions,
+} from './deletion-checkpoint.js';

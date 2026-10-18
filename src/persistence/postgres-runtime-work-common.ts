@@ -23,3 +23,13 @@ export async function quarantinePresent(client: pg.PoolClient): Promise<boolean>
   );
   return result.rows[0]?.present === true;
 }
+export async function recoveryHeld(client: pg.PoolClient): Promise<boolean> {
+  const present = await client.query<{ present: boolean }>(
+    "select to_regclass('runtime_recovery_holds') is not null as present",
+  );
+  if (present.rows[0]?.present !== true) return false;
+  return (
+    (await client.query<{ held: boolean }>('select runtime_recovery_held() as held')).rows[0]
+      ?.held === true
+  );
+}

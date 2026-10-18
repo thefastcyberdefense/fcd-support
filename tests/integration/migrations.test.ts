@@ -162,7 +162,7 @@ describe('Phase 2 database migrations', () => {
       { table_name: 'knowledge_tags' },
       { table_name: 'knowledge_versions' },
     ]);
-    expect(migrations.rows[0]?.count).toBe(14);
+    expect(migrations.rows[0]?.count).toBe(15);
     expect(trigramExtension.rows).toEqual([{ installed: true }]);
     expect(aliasIndexes.rows.map(({ indexname }) => indexname)).toEqual(
       expect.arrayContaining([
@@ -222,7 +222,7 @@ describe('Phase 2 database migrations', () => {
       'support_reply_draft_knowledge',
       'support_reply_drafts',
     ]);
-    expect(migrations.rows[0]?.count).toBe(14);
+    expect(migrations.rows[0]?.count).toBe(15);
   });
 
   test('create customizable model policy, usage, and lease schema as migration eleven', async () => {
@@ -283,7 +283,7 @@ describe('Phase 2 database migrations', () => {
     expect(policyColumns.rows).toHaveLength(13);
     expect(policyColumns.rows.every(({ column_default }) => column_default === null)).toBe(true);
     expect(prohibitedColumns.rows).toEqual([]);
-    expect(migrations.rows[0]?.count).toBe(14);
+    expect(migrations.rows[0]?.count).toBe(15);
   });
 
   test('create the closed outbound messaging schema as migration twelve', async () => {
@@ -355,7 +355,7 @@ describe('Phase 2 database migrations', () => {
     expect(policyColumns.rows).toHaveLength(12);
     expect(policyColumns.rows.every(({ column_default }) => column_default === null)).toBe(true);
     expect(prohibitedColumns.rows).toEqual([]);
-    expect(migrations.rows[0]?.count).toBe(14);
+    expect(migrations.rows[0]?.count).toBe(15);
   });
 
   test('enforce outbound source, state, correlation, and append-only evidence constraints', async () => {
@@ -723,7 +723,7 @@ describe('Phase 2 database migrations', () => {
     expect((rollbackError as Error & { code?: string }).code).toBe('55000');
     await expect(
       pool.query(`select count(*)::int as count from pgmigrations`),
-    ).resolves.toMatchObject({ rows: [{ count: 12 }] });
+    ).resolves.toMatchObject({ rows: [{ count: 15 }] });
 
     await pool.query(`truncate table outbound_policy_versions restart identity cascade`);
     await migrateDownThrough(12);
@@ -901,7 +901,7 @@ describe('Phase 2 database migrations', () => {
     expect((rollbackError as Error & { code?: string }).code).toBe('55000');
     await expect(
       pool.query(`select count(*)::int as count from pgmigrations`),
-    ).resolves.toMatchObject({ rows: [{ count: 11 }] });
+    ).resolves.toMatchObject({ rows: [{ count: 15 }] });
 
     await pool.query(`truncate table model_policy_versions restart identity cascade`);
     await migrateDownThrough(11);
@@ -1039,7 +1039,7 @@ describe('Phase 2 database migrations', () => {
     expect((rollbackError as Error & { code?: string }).code).toBe('55000');
     await expect(
       pool.query(`select count(*)::int as count from pgmigrations`),
-    ).resolves.toMatchObject({ rows: [{ count: 10 }] });
+    ).resolves.toMatchObject({ rows: [{ count: 15 }] });
 
     await pool.query(`truncate table admin_accounts restart identity cascade`);
     await migrateDownThrough(10);
@@ -1186,7 +1186,7 @@ describe('Phase 2 database migrations', () => {
     expect((rollbackError as Error & { code?: string }).code).toBe('55000');
     await expect(
       pool.query(`select count(*)::int as count from pgmigrations`),
-    ).resolves.toMatchObject({ rows: [{ count: 9 }] });
+    ).resolves.toMatchObject({ rows: [{ count: 15 }] });
 
     await pool.query(`truncate table knowledge_sources restart identity cascade`);
     await migrateDownThrough(9);
@@ -1226,7 +1226,7 @@ describe('Phase 2 database migrations', () => {
       { table_name: 'privacy_suppressions' },
       { table_name: 'restore_deletion_gates' },
     ]);
-    expect(migrations.rows[0]?.count).toBe(14);
+    expect(migrations.rows[0]?.count).toBe(15);
   });
 
   test('create the bounded privacy rights workflow tables as migration five', async () => {
@@ -2703,7 +2703,7 @@ describe('Phase 2 database migrations', () => {
     expect((rollbackError as Error & { code?: string }).code).toBe('55000');
     await expect(
       pool.query(`select count(*)::int as count from pgmigrations`),
-    ).resolves.toMatchObject({ rows: [{ count: 8 }] });
+    ).resolves.toMatchObject({ rows: [{ count: 15 }] });
 
     await pool.query(`
       truncate table

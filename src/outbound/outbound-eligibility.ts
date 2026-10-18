@@ -1,9 +1,10 @@
 import type { MarketingCategory } from '../policy/policy-types.js';
-import type { OutboundChannel, OutboundPurpose } from './outbound-types.js';
+import type { OutboundChannel, OutboundPurpose, OutboundRestoreReason } from './outbound-types.js';
 
 export const META_RESPONSE_WINDOW_MS = 86_400_000;
 
 export type OutboundEligibilityReason =
+  | OutboundRestoreReason
   | 'allowed'
   | 'policy_unavailable'
   | 'source_not_ready'
@@ -40,6 +41,7 @@ export interface FixedTemplateEligibilitySource extends EligibilitySourceBase {
 }
 
 export interface OutboundEligibilityInput {
+  readonly recoveryHold?: boolean;
   readonly activeClientReviewAt: Date | null;
   readonly channel: OutboundChannel;
   readonly channelAccountId: string;
@@ -98,6 +100,7 @@ export function evaluateOutboundEligibility(input: OutboundEligibilityInput): Ou
   requireDate(input.pauseUntil, 'pauseUntil');
 
   const evaluatedMilliseconds = input.evaluatedAt.getTime();
+  if (input.recoveryHold === true) return denied('restore_quarantined');
   if (!input.policyAvailable) return denied('policy_unavailable');
   if (!input.source.ready) return denied('source_not_ready');
   if (input.source.contentErased) return denied('content_erased');

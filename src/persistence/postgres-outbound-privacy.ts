@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import type pg from 'pg';
 
 export type OutboundPrivacyCancellationReason =
-  'identity_deleted' | 'retention_expired' | 'suppressed';
+  'identity_deleted' | 'retention_expired' | 'suppressed' | 'restore_quarantined';
 
 export interface OutboundPrivacyReconciliationResult {
   readonly canceled: number;
