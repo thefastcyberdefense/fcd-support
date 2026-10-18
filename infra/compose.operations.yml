@@ -1,0 +1,251 @@
+name: ${FCD_RUNTIME_PROJECT:?FCD_RUNTIME_PROJECT must be set}
+
+x-security: &security
+  user: node
+  init: true
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  stop_grace_period: ${FCD_STOP_GRACE_MS:?FCD_STOP_GRACE_MS must be set}ms
+
+services:
+  migrate:
+    <<: *security
+    tmpfs:
+      - /run/fcd-support:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0700,size=${FCD_MIGRATE_TMPFS_MIB:?FCD_MIGRATE_TMPFS_MIB must be set}m
+    image: ${FCD_OPERATIONS_IMAGE:?FCD_OPERATIONS_IMAGE must be set}
+    labels:
+      org.opencontainers.image.revision: ${FCD_SUPPORT_REVISION:?FCD_SUPPORT_REVISION must be set}
+    restart: 'no'
+    profiles: [operations-migrate]
+    cpus: ${FCD_MIGRATE_CPUS:?FCD_MIGRATE_CPUS must be set}
+    mem_limit: ${FCD_MIGRATE_MEMORY_MIB:?FCD_MIGRATE_MEMORY_MIB must be set}m
+    pids_limit: ${FCD_MIGRATE_PIDS:?FCD_MIGRATE_PIDS must be set}
+    env_file:
+      - ${FCD_CONFIG_ROOT:?FCD_CONFIG_ROOT must be set}/common.env
+      - ${FCD_CONFIG_ROOT:?FCD_CONFIG_ROOT must be set}/migrate.env
+    environment:
+      NODE_ENV: production
+      OPS_GIT_REVISION: ${FCD_SUPPORT_REVISION:?FCD_SUPPORT_REVISION must be set}
+      MODEL_EXECUTION_ENABLED: 'false'
+      OUTBOUND_EXECUTION_ENABLED: 'false'
+      N8N_EXECUTION_ENABLED: 'false'
+      DATABASE_URL_FILE: /run/secrets/migrate-database
+    secrets: [migrate-database]
+    entrypoint: ['/usr/local/bin/container-entrypoint.sh', 'application']
+    command: ['node', 'dist/operations-main.js', 'migrate']
+    healthcheck:
+      test: ['CMD', 'node', '--input-type=module', '-e', 'process.exit(0)']
+      interval: ${FCD_HEALTH_INTERVAL_MS:?FCD_HEALTH_INTERVAL_MS must be set}ms
+      timeout: ${FCD_HEALTH_TIMEOUT_MS:?FCD_HEALTH_TIMEOUT_MS must be set}ms
+      retries: ${FCD_HEALTH_RETRIES:?FCD_HEALTH_RETRIES must be set}
+      start_period: ${FCD_HEALTH_START_MS:?FCD_HEALTH_START_MS must be set}ms
+    networks: [operations_data]
+
+  backup:
+    <<: *security
+    tmpfs:
+      - /run/fcd-support:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0700,size=${FCD_BACKUP_TMPFS_MIB:?FCD_BACKUP_TMPFS_MIB must be set}m
+    image: ${FCD_OPERATIONS_IMAGE:?FCD_OPERATIONS_IMAGE must be set}
+    labels:
+      org.opencontainers.image.revision: ${FCD_SUPPORT_REVISION:?FCD_SUPPORT_REVISION must be set}
+    restart: 'no'
+    profiles: [operations-backup]
+    cpus: ${FCD_BACKUP_CPUS:?FCD_BACKUP_CPUS must be set}
+    mem_limit: ${FCD_BACKUP_MEMORY_MIB:?FCD_BACKUP_MEMORY_MIB must be set}m
+    pids_limit: ${FCD_BACKUP_PIDS:?FCD_BACKUP_PIDS must be set}
+    env_file:
+      - ${FCD_CONFIG_ROOT:?FCD_CONFIG_ROOT must be set}/common.env
+      - ${FCD_CONFIG_ROOT:?FCD_CONFIG_ROOT must be set}/backup.env
+    environment:
+      NODE_ENV: production
+      OPS_GIT_REVISION: ${FCD_SUPPORT_REVISION:?FCD_SUPPORT_REVISION must be set}
+      MODEL_EXECUTION_ENABLED: 'false'
+      OUTBOUND_EXECUTION_ENABLED: 'false'
+      N8N_EXECUTION_ENABLED: 'false'
+      DATABASE_URL_FILE: /run/secrets/backup-database
+      BACKUP_ENCRYPTION_RECIPIENT_FILE: /run/secrets/backup-recipient
+      RECOVERY_MANIFEST_HMAC_FILE: /run/secrets/recovery-hmac
+    secrets: [backup-database, backup-recipient, recovery-hmac]
+    entrypoint: ['/usr/local/bin/container-entrypoint.sh', 'operations']
+    command: ['node', 'dist/operations-main.js', 'backup']
+    healthcheck:
+      test: ['CMD', 'node', '--input-type=module', '-e', 'process.exit(0)']
+      interval: ${FCD_HEALTH_INTERVAL_MS:?FCD_HEALTH_INTERVAL_MS must be set}ms
+      timeout: ${FCD_HEALTH_TIMEOUT_MS:?FCD_HEALTH_TIMEOUT_MS must be set}ms
+      retries: ${FCD_HEALTH_RETRIES:?FCD_HEALTH_RETRIES must be set}
+      start_period: ${FCD_HEALTH_START_MS:?FCD_HEALTH_START_MS must be set}ms
+    networks: [operations_data]
+    volumes:
+      - backups:/var/lib/fcd-support/backups
+
+  verify-backup:
+    <<: *security
+    tmpfs:
+      - /run/fcd-support:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0700,size=${FCD_VERIFY_BACKUP_TMPFS_MIB:?FCD_VERIFY_BACKUP_TMPFS_MIB must be set}m
+    image: ${FCD_OPERATIONS_IMAGE:?FCD_OPERATIONS_IMAGE must be set}
+    labels:
+      org.opencontainers.image.revision: ${FCD_SUPPORT_REVISION:?FCD_SUPPORT_REVISION must be set}
+    restart: 'no'
+    profiles: [operations-verify-backup]
+    cpus: ${FCD_VERIFY_BACKUP_CPUS:?FCD_VERIFY_BACKUP_CPUS must be set}
+    mem_limit: ${FCD_VERIFY_BACKUP_MEMORY_MIB:?FCD_VERIFY_BACKUP_MEMORY_MIB must be set}m
+    pids_limit: ${FCD_VERIFY_BACKUP_PIDS:?FCD_VERIFY_BACKUP_PIDS must be set}
+    env_file:
+      - ${FCD_CONFIG_ROOT:?FCD_CONFIG_ROOT must be set}/common.env
+      - ${FCD_CONFIG_ROOT:?FCD_CONFIG_ROOT must be set}/verify-backup.env
+    environment:
+      NODE_ENV: production
+      OPS_GIT_REVISION: ${FCD_SUPPORT_REVISION:?FCD_SUPPORT_REVISION must be set}
+      MODEL_EXECUTION_ENABLED: 'false'
+      OUTBOUND_EXECUTION_ENABLED: 'false'
+      N8N_EXECUTION_ENABLED: 'false'
+      DATABASE_URL_FILE: /run/secrets/verify-database
+      BACKUP_AGE_IDENTITY_FILE: /run/secrets/restore-identity
+      RECOVERY_MANIFEST_HMAC_FILE: /run/secrets/recovery-hmac
+    secrets: [verify-database, restore-identity, recovery-hmac]
+    entrypoint: ['/usr/local/bin/container-entrypoint.sh', 'operations-readonly']
+    command: ['node', 'dist/operations-main.js', 'verify-backup']
+    healthcheck:
+      test: ['CMD', 'node', '--input-type=module', '-e', 'process.exit(0)']
+      interval: ${FCD_HEALTH_INTERVAL_MS:?FCD_HEALTH_INTERVAL_MS must be set}ms
+      timeout: ${FCD_HEALTH_TIMEOUT_MS:?FCD_HEALTH_TIMEOUT_MS must be set}ms
+      retries: ${FCD_HEALTH_RETRIES:?FCD_HEALTH_RETRIES must be set}
+      start_period: ${FCD_HEALTH_START_MS:?FCD_HEALTH_START_MS must be set}ms
+    networks: [operations_data]
+    volumes:
+      - backups:/var/lib/fcd-support/backups:ro
+
+  checkpoint:
+    <<: *security
+    tmpfs:
+      - /run/fcd-support:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0700,size=${FCD_CHECKPOINT_TMPFS_MIB:?FCD_CHECKPOINT_TMPFS_MIB must be set}m
+    image: ${FCD_OPERATIONS_IMAGE:?FCD_OPERATIONS_IMAGE must be set}
+    labels:
+      org.opencontainers.image.revision: ${FCD_SUPPORT_REVISION:?FCD_SUPPORT_REVISION must be set}
+    restart: 'no'
+    profiles: [operations-checkpoint]
+    cpus: ${FCD_CHECKPOINT_CPUS:?FCD_CHECKPOINT_CPUS must be set}
+    mem_limit: ${FCD_CHECKPOINT_MEMORY_MIB:?FCD_CHECKPOINT_MEMORY_MIB must be set}m
+    pids_limit: ${FCD_CHECKPOINT_PIDS:?FCD_CHECKPOINT_PIDS must be set}
+    env_file:
+      - ${FCD_CONFIG_ROOT:?FCD_CONFIG_ROOT must be set}/common.env
+      - ${FCD_CONFIG_ROOT:?FCD_CONFIG_ROOT must be set}/checkpoint.env
+    environment:
+      NODE_ENV: production
+      OPS_GIT_REVISION: ${FCD_SUPPORT_REVISION:?FCD_SUPPORT_REVISION must be set}
+      MODEL_EXECUTION_ENABLED: 'false'
+      OUTBOUND_EXECUTION_ENABLED: 'false'
+      N8N_EXECUTION_ENABLED: 'false'
+      DATABASE_URL_FILE: /run/secrets/checkpoint-database
+      BACKUP_ENCRYPTION_RECIPIENT_FILE: /run/secrets/backup-recipient
+      RECOVERY_MANIFEST_HMAC_FILE: /run/secrets/recovery-hmac
+    secrets: [checkpoint-database, backup-recipient, recovery-hmac]
+    entrypoint: ['/usr/local/bin/container-entrypoint.sh', 'operations']
+    command: ['node', 'dist/operations-main.js', 'checkpoint']
+    healthcheck:
+      test: ['CMD', 'node', '--input-type=module', '-e', 'process.exit(0)']
+      interval: ${FCD_HEALTH_INTERVAL_MS:?FCD_HEALTH_INTERVAL_MS must be set}ms
+      timeout: ${FCD_HEALTH_TIMEOUT_MS:?FCD_HEALTH_TIMEOUT_MS must be set}ms
+      retries: ${FCD_HEALTH_RETRIES:?FCD_HEALTH_RETRIES must be set}
+      start_period: ${FCD_HEALTH_START_MS:?FCD_HEALTH_START_MS must be set}ms
+    networks: [operations_data]
+    volumes:
+      - backups:/var/lib/fcd-support/backups
+
+  health:
+    <<: *security
+    tmpfs:
+      - /run/fcd-support:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0700,size=${FCD_HEALTH_TMPFS_MIB:?FCD_HEALTH_TMPFS_MIB must be set}m
+    image: ${FCD_OPERATIONS_IMAGE:?FCD_OPERATIONS_IMAGE must be set}
+    labels:
+      org.opencontainers.image.revision: ${FCD_SUPPORT_REVISION:?FCD_SUPPORT_REVISION must be set}
+    restart: 'no'
+    profiles: [operations-health]
+    cpus: ${FCD_HEALTH_CPUS:?FCD_HEALTH_CPUS must be set}
+    mem_limit: ${FCD_HEALTH_MEMORY_MIB:?FCD_HEALTH_MEMORY_MIB must be set}m
+    pids_limit: ${FCD_HEALTH_PIDS:?FCD_HEALTH_PIDS must be set}
+    env_file:
+      - ${FCD_CONFIG_ROOT:?FCD_CONFIG_ROOT must be set}/common.env
+      - ${FCD_CONFIG_ROOT:?FCD_CONFIG_ROOT must be set}/health.env
+    environment:
+      NODE_ENV: production
+      OPS_GIT_REVISION: ${FCD_SUPPORT_REVISION:?FCD_SUPPORT_REVISION must be set}
+      MODEL_EXECUTION_ENABLED: 'false'
+      OUTBOUND_EXECUTION_ENABLED: 'false'
+      N8N_EXECUTION_ENABLED: 'false'
+      DATABASE_URL_FILE: /run/secrets/health-database
+    secrets: [health-database]
+    entrypoint: ['/usr/local/bin/container-entrypoint.sh', 'application']
+    command: ['node', 'dist/operations-main.js', 'health']
+    healthcheck:
+      test: ['CMD', 'node', '--input-type=module', '-e', 'process.exit(0)']
+      interval: ${FCD_HEALTH_INTERVAL_MS:?FCD_HEALTH_INTERVAL_MS must be set}ms
+      timeout: ${FCD_HEALTH_TIMEOUT_MS:?FCD_HEALTH_TIMEOUT_MS must be set}ms
+      retries: ${FCD_HEALTH_RETRIES:?FCD_HEALTH_RETRIES must be set}
+      start_period: ${FCD_HEALTH_START_MS:?FCD_HEALTH_START_MS must be set}ms
+    networks: [operations_data]
+
+  maintenance:
+    <<: *security
+    tmpfs:
+      - /run/fcd-support:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0700,size=${FCD_MAINTENANCE_TMPFS_MIB:?FCD_MAINTENANCE_TMPFS_MIB must be set}m
+    image: ${FCD_OPERATIONS_IMAGE:?FCD_OPERATIONS_IMAGE must be set}
+    labels:
+      org.opencontainers.image.revision: ${FCD_SUPPORT_REVISION:?FCD_SUPPORT_REVISION must be set}
+    restart: 'no'
+    profiles: [operations-maintenance]
+    cpus: ${FCD_MAINTENANCE_CPUS:?FCD_MAINTENANCE_CPUS must be set}
+    mem_limit: ${FCD_MAINTENANCE_MEMORY_MIB:?FCD_MAINTENANCE_MEMORY_MIB must be set}m
+    pids_limit: ${FCD_MAINTENANCE_PIDS:?FCD_MAINTENANCE_PIDS must be set}
+    env_file:
+      - ${FCD_CONFIG_ROOT:?FCD_CONFIG_ROOT must be set}/common.env
+      - ${FCD_CONFIG_ROOT:?FCD_CONFIG_ROOT must be set}/maintenance.env
+    environment:
+      NODE_ENV: production
+      OPS_GIT_REVISION: ${FCD_SUPPORT_REVISION:?FCD_SUPPORT_REVISION must be set}
+      MODEL_EXECUTION_ENABLED: 'false'
+      OUTBOUND_EXECUTION_ENABLED: 'false'
+      N8N_EXECUTION_ENABLED: 'false'
+      DATABASE_URL_FILE: /run/secrets/maintenance-database
+      PRIVACY_HMAC_KEYRING_FILE: /run/secrets/maintenance-keyring
+    secrets: [maintenance-database, maintenance-keyring]
+    entrypoint: ['/usr/local/bin/container-entrypoint.sh', 'application']
+    command: ['node', 'dist/operations-main.js', 'maintenance']
+    healthcheck:
+      test: ['CMD', 'node', '--input-type=module', '-e', 'process.exit(0)']
+      interval: ${FCD_HEALTH_INTERVAL_MS:?FCD_HEALTH_INTERVAL_MS must be set}ms
+      timeout: ${FCD_HEALTH_TIMEOUT_MS:?FCD_HEALTH_TIMEOUT_MS must be set}ms
+      retries: ${FCD_HEALTH_RETRIES:?FCD_HEALTH_RETRIES must be set}
+      start_period: ${FCD_HEALTH_START_MS:?FCD_HEALTH_START_MS must be set}ms
+    networks: [operations_data]
+
+networks:
+  operations_data:
+    name: ${FCD_RUNTIME_PROJECT:?FCD_RUNTIME_PROJECT must be set}-operations-data
+    external: true
+volumes:
+  backups:
+    name: ${FCD_BACKUP_VOLUME:?FCD_BACKUP_VOLUME must be set}
+
+secrets:
+  migrate-database:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/migrate/migrate-database
+  backup-database:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/backup/backup-database
+  backup-recipient:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/backup/backup-recipient
+  recovery-hmac:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/backup/recovery-hmac
+  verify-database:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/verify-backup/verify-database
+  restore-identity:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/verify-backup/restore-identity
+  checkpoint-database:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/checkpoint/checkpoint-database
+  health-database:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/health/health-database
+  maintenance-database:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/maintenance/maintenance-database
+  maintenance-keyring:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/maintenance/maintenance-keyring

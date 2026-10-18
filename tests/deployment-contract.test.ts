@@ -11,6 +11,15 @@ function readProjectFile(path: string): string {
 }
 
 describe('test deployment contract', () => {
+  test('keeps the retained admission-only layout distinct from the Phase 6 runtime', () => {
+    const legacy = readProjectFile('infra/compose.deploy.yml');
+    const runtime = readProjectFile('infra/compose.runtime.yml');
+    expect(legacy).toContain('fcd-support-api:');
+    expect(legacy).not.toContain('fcd-support-admin:');
+    expect(legacy).not.toMatch(/^\s+ports:/mu);
+    expect(runtime).toContain('fcd-support-admin:');
+    expect(runtime).toContain('127.0.0.1:');
+  });
   test('builds a pinned non-root, revision-labelled API image on internal port 3003', () => {
     const dockerfile = readProjectFile('Dockerfile');
 

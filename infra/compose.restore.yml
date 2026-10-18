@@ -1,0 +1,104 @@
+name: ${FCD_RESTORE_PROJECT:?FCD_RESTORE_PROJECT must be set}
+
+x-security: &security
+  user: node
+  init: true
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  stop_grace_period: ${FCD_STOP_GRACE_MS:?FCD_STOP_GRACE_MS must be set}ms
+
+services:
+  postgres:
+    <<: *security
+    image: ${FCD_POSTGRES_IMAGE:?FCD_POSTGRES_IMAGE must be set}
+    labels:
+      org.opencontainers.image.revision: ${FCD_SUPPORT_REVISION:?FCD_SUPPORT_REVISION must be set}
+    user: postgres
+    env_file:
+      - ${FCD_CONFIG_ROOT:?FCD_CONFIG_ROOT must be set}/common.env
+    restart: 'no'
+    cpus: ${FCD_POSTGRES_CPUS:?FCD_POSTGRES_CPUS must be set}
+    mem_limit: ${FCD_POSTGRES_MEMORY_MIB:?FCD_POSTGRES_MEMORY_MIB must be set}m
+    pids_limit: ${FCD_POSTGRES_PIDS:?FCD_POSTGRES_PIDS must be set}
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: ${FCD_POSTGRES_DB:?FCD_POSTGRES_DB must be set}
+      POSTGRES_PASSWORD_FILE: /run/secrets/restore-postgres-password
+      PGDATA: /var/lib/postgresql/18/docker
+    secrets: [restore-postgres-password]
+    volumes:
+      - restore-data:/var/lib/postgresql
+    tmpfs:
+      - /var/run/postgresql:rw,noexec,nosuid,nodev,uid=999,gid=999,mode=0770,size=${FCD_POSTGRES_TMPFS_MIB:?FCD_POSTGRES_TMPFS_MIB must be set}m
+      - /tmp:rw,noexec,nosuid,nodev,mode=1777,size=${FCD_POSTGRES_TMPFS_MIB:?FCD_POSTGRES_TMPFS_MIB must be set}m
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -q -U postgres -d "$${POSTGRES_DB}"']
+      interval: ${FCD_HEALTH_INTERVAL_MS:?FCD_HEALTH_INTERVAL_MS must be set}ms
+      timeout: ${FCD_HEALTH_TIMEOUT_MS:?FCD_HEALTH_TIMEOUT_MS must be set}ms
+      retries: ${FCD_HEALTH_RETRIES:?FCD_HEALTH_RETRIES must be set}
+      start_period: ${FCD_HEALTH_START_MS:?FCD_HEALTH_START_MS must be set}ms
+    networks: [restore_data]
+
+  restore:
+    <<: *security
+    tmpfs:
+      - /run/fcd-support:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0700,size=${FCD_RESTORE_TMPFS_MIB:?FCD_RESTORE_TMPFS_MIB must be set}m
+    image: ${FCD_OPERATIONS_IMAGE:?FCD_OPERATIONS_IMAGE must be set}
+    labels:
+      org.opencontainers.image.revision: ${FCD_SUPPORT_REVISION:?FCD_SUPPORT_REVISION must be set}
+    restart: 'no'
+    profiles: [isolated-restore]
+    cpus: ${FCD_RESTORE_CPUS:?FCD_RESTORE_CPUS must be set}
+    mem_limit: ${FCD_RESTORE_MEMORY_MIB:?FCD_RESTORE_MEMORY_MIB must be set}m
+    pids_limit: ${FCD_RESTORE_PIDS:?FCD_RESTORE_PIDS must be set}
+    env_file:
+      - ${FCD_CONFIG_ROOT:?FCD_CONFIG_ROOT must be set}/common.env
+      - ${FCD_CONFIG_ROOT:?FCD_CONFIG_ROOT must be set}/restore.env
+    environment:
+      NODE_ENV: production
+      OPS_GIT_REVISION: ${FCD_SUPPORT_REVISION:?FCD_SUPPORT_REVISION must be set}
+      MODEL_EXECUTION_ENABLED: 'false'
+      OUTBOUND_EXECUTION_ENABLED: 'false'
+      N8N_EXECUTION_ENABLED: 'false'
+      DATABASE_URL_FILE: /run/secrets/restore-database
+      PRIVACY_HMAC_KEYRING_FILE: /run/secrets/restore-keyring
+      BACKUP_AGE_IDENTITY_FILE: /run/secrets/restore-identity
+      RECOVERY_MANIFEST_HMAC_FILE: /run/secrets/recovery-hmac
+    secrets: [restore-database, restore-keyring, restore-identity, recovery-hmac]
+    entrypoint: ['/usr/local/bin/container-entrypoint.sh', 'operations-readonly']
+    command: ['node', 'dist/operations-main.js', 'restore']
+    healthcheck:
+      test: ['CMD', 'node', '--input-type=module', '-e', 'process.exit(0)']
+      interval: ${FCD_HEALTH_INTERVAL_MS:?FCD_HEALTH_INTERVAL_MS must be set}ms
+      timeout: ${FCD_HEALTH_TIMEOUT_MS:?FCD_HEALTH_TIMEOUT_MS must be set}ms
+      retries: ${FCD_HEALTH_RETRIES:?FCD_HEALTH_RETRIES must be set}
+      start_period: ${FCD_HEALTH_START_MS:?FCD_HEALTH_START_MS must be set}ms
+    networks: [restore_data]
+    volumes:
+      - backups:/var/lib/fcd-support/backups:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+networks:
+  restore_data:
+    name: ${FCD_RESTORE_PROJECT:?FCD_RESTORE_PROJECT must be set}-data
+    internal: true
+volumes:
+  restore-data:
+    name: ${FCD_RESTORE_VOLUME:?FCD_RESTORE_VOLUME must be set}
+  backups:
+    name: ${FCD_BACKUP_VOLUME:?FCD_BACKUP_VOLUME must be set}
+    external: true
+
+secrets:
+  restore-postgres-password:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/restore/restore-postgres-password
+  restore-database:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/restore/restore-database
+  restore-keyring:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/restore/restore-keyring
+  restore-identity:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/verify-backup/restore-identity
+  recovery-hmac:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/backup/recovery-hmac

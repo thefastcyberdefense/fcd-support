@@ -1,0 +1,362 @@
+name: ${FCD_RUNTIME_PROJECT:?FCD_RUNTIME_PROJECT must be set}
+
+x-security: &security
+  user: node
+  init: true
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  stop_grace_period: ${FCD_STOP_GRACE_MS:?FCD_STOP_GRACE_MS must be set}ms
+
+services:
+  postgres:
+    <<: *security
+    image: ${FCD_POSTGRES_IMAGE:?FCD_POSTGRES_IMAGE must be set}
+    labels:
+      org.opencontainers.image.revision: ${FCD_SUPPORT_REVISION:?FCD_SUPPORT_REVISION must be set}
+    user: postgres
+    env_file:
+      - ${FCD_CONFIG_ROOT:?FCD_CONFIG_ROOT must be set}/common.env
+    restart: 'unless-stopped'
+    cpus: ${FCD_POSTGRES_CPUS:?FCD_POSTGRES_CPUS must be set}
+    mem_limit: ${FCD_POSTGRES_MEMORY_MIB:?FCD_POSTGRES_MEMORY_MIB must be set}m
+    pids_limit: ${FCD_POSTGRES_PIDS:?FCD_POSTGRES_PIDS must be set}
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: ${FCD_POSTGRES_DB:?FCD_POSTGRES_DB must be set}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres-password
+      PGDATA: /var/lib/postgresql/18/docker
+    secrets: [postgres-password]
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    tmpfs:
+      - /var/run/postgresql:rw,noexec,nosuid,nodev,uid=999,gid=999,mode=0770,size=${FCD_POSTGRES_TMPFS_MIB:?FCD_POSTGRES_TMPFS_MIB must be set}m
+      - /tmp:rw,noexec,nosuid,nodev,mode=1777,size=${FCD_POSTGRES_TMPFS_MIB:?FCD_POSTGRES_TMPFS_MIB must be set}m
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -q -U postgres -d "$${POSTGRES_DB}"']
+      interval: ${FCD_HEALTH_INTERVAL_MS:?FCD_HEALTH_INTERVAL_MS must be set}ms
+      timeout: ${FCD_HEALTH_TIMEOUT_MS:?FCD_HEALTH_TIMEOUT_MS must be set}ms
+      retries: ${FCD_HEALTH_RETRIES:?FCD_HEALTH_RETRIES must be set}
+      start_period: ${FCD_HEALTH_START_MS:?FCD_HEALTH_START_MS must be set}ms
+    networks:
+      [webhook_data, admin_data, reply_data, outbound_data, notification_data, operations_data]
+
+  fcd-support-api:
+    <<: *security
+    tmpfs:
+      - /run/fcd-support:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0700,size=${FCD_WEBHOOK_TMPFS_MIB:?FCD_WEBHOOK_TMPFS_MIB must be set}m
+    image: ${FCD_SUPPORT_IMAGE:?FCD_SUPPORT_IMAGE must be set}
+    labels:
+      org.opencontainers.image.revision: ${FCD_SUPPORT_REVISION:?FCD_SUPPORT_REVISION must be set}
+    restart: unless-stopped
+    cpus: ${FCD_WEBHOOK_CPUS:?FCD_WEBHOOK_CPUS must be set}
+    mem_limit: ${FCD_WEBHOOK_MEMORY_MIB:?FCD_WEBHOOK_MEMORY_MIB must be set}m
+    pids_limit: ${FCD_WEBHOOK_PIDS:?FCD_WEBHOOK_PIDS must be set}
+    env_file:
+      - ${FCD_CONFIG_ROOT:?FCD_CONFIG_ROOT must be set}/common.env
+      - ${FCD_CONFIG_ROOT:?FCD_CONFIG_ROOT must be set}/webhook.env
+    environment:
+      NODE_ENV: production
+      OPS_GIT_REVISION: ${FCD_SUPPORT_REVISION:?FCD_SUPPORT_REVISION must be set}
+      MODEL_EXECUTION_ENABLED: 'false'
+      OUTBOUND_EXECUTION_ENABLED: 'false'
+      N8N_EXECUTION_ENABLED: 'false'
+      HOST: 0.0.0.0
+      PORT: '3003'
+      DATABASE_URL_FILE: /run/secrets/webhook-database
+      META_APP_SECRET_FILE: /run/secrets/meta-app-secret
+      META_VERIFY_TOKEN_FILE: /run/secrets/meta-verify-token
+      PRIVACY_HMAC_KEYRING_FILE: /run/secrets/webhook-keyring
+    secrets: [webhook-database, meta-app-secret, meta-verify-token, webhook-keyring]
+    command: ['node', 'dist/main.js']
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '--input-type=module',
+          '-e',
+          "try { const r=await fetch('http://127.0.0.1:3003/webhooks/meta',{signal:AbortSignal.timeout(2000)}); process.exit(r.status===403?0:1); } catch { process.exit(1); }",
+        ]
+      interval: ${FCD_HEALTH_INTERVAL_MS:?FCD_HEALTH_INTERVAL_MS must be set}ms
+      timeout: ${FCD_HEALTH_TIMEOUT_MS:?FCD_HEALTH_TIMEOUT_MS must be set}ms
+      retries: ${FCD_HEALTH_RETRIES:?FCD_HEALTH_RETRIES must be set}
+      start_period: ${FCD_HEALTH_START_MS:?FCD_HEALTH_START_MS must be set}ms
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      webhook_data: {}
+      ingress:
+        aliases: [fcd-support-api]
+
+  fcd-support-admin:
+    <<: *security
+    tmpfs:
+      - /run/fcd-support:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0700,size=${FCD_ADMIN_TMPFS_MIB:?FCD_ADMIN_TMPFS_MIB must be set}m
+    image: ${FCD_SUPPORT_IMAGE:?FCD_SUPPORT_IMAGE must be set}
+    labels:
+      org.opencontainers.image.revision: ${FCD_SUPPORT_REVISION:?FCD_SUPPORT_REVISION must be set}
+    restart: unless-stopped
+    cpus: ${FCD_ADMIN_CPUS:?FCD_ADMIN_CPUS must be set}
+    mem_limit: ${FCD_ADMIN_MEMORY_MIB:?FCD_ADMIN_MEMORY_MIB must be set}m
+    pids_limit: ${FCD_ADMIN_PIDS:?FCD_ADMIN_PIDS must be set}
+    env_file:
+      - ${FCD_CONFIG_ROOT:?FCD_CONFIG_ROOT must be set}/common.env
+      - ${FCD_CONFIG_ROOT:?FCD_CONFIG_ROOT must be set}/admin.env
+    environment:
+      NODE_ENV: production
+      OPS_GIT_REVISION: ${FCD_SUPPORT_REVISION:?FCD_SUPPORT_REVISION must be set}
+      MODEL_EXECUTION_ENABLED: 'false'
+      OUTBOUND_EXECUTION_ENABLED: 'false'
+      N8N_EXECUTION_ENABLED: 'false'
+      ADMIN_HOST: 0.0.0.0
+      ADMIN_PORT: '3004'
+      ADMIN_LISTEN_MODE: container_private
+      ADMIN_ORIGIN: ${FCD_ADMIN_ORIGIN:?FCD_ADMIN_ORIGIN must be set}
+      ADMIN_BROWSER_PORT: ${FCD_ADMIN_BROWSER_PORT:?FCD_ADMIN_BROWSER_PORT must be set}
+      DATABASE_URL_FILE: /run/secrets/admin-database
+      ADMIN_SESSION_HMAC_KEY_FILE: /run/secrets/admin-session
+      ADMIN_MFA_ENCRYPTION_KEY_FILE: /run/secrets/admin-mfa
+    secrets: [admin-database, admin-session, admin-mfa]
+    command: ['node', 'dist/admin-main.js']
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '--input-type=module',
+          '-e',
+          "try { const r=await fetch('http://127.0.0.1:3004/login',{signal:AbortSignal.timeout(2000)}); process.exit(r.status===200?0:1); } catch { process.exit(1); }",
+        ]
+      interval: ${FCD_HEALTH_INTERVAL_MS:?FCD_HEALTH_INTERVAL_MS must be set}ms
+      timeout: ${FCD_HEALTH_TIMEOUT_MS:?FCD_HEALTH_TIMEOUT_MS must be set}ms
+      retries: ${FCD_HEALTH_RETRIES:?FCD_HEALTH_RETRIES must be set}
+      start_period: ${FCD_HEALTH_START_MS:?FCD_HEALTH_START_MS must be set}ms
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [admin_data, management]
+    ports:
+      - '127.0.0.1:${FCD_ADMIN_HOST_PORT:?FCD_ADMIN_HOST_PORT must be set}:3004'
+
+  fcd-support-reply:
+    <<: *security
+    tmpfs:
+      - /run/fcd-support:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0700,size=${FCD_REPLY_TMPFS_MIB:?FCD_REPLY_TMPFS_MIB must be set}m
+    image: ${FCD_SUPPORT_IMAGE:?FCD_SUPPORT_IMAGE must be set}
+    labels:
+      org.opencontainers.image.revision: ${FCD_SUPPORT_REVISION:?FCD_SUPPORT_REVISION must be set}
+    restart: unless-stopped
+    cpus: ${FCD_REPLY_CPUS:?FCD_REPLY_CPUS must be set}
+    mem_limit: ${FCD_REPLY_MEMORY_MIB:?FCD_REPLY_MEMORY_MIB must be set}m
+    pids_limit: ${FCD_REPLY_PIDS:?FCD_REPLY_PIDS must be set}
+    env_file:
+      - ${FCD_CONFIG_ROOT:?FCD_CONFIG_ROOT must be set}/common.env
+      - ${FCD_CONFIG_ROOT:?FCD_CONFIG_ROOT must be set}/reply.env
+    environment:
+      NODE_ENV: production
+      OPS_GIT_REVISION: ${FCD_SUPPORT_REVISION:?FCD_SUPPORT_REVISION must be set}
+      MODEL_EXECUTION_ENABLED: 'false'
+      OUTBOUND_EXECUTION_ENABLED: 'false'
+      N8N_EXECUTION_ENABLED: 'false'
+      DATABASE_URL_FILE: /run/secrets/reply-database
+      PRIVACY_HMAC_KEYRING_FILE: /run/secrets/reply-keyring
+    secrets: [reply-database, reply-keyring]
+    command: ['node', 'dist/worker-main.js', 'reply']
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '--input-type=module',
+          '-e',
+          "import {readRuntimeHeartbeat} from './dist/operations/role-runtime.js'; process.exit(readRuntimeHeartbeat('/run/fcd-support/heartbeat.json',new Date(),Number(process.env.OPS_HEALTH_STALE_MS))?0:1);",
+        ]
+      interval: ${FCD_HEALTH_INTERVAL_MS:?FCD_HEALTH_INTERVAL_MS must be set}ms
+      timeout: ${FCD_HEALTH_TIMEOUT_MS:?FCD_HEALTH_TIMEOUT_MS must be set}ms
+      retries: ${FCD_HEALTH_RETRIES:?FCD_HEALTH_RETRIES must be set}
+      start_period: ${FCD_HEALTH_START_MS:?FCD_HEALTH_START_MS must be set}ms
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [reply_data]
+
+  fcd-support-outbound:
+    <<: *security
+    tmpfs:
+      - /run/fcd-support:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0700,size=${FCD_OUTBOUND_TMPFS_MIB:?FCD_OUTBOUND_TMPFS_MIB must be set}m
+    image: ${FCD_SUPPORT_IMAGE:?FCD_SUPPORT_IMAGE must be set}
+    labels:
+      org.opencontainers.image.revision: ${FCD_SUPPORT_REVISION:?FCD_SUPPORT_REVISION must be set}
+    restart: unless-stopped
+    profiles: [outbound-execution]
+    cpus: ${FCD_OUTBOUND_CPUS:?FCD_OUTBOUND_CPUS must be set}
+    mem_limit: ${FCD_OUTBOUND_MEMORY_MIB:?FCD_OUTBOUND_MEMORY_MIB must be set}m
+    pids_limit: ${FCD_OUTBOUND_PIDS:?FCD_OUTBOUND_PIDS must be set}
+    env_file:
+      - ${FCD_CONFIG_ROOT:?FCD_CONFIG_ROOT must be set}/common.env
+      - ${FCD_CONFIG_ROOT:?FCD_CONFIG_ROOT must be set}/outbound.env
+    environment:
+      NODE_ENV: production
+      OPS_GIT_REVISION: ${FCD_SUPPORT_REVISION:?FCD_SUPPORT_REVISION must be set}
+      MODEL_EXECUTION_ENABLED: 'false'
+      OUTBOUND_EXECUTION_ENABLED: ${OUTBOUND_EXECUTION_ENABLED:?OUTBOUND_EXECUTION_ENABLED must be set}
+      N8N_EXECUTION_ENABLED: 'false'
+      DATABASE_URL_FILE: /run/secrets/outbound-database
+      PRIVACY_HMAC_KEYRING_FILE: /run/secrets/outbound-keyring
+      META_PAGE_ACCESS_TOKEN_FILE: /run/secrets/meta-page-token
+      META_WHATSAPP_ACCESS_TOKEN_FILE: /run/secrets/meta-whatsapp-token
+      META_MESSENGER_PAGE_ID_FILE: /run/secrets/meta-page-id
+      META_WHATSAPP_PHONE_NUMBER_ID_FILE: /run/secrets/meta-phone-id
+    secrets:
+      [
+        outbound-database,
+        outbound-keyring,
+        meta-page-token,
+        meta-whatsapp-token,
+        meta-page-id,
+        meta-phone-id,
+      ]
+    command: ['node', 'dist/worker-main.js', 'outbound']
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '--input-type=module',
+          '-e',
+          "import {readRuntimeHeartbeat} from './dist/operations/role-runtime.js'; process.exit(readRuntimeHeartbeat('/run/fcd-support/heartbeat.json',new Date(),Number(process.env.OPS_HEALTH_STALE_MS))?0:1);",
+        ]
+      interval: ${FCD_HEALTH_INTERVAL_MS:?FCD_HEALTH_INTERVAL_MS must be set}ms
+      timeout: ${FCD_HEALTH_TIMEOUT_MS:?FCD_HEALTH_TIMEOUT_MS must be set}ms
+      retries: ${FCD_HEALTH_RETRIES:?FCD_HEALTH_RETRIES must be set}
+      start_period: ${FCD_HEALTH_START_MS:?FCD_HEALTH_START_MS must be set}ms
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [outbound_data, provider_egress]
+
+  fcd-support-notification:
+    <<: *security
+    tmpfs:
+      - /run/fcd-support:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0700,size=${FCD_NOTIFICATION_TMPFS_MIB:?FCD_NOTIFICATION_TMPFS_MIB must be set}m
+    image: ${FCD_SUPPORT_IMAGE:?FCD_SUPPORT_IMAGE must be set}
+    labels:
+      org.opencontainers.image.revision: ${FCD_SUPPORT_REVISION:?FCD_SUPPORT_REVISION must be set}
+    restart: unless-stopped
+    profiles: [notification-execution]
+    cpus: ${FCD_NOTIFICATION_CPUS:?FCD_NOTIFICATION_CPUS must be set}
+    mem_limit: ${FCD_NOTIFICATION_MEMORY_MIB:?FCD_NOTIFICATION_MEMORY_MIB must be set}m
+    pids_limit: ${FCD_NOTIFICATION_PIDS:?FCD_NOTIFICATION_PIDS must be set}
+    env_file:
+      - ${FCD_CONFIG_ROOT:?FCD_CONFIG_ROOT must be set}/common.env
+      - ${FCD_CONFIG_ROOT:?FCD_CONFIG_ROOT must be set}/notification.env
+    environment:
+      NODE_ENV: production
+      OPS_GIT_REVISION: ${FCD_SUPPORT_REVISION:?FCD_SUPPORT_REVISION must be set}
+      MODEL_EXECUTION_ENABLED: 'false'
+      OUTBOUND_EXECUTION_ENABLED: 'false'
+      N8N_EXECUTION_ENABLED: ${N8N_EXECUTION_ENABLED:?N8N_EXECUTION_ENABLED must be set}
+      DATABASE_URL_FILE: /run/secrets/notification-database
+      N8N_ESCALATION_WEBHOOK_SECRET_FILE: /run/secrets/n8n-secret
+    secrets: [notification-database, n8n-secret]
+    command: ['node', 'dist/worker-main.js', 'notification']
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '--input-type=module',
+          '-e',
+          "import {readRuntimeHeartbeat} from './dist/operations/role-runtime.js'; process.exit(readRuntimeHeartbeat('/run/fcd-support/heartbeat.json',new Date(),Number(process.env.OPS_HEALTH_STALE_MS))?0:1);",
+        ]
+      interval: ${FCD_HEALTH_INTERVAL_MS:?FCD_HEALTH_INTERVAL_MS must be set}ms
+      timeout: ${FCD_HEALTH_TIMEOUT_MS:?FCD_HEALTH_TIMEOUT_MS must be set}ms
+      retries: ${FCD_HEALTH_RETRIES:?FCD_HEALTH_RETRIES must be set}
+      start_period: ${FCD_HEALTH_START_MS:?FCD_HEALTH_START_MS must be set}ms
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [notification_data, notification]
+
+networks:
+  management:
+    name: ${FCD_RUNTIME_PROJECT:?FCD_RUNTIME_PROJECT must be set}-management
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: nat
+      com.docker.network.bridge.gateway_mode_ipv6: nat
+      com.docker.network.bridge.host_binding_ipv4: 127.0.0.1
+      com.docker.network.bridge.enable_icc: 'false'
+  webhook_data:
+    name: ${FCD_RUNTIME_PROJECT:?FCD_RUNTIME_PROJECT must be set}-webhook-data
+    internal: true
+  admin_data:
+    name: ${FCD_RUNTIME_PROJECT:?FCD_RUNTIME_PROJECT must be set}-admin-data
+    internal: true
+  reply_data:
+    name: ${FCD_RUNTIME_PROJECT:?FCD_RUNTIME_PROJECT must be set}-reply-data
+    internal: true
+  outbound_data:
+    name: ${FCD_RUNTIME_PROJECT:?FCD_RUNTIME_PROJECT must be set}-outbound-data
+    internal: true
+  notification_data:
+    name: ${FCD_RUNTIME_PROJECT:?FCD_RUNTIME_PROJECT must be set}-notification-data
+    internal: true
+  operations_data:
+    name: ${FCD_RUNTIME_PROJECT:?FCD_RUNTIME_PROJECT must be set}-operations-data
+    internal: true
+  ingress:
+    name: ${FCD_INGRESS_NETWORK:?FCD_INGRESS_NETWORK must be set}
+    external: true
+  provider_egress:
+    name: ${FCD_RUNTIME_PROJECT:?FCD_RUNTIME_PROJECT must be set}-provider-egress
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: nat
+      com.docker.network.bridge.gateway_mode_ipv6: nat
+  notification:
+    name: ${FCD_NOTIFICATION_NETWORK:?FCD_NOTIFICATION_NETWORK must be set}
+    external: true
+volumes:
+  postgres-data:
+    name: ${FCD_POSTGRES_VOLUME:?FCD_POSTGRES_VOLUME must be set}
+
+secrets:
+  postgres-password:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/postgres/postgres-password
+  webhook-database:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/webhook/webhook-database
+  meta-app-secret:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/webhook/meta-app-secret
+  meta-verify-token:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/webhook/meta-verify-token
+  webhook-keyring:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/webhook/webhook-keyring
+  admin-database:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/admin/admin-database
+  admin-session:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/admin/admin-session
+  admin-mfa:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/admin/admin-mfa
+  reply-database:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/reply/reply-database
+  reply-keyring:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/reply/reply-keyring
+  outbound-database:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/outbound/outbound-database
+  outbound-keyring:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/outbound/outbound-keyring
+  meta-page-token:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/outbound/meta-page-token
+  meta-whatsapp-token:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/outbound/meta-whatsapp-token
+  meta-page-id:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/outbound/meta-page-id
+  meta-phone-id:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/outbound/meta-phone-id
+  notification-database:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/notification/notification-database
+  n8n-secret:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/notification/n8n-secret

@@ -1,0 +1,20 @@
+# Explicit overlay; FAQ-only runtime has no Manifest key or network.
+services:
+  fcd-support-reply:
+    profiles: !override [model-execution]
+    env_file:
+      - ${FCD_CONFIG_ROOT:?FCD_CONFIG_ROOT must be set}/model.env
+    environment:
+      MODEL_EXECUTION_ENABLED: ${MODEL_EXECUTION_ENABLED:?MODEL_EXECUTION_ENABLED must be set}
+      MANIFEST_API_KEY_FILE: /run/secrets/manifest-key
+    secrets:
+      - manifest-key
+    networks:
+      model: {}
+networks:
+  model:
+    name: ${FCD_MODEL_NETWORK:?FCD_MODEL_NETWORK must be set}
+    external: true
+secrets:
+  manifest-key:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/reply/manifest-key

@@ -76,12 +76,16 @@ function readRepositoryRoot(argv: readonly string[]): string {
 function trackerRows(markdown: string): Map<string, TrackerStatus> {
   const rows = new Map<string, TrackerStatus>();
   for (const line of markdown.split(/\r?\n/u)) {
-    const match =
-      /^\| (P0-(?:\d{3}|GATE)) \|.*\| (COMPLETE|IN PROGRESS|PENDING|BLOCKED|DEFERRED) \|/u.exec(
-        line,
-      );
-    if (match !== null) {
-      rows.set(requiredCapture(match, 1), requiredCapture(match, 2) as TrackerStatus);
+    const cells = line.split('|').map((cell) => cell.trim());
+    const id = cells[1];
+    const status = cells[5];
+    if (
+      id !== undefined &&
+      /^P0-(?:\d{3}|GATE)$/u.test(id) &&
+      status !== undefined &&
+      /^(?:COMPLETE|IN PROGRESS|PENDING|BLOCKED|DEFERRED)$/u.test(status)
+    ) {
+      rows.set(id, status as TrackerStatus);
     }
   }
   return rows;
@@ -90,7 +94,7 @@ function trackerRows(markdown: string): Map<string, TrackerStatus> {
 function trackerRowLines(markdown: string): Map<string, string> {
   const rows = new Map<string, string>();
   for (const line of markdown.split(/\r?\n/u)) {
-    const match = /^\| (P0-(?:\d{3}|GATE)) \|/u.exec(line);
+    const match = /^\|\s*(P0-(?:\d{3}|GATE))\s*\|/u.exec(line);
     if (match !== null) {
       rows.set(requiredCapture(match, 1), line);
     }

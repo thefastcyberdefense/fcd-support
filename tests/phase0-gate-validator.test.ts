@@ -46,6 +46,13 @@ afterEach(async () => {
 });
 
 describe('Phase 0 gate validator', () => {
+  test('accepts padded Markdown table cells without changing gate authority', async () => {
+    const root = await createFixture();
+    const path = join(root, 'docs', 'TODO.md');
+    const tracker = await readFile(path, 'utf8');
+    await writeFile(path, tracker.replace(/\|/gu, '|   '));
+    expect(runValidator(root)).toMatchObject({ status: 0, stderr: '' });
+  });
   test('accepts the complete repository gate and all normalized launch-gate labels', () => {
     const result = runValidator(repositoryRoot);
 
@@ -59,7 +66,7 @@ describe('Phase 0 gate validator', () => {
     const tracker = await readFile(trackerPath, 'utf8');
     await writeFile(
       trackerPath,
-      tracker.replace(/^(\| P0-018 \|.*\| )COMPLETE( \|.*)$/m, '$1PENDING$2'),
+      tracker.replace(/^(\|\s*P0-018\s*\|(?:[^|]*\|){3}\s*)COMPLETE(\s*\|.*)$/m, '$1PENDING$2'),
     );
 
     const result = runValidator(root);

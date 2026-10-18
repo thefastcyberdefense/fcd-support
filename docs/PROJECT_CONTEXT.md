@@ -147,6 +147,9 @@ All secret values are intentionally absent from this repository. Create them dur
 
 ## Launch Blockers
 
+- Task 8 architecture blocker (2026-10-18): draft runtime/operations/restore/model Compose files, structured render validator, resource-policy comparison, closed host-port preflight and scoped network harness are checkpointed, not release-ready. Four real configuration renderings pass; unit/code gate passes 828 tests across 57 files (two existing Linux-only skips). The realistic topology gate fails: both outbound and tunnel-like egress-enabled containers reached admin TCP 3004 despite loopback host publication, explicit NAT and disabled management ICC. Restricted internal-only fake egress had masked this path in earlier probes; those earlier successes are not a Task 8 pass. No authentication bypass or real server exposure was tested or claimed. Owner direction is required for a private Unix-socket/SSH transport amendment (recommended) versus privileged host firewall enforcement. No implementation of either alternative has started. Task 9 onward remains stopped behind this gate; all generated containers/networks/volumes are removed.
+- Task 7 evidence correction: its full code gate ran before final documentation formatting. Prettier's padded tracker cells then exposed a single-space assumption in the Phase 0 validator. Task 8 adds whitespace-insensitive fixed-status-column parsing, with 8/9 RED then 9/9 GREEN including all existing authority/evidence negative controls. The fresh Task 8 complete code gate is the current passing evidence; no planning or production authority requirement changed.
+
 - The admission-only test deployment is approved and running under a narrow exception. Outbound messaging, models, n8n actions, live customer data, and production deployment remain unauthorized.
 - P3-GATE passed on 2026-09-01 at validated revision `bb95803`. The project owner approved the major P4-001 architecture decisions and delegated the remaining local Phase 4 design/implementation approvals on 2026-09-01. P4-002 through P4-006 and the local P4-GATE now pass. Live recording-off, private-network, provider, test-asset, outbound, and production evidence remains governed by later gates.
 - Phase 0 is evidence-complete: the threat model, acceptance matrix, and planning-only gate review are recorded in `docs/security/threat-model.md`, `docs/testing/acceptance-matrix.md`, and `docs/reviews/phase-0-gate.md`. This closes architectural planning only; every `PARTIAL`, `PLANNED`, or `BLOCKED` acceptance row remains a launch blocker. The project owner authorized reversible local development through Phase 5; exceptions and current contracts are tracked in `docs/TODO.md`.
@@ -159,7 +162,8 @@ All secret values are intentionally absent from this repository. Create them dur
 - Actual encrypted backup/restore procedures and deployed human-takeover behavior must still pass their acceptance tests; the local restore-gate primitive alone does not satisfy P6-004.
 
 The current tracker action is P6-002, following the approved implementation
-plan in sequence from Task 8. All live
+plan in sequence from Task 8, currently awaiting a private-admin transport
+architecture decision after its isolation probe failed. All live
 Meta, Manifest, network, deployment, test-asset, and production
 actions remain separately gated. P1-GATE remains a separate explicit review
 record.

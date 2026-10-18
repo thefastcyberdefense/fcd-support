@@ -1,0 +1,87 @@
+# Network-only fakes merged over the actual runtime topology. No application
+# authority/credentials are used, and no live provider is contacted.
+x-fake: &fake
+  image: node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d
+  user: node
+  init: true
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  cpus: 0.5
+  mem_limit: 256m
+  pids_limit: 64
+  restart: 'no'
+  entrypoint:
+    [
+      'node',
+      '-e',
+      "require('http').createServer((q,r)=>r.end('synthetic-network-fixture')).listen(Number(process.env.PORT),'0.0.0.0')",
+    ]
+  command: !override []
+  env_file: !reset []
+  environment: !override { PORT: '8080' }
+  secrets: !reset []
+  volumes: !reset []
+  healthcheck:
+    test:
+      [
+        'CMD',
+        'node',
+        '-e',
+        "fetch('http://127.0.0.1:'+process.env.PORT,{signal:AbortSignal.timeout(1000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+      ]
+    interval: 1s
+    timeout: 2s
+    retries: 20
+
+services:
+  postgres:
+    image: postgres:18.4@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636
+    restart: 'no'
+    environment: !override
+      POSTGRES_DB: fcd_support_test
+      POSTGRES_USER: postgres
+      POSTGRES_HOST_AUTH_METHOD: trust
+      PGDATA: /var/lib/postgresql/18/docker
+    secrets: !reset []
+  fcd-support-api:
+    <<: *fake
+    environment: !override { PORT: '3003' }
+  fcd-support-admin:
+    <<: *fake
+    environment: !override { PORT: '3004' }
+    ports: !override ['127.0.0.1::3004']
+  fcd-support-reply:
+    <<: *fake
+    environment: !override { PORT: '8080' }
+  fcd-support-outbound:
+    <<: *fake
+    environment: !override { PORT: '8080' }
+  fcd-support-notification:
+    <<: *fake
+    environment: !override { PORT: '8080' }
+  manifest-fake:
+    <<: *fake
+    networks: [model]
+  meta-fake:
+    <<: *fake
+    networks: [provider_egress]
+  n8n-fake:
+    <<: *fake
+    networks: [notification]
+  ingress-probe:
+    <<: *fake
+    networks: [ingress, tunnel_egress]
+  restore-probe:
+    <<: *fake
+    networks: [restore_data]
+networks:
+  tunnel_egress:
+    name: ${FCD_RUNTIME_PROJECT:?}-tunnel-egress
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: nat
+      com.docker.network.bridge.gateway_mode_ipv6: nat
+  restore_data:
+    name: ${FCD_RUNTIME_PROJECT:?}-restore-data
+    internal: true

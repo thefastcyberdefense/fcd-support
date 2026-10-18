@@ -66,6 +66,9 @@ OPS_MOUNTS=(--mount "type=volume,src=$PREFIX-backups,dst=/var/lib/fcd-support/ba
 for tool in node npm pg_dump pg_restore age age-keygen; do
   docker run "${HARDENED[@]}" "${NODE_TMPFS[@]}" "${OPS_MOUNTS[@]}" "$OPS" "$tool" --version
 done
+docker run "${HARDENED[@]}" "${NODE_TMPFS[@]}" --mount "type=volume,src=$PREFIX-backups,dst=/var/lib/fcd-support/backups,readonly" \
+  --entrypoint /usr/local/bin/container-entrypoint.sh "$OPS" operations-readonly node --version >/dev/null
+echo 'readonly_archive_reader=true'
 docker run "${HARDENED[@]}" "$TUNNEL" version
 
 docker run "${HARDENED[@]}" "${NODE_TMPFS[@]}" "${OPS_MOUNTS[@]}" \

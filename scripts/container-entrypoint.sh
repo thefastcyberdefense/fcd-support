@@ -7,7 +7,8 @@ check_owned_directory() {
   [ "$(stat -c '%u' "$1")" = "$(id -u)" ] || fail
   [ "$(stat -c '%g' "$1")" = "$(id -g)" ] || fail
   [ "$(stat -c '%a' "$1")" = 700 ] || fail
-  [ -w "$1" ] && [ -x "$1" ] || fail
+  [ -x "$1" ] || fail
+  [ "${2:-write}" = read ] || { [ -w "$1" ] || fail; }
 }
 
 [ "$(id -u)" = 1000 ] || fail
@@ -15,6 +16,7 @@ check_owned_directory /run/fcd-support
 case "${1:-}" in
   application) ;;
   operations) check_owned_directory /var/lib/fcd-support/backups ;;
+  operations-readonly) check_owned_directory /var/lib/fcd-support/backups read ;;
   *) fail ;;
 esac
 shift

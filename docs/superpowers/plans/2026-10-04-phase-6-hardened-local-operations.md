@@ -24,8 +24,21 @@ the baseline.
 Date: 2026-10-04
 
 Status: approved by the project owner for sequential implementation on
-2026-10-18 (Asia/Dhaka). Tasks 1–7 are locally complete; Tasks 8–16 remain pending.
+2026-10-18 (Asia/Dhaka). Tasks 1–7 are locally complete; Task 8 is in progress
+and blocked on the architecture amendment below; Tasks 9–16 remain pending.
 Tracker gates close only when their complete implementation evidence exists.
+
+2026-10-18 Task 8 checkpoint: implementation is in progress but its topology
+gate FAILS. A tunnel-like container with ordinary egress reaches admin TCP 3004
+despite 127.0.0.1 host publication, explicit NAT and disabled management ICC.
+Earlier internal-only fake egress did not reproduce the real connectivity and
+is not gate evidence. Four real render validations pass; complete code gate
+828 passed across 57 files with two existing Linux-only skips. Temporary Docker
+resources are cleaned up. Do not deploy these draft Compose files or proceed to
+Task 9 until the private-admin transport section is amended and approved.
+Proposed options are private Unix-socket HTTP over SSH (recommended) or explicit
+privileged host firewall enforcement; neither is implemented or approved yet.
+See `docs/operations/runtime-compose-contract.md` for the exact evidence.
 
 Task 1 validation: 99/99 focused tests pass in the isolated Linux runner as
 node. The complete Windows gate passes 731 tests across 49 files, with two
@@ -680,7 +693,7 @@ operations image contains Node, PostgreSQL 18 client tools and age 1.3.2.
 Toolchain manifest lists platform, source URL, release SHA256 and image
 digest selected from official publisher artifacts.
 
-- [ ] **Step 1: Add RED structural checks.**
+- [x] **Step 1: Add RED structural checks.**
 
 ```ts
 test('separates restore identity from the backup image contract', () => {
@@ -696,26 +709,26 @@ Test exact digest grammar, lockfile-only dependency installation, no source
 secrets/build args, image-owned writable paths, base variant compatibility,
 cloudflared immutable digest and no floating-tag substitution.
 
-- [ ] **Step 2:** Run `npx vitest run tests/phase6-image-contract.test.ts`;
+- [x] **Step 2:** Run `npx vitest run tests/phase6-image-contract.test.ts`;
       expect RED.
-- [ ] **Step 3:** Keep existing Node and PostgreSQL digest pins unless a publisher
+- [x] **Step 3:** Keep existing Node and PostgreSQL digest pins unless a publisher
       artifact/platform test proves a needed change; any change updates the toolchain
       decision and existing contract assertions. Obtain official age 1.3.2 Linux
       artifact/checksum during this implementation task, record the checksum and
       verify it before extraction. Never resolve latest during a deployment.
       Use multistage builds; verify copied Node binary shared libraries in the
       PostgreSQL-based operations stage. No apt installation occurs at startup.
-- [ ] **Step 4:** In image build layers, initialize PostgreSQL data directories
+- [x] **Step 4:** In image build layers, initialize PostgreSQL data directories
       owned by postgres and archive/tmpfs seed directories owned by node. New named
       volumes inherit those owners; runtime never needs root chown. Fail if a
       pre-existing volume has incompatible ownership. Non-root UID can read only its
       specifically mounted 0600 secrets; file-backed Compose UID remapping is not
       assumed. Host provisioning creates separate service-owned secret files.
-- [ ] **Step 5:** Build only isolated local test tags; inspect selected fields
+- [x] **Step 5:** Build only isolated local test tags; inspect selected fields
       (user, labels, filesystem, capabilities) and smoke-test every entrypoint,
       pg_dump/pg_restore/age version and 0600 mount. Output booleans/versions only.
       Run tests/typecheck/build; expect PASS.
-- [ ] **Step 6:** Commit `build: pin hardened application and operations images`; push.
+- [x] **Step 6:** Commit `build: pin hardened application and operations images`; push.
 
 ### Task 8: Layered Compose and measured network boundaries
 
