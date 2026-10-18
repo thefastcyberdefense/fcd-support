@@ -1,6 +1,6 @@
 # Project Context
 
-Last reviewed: 2026-09-20 (Asia/Dhaka)
+Last reviewed: 2026-10-18 (Asia/Dhaka)
 
 ## Confirmed Decisions
 
@@ -147,7 +147,7 @@ All secret values are intentionally absent from this repository. Create them dur
 
 ## Launch Blockers
 
-- Task 8 architecture blocker (2026-10-18): draft runtime/operations/restore/model Compose files, structured render validator, resource-policy comparison, closed host-port preflight and scoped network harness are checkpointed, not release-ready. Four real configuration renderings pass; unit/code gate passes 828 tests across 57 files (two existing Linux-only skips). The realistic topology gate fails: both outbound and tunnel-like egress-enabled containers reached admin TCP 3004 despite loopback host publication, explicit NAT and disabled management ICC. Restricted internal-only fake egress had masked this path in earlier probes; those earlier successes are not a Task 8 pass. No authentication bypass or real server exposure was tested or claimed. The owner approved the private Unix-socket/SSH direction; the written Management access amendment in the Phase 6 specification now awaits review, followed by the corresponding plan amendment. Privileged host firewall enforcement was not selected. No socket implementation has started. Task 9 onward remains stopped behind this gate; all generated containers/networks/volumes are removed.
+- Task 8 architecture blocker (2026-10-18): draft runtime/operations/restore/model Compose files, structured render validator, resource-policy comparison, closed host-port preflight and scoped network harness are checkpointed, not release-ready. Four real configuration renderings pass; unit/code gate passes 828 tests across 57 files (two existing Linux-only skips). The realistic topology gate fails: both outbound and tunnel-like egress-enabled containers reached admin TCP 3004 despite loopback host publication, explicit NAT and disabled management ICC. Restricted internal-only fake egress had masked this path in earlier probes; those earlier successes are not a Task 8 pass. No authentication bypass or real server exposure was tested or claimed. The owner approved the written Management access socket/SSH amendment in the Phase 6 specification; the revised Task 8/deployment/health/runbook plan awaits review before test-first work resumes. Privileged host firewall enforcement was not selected. No socket implementation has started. Task 9 onward remains stopped behind this gate; all generated containers/networks/volumes are removed.
 - Task 7 evidence correction: its full code gate ran before final documentation formatting. Prettier's padded tracker cells then exposed a single-space assumption in the Phase 0 validator. Task 8 adds whitespace-insensitive fixed-status-column parsing, with 8/9 RED then 9/9 GREEN including all existing authority/evidence negative controls. The fresh Task 8 complete code gate is the current passing evidence; no planning or production authority requirement changed.
 
 - The admission-only test deployment is approved and running under a narrow exception. Outbound messaging, models, n8n actions, live customer data, and production deployment remain unauthorized.
@@ -162,9 +162,9 @@ All secret values are intentionally absent from this repository. Create them dur
 - Actual encrypted backup/restore procedures and deployed human-takeover behavior must still pass their acceptance tests; the local restore-gate primitive alone does not satisfy P6-004.
 
 The current tracker action is P6-002, following the approved implementation
-plan in sequence from Task 8, currently awaiting written-spec review of the
-owner-selected private-admin socket/SSH amendment after its isolation probe
-failed, then the corresponding plan amendment. All live
+plan in sequence from Task 8. The owner approved the written private-admin
+socket/SSH amendment after the isolation failure; the revised implementation
+plan awaits review before test-first work resumes. All live
 Meta, Manifest, network, deployment, test-asset, and production
 actions remain separately gated. P1-GATE remains a separate explicit review
 record.

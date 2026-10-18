@@ -25,7 +25,7 @@ Date: 2026-10-04
 
 Status: approved by the project owner for sequential implementation on
 2026-10-18 (Asia/Dhaka). Tasks 1–7 are locally complete; Task 8 is in progress
-and blocked on the architecture amendment below; Tasks 9–16 remain pending.
+and blocked on review of the plan amendment below; Tasks 9–16 remain pending.
 Tracker gates close only when their complete implementation evidence exists.
 
 2026-10-18 Task 8 checkpoint: implementation is in progress but its topology
@@ -36,15 +36,13 @@ is not gate evidence. Four real render validations pass; complete code gate
 828 passed across 57 files with two existing Linux-only skips. Temporary Docker
 resources are cleaned up. Do not deploy these draft Compose files or proceed to
 Task 9 until the private-admin transport section is amended and approved.
-The owner subsequently approved the private Unix-socket HTTP/SSH direction on
-2026-10-18; privileged host firewall enforcement was not selected. The written
-specification amendment under Management access now awaits owner review.
-No socket transport is implemented. Task 8's TCP instructions below and the
-host-loopback global constraint are retained as historical plan text, not
-permission to implement or deploy that failed design. After written-spec
-approval, revise the affected Task 8/deployment/health/runbook steps and obtain
-approval of that plan amendment before resuming implementation. Tasks 1–7 do
-not need to restart; Task 8's base remains `6df0111754232e4cf6c7524ca3a0600a4b2011d5`.
+The owner subsequently approved the private Unix-socket HTTP/SSH direction,
+then reviewed and approved its written specification amendment on 2026-10-18.
+Privileged host firewall enforcement was not selected. This plan revision
+replaces Task 8's failed TCP target and updates Tasks 11, 13, 15 and 16; it
+awaits owner review before implementation. No socket transport is implemented.
+Tasks 1–7 remain complete, including Task 6's historical TCP evidence; do not
+redo them. Task 8's base remains `6df0111754232e4cf6c7524ca3a0600a4b2011d5`.
 See `docs/operations/runtime-compose-contract.md` for the exact evidence.
 
 Task 1 validation: 99/99 focused tests pass in the isolated Linux runner as
@@ -105,7 +103,17 @@ uses the publisher's release SHA256 before extraction. No live server action.
 - The target host is the existing local Ubuntu server at `192.168.10.40`.
 - PostgreSQL has no published port.
 - Only exact `GET /webhooks/meta` and `POST /webhooks/meta` are public.
-- The admin dashboard binds to `127.0.0.1` on the Ubuntu host.
+- Packaged admin listens only on `/run/fcd-support-admin/admin.sock`; no admin
+  TCP listener, Docker host port, or management bridge is permitted.
+- The sole new writable host bind is the dedicated owner-only socket directory
+  selected by protected `FCD_ADMIN_SOCKET_ROOT`, mounted only into admin at
+  `/run/fcd-support-admin`, with automatic source creation disabled.
+- Socket directory mode is `0700`, socket mode is `0600`, and actual runtime
+  UID/GID ownership is required (currently image UID/GID 1000). No permission
+  widening or in-container ownership repair is permitted.
+- Only the explicit SSH client's browser forward binds to loopback. It must
+  match required `ADMIN_BROWSER_PORT` and `ADMIN_ORIGIN`; transport access never
+  substitutes for password/MFA/session/role/origin/CSRF/signed-action checks.
 - No privileged mode, Docker socket, device, host PID, host network, or broad
   host-filesystem mount.
 - Production dependencies remain exact in `package-lock.json`; every base
@@ -139,9 +147,10 @@ uses the publisher's release SHA256 before extraction. No live server action.
    evaluate each authorization using the current clock (Tasks 5 and 6).
 4. File-backed Compose secrets keep host ownership; non-root readers must work
    with mode 0600 without making files world-readable (Tasks 1 and 7).
-5. Admin origin/CSRF checks must continue to work through an SSH forward;
-   another container's reachability must not grant reviewer authority (Tasks 6
-   and 13).
+5. Socket ownership, stale/replaced entries, shutdown, and browser origin through
+   a loopback-to-socket forward must remain safe; Windows-mounted permissions
+   and a restricted fake egress are not substitutes for native Linux and
+   realistic multihomed-network evidence (Tasks 8, 11, 13 and 15–16).
 
 ## Execution And Dependency Map
 
@@ -170,6 +179,9 @@ responsibility. A completed task produces local software/evidence; only Task
 - `src/operations/worker-loop.ts`: polling, readiness, abort and drain.
 - `src/operations/role-runtime.ts`: lifecycle interface; dependency selection.
 - `src/operations/maintenance.ts`: bounded existing-policy job composition.
+- `src/admin/admin-socket.ts`: Unix listener validation, ownership and safe close
+  disposition; no authentication or deployment orchestration.
+- `src/admin/admin-socket-health.ts`: bounded socket-only login readiness probe.
 - `src/operations/backup.ts`: stream encryption, verification and safe pruning.
 - `src/operations/deletion-checkpoint.ts`: encrypted signed current tombstones.
 - `src/operations/restore.ts`: isolated reconciliation and inherited-work fence.
@@ -188,6 +200,8 @@ responsibility. A completed task produces local software/evidence; only Task
 - `infra/Dockerfile.operations`: pinned Node/PostgreSQL/age job image.
 - `infra/operations-toolchain.json`: selected versions, digests and checksums.
 - `scripts/operations-common.sh`: protected config, revision, lock and exit rules.
+- `scripts/test-phase6-admin-socket.sh`: scoped local Linux socket/UID proof and
+  compiled child-process lifecycle checks; no live SSH or server access.
 - `scripts/deploy-runtime.sh`, `scripts/verify-runtime.sh`,
   `scripts/rollback-runtime.sh`: release orchestration.
 - `scripts/run-operation.sh`, `scripts/restore-runtime.sh`,
@@ -624,6 +638,11 @@ produces safe escalation; late deletion/pause and quarantine prevent dispatch.
 
 ### Task 6: Outbound, admission, admin and maintenance runtime commands
 
+Historical completed checkpoint: the TCP container mode below was implemented
+and tested in Task 6. Task 8's approved specification amendment supersedes its
+packaged deployment transport; completed checkboxes do not approve TCP use in
+the final runtime. Preserve local/test constructor compatibility.
+
 **Files:** Create `src/operations/outbound-runtime.ts`,
 `src/operations/maintenance.ts`, `src/operations-main.ts`,
 `tests/outbound-runtime.test.ts`, `tests/maintenance.test.ts`,
@@ -739,63 +758,205 @@ cloudflared immutable digest and no floating-tag substitution.
 
 ### Task 8: Layered Compose and measured network boundaries
 
-**Files:** Create `infra/compose.runtime.yml`,
-`infra/compose.operations.yml`, `infra/compose.restore.yml`,
-`infra/compose.phase6-test.yml`, `tests/phase6-compose-contract.test.ts`,
-`scripts/verify-network-contract.sh`, `scripts/test-phase6-local.sh`.
-Modify `tests/deployment-contract.test.ts` to preserve the legacy contract.
+The TCP checkpoint is retained in commits `ebe52bc` and `f30a541`; its final
+realistic network gate failed and no completion line exists. The unchecked
+steps below are the remaining amendment, not a restart of completed scaffolding.
 
-**Consumes:** Role commands/images, secret paths and runtime settings.
-**Produces:** runtime, explicitly invoked operations, isolated restore and
-synthetic Compose projects; content-free probe report.
+**Files:** Create `src/admin/admin-socket.ts`,
+`src/admin/admin-socket-health.ts`, `tests/admin-socket.test.ts`,
+`tests/helpers/admin-socket-process.mjs`,
+`tests/integration/postgres-admin-socket.test.ts`,
+`scripts/test-phase6-admin-socket.sh`.
+Modify `src/admin/admin-config.ts`, `src/admin/admin-runtime.ts`,
+`src/admin-main.ts`, `src/operations/compose-contract.ts`,
+`src/operations/compose-contract-main.ts`,
+`infra/compose.runtime.yml`, `infra/compose.phase6-test.yml`,
+`tests/admin-config.test.ts`, `tests/admin-runtime.test.ts`,
+`tests/phase6-compose-contract.test.ts`, `tests/deployment-contract.test.ts`,
+`tests/helpers/phase6-network-fixture.ts`,
+`scripts/verify-network-contract.sh`, `scripts/test-phase6-local.sh`,
+`.env.example`, `docs/operations/runtime-compose-contract.md`,
+`docs/testing/acceptance-matrix.md` and `docs/security/threat-model.md`.
+Keep the checkpoint's model/operations/restore files and legacy deployment
+contract intact except where a demonstrated regression requires a scoped fix.
 
-- [ ] **Step 1: Add RED configuration checks.**
+**Interfaces:**
+
+- Consumes: existing role commands/images, strict mounted-secret loader,
+  `loadAdminConfig(environment): AdminConfig`, Fastify admin app, private
+  identity/dashboard authorization, and the structured Compose validators.
+- Produces: `AdminConfig.listener`, a discriminated union
+  `{kind:'tcp';host:'127.0.0.1'|'::1'|'0.0.0.0';port:number}` or
+  `{kind:'unix';path:string}`. Existing `host`/`port` fields remain TCP-only
+  compatibility data, never a Unix listener selection or fallback.
+- Produces in `admin-socket.ts`:
+  `startAdminSocket(app: FastifyInstance, path: string): Promise<AdminSocketHandle>`;
+  `AdminSocketHandle.close(): Promise<'closed'|'process_exit_required'>`.
+  Normal close uses the app lifecycle; an unsafe replaced-path disposition
+  must not invoke a path-unlinking close against that entry. A failed startup
+  requiring this same OS-only teardown rejects with the fixed
+  `admin_socket_exit_required` error code; CLI recognizes it and exits nonzero
+  without running an unsafe generic app-close catch block.
+- Extend `AdminRuntime` with
+  `stop(): Promise<'closed'|'process_exit_required'>`, preserving its existing
+  `app`/`start` and synchronous constructor. CLI uses `stop`, not direct
+  `app.close`, for Unix shutdown. Pool closure is once-only on every path.
+- Produces `probeAdminSocket(path: string, timeoutMilliseconds: number): Promise<boolean>`
+  in `admin-socket-health.ts`, plus a closed executable
+  entrypoint accepting exactly `PATH TIMEOUT_MS`; Compose passes the fixed
+  socket path and required protected `FCD_HEALTH_TIMEOUT_MS`, without a default.
+- Export `RuntimeComposePaths` from `compose-contract.ts` with required readonly
+  strings `adminSocketRoot`, `configRoot`, `secretRoot`, `workspaceRoot`. Extend
+  `assertRuntimeCompose(input, revision, modelEnabled, paths: RuntimeComposePaths)`
+  with these independently supplied protected inputs. Runtime/model CLI modes
+  take exactly `MODE REVISION SOCKET_ROOT CONFIG_ROOT SECRET_ROOT WORKSPACE_ROOT`;
+  update every caller without printing those arguments or rendered input.
+  Other CLI modes/validator signatures and failure codes remain unchanged.
+  Do not trust a bind source merely because it is the only source in the JSON.
+
+- [ ] **Step 1: Add and observe RED configuration tests.** Define
+      `unixEnvironment` from the existing synthetic-key helper with
+      `ADMIN_LISTEN_MODE=unix`, the exact socket path, `ADMIN_BROWSER_PORT=4004`
+      and `ADMIN_ORIGIN=http://127.0.0.1:4004`, but no ADMIN_HOST/ADMIN_PORT.
 
 ```ts
-test('publishes only admin loopback and excludes provider credentials from ingress', () => {
-  const compose = readFileSync('infra/compose.runtime.yml', 'utf8');
-  expect(compose).toContain('127.0.0.1:');
-  expect(compose).not.toContain('/var/run/docker.sock');
-  expect(compose).not.toContain('network_mode: host');
-  expect(compose).not.toMatch(/META_WHATSAPP_ACCESS_TOKEN:\s*\$\{/u);
+test('unix mode selects no TCP listener and preserves the browser origin', () => {
+  const config = loadAdminConfig(unixEnvironment);
+  expect(config.listener).toEqual({
+    kind: 'unix',
+    path: '/run/fcd-support-admin/admin.sock',
+  });
+  expect(config.origin).toBe('http://127.0.0.1:4004');
 });
 ```
 
-Static checks supplement a structured `docker compose config --format json`
-inspection; exact mounts/network sets/port bindings are evaluated as data.
-Cover missing secret, externally named network absent, unexpected participant,
-conflicting bind, wrong label, resource omission and profile auto-start.
+Also reject explicit mixed TCP settings, missing path/browser port/origin,
+non-loopback or mismatched origin, relative/abstract/NUL/traversal paths and
+paths exceeding Linux's 107-byte pathname bound. Socket input in TCP mode
+is invalid. Existing local/legacy TCP tests retain their meaning.
+Run `npx vitest run tests/admin-config.test.ts`; expected: FAIL on missing
+Unix support, without echoing input values.
 
-- [ ] **Step 2:** Run compose-contract tests; expect RED.
-- [ ] **Step 3:** Compose service names remain
-      fcd-support-api, fcd-support-admin, fcd-support-reply,
-      fcd-support-outbound, fcd-support-notification and postgres. Preserve the
-      fcd-support-api alias on ingress so existing tunnel target does not change.
-      Use profile-gated external execution and required explicit booleans.
-      Set user, read_only, cap_drop ALL, no-new-privileges, init, PID limits,
-      cpus/mem_limit, healthcheck and stop_grace_period. No secret appears as an
-      environment value or command argument. No unrelated bind mounts.
-- [ ] **Step 4:** Add operations profiles for migrate, backup, verify-backup,
-      checkpoint, health, maintenance. Restore is a separate project/network with
-      an explicit fresh volume name, never merged with runtime data-network
-      attachments. Admin TCP binds inside its container only in explicit private
-      mode and host publication is exactly 127.0.0.1.
-- [ ] **Step 5:** Network tests must prove:
-      API→PostgreSQL allowed; API→Manifest/Meta/n8n denied; reply→PostgreSQL/Manifest
-      allowed; outbound→PostgreSQL/exact Meta fake allowed; notification→PostgreSQL/
-      n8n fake allowed; every worker→ingress denied; restore→runtime denied; admin
-      unreachable from ingress; all unintended host ports absent.
-      Docker shared-network membership permits communication to other members:
-      inspect existing external model/notification networks read-only at the later
-      server preflight and refuse an over-broad network; do not claim Compose names
-      alone enforce per-destination firewall rules. Live network changes require
-      their explicit later action scope.
-- [ ] **Step 6:** Run isolated local Compose rendering/up/probes/down. Harness
-      uses only `fcd-support-phase6-test-<generated>` labels/networks/volumes and
-      guarded fcd_support_test DB. Verify every cleanup target belongs to that exact
-      project; preserve failed stacks unless cleanup targets have been checked.
-      Run focused tests; commit `build: isolate runtime and recovery compose networks`;
-      push.
+- [ ] **Step 2: Implement only the configuration union and rerun that command.**
+      Expected: PASS. Unix selection requires explicit settings; pre-existing
+      TCP defaults must never select a second listener.
+- [ ] **Step 3: Add listener/lifecycle and forward-auth RED tests.**
+      In `admin-socket.test.ts`, use native Linux `/tmp` directories explicitly
+      created mode 0700, with `admin.sock` below them. Define the child helper
+      to import compiled `dist` modules and accept only authored synthetic test
+      cases, not arbitrary command text. Cover absent/unsafe/wrong-owner parent,
+      symlink, ordinary file, live socket, stale socket, double start/stop,
+      failed bind, graceful close, process crash, and replaced entry before
+      close. Preserve sentinel files and a competing live listener throughout.
+      Assert first observed socket mode 0600, actual UID/GID, zero TCP bind and
+      closed value-free errors. Windows skips only actual Unix permission/IPC
+      cases and reports them separately.
+      In `postgres-admin-socket.test.ts`, reuse guarded isolated DB and actual
+      admin identity/session fixtures behind a test-only 127.0.0.1 ephemeral
+      TCP-to-socket forward. Exercise password/MFA, unauthenticated and revoked
+      session denial, correct/wrong origin, CSRF and signed-action checks.
+      Socket/forward possession grants no reviewer rights; public webhook app
+      still returns 404 for admin routes. The synthetic forward is not SSH.
+      Run `npm run build`, then on Git Bash/Linux the non-root unit command
+      `docker compose --file infra/compose.test.yml run --rm --no-deps --user node --volume "$NATIVE_ROOT/dist:/workspace/dist:ro" runner npx vitest run tests/admin-socket.test.ts`.
+      NATIVE_ROOT is the resolved repository path
+      converted by cygpath -m on Windows; disable MSYS argument path conversion
+      as in the existing harness. Run
+      `docker compose --file infra/compose.test.yml run --rm runner npm run test:integration -- tests/integration/postgres-admin-socket.test.ts`
+      for the guarded DB case.
+      Expected: FAIL on absent socket module/runtime selection, not on a missing
+      mount or test-runner setup error.
+- [ ] **Step 4: Implement listener, safe stop and health probe; rerun Step 3.**
+      Validate real non-symlink owner-only parent and absent socket entry before
+      binding. On Linux use umask `0177` for socket creation, not the existing
+      entrypoint's `0077` (which would permit socket execute bits); restore the
+      previous process mask after the bounded startup section. Verify mode 0600
+      and captured device/inode after binding. Do not chmod an unvalidated entry
+      or unlink anything on collision. No new dependency, Node version upgrade,
+      private Node/libuv API, broad mount, root runtime or TCP fallback.
+      Pinned Node/libuv unlinks its bound pathname on ordinary close; a manual
+      inode check followed unconditionally by `app.close()` is insufficient.
+      On a replaced entry, `stop` closes the pool once and returns
+      `process_exit_required` without invoking the unsafe close. CLI terminates
+      the dedicated process with a nonzero code, letting the OS release handles
+      without Node's pathname unlink. Cover this actual child-process path,
+      including startup-error cleanup after bind; direct `app.close` remains a
+      TCP/test compatibility API, not the Unix runtime shutdown contract.
+      Same-UID/root hostile mutation is outside the approved host trust boundary;
+      do not claim an atomic defense against those actors.
+      The health probe requests `/login` using `node:http` socketPath, with the
+      configured timeout, no redirects, credentials or response-body logging;
+      always destroy request/response resources. Expected: all new Linux/auth
+      cases PASS and normal shutdown/startup failures close the pool once.
+- [ ] **Step 5: Add and observe RED rendered-Compose assertions, then amend Compose.**
+      Assert no service publishes a host port; admin has only `admin_data`,
+      exact Unix environment, and one writable long-syntax bind at
+      `/run/fcd-support-admin` from the independently validated absolute
+      `FCD_ADMIN_SOCKET_ROOT`, `bind.create_host_path=false`. Reject broad roots,
+      a source overlapping the independently supplied config/secret/workspace
+      roots (equality or either-direction ancestry), Docker storage roots,
+      extra mounts, wrong target/mode, missing safe bind options, management
+      network, any TCP mode/port and socket mounts on other roles. The host
+      preflight in Task 11 separately verifies resolved source permissions and
+      any configured host archive/DB paths; named database/archive volumes never
+      become admin mounts. JSON is not filesystem evidence. Run
+      `npx vitest run tests/phase6-compose-contract.test.ts tests/deployment-contract.test.ts`;
+      expected: FAIL against the checkpoint, then PASS after the amendment.
+      Remove FCD_ADMIN_HOST_PORT and management network from the runtime; retain
+      required browser port/origin and every existing hardening/resource/secret
+      check. Use the socket health entrypoint, not a TCP health listener.
+      Preserve `fcd-support-api` ingress alias and exact role/profile contracts.
+      Operations jobs remain explicit migrate/backup/verify-backup/checkpoint/
+      health/maintenance profiles; restore stays a separate fresh-volume project.
+- [ ] **Step 6: Amend and run the scoped Linux/container proof.**
+      `scripts/test-phase6-admin-socket.sh PROJECT REVISION` accepts only the
+      generated `fcd-support-phase6-test-*` scope and its full candidate revision.
+      Main harness calls it after building and before topology startup, so its
+      verified synthetic socket volume is initialized before admin starts.
+      Helper mounts compiled dist read-only into the existing pinned test runner
+      for child-process imports. Run socket tests as
+      node with native Linux tmpfs, not the Windows repository bind. Use a
+      separately labelled native Docker volume to represent the owner-only host
+      directory for topology/UID tests; initialization touches only that verified
+      synthetic volume. Prove UID 1000 socket access and UID 999/65532 denial.
+      No production mount or ownership repair is performed. Validate the real
+      bind form by rendering and negative source tests; clearly label the local
+      named-volume substitution as not Ubuntu bind-ownership proof.
+      Test overlay's admin uses the just-built scoped application candidate image
+      and serves a real Unix listener using the same helper, with a synthetic
+      Fastify login route and no application credentials. It must not inherit
+      the generic TCP fake or an ephemeral published port. This is transport
+      evidence; actual authentication is proved by the separate guarded test.
+      Keep ingress-probe on ingress plus ordinary tunnel_egress and keep outbound
+      ordinary provider egress. Probe denied admin TCP 3004 on every actual admin
+      interface from ingress, outbound and other workers, plus admin's own
+      interface/loopback. Assert only the Unix endpoint is listening and all
+      requested/actual Docker port bindings are absent.
+      Retain allowed role→DB, reply→Manifest fake, outbound→Meta fake,
+      notification→n8n fake and ingress→API paths, plus all existing denial,
+      profile, absent-network, missing-secret and extra-participant controls.
+      Keep occupied-loopback tests only for the synthetic client-side forward;
+      never treat them as admin Docker-publication evidence. Expected: PASS
+      without dropping a probe or masking ordinary egress.
+- [ ] **Step 7: Run the complete remaining Task 8 gate.**
+      Run `npm run check`, `bash -n` on all changed shell scripts, focused
+      non-root Linux socket tests, guarded admin socket integration plus existing
+      admin identity/dashboard suites, and `bash scripts/test-phase6-local.sh`.
+      Expected: all four real production Compose renderings, realistic topology,
+      socket/UID/forward-auth gates and earlier negative controls PASS. Compare
+      every probe outcome, not just exit status; record exact counts/skips and
+      scoped cleanup inventory. Verify label/name/attachment/volume identity
+      before removing any generated resource; unexpected ownership refuses
+      cleanup. No prune, real SSH, provider request or server mutation.
+      Update runtime/acceptance/threat evidence, leaving Ubuntu permissions,
+      SSH forwarding and live route checks pending. Preserve failed TCP evidence.
+- [ ] **Step 8: Commit/push and close only a passing task.**
+      Commit `build: isolate runtime and recovery compose networks` after fresh
+      verification and staged privacy/scope checks. Verify redwan-cse before
+      push. Run task-done for Task 8 with its unchanged original BASE and
+      `bash scripts/test-phase6-local.sh` as the final task command; record the
+      other gates in the ledger. Only then begin Task 9. No gate or deployment
+      approval follows merely from committing the amendment.
 
 ### Task 9: Encrypted backup, verification and retention
 
@@ -959,6 +1120,7 @@ review completes.
 `scripts/operations-common.sh`, `scripts/deploy-runtime.sh`,
 `scripts/verify-runtime.sh`, `scripts/rollback-runtime.sh`,
 `scripts/restore-runtime.sh`, `scripts/promote-restore.sh`,
+`scripts/recover-admin-socket.sh`,
 `tests/operations-scripts.test.ts`,
 `tests/integration/postgres-isolated-restore.test.ts`,
 `tests/integration/postgres-runtime-grants.test.ts`.
@@ -981,6 +1143,7 @@ Shell public interfaces:
 ./scripts/rollback-runtime.sh FULL_RETAINED_REVISION --confirm-schema-compatible CONFIG_PATH
 ./scripts/restore-runtime.sh BACKUP_REF CHECKPOINT_REF FULL_REVISION CONFIG_PATH
 ./scripts/promote-restore.sh RESTORE_REF FULL_REVISION CONFIG_PATH
+./scripts/recover-admin-socket.sh FULL_REVISION --confirm-admin-stopped CONFIG_PATH
 ```
 
 All uppercase argument names are descriptive interface parameters, not example
@@ -1007,6 +1170,13 @@ Cover clean-revision mismatch, symlink config, missing archive/identity, schema
 incompatibility, lock conflict, fresh empty DB bootstrap, old admission schema
 upgrade, missing rotated key, final pass replay, target substituted after pass,
 promotion failure between stop/switch/start, and writes prohibiting switch-back.
+Add socket preflight cases: missing/symlinked/broad source, untrusted writable
+ancestor, source overlapping config/secrets/source/archive/DB storage, wrong
+actual owner/mode, missing SSH-account access under numeric UID mapping, active
+socket and replaced entry. Fake commands assert no mkdir/chown/chmod/firewall
+repair or automatic socket unlink occurs. Stale recovery tests refuse every
+non-socket, live/ambiguous endpoint, running owner, wrong revision/project and
+changed device/inode; a verified stopped synthetic socket is the only deletion.
 
 - [ ] **Step 2:** Run script tests and isolated restore/grants integration; expect RED.
 - [ ] **Step 3:** Implement exact revision/image checks, restricted protected
@@ -1016,6 +1186,16 @@ promotion failure between stop/switch/start, and writes prohibiting switch-back.
       readiness. Use controlled outage for migrations whose compatibility is
       unproven. After success register the pre-schema archive manifest.
       Never print full inspect/env/Compose interpolation or raw migration errors.
+      Before starting admin, verify the independently configured absolute socket
+      root, real protected ancestors, mode 0700, actual runtime UID/GID and SSH
+      account access. Never create the directory implicitly or widen permissions.
+      Run socket-only readiness using Task 8's bounded probe; inspect actual
+      absence of admin host publication/management network and other-role mounts.
+      A leftover socket fails deployment closed. Only a separately invoked
+      recover-admin-socket command under the deployment lock may remove it after
+      verified owner shutdown, exact scope/type/owner/mode/inode checks and a
+      bounded refused connection. Active or ambiguous results preserve the entry.
+      Record only a closed result; no recursive removal or host firewall changes.
 - [ ] **Step 4:** Bootstrap dedicated nonsuperuser DB login roles for API,
       admin, reply, outbound, notification, maintenance, health and read-only backup.
       Separate schema-owner/migrator credential from runtime roles. Revoke PUBLIC
@@ -1132,13 +1312,21 @@ fixture conventions. Cover session expiry/revocation during acknowledgement,
 wrong MFA/role/origin, duplicate action, escaped closed display fields, empty
 state, stale health/backups, keyboard/readable table states, failed count query,
 recovery after host downtime and deliberately malformed external error.
+Exercise operations GET/acknowledgement through Task 8's synthetic
+loopback-to-socket forward with the actual private route guards: valid session
+and action pass; revoked session, wrong origin/CSRF/signature fail. Assert the
+health role has no socket mount or admin credential, and the webhook app has no
+operations route. Do not add a TCP health endpoint for the socket listener.
 
 - [ ] **Step 2:** Run health/admin unit tests and admin-operations integration;
       expect RED.
 - [ ] **Step 3:** Collector queries schema, DB readiness, aggregate work depth/
       age buckets, backup age and current worker heartbeats. Host verifier supplies
       only formatted Docker health/running/revision fields; never full container
-      inspect. Manifest/n8n probes are bounded TCP/health availability probes, not
+      inspect. Admin's own container health uses Task 8's socket probe; the host
+      verifier reports only its closed health result, without passing the socket
+      or admin credentials to the health container. Manifest/n8n probes are
+      bounded TCP/health availability probes, not
       inference, notification or provider calls. Disabled model/notification paths
       display disabled/not_verified, not healthy. Collect tunnel Docker health plus
       last approved exact public check metadata without changing ingress.
@@ -1259,6 +1447,10 @@ target fixtures. Cover crash at every deployment/promotion boundary, host
 timer catch-up, stale events after downtime, backup destination full/readonly,
 malformed ciphertext, checkpoint drift, outbox restored after acceptance,
 revoked admin session, health stale and simultaneous operations lock.
+Include admin crash leaving a stale socket, startup refusal without TCP fallback,
+replaced-entry shutdown without unrelated-file deletion, and explicitly verified
+stale-socket recovery. Re-run the multihomed ordinary-egress ingress probe; do
+not replace it with an internal-only fixture to obtain a passing gate.
 
 - [ ] **Step 2:** Run failure matrix; fix each demonstrated defect in its owning
       module with a regression, then rerun only affected focused checks.
@@ -1272,9 +1464,9 @@ revoked admin session, health stale and simultaneous operations lock.
       settings, safe stop, worker drain, dashboard access through SSH, job scheduling,
       backup verification/private-key isolation, quarterly restore, current checkpoint,
       promotion refusal, recovery hold, rollback limits and manual coverage.
-      Update PLAN's Phase 6 exit text to explicitly permit the approved admin
-      loopback-only binding; its previous blanket no-host-port text must not conflict
-      with this owner-approved design. Describe dashboard/journal incident delivery
+      Update PLAN's Phase 6 exit text to require no runtime Docker host ports and
+      socket-only admin, distinguishing the SSH client's loopback browser forward
+      from a server-side Docker TCP publication. Describe dashboard/journal incident delivery
       and deferred external uptime alerts without claiming offline notification.
 - [ ] **Step 5:** Map AC-09/18/20/21/25/26 to actual local evidence. Keep live
       Manifest recording/provider, private live n8n, Meta asset sends, full host
@@ -1301,6 +1493,10 @@ redwan@192.168.10.40; subsequent sanitized server evidence only after execution.
       image revision, migration revision and configuration presence. Recheck current
       state instead of assuming the August inventory is still current. Never print
       runtime.env, secret contents, full inspect output or raw DB rows.
+      Verify actual runtime/SSH numeric ownership mapping, protected socket parent
+      and existing client/server support for local TCP-to-remote-Unix forwarding.
+      No SSH daemon policy change, new public route or permission widening is
+      authorized merely to make that preflight pass.
 - [ ] **Step 2:** Write exact pull/checkout, image build, secret-file provisioning,
       network verification, drain, encrypted backup/verification, forward migration,
       private-disabled runtime startup, health/timer installation and route verification
@@ -1308,6 +1504,12 @@ redwan@192.168.10.40; subsequent sanitized server evidence only after execution.
       time from synchronized HEAD, store it in the handoff record, and refuse any
       mismatch. No source editing/copying on Ubuntu. Explain affected service/volume
       names and preserved legacy rollback images.
+      Include separately approved creation of the exact dedicated socket directory
+      with 0700 ownership matching the non-root image; never use a source/secret/DB
+      directory as its parent mount. Document the loopback-only SSH forward with
+      the actual approved browser port and remote socket path, host-key checking
+      intact, then verify real login/origin behavior without recording credentials.
+      Do not claim the local synthetic forward proved this live SSH behavior.
 - [ ] **Step 3:** Account explicitly for the old admission-only runtime and
       already connected Meta test webhook: do not process historical non-synthetic
       pending messages or enable an automatic send merely by replacing the image.
@@ -1318,7 +1520,8 @@ redwan@192.168.10.40; subsequent sanitized server evidence only after execution.
 - [ ] **Step 4:** List stop conditions: unavailable protected secret provision,
       no verification identity, insufficient disk, incomplete checkpoint, incompatible
       schema/volume ownership, broad external network, unhealthy runtime, changed
-      callback target or lost ingress catch-all. Preserve old stack/volumes/images;
+      callback target or lost ingress catch-all, unsafe socket root/entry, incompatible
+      SSH forwarding, or any admin TCP listener/host publication. Preserve old stack/volumes/images;
       do not weaken boundaries to finish deployment.
 - [ ] **Step 5:** Commit/push the concrete handoff before server mutation.
       Present the exact revision, affected services, commands and rollback at the
@@ -1355,6 +1558,18 @@ specification and existing code.
 The plan's self-review checklist is separate from implementation steps.
 Checking this section does not mean any implementation task ran.
 
+2026-10-18 socket-amendment self-review: compared the approved Management access
+requirements to the revised plan and current admin/Compose code. Socket
+configuration/ownership/lifecycle, realistic topology, Linux versus Windows
+evidence and forward-auth checks map to Task 8; protected host preflight and
+explicit stale recovery to Task 11; dashboard health/authorization to Task 13;
+failure/gate evidence to Task 15; actual UID mapping/SSH/server proof to Task 16.
+Tasks 1–7 and the original Task 8 BASE are preserved. Producer/consumer names
+above match each affected task, including the new runtime stop disposition and
+independently supplied Compose path-policy input. No new dependency or live
+action is needed for local completion. This self-review does not approve the
+amended plan or mark the socket transport implemented.
+
 ## Primary Technical References
 
 - [Docker Compose secrets](https://docs.docker.com/compose/how-tos/use-secrets/):
@@ -1369,12 +1584,16 @@ Checking this section does not mean any implementation task ran.
 - [age project](https://github.com/FiloSottile/age) and
   [age 1.3.2 release](https://github.com/FiloSottile/age/releases/tag/v1.3.2):
   public recipient encryption and separately held decryption identity.
+- [Pinned Node 24.18.0 libuv pipe close](https://github.com/nodejs/node/blob/v24.18.0/deps/uv/src/unix/pipe.c):
+  ordinary Unix listener close unlinks its saved pathname; Task 8 must explicitly
+  test replaced-entry handling rather than assuming an inode-aware unlink.
 
 ## Handoff
 
-Recommended execution: sequential native development with the executing-plans
-workflow, focused review per independently testable task and final gate review
-under the owner's authorized method. Additional subagents are optional only
-after explicit authorization. Plan review is complete; execute remaining tasks
-in sequence and retain their exact validation evidence. This plan does not
-authorize the later server action merely because local tests pass.
+Preserved execution method: sequential native development with executing-plans,
+per-task TDD/self-verification and one fresh whole-plan review at the end.
+No per-task subagent dispatch. The original plan was approved; this focused
+socket amendment awaits owner review before Task 8 resumes. After that review,
+continue remaining tasks in sequence with exact evidence and the unchanged
+Task 8 BASE. This plan does not authorize the later server action merely
+because local tests pass.

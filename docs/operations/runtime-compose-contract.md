@@ -36,9 +36,9 @@ Owner direction received on 2026-10-18 for a focused architecture amendment:
   firewall enforcement. This introduces privileged host rule lifecycle and
   separately approved server mutations; no such changes are authorized now.
 
-The written amendment is in the Phase 6 specification's Management access
-section and awaits owner review. Its corresponding detailed plan revision
-follows written-spec approval. No socket implementation has started. The TCP
+The owner approved the written amendment in the Phase 6 specification's
+Management access section. Its corresponding detailed plan revision now
+awaits owner review before implementation. No socket implementation has started. The TCP
 configuration and measured-boundary description below describe the failed
 checkpoint only; they are not the selected target or deployment instructions.
 Do not launch these draft files. Synthetic containers, networks and volumes have

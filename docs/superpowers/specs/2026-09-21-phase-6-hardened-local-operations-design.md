@@ -2,9 +2,9 @@
 
 Status: written specification approved by the project owner on 2026-10-04.
 Amendment status (2026-10-18): the owner approved the private Unix-socket/SSH
-direction in chat after Task 8's TCP-isolation failure. The written amendment
-under Management access below is awaiting owner review; its implementation
-and the corresponding implementation-plan revision have not been approved.
+direction, then reviewed and approved the written Management access amendment.
+Its corresponding implementation-plan revision awaits owner review; no socket
+implementation or deployment is approved by the specification alone.
 This document authorizes implementation planning only. Implementation, local
 Docker execution, Ubuntu deployment, external-service changes, test-asset
 traffic, and production actions remain subject to their recorded gates.
@@ -117,15 +117,15 @@ network, migration, and rollback validation would otherwise drift.
 
 ## Runtime Roles
 
-| Role                  | Responsibility                                                  | Required attachments                                     | Prohibited attachments                                             |
-| --------------------- | --------------------------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------ |
-| `postgres`            | Authoritative state                                             | data, database volume                                    | ingress, model, provider-egress, notification, host port           |
-| `webhook-api`         | Meta verification and durable admission                         | ingress, data                                            | model, provider-egress, notification, host port                    |
-| `admin`               | Authenticated dashboard and reviewed controls                   | data, private socket directory (pending amendment below) | ingress, model, provider-egress, notification, any TCP publication |
-| `reply-worker`        | Apply admitted events, FAQ/model decisions, escalation creation | data, model                                              | ingress, provider-egress, notification                             |
-| `outbound-worker`     | Claim authorized outbox work and call exact Meta endpoints      | data, provider-egress                                    | ingress, model, notification                                       |
-| `notification-worker` | Deliver minimized notification work to private n8n              | data, notification                                       | ingress, model, provider-egress                                    |
-| operations jobs       | Migrate, back up, restore, reconcile, verify, retain, delete    | only the network/volume required by the command          | ingress and unrelated service networks                             |
+| Role                  | Responsibility                                                  | Required attachments                            | Prohibited attachments                                             |
+| --------------------- | --------------------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------ |
+| `postgres`            | Authoritative state                                             | data, database volume                           | ingress, model, provider-egress, notification, host port           |
+| `webhook-api`         | Meta verification and durable admission                         | ingress, data                                   | model, provider-egress, notification, host port                    |
+| `admin`               | Authenticated dashboard and reviewed controls                   | data, private socket directory                  | ingress, model, provider-egress, notification, any TCP publication |
+| `reply-worker`        | Apply admitted events, FAQ/model decisions, escalation creation | data, model                                     | ingress, provider-egress, notification                             |
+| `outbound-worker`     | Claim authorized outbox work and call exact Meta endpoints      | data, provider-egress                           | ingress, model, notification                                       |
+| `notification-worker` | Deliver minimized notification work to private n8n              | data, notification                              | ingress, model, provider-egress                                    |
+| operations jobs       | Migrate, back up, restore, reconcile, verify, retain, delete    | only the network/volume required by the command | ingress and unrelated service networks                             |
 
 The same revision-labelled application image may supply multiple application
 commands, but each command constructs only its own dependencies. A role must
@@ -177,12 +177,12 @@ credential-bearing, or outside the configured private origin contract.
 ### Management access
 
 The original host-loopback Docker TCP design failed Task 8's realistic local
-isolation gate. It must not be deployed. The following focused amendment
-replaces that transport if its written specification and revised implementation
-plan are approved. Private health and metrics remain dashboard data, not
+isolation gate. It must not be deployed. The following owner-approved written
+amendment replaces that target; implementation awaits approval of the revised
+implementation plan. Private health and metrics remain dashboard data, not
 tunnel routes. All other Phase 6 authority and external-action gates remain.
 
-#### 2026-10-18 private-admin transport amendment — written review pending
+#### 2026-10-18 private-admin transport amendment — written specification approved
 
 **Intent and evidence.** Keep the existing browser dashboard accessible to the
 operator without making its HTTP listener reachable from ingress or other
@@ -284,7 +284,7 @@ Every long-running container has:
 - a read-only root filesystem;
 - only named volumes, tmpfs paths, and narrowly scoped read-only secrets that
   its role requires, plus the admin-only writable socket directory described
-  in the pending management amendment;
+  in the approved management amendment;
 - all Linux capabilities dropped;
 - `no-new-privileges` enabled;
 - an explicit PID limit;
@@ -616,7 +616,7 @@ external infrastructure mutation is required for P6 local completion.
 - non-root user, read-only root, capabilities, privilege, PID, CPU, memory,
   tmpfs, volumes, health checks, restart policy, and revision labels;
 - no Docker socket, device, host PID, host network, or broad bind mount;
-- no runtime Docker host port or admin TCP listener under the pending management
+- no runtime Docker host port or admin TCP listener under the approved management
   amendment; only the operator's explicit SSH client forward binds to loopback;
 - exact positive network reachability for each role; and
 - negative probes proving every unapproved cross-network path fails.
