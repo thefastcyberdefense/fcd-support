@@ -24,8 +24,13 @@ COPY --from=build --chown=node:node /app/package.json /app/package-lock.json ./
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --chown=node:node migrations ./migrations
+COPY --chmod=0555 scripts/container-entrypoint.sh /usr/local/bin/container-entrypoint.sh
+RUN install -d -m 0700 -o node -g node /run/fcd-support
+
+ENV TMPDIR=/run/fcd-support
 
 USER node
 EXPOSE 3003
 
+ENTRYPOINT ["/usr/local/bin/container-entrypoint.sh", "application"]
 CMD ["node", "dist/main.js"]

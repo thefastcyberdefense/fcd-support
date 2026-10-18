@@ -75,7 +75,7 @@ describe('test deployment contract', () => {
     expect(rollback).toContain('--confirm-schema-compatible');
     expect(rollback).toContain('--no-build');
     expect(rollback).not.toContain('migrate down');
-    expect(tunnelDockerfile).toContain('cloudflare/cloudflared:latest@sha256:');
+    expect(tunnelDockerfile).toContain('cloudflare/cloudflared:2026.8.2@sha256:');
     expect(tunnelDockerfile).toContain('HEALTHCHECK');
     expect(tunnelDockerfile).toContain('ARG VCS_REF');
     expect(tunnelDockerfile).toContain('org.opencontainers.image.revision');

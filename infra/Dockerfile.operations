@@ -1,0 +1,55 @@
+FROM node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS build
+
+WORKDIR /app
+RUN npm install --global npm@11.16.0
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY tsconfig.json tsconfig.build.json ./
+COPY src ./src
+RUN npm run build && npm prune --omit=dev
+
+# The only supported release artifact is explicitly linux/amd64. Refuse other
+# platforms rather than accidentally running a foreign architecture binary.
+COPY infra/operations-toolchain.json /tmp/operations-toolchain.json
+RUN node --input-type=module -e 'import { readFile, writeFile } from "node:fs/promises"; if (process.platform !== "linux" || process.arch !== "x64") throw new Error("unsupported_toolchain_platform"); const t = JSON.parse(await readFile("/tmp/operations-toolchain.json", "utf8")); const r = await fetch(t.age.sourceUrl, { signal: AbortSignal.timeout(120000) }); if (!r.ok) throw new Error("toolchain_download_failed"); await writeFile("/tmp/age.tar.gz", Buffer.from(await r.arrayBuffer()));' \
+    && node -e 'const t = require("/tmp/operations-toolchain.json"); console.log(t.age.releaseSha256 + "  /tmp/age.tar.gz")' | sha256sum --check --status \
+    && mkdir /tmp/age-release \
+    && tar -xzf /tmp/age.tar.gz -C /tmp/age-release age/age age/age-keygen
+
+FROM postgres:18.4@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636 AS operations
+
+ARG VCS_REF
+LABEL org.opencontainers.image.revision="$VCS_REF"
+LABEL org.opencontainers.image.source="https://github.com/thefastcyberdefense/fcd-support"
+ENV NODE_ENV=production TMPDIR=/run/fcd-support
+
+RUN groupadd --gid 1000 node && useradd --uid 1000 --gid 1000 --no-create-home --shell /usr/sbin/nologin node \
+    && install -d -m 0700 -o node -g node /run/fcd-support /var/lib/fcd-support/backups
+WORKDIR /app
+COPY --from=build /usr/local/bin/node /usr/local/bin/node
+COPY --from=build /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
+COPY --from=build /tmp/age-release/age/age /usr/local/bin/age
+COPY --from=build /tmp/age-release/age/age-keygen /usr/local/bin/age-keygen
+COPY --from=build /tmp/operations-toolchain.json /usr/local/share/fcd-support/operations-toolchain.json
+COPY --from=build --chown=node:node /app/package.json /app/package-lock.json ./
+COPY --from=build --chown=node:node /app/node_modules ./node_modules
+COPY --from=build --chown=node:node /app/dist ./dist
+COPY --chown=node:node migrations ./migrations
+COPY --chmod=0555 scripts/container-entrypoint.sh /usr/local/bin/container-entrypoint.sh
+
+# Bookworm Node is deliberately executed on the pinned newer glibc runtime.
+# An unresolved shared library or wrong executable version fails the build.
+RUN ldd /usr/local/bin/node > /tmp/node-libraries \
+    && ! grep -q 'not found' /tmp/node-libraries \
+    && node --version | grep -Fx 'v24.18.0' \
+    && npm --version | grep -Fx '11.16.0' \
+    && pg_dump --version | grep -E '^pg_dump \(PostgreSQL\) 18\.4([[:space:]]|$)' \
+    && pg_restore --version | grep -E '^pg_restore \(PostgreSQL\) 18\.4([[:space:]]|$)' \
+    && age --version | grep -Fx 'v1.3.2' \
+    && rm /tmp/node-libraries
+
+USER node
+ENTRYPOINT ["/usr/local/bin/container-entrypoint.sh", "operations"]
+CMD ["node", "dist/operations-main.js"]

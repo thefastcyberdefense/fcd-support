@@ -142,6 +142,9 @@ All secret values are intentionally absent from this repository. Create them dur
 - Outbound processing samples fresh time before authorization, dispatch start and result persistence; dispatch start also rechecks current policy, retention, privacy, consent and service-window eligibility. Maintenance invokes existing retention, reviewed verified-deletion, bounded model/outbound lease recovery and aggregate/question-digest services. Explicit stable cutoff/windows and supplied policies avoid enabling defaults; external privacy locations cannot be marked complete by these jobs.
 - Task 6 validation: complete local gate 792 tests across 54 files (two Linux-only skips); PostgreSQL 483/483 across 40 files; Linux/non-root focused gate 190/190 across 12 files without skips. Tests cover mounted composition, browser-origin isolation, simulated signal drain, service-window crossing, bounded expiry, maintenance replay and the enabled outbound daemon with one injected synthetic transport call. Invalid operations CLI exits 1 with a fixed event only. No live provider call, server access, host signal/restart experiment, deployment or production action occurred.
 
+- Task 7 adds revision-labelled application, operations, PostgreSQL and tunnel image contracts. Existing Node/PostgreSQL digests remain unchanged; the Cloudflare digest is unchanged and its descriptive tag now matches verified version 2026.8.2. Operations pins the official linux/amd64 age 1.3.2 archive/checksum and checks it before extraction; copied Node shared libraries and all tool versions are executed during build. Build context is default-deny. Non-root entrypoints enforce image-seeded volume ownership/modes without repair or elevation. See `docs/operations/image-contract.md`.
+- Task 7 validation: fresh `npm run check` passes 803 tests across 55 files with the same two Linux-only skips; focused image/deployment assertions pass 15/15. Four isolated candidate images build and their version/negative entrypoint checks pass. Disconnected read-only PostgreSQL initializes as UID 999; incompatible owners/modes are refused; kernel 0600 checks separate UIDs 1000/999/65532. Fixtures are removed. These are local candidate-parent-labelled builds, not proof of a deployed clean revision. The latest full PostgreSQL regression suite remains Task 6's 483/483. No SSH, live tunnel/provider, deployment or production action occurred.
+
 ## Launch Blockers
 
 - The admission-only test deployment is approved and running under a narrow exception. Outbound messaging, models, n8n actions, live customer data, and production deployment remain unauthorized.
@@ -156,7 +159,7 @@ All secret values are intentionally absent from this repository. Create them dur
 - Actual encrypted backup/restore procedures and deployed human-takeover behavior must still pass their acceptance tests; the local restore-gate primitive alone does not satisfy P6-004.
 
 The current tracker action is P6-002, following the approved implementation
-plan in sequence from Task 7. All live
+plan in sequence from Task 8. All live
 Meta, Manifest, network, deployment, test-asset, and production
 actions remain separately gated. P1-GATE remains a separate explicit review
 record.

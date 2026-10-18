@@ -1,0 +1,15 @@
+FROM postgres:18.4@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636
+
+ARG VCS_REF
+LABEL org.opencontainers.image.revision="$VCS_REF"
+LABEL org.opencontainers.image.source="https://github.com/thefastcyberdefense/fcd-support"
+
+# Docker populates a new named volume from these image-owned seed directories.
+# Existing volumes must already have the correct owner; startup never repairs it.
+RUN install -d -m 0700 -o postgres -g postgres /var/lib/postgresql /var/lib/postgresql/18 /var/lib/postgresql/18/docker \
+    && install -d -m 0770 -o postgres -g postgres /var/run/postgresql
+COPY --chmod=0555 scripts/postgres-entrypoint.sh /usr/local/bin/fcd-postgres-entrypoint.sh
+
+USER postgres
+ENTRYPOINT ["/usr/local/bin/fcd-postgres-entrypoint.sh"]
+CMD ["postgres"]

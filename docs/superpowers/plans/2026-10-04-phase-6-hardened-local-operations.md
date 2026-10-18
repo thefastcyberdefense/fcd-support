@@ -24,7 +24,7 @@ the baseline.
 Date: 2026-10-04
 
 Status: approved by the project owner for sequential implementation on
-2026-10-18 (Asia/Dhaka). Tasks 1–6 are locally complete; Tasks 7–16 remain pending.
+2026-10-18 (Asia/Dhaka). Tasks 1–7 are locally complete; Tasks 8–16 remain pending.
 Tracker gates close only when their complete implementation evidence exists.
 
 Task 1 validation: 99/99 focused tests pass in the isolated Linux runner as
@@ -67,6 +67,15 @@ fresh outbound authorization/dispatch/result clocks, dispatch eligibility
 recheck, simulated signal drain, disabled-worker isolation, bounded maintenance
 and an enabled daemon using injected synthetic transport pass locally. Invalid
 operations CLI exits 1 with a closed log. No server/live provider action occurred.
+
+Task 7 validation: fresh complete local gate 803 passed across 55 files (two
+Linux-only skips previously passed in Linux), 15/15 focused image/deployment
+assertions, four isolated candidate image builds and executable checks. Exact
+Node/npm/PostgreSQL/age/tunnel versions, closed unconfigured entrypoints,
+0600 UID separation, wrong-owner/mode refusal and non-root read-only PostgreSQL
+initialization pass. Candidate images use the parent revision as a test label,
+not a deployed clean-revision claim. Existing base digests are retained; age
+uses the publisher's release SHA256 before extraction. No live server action.
 
 ## Global Constraints
 
