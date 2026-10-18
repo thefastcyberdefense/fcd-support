@@ -222,6 +222,27 @@ async function authorizeAndStart(
 }
 
 describe('PostgreSQL outbound work store', () => {
+  test('dispatch start refuses a window that closed after attempt authorization', async () => {
+    await seedPolicy();
+    await seedIntent('late_dispatch');
+    const store = workStore();
+    const authorizedAt = new Date(workAt.getTime() + 23 * 60 * 60 * 1000 - 1);
+    const claim = await claimOne(store, authorizedAt);
+    const authorization = await store.authorizeAttempt({
+      intentRef: claim.intentRef,
+      leaseRef: claim.leaseRef,
+      evaluatedAt: authorizedAt,
+    });
+    if (authorization.status !== 'authorized')
+      throw new Error('Synthetic near-window attempt missing');
+    await expect(
+      store.markDispatchStarted({
+        attemptRef: authorization.attemptRef,
+        leaseRef: claim.leaseRef,
+        startedAt: new Date(authorizedAt.getTime() + 2),
+      }),
+    ).rejects.toThrow();
+  });
   test('claims a bounded batch with SKIP LOCKED and does not duplicate leases', async () => {
     await seedPolicy({ ...generous, workerBatchSize: 2 });
     const first = await seedIntent('claim_one');

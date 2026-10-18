@@ -22,9 +22,13 @@ import { PostgresOutboundTemplate } from '../../src/persistence/postgres-outboun
 import { PostgresOutboundWorkStore } from '../../src/persistence/postgres-outbound-work-store.js';
 import { insertSyntheticAppliedCustomerEvent, syntheticPrivacyKeyring } from './policy-fixtures.js';
 import { createIsolatedTestDatabase } from './test-database.js';
+import { createOutboundRuntime } from '../../src/operations/outbound-runtime.js';
+import { noopSafeLogger } from '../../src/logging.js';
+import { syntheticOutboundRuntimeEnvironment } from '../helpers/outbound-runtime-fixtures.js';
 
 let dispose: (() => Promise<void>) | undefined;
 let pool: pg.Pool;
+let connectionString: string;
 
 const baseAt = new Date('2026-09-17T00:00:00.000Z');
 const workAt = new Date('2026-09-17T03:00:00.000Z');
@@ -63,6 +67,7 @@ interface FlowFixture {
 beforeAll(async () => {
   const database = await createIsolatedTestDatabase('postgres_outbound_flow');
   pool = database.pool;
+  connectionString = database.connectionString;
   dispose = database.dispose;
 });
 
@@ -391,11 +396,80 @@ function accepted(key: string): OutboundProviderResult {
 function worker(
   provider: OutboundWorkerProvider,
   store: OutboundWorkerStore = workStore(),
-): OutboundWorker {
-  return new OutboundWorker({ maximumResponseBytes: 8192, provider, store });
+): Pick<OutboundWorker, 'runBatch'> {
+  let fixtureNow = workAt;
+  const instance = new OutboundWorker({
+    maximumResponseBytes: 8192,
+    provider,
+    store,
+    now: () => fixtureNow,
+  });
+  return {
+    runBatch: (input) => {
+      fixtureNow = input.evaluatedAt;
+      return instance.runBatch(input);
+    },
+  };
 }
 
 describe('PostgreSQL outbound worker flow', () => {
+  test('enabled composed daemon uses the existing client and leased outbox with injected synthetic transport', async () => {
+    await seedPolicy();
+    const source = await seedIntent('daemon');
+    await pool.query(
+      "insert into operations_deployments (git_revision,schema_revision,recorded_at,status) values ($1,'000014',$2,'started')",
+      ['c'.repeat(40), workAt],
+    );
+    const send = vi.fn(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            messaging_product: 'whatsapp',
+            contacts: [
+              {
+                input: source.identity.externalContactId,
+                wa_id: source.identity.externalContactId,
+              },
+            ],
+            messages: [{ id: 'META_MESSAGE_TEST_daemon' }],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      ),
+    );
+    const runtime = await createOutboundRuntime({
+      role: 'outbound',
+      environment: syntheticOutboundRuntimeEnvironment(connectionString, generous),
+      logger: noopSafeLogger,
+      now: () => workAt,
+      testTransports: { meta: send },
+    });
+    try {
+      await runtime.start();
+      for (let attempt = 0; attempt < 250; attempt++) {
+        if (
+          (
+            await pool.query<{ state: string }>(
+              'select state from outbound_intents where intent_ref=$1',
+              [source.intentRef],
+            )
+          ).rows[0]?.state === 'provider_accepted'
+        )
+          break;
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 20);
+        });
+      }
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(
+        await pool.query('select state from outbound_intents where intent_ref=$1', [
+          source.intentRef,
+        ]),
+      ).toMatchObject({ rows: [{ state: 'provider_accepted' }] });
+    } finally {
+      await runtime.stop();
+    }
+  });
   test('moves ready FAQ and model drafts through identical provider behavior', async () => {
     await seedPolicy();
     await seedIntent('model', { decisionType: 'model' });

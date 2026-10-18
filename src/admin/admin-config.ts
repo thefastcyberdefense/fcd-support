@@ -9,6 +9,8 @@ const encodedKeySchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
 const environmentSchema = z.object({
   ADMIN_ACTION_TTL_MS: z.coerce.number().int().min(60_000).max(3_600_000).default(900_000),
   ADMIN_HOST: z.string().trim().default('127.0.0.1'),
+  ADMIN_LISTEN_MODE: z.enum(['local', 'container_private']).default('local'),
+  ADMIN_BROWSER_PORT: z.coerce.number().int().min(1).max(65535).optional(),
   ADMIN_LIST_LIMIT: z.coerce.number().int().min(1).max(500).default(100),
   ADMIN_MFA_ENCRYPTION_KEY: encodedKeySchema,
   ADMIN_MFA_KEY_VERSION: z
@@ -54,6 +56,8 @@ const settingOrder = [
   'ADMIN_ACTION_TTL_MS',
   'DATABASE_URL',
   'ADMIN_HOST',
+  'ADMIN_LISTEN_MODE',
+  'ADMIN_BROWSER_PORT',
   'ADMIN_LIST_LIMIT',
   'ADMIN_PORT',
   'ADMIN_ORIGIN',
@@ -84,7 +88,7 @@ export interface AdminConfig {
   readonly learningPolicy: LearningPolicy;
   readonly actionTtlMilliseconds: number;
   readonly databaseUrl: string;
-  readonly host: '127.0.0.1' | '::1';
+  readonly host: '127.0.0.1' | '::1' | '0.0.0.0';
   readonly mfaEncryptionKey: AdminSecretBytes;
   readonly mfaKeyVersion: string;
   readonly origin: string;
@@ -142,7 +146,10 @@ export function loadAdminConfig(
   }
 
   const host = result.data.ADMIN_HOST;
-  if (host !== '127.0.0.1' && host !== '::1') fail(['ADMIN_HOST']);
+  const container = result.data.ADMIN_LISTEN_MODE === 'container_private';
+  if (container ? host !== '0.0.0.0' : host !== '127.0.0.1' && host !== '::1') fail(['ADMIN_HOST']);
+  if (host !== '127.0.0.1' && host !== '::1' && host !== '0.0.0.0') fail(['ADMIN_HOST']);
+  if (container && result.data.ADMIN_ORIGIN === undefined) fail(['ADMIN_ORIGIN']);
   const defaultOrigin =
     host === '::1'
       ? `http://[::1]:${String(result.data.ADMIN_PORT)}`
@@ -153,8 +160,15 @@ export function loadAdminConfig(
   const secureCookie = result.data.ADMIN_SECURE_COOKIE === 'true';
   if (
     parsedOrigin.origin !== origin ||
-    parsedOrigin.hostname !== expectedHostname ||
-    parsedOrigin.port !== String(result.data.ADMIN_PORT) ||
+    (container
+      ? !['127.0.0.1', '[::1]'].includes(parsedOrigin.hostname)
+      : parsedOrigin.hostname !== expectedHostname) ||
+    parsedOrigin.port !==
+      String(
+        container
+          ? (result.data.ADMIN_BROWSER_PORT ?? result.data.ADMIN_PORT)
+          : result.data.ADMIN_PORT,
+      ) ||
     parsedOrigin.protocol !== 'http:' ||
     secureCookie
   ) {

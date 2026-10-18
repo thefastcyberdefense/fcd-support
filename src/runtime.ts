@@ -7,6 +7,8 @@ import { noopSafeLogger, type SafeLogger } from './logging.js';
 import { PostgresReceiptStore } from './persistence/postgres-receipt-store.js';
 import type { PrivacyHmacKeyring } from './policy/policy-types.js';
 import type { WebhookReceiptSink } from './receipts/webhook-receipt.js';
+import { loadRoleEnvironment } from './operations/secret-files.js';
+import { loadPrivacyKeyring } from './operations/privacy-keyring.js';
 
 export interface CreateRuntimeOptions {
   readonly environment: Readonly<Record<string, string | undefined>>;
@@ -14,6 +16,14 @@ export interface CreateRuntimeOptions {
   readonly poolFactory?: (configuration: pg.PoolConfig) => pg.Pool;
   readonly privacyKeyring?: PrivacyHmacKeyring;
   readonly receiptSink?: WebhookReceiptSink;
+  readonly readSecret?: (path: string) => Promise<Uint8Array>;
+}
+export async function createWebhookRuntime(options: CreateRuntimeOptions): Promise<AppRuntime> {
+  const environment = await loadRoleEnvironment('webhook', options.environment, options.readSecret);
+  const privacyKeyring = loadPrivacyKeyring(
+    new TextEncoder().encode(environment.PRIVACY_HMAC_KEYRING),
+  );
+  return createRuntime({ ...options, environment, privacyKeyring });
 }
 
 export interface AppRuntime {

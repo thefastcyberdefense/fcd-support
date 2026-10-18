@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import pg from 'pg';
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { createAdminRuntime } from '../src/admin/admin-runtime.js';
+import { createAdminRuntime, createAdminRoleRuntime } from '../src/admin/admin-runtime.js';
 import { createSafeLogger } from '../src/logging.js';
 
 const apps: FastifyInstance[] = [];
@@ -16,6 +16,44 @@ afterEach(async () => {
 });
 
 describe('private admin runtime', () => {
+  test('file-backed private container mode keeps authentication routes and browser origin private', async () => {
+    const pool = new pg.Pool();
+    const runtime = await createAdminRoleRuntime({
+      environment: {
+        NODE_ENV: 'test',
+        ADMIN_LISTEN_MODE: 'container_private',
+        ADMIN_HOST: '0.0.0.0',
+        ADMIN_ORIGIN: 'http://127.0.0.1:3004',
+        DATABASE_URL_FILE: '/run/secrets/synthetic_db',
+        ADMIN_SESSION_HMAC_KEY_FILE: '/run/secrets/synthetic_session',
+        ADMIN_MFA_ENCRYPTION_KEY_FILE: '/run/secrets/synthetic_mfa',
+      },
+      readSecret: (file) =>
+        Promise.resolve(
+          new TextEncoder().encode(
+            file.endsWith('synthetic_db')
+              ? environment.DATABASE_URL
+              : Buffer.alloc(32, 0x51).toString('base64url'),
+          ),
+        ),
+      poolFactory: () => pool,
+    });
+    apps.push(runtime.app);
+    expect((await runtime.app.inject({ method: 'GET', url: '/login' })).statusCode).toBe(200);
+    expect((await runtime.app.inject({ method: 'GET', url: '/knowledge' })).statusCode).not.toBe(
+      200,
+    );
+    expect(
+      (
+        await runtime.app.inject({
+          method: 'POST',
+          url: '/login',
+          headers: { origin: 'http://admin:3004' },
+          payload: {},
+        })
+      ).statusCode,
+    ).toBe(403);
+  });
   test('fails invalid configuration before creating a pool', () => {
     const factory = vi.fn(() => new pg.Pool());
     expect(() => createAdminRuntime({ environment: {}, poolFactory: factory })).toThrow(

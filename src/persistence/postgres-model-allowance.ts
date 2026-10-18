@@ -380,10 +380,26 @@ export class PostgresModelAllowance {
     });
   }
 
-  public async expireLeases(expiredAt: Date): Promise<{ readonly expiredCount: number }> {
+  public async expireLeases(
+    expiredAt: Date,
+    limit?: number,
+  ): Promise<{ readonly expiredCount: number }> {
     requireDate(expiredAt, 'Model lease expiry time');
+    if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000))
+      throw new TypeError('Model lease expiry limit is invalid');
     return withBoundedTransaction(this.pool, async (client) => {
       await client.query(`select pg_advisory_xact_lock(7100416)`);
+      if (limit !== undefined) {
+        const expired = await client.query(
+          `with due as (
+          select logical_call_key from model_call_leases where state in ('active','queued') and lease_expires_at <= $1
+          order by lease_expires_at,logical_call_key limit $2 for update skip locked
+        ) update model_call_leases lease set state='expired',outcome_code='lease_expired',finished_at=$1,updated_at=$1
+          from due where lease.logical_call_key=due.logical_call_key`,
+          [expiredAt, limit],
+        );
+        return { expiredCount: expired.rowCount ?? 0 };
+      }
       return { expiredCount: await this.expireInTransaction(client, expiredAt) };
     });
   }

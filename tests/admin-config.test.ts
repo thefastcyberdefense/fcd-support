@@ -14,6 +14,46 @@ function environment(overrides: Readonly<Record<string, string | undefined>> = {
 }
 
 describe('admin configuration', () => {
+  test('container admin mode preserves the operator browser origin', () => {
+    const config = loadAdminConfig(
+      environment({
+        ADMIN_LISTEN_MODE: 'container_private',
+        ADMIN_HOST: '0.0.0.0',
+        ADMIN_ORIGIN: 'http://127.0.0.1:3004',
+      }),
+    );
+    expect(config.host).toBe('0.0.0.0');
+    expect(config.origin).toBe('http://127.0.0.1:3004');
+  });
+  test('explicit SSH-forward browser port remains separate from the container listener', () => {
+    const config = loadAdminConfig(
+      environment({
+        ADMIN_LISTEN_MODE: 'container_private',
+        ADMIN_HOST: '0.0.0.0',
+        ADMIN_PORT: '3004',
+        ADMIN_BROWSER_PORT: '4004',
+        ADMIN_ORIGIN: 'http://127.0.0.1:4004',
+      }),
+    );
+    expect(config.port).toBe(3004);
+    expect(config.origin).toBe('http://127.0.0.1:4004');
+  });
+  test.each([
+    'http://192.168.10.40:3004',
+    'http://0.0.0.0:3004',
+    'http://127.0.0.1:4004',
+    'http://admin:3004',
+  ])('container mode refuses an unapproved browser origin %s', (origin) => {
+    expect(() =>
+      loadAdminConfig(
+        environment({
+          ADMIN_LISTEN_MODE: 'container_private',
+          ADMIN_HOST: '0.0.0.0',
+          ADMIN_ORIGIN: origin,
+        }),
+      ),
+    ).toThrow('Invalid admin configuration: ADMIN_ORIGIN');
+  });
   test('defaults to a loopback-only HTTP service with explicit configurable security policy', () => {
     const config = loadAdminConfig(environment());
 

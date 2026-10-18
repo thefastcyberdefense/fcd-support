@@ -1,4 +1,5 @@
 export type SafeLogEvent =
+  | 'operations_job_failed'
   | 'worker_started'
   | 'worker_stopped'
   | 'worker_batch_failed'
@@ -60,6 +61,7 @@ interface CreateSafeLoggerOptions {
 type LogLevel = 'error' | 'info' | 'warn';
 
 const safeEvents = new Set<SafeLogEvent>([
+  'operations_job_failed',
   'worker_started',
   'worker_stopped',
   'worker_batch_failed',

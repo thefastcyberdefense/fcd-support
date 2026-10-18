@@ -68,12 +68,48 @@ function baseStore(claims: readonly ClaimedOutboundIntent[] = [claim('one')]) {
 }
 
 describe('OutboundWorker', () => {
+  test('samples time again before the second authorization in a slow batch', async () => {
+    let now = evaluatedAt;
+    const store = baseStore([claim('first'), claim('second')]);
+    const denied: string[] = [];
+    store.authorizeAttempt.mockImplementation(async ({ intentRef, evaluatedAt: checkedAt }) => {
+      if (checkedAt > evaluatedAt) {
+        denied.push('window_closed');
+        return { status: 'denied', reason: 'window_closed' };
+      }
+      return authorized(intentRef);
+    });
+    const provider = {
+      send: vi.fn(async () => {
+        now = new Date(evaluatedAt.getTime() + 1000);
+        return accepted('first');
+      }),
+    };
+    const worker = new OutboundWorker({
+      maximumResponseBytes: 4096,
+      provider,
+      store,
+      now: () => now,
+    });
+    const result = await worker.runBatch({ evaluatedAt, workerRef: 'WORKER_TEST_clock' });
+    expect(result.accepted).toBe(1);
+    expect(provider.send).toHaveBeenCalledTimes(1);
+    expect(denied).toContain('window_closed');
+    expect(store.recordProviderResult).toHaveBeenCalledWith(
+      expect.objectContaining({ completedAt: now }),
+    );
+  });
   test('does not claim work when the batch signal is already canceled', async () => {
     const store = baseStore();
     const provider = { send: vi.fn(async () => accepted('unexpected')) };
     const controller = new AbortController();
     controller.abort();
-    const worker = new OutboundWorker({ maximumResponseBytes: 4096, provider, store });
+    const worker = new OutboundWorker({
+      maximumResponseBytes: 4096,
+      provider,
+      store,
+      now: () => evaluatedAt,
+    });
 
     await expect(
       worker.runBatch({
@@ -128,7 +164,12 @@ describe('OutboundWorker', () => {
         return accepted('one');
       }),
     };
-    const worker = new OutboundWorker({ maximumResponseBytes: 8192, provider, store });
+    const worker = new OutboundWorker({
+      maximumResponseBytes: 8192,
+      provider,
+      store,
+      now: () => evaluatedAt,
+    });
 
     await expect(worker.runBatch({ evaluatedAt, workerRef: 'WORKER_TEST_one' })).resolves.toEqual({
       accepted: 1,
@@ -177,7 +218,12 @@ describe('OutboundWorker', () => {
         return accepted(String(contexts.length));
       }),
     };
-    const worker = new OutboundWorker({ maximumResponseBytes: 4096, provider, store });
+    const worker = new OutboundWorker({
+      maximumResponseBytes: 4096,
+      provider,
+      store,
+      now: () => evaluatedAt,
+    });
 
     await expect(
       worker.runBatch({ evaluatedAt, workerRef: 'WORKER_TEST_shapes' }),
@@ -201,7 +247,12 @@ describe('OutboundWorker', () => {
         status: 'duplicate' as const,
       });
     const provider = { send: vi.fn(async () => accepted('unexpected')) };
-    const worker = new OutboundWorker({ maximumResponseBytes: 4096, provider, store });
+    const worker = new OutboundWorker({
+      maximumResponseBytes: 4096,
+      provider,
+      store,
+      now: () => evaluatedAt,
+    });
 
     await expect(
       worker.runBatch({ evaluatedAt, workerRef: 'WORKER_TEST_closed' }),
@@ -242,7 +293,12 @@ describe('OutboundWorker', () => {
       { reasonCode: 'timeout', status: 'delivery_unknown' },
     ];
     const provider = { send: vi.fn(async () => providerResults.shift() ?? accepted('unexpected')) };
-    const worker = new OutboundWorker({ maximumResponseBytes: 4096, provider, store });
+    const worker = new OutboundWorker({
+      maximumResponseBytes: 4096,
+      provider,
+      store,
+      now: () => evaluatedAt,
+    });
 
     await expect(
       worker.runBatch({ evaluatedAt, workerRef: 'WORKER_TEST_results' }),
@@ -263,7 +319,12 @@ describe('OutboundWorker', () => {
       .mockRejectedValueOnce(new Error('synthetic database failure'))
       .mockResolvedValueOnce(authorized('healthy'));
     const provider = { send: vi.fn(async () => accepted('healthy')) };
-    const worker = new OutboundWorker({ maximumResponseBytes: 4096, provider, store });
+    const worker = new OutboundWorker({
+      maximumResponseBytes: 4096,
+      provider,
+      store,
+      now: () => evaluatedAt,
+    });
 
     await expect(
       worker.runBatch({ evaluatedAt, workerRef: 'WORKER_TEST_db_before' }),
@@ -288,7 +349,12 @@ describe('OutboundWorker', () => {
         .mockRejectedValueOnce(new Error('synthetic transport failure'))
         .mockResolvedValueOnce(accepted('persistence')),
     };
-    const worker = new OutboundWorker({ maximumResponseBytes: 4096, provider, store });
+    const worker = new OutboundWorker({
+      maximumResponseBytes: 4096,
+      provider,
+      store,
+      now: () => evaluatedAt,
+    });
 
     await expect(
       worker.runBatch({ evaluatedAt, workerRef: 'WORKER_TEST_unknown' }),
@@ -312,7 +378,12 @@ describe('OutboundWorker', () => {
       return authorized('one');
     });
     const provider = { send: vi.fn(async () => accepted('unexpected')) };
-    const worker = new OutboundWorker({ maximumResponseBytes: 4096, provider, store });
+    const worker = new OutboundWorker({
+      maximumResponseBytes: 4096,
+      provider,
+      store,
+      now: () => evaluatedAt,
+    });
 
     await expect(
       worker.runBatch({ evaluatedAt, signal: controller.signal, workerRef: 'WORKER_TEST_abort' }),
@@ -332,7 +403,12 @@ describe('OutboundWorker', () => {
     const provider = {
       send: vi.fn(async () => ({ status: 'aborted_before_dispatch' as const })),
     };
-    const worker = new OutboundWorker({ maximumResponseBytes: 4096, provider, store });
+    const worker = new OutboundWorker({
+      maximumResponseBytes: 4096,
+      provider,
+      store,
+      now: () => evaluatedAt,
+    });
 
     await expect(
       worker.runBatch({ evaluatedAt, workerRef: 'WORKER_TEST_late_abort' }),

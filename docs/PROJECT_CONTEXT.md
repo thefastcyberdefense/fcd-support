@@ -138,6 +138,10 @@ All secret values are intentionally absent from this repository. Create them dur
 - Fuzzy FAQ thresholds remain active reviewed PostgreSQL policy intersected with protected configurable floors/caps. Without policy, only exact reviewed FAQ can answer; a gap still produces safe escalation. Separate non-secret reply outbound ceilings avoid loading provider credentials, and explicit Manifest limit attestation is required only when model execution is enabled. External flags remain false in examples.
 - Task 5 validation: `npm run check` passes 778 tests across 52 files (two Linux-only skips), formatting, lint, strict typing, build and authority validation; PostgreSQL passes 476/476 across 39 files; focused Linux/non-root tests pass 146/146 across six files without skips. Cleanup finds zero test schemas/advisory locks. The composed daemon and local fake Manifest crash-repair tests pass; invalid worker role exits 1 with a closed log only. No live provider, SSH/server, deployment or production action occurred.
 
+- Task 6 adds file-backed webhook/admin entry wrappers, automatic receipt keyring loading, graceful API signal handlers, explicit private-container admin mode with separately approved loopback browser/SSH-forward port, an outbound daemon and closed maintenance CLI. Existing synchronous constructors remain available to private/test callers. The notification command remains fail-closed until Task 14 implements its factory.
+- Outbound processing samples fresh time before authorization, dispatch start and result persistence; dispatch start also rechecks current policy, retention, privacy, consent and service-window eligibility. Maintenance invokes existing retention, reviewed verified-deletion, bounded model/outbound lease recovery and aggregate/question-digest services. Explicit stable cutoff/windows and supplied policies avoid enabling defaults; external privacy locations cannot be marked complete by these jobs.
+- Task 6 validation: complete local gate 792 tests across 54 files (two Linux-only skips); PostgreSQL 483/483 across 40 files; Linux/non-root focused gate 190/190 across 12 files without skips. Tests cover mounted composition, browser-origin isolation, simulated signal drain, service-window crossing, bounded expiry, maintenance replay and the enabled outbound daemon with one injected synthetic transport call. Invalid operations CLI exits 1 with a fixed event only. No live provider call, server access, host signal/restart experiment, deployment or production action occurred.
+
 ## Launch Blockers
 
 - The admission-only test deployment is approved and running under a narrow exception. Outbound messaging, models, n8n actions, live customer data, and production deployment remain unauthorized.
@@ -152,7 +156,7 @@ All secret values are intentionally absent from this repository. Create them dur
 - Actual encrypted backup/restore procedures and deployed human-takeover behavior must still pass their acceptance tests; the local restore-gate primitive alone does not satisfy P6-004.
 
 The current tracker action is P6-002, following the approved implementation
-plan in sequence from Task 6. All live
+plan in sequence from Task 7. All live
 Meta, Manifest, network, deployment, test-asset, and production
 actions remain separately gated. P1-GATE remains a separate explicit review
 record.

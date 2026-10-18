@@ -24,7 +24,7 @@ the baseline.
 Date: 2026-10-04
 
 Status: approved by the project owner for sequential implementation on
-2026-10-18 (Asia/Dhaka). Tasks 1–5 are locally complete; Tasks 6–16 remain pending.
+2026-10-18 (Asia/Dhaka). Tasks 1–6 are locally complete; Tasks 7–16 remain pending.
 Tracker gates close only when their complete implementation evidence exists.
 
 Task 1 validation: 99/99 focused tests pass in the isolated Linux runner as
@@ -59,6 +59,14 @@ gate passes 146/146 across six files. Cleanup finds zero test schemas/locks.
 Crash repair, composed daemon, exact privacy intake, bilingual FAQ, versioned
 thresholds, provider-disabled behavior and closed invalid-role CLI checks pass
 using synthetic data and local fakes only. No server or live provider action occurred.
+
+Task 6 validation: complete local gate 792 passed across 54 files (two
+Linux-only skips); PostgreSQL 483/483 across 40 files; focused Linux/non-root
+190/190 across 12 files. Mounted API/admin composition, private browser origin,
+fresh outbound authorization/dispatch/result clocks, dispatch eligibility
+recheck, simulated signal drain, disabled-worker isolation, bounded maintenance
+and an enabled daemon using injected synthetic transport pass locally. Invalid
+operations CLI exits 1 with a closed log. No server/live provider action occurred.
 
 ## Global Constraints
 
@@ -603,7 +611,7 @@ RetentionJob, ModelAllowance and LearningService.
 MaintenanceOptions has pool, keyring, supplied learning/outbound bounds, now,
 limit and stable runRef. All scheduled jobs use this interface.
 
-- [ ] **Step 1: Add RED runtime assertions.**
+- [x] **Step 1: Add RED runtime assertions.**
 
 ```ts
 test('samples time again before the second authorization in a slow batch', async () => {
@@ -627,26 +635,26 @@ port and cannot change CSRF rules. Test equivalent origin through SSH forward,
 host-origin mismatch, private authentication, disabled outbound (zero claims),
 SIGTERM during call, missing keyring and malformed job names.
 
-- [ ] **Step 2:** Run targeted runtime/admin/outbound tests plus maintenance
+- [x] **Step 2:** Run targeted runtime/admin/outbound tests plus maintenance
       integration; expect RED.
-- [ ] **Step 3:** Add optional injected `now: () => Date` to OutboundWorkerOptions
+- [x] **Step 3:** Add optional injected `now: () => Date` to OutboundWorkerOptions
       and sample it immediately before authorization, dispatch-start and result
       persistence. Keep old deterministic tests compatible by explicitly injecting
       their fixed clock. Instantiate the existing request builders/client; no
       alternate sender or retry loop.
-- [ ] **Step 4:** Wire file loading/keyring into webhook runtime so receipt
+- [x] **Step 4:** Wire file loading/keyring into webhook runtime so receipt
       persistence no longer depends on an absent injected keyring. Add graceful API
       shutdown. Add explicit container-private admin listening mode with
       127.0.0.1 host publication enforced in Task 8. Commands:
       `start:reply`, `start:outbound`, `start:notification`, `ops` use built
       entrypoints with closed argument parsing.
-- [ ] **Step 5:** Implement maintenance: bounded retention; execute only already
+- [x] **Step 5:** Implement maintenance: bounded retention; execute only already
       reviewed verified-deletion requests using the existing deletion service; lease
       expiry through existing model/outbound repositories; learning aggregation and
       digest under existing cadence/group bounds. The service principal may execute
       an approved request but cannot approve, bypass review or mark external privacy
       locations complete. Use stable time-slot run keys; repeat is idempotent.
-- [ ] **Step 6:** Run focused regression/integration and `npm run check`;
+- [x] **Step 6:** Run focused regression/integration and `npm run check`;
       expect PASS; commit `feat: package private runtime and maintenance commands`;
       push.
 

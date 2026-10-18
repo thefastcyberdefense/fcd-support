@@ -6,12 +6,20 @@ import { PostgresAdminDashboard } from '../persistence/postgres-admin-dashboard.
 import { buildAdminApp } from './admin-app.js';
 import { loadAdminConfig } from './admin-config.js';
 import { AesGcmAdminSecretProtector } from './mfa.js';
+import { loadRoleEnvironment } from '../operations/secret-files.js';
 
 export interface CreateAdminRuntimeOptions {
   readonly environment: Readonly<Record<string, string | undefined>>;
   readonly logger?: SafeLogger;
   readonly now?: () => Date;
   readonly poolFactory?: (configuration: pg.PoolConfig) => pg.Pool;
+  readonly readSecret?: (path: string) => Promise<Uint8Array>;
+}
+export async function createAdminRoleRuntime(
+  options: CreateAdminRuntimeOptions,
+): Promise<AdminRuntime> {
+  const environment = await loadRoleEnvironment('admin', options.environment, options.readSecret);
+  return createAdminRuntime({ ...options, environment });
 }
 export interface AdminRuntime {
   readonly app: FastifyInstance;

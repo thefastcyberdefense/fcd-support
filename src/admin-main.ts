@@ -1,10 +1,13 @@
-import { createAdminRuntime } from './admin/admin-runtime.js';
+import { createAdminRoleRuntime } from './admin/admin-runtime.js';
 import { createSafeLogger } from './logging.js';
 
 const logger = createSafeLogger();
 try {
-  const runtime = createAdminRuntime({ environment: process.env, logger });
+  const runtime = await createAdminRoleRuntime({ environment: process.env, logger });
+  let stopping = false;
   const shutdown = () => {
+    if (stopping) return;
+    stopping = true;
     void runtime.app.close().catch(() => {
       logger.error('admin_service_start_failed');
       process.exitCode = 1;

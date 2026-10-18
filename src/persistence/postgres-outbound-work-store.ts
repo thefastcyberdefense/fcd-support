@@ -524,6 +524,13 @@ export class PostgresOutboundWorkStore {
         [row.conversation_id],
       );
       if (openHold.rowCount !== 0) throw new PolicyIdempotencyConflictError();
+      const intent = await this.lockIntent(client, row.intent_ref);
+      if (intent === undefined) throw new PolicyIdempotencyConflictError();
+      const policy = await this.loadEffectivePolicy(client, input.startedAt, true);
+      if (policy?.id !== row.policy_version_id) throw new PolicyIdempotencyConflictError();
+      const authority = await this.lockAuthority(client, intent);
+      if (!(await this.evaluateIntent(client, intent, authority, input.startedAt)).eligible)
+        throw new PolicyIdempotencyConflictError();
       await client.query(
         `update outbound_attempts set state = 'dispatch_started', dispatch_started_at = $2
          where id = $1`,

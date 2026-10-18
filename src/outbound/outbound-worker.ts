@@ -62,6 +62,7 @@ export interface OutboundWorkerProvider {
 }
 
 export interface OutboundWorkerOptions {
+  readonly now?: () => Date;
   readonly maximumResponseBytes: number;
   readonly provider: OutboundWorkerProvider;
   readonly store: OutboundWorkerStore;
@@ -123,6 +124,7 @@ export class OutboundWorker {
   readonly #maximumResponseBytes: number;
   readonly #provider: OutboundWorkerProvider;
   readonly #store: OutboundWorkerStore;
+  readonly #now: () => Date;
 
   public constructor(options: OutboundWorkerOptions) {
     if (
@@ -140,6 +142,7 @@ export class OutboundWorker {
     this.#maximumResponseBytes = options.maximumResponseBytes;
     this.#provider = options.provider;
     this.#store = options.store;
+    this.#now = options.now ?? (() => new Date());
   }
 
   public async runBatch(inputValue: {
@@ -148,7 +151,8 @@ export class OutboundWorker {
     readonly workerRef: string;
   }): Promise<OutboundBatchResult> {
     const input = batchInputSchema.parse(inputValue);
-    if (input.signal?.aborted === true) {
+    const isAborted = (): boolean => input.signal?.aborted === true;
+    if (isAborted()) {
       return Object.freeze({
         accepted: 0,
         canceled: 0,
@@ -159,7 +163,7 @@ export class OutboundWorker {
       });
     }
     const claims = await this.#store.claimBatch({
-      claimedAt: input.evaluatedAt,
+      claimedAt: this.#now(),
       workerRef: input.workerRef,
     });
     const counts: MutableBatchResult = {
@@ -171,6 +175,7 @@ export class OutboundWorker {
       unknown: 0,
     };
     for (const claim of claims) {
+      if (isAborted()) break;
       await this.#processClaim(
         claim,
         {
@@ -191,7 +196,7 @@ export class OutboundWorker {
     let authorization: AuthorizeAttemptResult;
     try {
       authorization = await this.#store.authorizeAttempt({
-        evaluatedAt: input.evaluatedAt,
+        evaluatedAt: this.#now(),
         intentRef: claim.intentRef,
         leaseRef: claim.leaseRef,
       });
@@ -212,7 +217,7 @@ export class OutboundWorker {
       try {
         const persisted = await this.#store.recordProviderResult({
           attemptRef: authorization.attemptRef,
-          completedAt: input.evaluatedAt,
+          completedAt: this.#now(),
           leaseRef: claim.leaseRef,
           result: { status: 'aborted_before_dispatch' },
         });
@@ -234,7 +239,7 @@ export class OutboundWorker {
       const started = await this.#store.markDispatchStarted({
         attemptRef: authorization.attemptRef,
         leaseRef: claim.leaseRef,
-        startedAt: input.evaluatedAt,
+        startedAt: this.#now(),
       });
       if (started.status === 'duplicate') {
         counts.deferred += 1;
@@ -262,7 +267,7 @@ export class OutboundWorker {
     try {
       const persisted = await this.#store.recordProviderResult({
         attemptRef: authorization.attemptRef,
-        completedAt: input.evaluatedAt,
+        completedAt: this.#now(),
         leaseRef: claim.leaseRef,
         result: providerResult,
       });

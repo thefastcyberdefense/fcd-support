@@ -18,7 +18,32 @@ import {
   isRuntimeHeartbeatFresh,
   parseRuntimeHeartbeat,
   type RuntimeHeartbeat,
+  type RuntimeReadinessPorts,
 } from './runtime-readiness.js';
+
+export function databaseReadinessPorts(
+  pool: pg.Pool,
+  now: () => Date,
+  hasRequiredPolicy: RuntimeReadinessPorts['hasRequiredPolicy'],
+): RuntimeReadinessPorts {
+  return {
+    now,
+    hasRequiredPolicy,
+    readSchemaRevision: async () =>
+      (
+        await pool.query<{ name: string }>('select name from pgmigrations order by id desc limit 1')
+      ).rows[0]?.name.split('_')[0] ?? '',
+    readDeployedRevision: async () => {
+      const row = (
+        await pool.query<{ git_revision: string; status: string }>(
+          'select git_revision,status from operations_deployments order by recorded_at desc,id desc limit 1',
+        )
+      ).rows[0];
+      return row?.status === 'started' || row?.status === 'succeeded' ? row.git_revision : '';
+    },
+    checkPrivateDependency: () => Promise.resolve('healthy'),
+  };
+}
 
 export type RuntimeHttpTransport = (url: string, init: RequestInit) => Promise<Response>;
 export interface RoleRuntimeOptions {

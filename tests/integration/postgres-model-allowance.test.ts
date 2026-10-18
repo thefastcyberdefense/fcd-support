@@ -168,6 +168,15 @@ function input(
 }
 
 describe('PostgreSQL model allowance and leases', () => {
+  test('maintenance expiry respects its supplied batch bound', async () => {
+    const policy = await activePolicy();
+    for (const key of ['bounded_one', 'bounded_two']) {
+      await allowance.acquireModelAllowance(input(await source(key), `CALL_TEST_${key}`, policy));
+    }
+    const expiredAt = new Date(baseAt.getTime() + 60000);
+    expect(await allowance.expireLeases(expiredAt, 1)).toEqual({ expiredCount: 1 });
+    expect(await allowance.expireLeases(expiredAt, 1)).toEqual({ expiredCount: 1 });
+  });
   test('enforces 3/15-minute and 20/24-hour contact limits without double-counting replay', async () => {
     const policy = await activePolicy();
     const first = await source('contact_shared');

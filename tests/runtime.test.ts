@@ -2,10 +2,15 @@ import { createHmac } from 'node:crypto';
 
 import type { FastifyInstance } from 'fastify';
 import pg from 'pg';
-import { afterEach, describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import { createSafeLogger } from '../src/logging.js';
-import { createRuntime } from '../src/runtime.js';
+import { createRuntime, createWebhookRuntime } from '../src/runtime.js';
+import { PostgresReceiptStore } from '../src/persistence/postgres-receipt-store.js';
+import {
+  readSyntheticWebhookSecret,
+  syntheticWebhookFiles,
+} from './helpers/operations-fixtures.js';
 
 const apps: FastifyInstance[] = [];
 const environment = {
@@ -18,6 +23,37 @@ afterEach(async () => {
 });
 
 describe('local runtime', () => {
+  test('mounted webhook secrets construct durable receipt storage with a loaded privacy keyring', async () => {
+    const store = vi
+      .spyOn(PostgresReceiptStore.prototype, 'store')
+      .mockResolvedValue({ insertedEventCount: 0, receiptId: '1', outcome: 'accepted' });
+    const pool = new pg.Pool();
+    try {
+      const runtime = await createWebhookRuntime({
+        environment: { ...syntheticWebhookFiles, NODE_ENV: 'test' },
+        readSecret: readSyntheticWebhookSecret,
+        poolFactory: () => pool,
+      });
+      apps.push(runtime.app);
+      const rawBody = JSON.stringify({ object: 'unknown', entry: [] });
+      const secret = new TextDecoder().decode(
+        await readSyntheticWebhookSecret(syntheticWebhookFiles.META_APP_SECRET_FILE),
+      );
+      const response = await runtime.app.inject({
+        method: 'POST',
+        url: '/webhooks/meta',
+        headers: {
+          'content-type': 'application/json',
+          'x-hub-signature-256': `sha256=${createHmac('sha256', secret).update(rawBody).digest('hex')}`,
+        },
+        payload: rawBody,
+      });
+      expect(response.statusCode).toBe(200);
+      expect(store).toHaveBeenCalledOnce();
+    } finally {
+      store.mockRestore();
+    }
+  });
   test('fails closed when no durable receipt sink has been configured', async () => {
     const runtime = createRuntime({ environment });
     apps.push(runtime.app);
