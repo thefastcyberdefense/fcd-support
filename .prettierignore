@@ -1,4 +1,5 @@
 .tools/
+.superpowers/
 coverage/
 dist/
 docs/

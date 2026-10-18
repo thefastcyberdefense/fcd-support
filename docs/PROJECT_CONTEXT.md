@@ -114,11 +114,17 @@ All secret values are intentionally absent from this repository. Create them dur
 ## Current Phase 6 Planning Checkpoint
 
 - The project owner approved the written Phase 6 specification on 2026-10-04: `docs/superpowers/specs/2026-09-21-phase-6-hardened-local-operations-design.md`.
-- The implementation plan is written for owner review: `docs/superpowers/plans/2026-10-04-phase-6-hardened-local-operations.md`. Its 16 sequential tasks package role-specific runtimes, mounted secrets, hardened layered Compose, private networks, encrypted backup/restore, current deletion checkpoints, inherited-work quarantine, host timers, dashboard/journal health, private n8n contracts, local failure evidence, and a concrete server deployment handoff.
+- The implementation plan `docs/superpowers/plans/2026-10-04-phase-6-hardened-local-operations.md` was approved for sequential implementation on 2026-10-18. Its 16 tasks package role-specific runtimes, mounted secrets, hardened layered Compose, private networks, encrypted backup/restore, current deletion checkpoints, inherited-work quarantine, host timers, dashboard/journal health, private n8n contracts, local failure evidence, and a concrete server deployment handoff.
 - First-version operational incidents use the authenticated private dashboard and sanitized host journal independently of n8n. Direct Telegram, SMTP, and external uptime notifications are deferred by owner; an offline host cannot notify while offline.
 - Backup creation uses only a public encryption recipient; a separate verification/restore job holds the private identity. Restore must import a complete current deletion checkpoint, including post-archive deletions, and fence inherited external-effect work before application attachment.
 - Deployment destination remains the existing Ubuntu server at `192.168.10.40`, with exact committed revisions pulled into `/home/redwan/apps/fcd-support`. The exact revision/action/rollback handoff still precedes server mutation; external execution starts disabled.
-- P6-001 remains in progress pending written-plan review. No P6 implementation, Docker validation, server access, provider call, or deployment occurred during planning.
+- P6-001 is complete; the first implementation checkpoint follows below. No server access, provider call, or deployment occurred during planning.
+
+## Phase 6 Implementation Progress
+
+- The project owner approved the 16-task plan for sequential local implementation on 2026-10-18 (Asia/Dhaka). P6-001 is complete; P6-002 is in progress.
+- Task 1 adds per-role mounted-secret loading, bounded regular-file reads, Linux ownership/permissions and symlink checks, redacted secret-bearing environments/keyrings, strict rotated privacy key decoding, and explicit configurable operation/resource bounds. External execution flags remain false in examples. The normal backup role cannot receive a decryption identity.
+- Validation: the required first RED run failed on the three absent modules. The focused Linux suite passes 99/99 as the unprivileged Node user, including permission/symlink tests. The full Windows `npm run check` passes formatting, lint, strict type checking, 731 tests across 49 files (two Linux-only skips), build and authority validation. No live provider call, server access, deployment, or production action occurred.
 
 ## Launch Blockers
 
@@ -133,8 +139,8 @@ All secret values are intentionally absent from this repository. Create them dur
 - Website privacy and support wording must disclose AI assistance, external inference, retention, deletion, and marketing consent before production launch.
 - Actual encrypted backup/restore procedures and deployed human-takeover behavior must still pass their acceptance tests; the local restore-gate primitive alone does not satisfy P6-004.
 
-The current tracker action is P6-001 written implementation-plan review; the
-written specification is approved. All live
+The current tracker action is P6-002, following the approved implementation
+plan in sequence from Task 2. All live
 Meta, Manifest, network, deployment, test-asset, and production
 actions remain separately gated. P1-GATE remains a separate explicit review
 record.

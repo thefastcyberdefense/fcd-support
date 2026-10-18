@@ -23,9 +23,15 @@ the baseline.
 
 Date: 2026-10-04
 
-Status: written specification approved; this implementation plan awaits owner
-review. All tasks are unchecked. P6-002 through P6-006 remain blocked until
-plan review is recorded. No task in this document has run.
+Status: approved by the project owner for sequential implementation on
+2026-10-18 (Asia/Dhaka). Task 1 is locally complete; Tasks 2–16 remain pending.
+Tracker gates close only when their complete implementation evidence exists.
+
+Task 1 validation: 99/99 focused tests pass in the isolated Linux runner as
+node. The complete Windows gate passes 731 tests across 49 files, with two
+Linux-specific skips separately passed in Linux, plus formatting, lint,
+strict type checking, build and authority validation. The first RED run failed
+on the three missing operations modules. No live provider/server action occurred.
 
 ## Global Constraints
 
@@ -220,7 +226,7 @@ resourceLimits (per-role cpus, memoryMiB, pids and tmpfsMiB). Validate positive
 finite CPU <= observed host capacity, integer memory/PIDs/tmpfs and supplied
 minimum/maximum deployment bounds; no absent bound gets an enabling default.
 
-- [ ] **Step 1: Add RED assertions** using only authored sentinels.
+- [x] **Step 1: Add RED assertions** using only authored sentinels.
 
 ```ts
 test('rejects conflicting secret sources without echoing either value', async () => {
@@ -252,15 +258,15 @@ versions, 32-byte keys, active version present. Serialize/inspect only redacted
 wrappers. Linux permission checks reject 0644 and inaccessible 0600 files.
 A correctly owned 0600 file must work under the actual service UID.
 
-- [ ] **Step 2:** Run `npx vitest run tests/secret-files.test.ts tests/operations-config.test.ts tests/privacy-keyring.test.ts`.
+- [x] **Step 2:** Run `npx vitest run tests/secret-files.test.ts tests/operations-config.test.ts tests/privacy-keyring.test.ts`.
       Expect missing modules/exports or failed new assertions.
-- [ ] **Step 3:** Implement the interfaces and role allowlists. Production
+- [x] **Step 3:** Implement the interfaces and role allowlists. Production
       requires *_FILE for every secret; adapt values in memory into existing loaders.
       Do not assign revealed values to process.env. Webhook needs DB, app secret,
       verify token and privacy keys; admin needs DB/session/MFA; outbound adds channel
       tokens; reply adds Manifest only when enabled; notification adds n8n only when
       enabled. Reject irrelevant mounted credentials and conflicting sources.
-- [ ] **Step 4:** Require explicit execution settings:
+- [x] **Step 4:** Require explicit execution settings:
       `MODEL_EXECUTION_ENABLED`, `OUTBOUND_EXECUTION_ENABLED`,
       `N8N_EXECUTION_ENABLED` are closed true/false values; examples are false.
       Require poll/batch/lease/grace/health/resource/calendar values and reuse existing
@@ -268,9 +274,9 @@ A correctly owned 0600 file must work under the actual service UID.
       ms, job batch 1–1000, grace 0–300000 ms; configured grace/stop period must exceed
       the role's bounded call lifetime. Calendar expressions are validated with
       systemd-analyze in Task 12; never shell-evaluate configuration.
-- [ ] **Step 5:** Run focused tests, `npm run typecheck` and `npm run lint`.
+- [x] **Step 5:** Run focused tests, `npm run typecheck` and `npm run lint`.
       Expect all pass and errors contain only closed setting names/reasons.
-- [ ] **Step 6:** Stage only listed files; commit
+- [x] **Step 6:** Stage only listed files; commit
       `feat: add role scoped mounted secret configuration`; push `origin main`.
 
 ### Task 2: Content-free operations persistence and incident transitions
@@ -1301,5 +1307,6 @@ Checking this section does not mean any implementation task ran.
 Recommended execution: sequential native development with the executing-plans
 workflow, focused review per independently testable task and final gate review
 under the owner's authorized method. Additional subagents are optional only
-after explicit authorization. The plan review is the next gate; this document
-contains no implementation or server-execution claim.
+after explicit authorization. Plan review is complete; execute remaining tasks
+in sequence and retain their exact validation evidence. This plan does not
+authorize the later server action merely because local tests pass.

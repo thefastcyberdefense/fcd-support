@@ -196,7 +196,7 @@ Produce a reproducible, private, recoverable Docker deployment without exposing 
 - Compose validation, container hardening checks, migrations, backup, restore, deletion-after-restore, and failure recovery tests pass locally.
 - Network tests show only the intended container-to-container paths and no public host ports. The approved admin dashboard may bind only to host loopback for local or SSH-forwarded access.
 
-Phase 6 written specification: `docs/superpowers/specs/2026-09-21-phase-6-hardened-local-operations-design.md` (owner approved 2026-10-04). Implementation plan: `docs/superpowers/plans/2026-10-04-phase-6-hardened-local-operations.md` (awaiting written-plan review). P6 remains local implementation and validation before any separately approved server action.
+Phase 6 written specification: `docs/superpowers/specs/2026-09-21-phase-6-hardened-local-operations-design.md` (owner approved 2026-10-04). Implementation plan: `docs/superpowers/plans/2026-10-04-phase-6-hardened-local-operations.md` (owner approved for sequential implementation 2026-10-18). P6 remains local implementation and validation before any separately approved server action.
 
 ## Phase 7: Approved Test-Asset Integration
 
