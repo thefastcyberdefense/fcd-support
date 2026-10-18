@@ -17,7 +17,7 @@ export function createWorkerLoop(options: WorkerLoopOptions): RuntimeLifecycle {
     options.pollMilliseconds > 60000 ||
     !Number.isSafeInteger(options.shutdownGraceMilliseconds) ||
     options.shutdownGraceMilliseconds < 0 ||
-    options.shutdownGraceMilliseconds > 300000
+    options.shutdownGraceMilliseconds > 600000
   ) {
     throw new TypeError('worker_configuration_invalid');
   }

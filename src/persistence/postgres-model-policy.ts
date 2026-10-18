@@ -1,4 +1,5 @@
 import type pg from 'pg';
+import type { FaqResolutionPolicy } from '../knowledge/faq-resolver.js';
 
 import { restrictModelOperationalLimits } from '../model/model-config.js';
 import {
@@ -295,6 +296,31 @@ export class PostgresModelPolicy {
         [limit],
       );
       return selected.rows.map(viewFromRow);
+    });
+  }
+
+  public async resolveFaqPolicy(evaluatedAt: Date): Promise<FaqResolutionPolicy | undefined> {
+    if (!validDate(evaluatedAt)) throw new TypeError('Model policy evaluation time is invalid');
+    return withBoundedTransaction(this.pool, async (client) => {
+      const selected = await client.query<PolicyRow>(
+        `${policySelect}
+        join lateral (
+          select event.action from model_policy_review_events event
+          where event.policy_version_id=policy.id and event.effective_at <= $1
+          order by event.effective_at desc,event.id desc limit 1
+        ) effective on effective.action='activate'
+        order by policy.version_number desc`,
+        [evaluatedAt],
+      );
+      if (selected.rows.length > 1) throw new Error('Multiple model policies are effective');
+      const row = selected.rows[0];
+      if (row === undefined) return undefined;
+      const values = valuesFromRow(row);
+      return Object.freeze({
+        ambiguityMargin: values.faqAmbiguityMargin,
+        maximumCandidates: values.maximumFaqCandidates,
+        minimumSimilarity: values.faqMinimumSimilarity,
+      });
     });
   }
 

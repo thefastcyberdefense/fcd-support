@@ -24,7 +24,7 @@ the baseline.
 Date: 2026-10-04
 
 Status: approved by the project owner for sequential implementation on
-2026-10-18 (Asia/Dhaka). Tasks 1–4 are locally complete; Tasks 5–16 remain pending.
+2026-10-18 (Asia/Dhaka). Tasks 1–5 are locally complete; Tasks 6–16 remain pending.
 Tracker gates close only when their complete implementation evidence exists.
 
 Task 1 validation: 99/99 focused tests pass in the isolated Linux runner as
@@ -51,6 +51,14 @@ in the isolated Linux runner. The complete local gate passes 763 tests across
 51 files (the same two Linux-only skips). Readiness has an explicit timeout
 and trusted clock; closed state/time heartbeats use atomic bounded files in
 the runtime tmpfs. No live infrastructure action occurred.
+
+Task 5 validation: the complete local gate passes 778 tests across 52 files
+(two Linux-only skips separately passed in Linux). PostgreSQL passes 476/476
+across 39 files, including 17 reply-flow tests; the focused Linux/non-root
+gate passes 146/146 across six files. Cleanup finds zero test schemas/locks.
+Crash repair, composed daemon, exact privacy intake, bilingual FAQ, versioned
+thresholds, provider-disabled behavior and closed invalid-role CLI checks pass
+using synthetic data and local fakes only. No server or live provider action occurred.
 
 ## Global Constraints
 
@@ -533,7 +541,7 @@ Define ReplyPipelinePorts with processor
 `Pick<PostgresOutboundIntentStore, 'createSupportIntent'>`, work
 `PostgresProcessingWork` and now `() => Date`.
 
-- [ ] **Step 1: Add RED crash and policy assertions.**
+- [x] **Step 1: Add RED crash and policy assertions.**
 
 ```ts
 test('repairs a crash after creating a draft without another model call', async () => {
@@ -557,25 +565,25 @@ receipt, application, FAQ decision, model completion and intent insertion;
 parallel workers; echo/status events never produce replies; missing model policy
 produces safe escalation; late deletion/pause and quarantine prevent dispatch.
 
-- [ ] **Step 2:** Run reply-runtime unit and runtime-reply integration files;
+- [x] **Step 2:** Run reply-runtime unit and runtime-reply integration files;
       expect RED.
-- [ ] **Step 3:** Implement daemon stages using stable per-event request keys,
+- [x] **Step 3:** Implement daemon stages using stable per-event request keys,
       current clock per transition and existing issued-text/model provenance.
       Select language deterministically: Bangla script present selects bn, otherwise
       en; use existing reviewed corpus to test both. Load source text only in memory
       under the existing source guards. Repair incomplete work by inspecting durable
       domain outcomes; never repeat a completed model call.
-- [ ] **Step 4:** At apply stage route exact deterministic privacy/consent
+- [x] **Step 4:** Before ordinary decisions (including application-restart repair), route exact deterministic privacy/consent
       commands through existing Phase 3 intake before ordinary reply creation.
       Add stable gap observations only for authoritative FAQ miss/ambiguity, using
       existing closed gap summaries and source retention deadline. No generated
       customer summary is persisted. Model/FAQ completion may produce one ready
       draft; enqueue through createSupportIntent with exact draftRef and stable key.
       Never assume processing-event completion means reply completion.
-- [ ] **Step 5:** Extend worker-main to choose only a closed role and install
+- [x] **Step 5:** Extend worker-main to choose only a closed role and install
       SIGTERM/SIGINT handlers. Close pools after bounded drain. Run focused
       unit/integration/typecheck; expect PASS.
-- [ ] **Step 6:** Commit `feat: run recoverable faq first reply processing`; push.
+- [x] **Step 6:** Commit `feat: run recoverable faq first reply processing`; push.
 
 ### Task 6: Outbound, admission, admin and maintenance runtime commands
 

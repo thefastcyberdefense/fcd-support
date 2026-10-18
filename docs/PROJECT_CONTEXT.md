@@ -134,6 +134,10 @@ All secret values are intentionally absent from this repository. Create them dur
 - Task 4 adds single-batch polling, claim-stop and bounded drain/abort (even for non-cooperative callbacks), fresh schema/revision/policy/dependency readiness with a required timeout and clock, disabled outbound/notification handling, model-disabled FAQ readiness, and atomic content-free heartbeat files for the runtime tmpfs. A stopped lifecycle cannot restart in-process; a fresh process and durable leases handle recovery.
 - Task 4 validation: 32/32 focused lifecycle/readiness tests pass on Windows and as node in isolated Linux; the complete local gate passes 763 tests across 51 files with the same two Linux-only skips. Formatting, lint, strict typing, build and authority validation pass. The last complete PostgreSQL checkpoint remains Task 3's 459/459; Task 4 changes no database schema. No live server, provider or deployment action occurred.
 
+- Task 5 adds the recoverable reply daemon and closed worker entrypoint: stable per-event stages, current transition clocks, exact privacy/STOP MARKETING intake before ordinary decisions even after application restart, deterministic language selection, existing guarded FAQ/model services, safe disabled-model escalation, prior-intent recovery and bounded pool shutdown. Reply composition receives no Meta credentials and never sends outbound messages itself.
+- Fuzzy FAQ thresholds remain active reviewed PostgreSQL policy intersected with protected configurable floors/caps. Without policy, only exact reviewed FAQ can answer; a gap still produces safe escalation. Separate non-secret reply outbound ceilings avoid loading provider credentials, and explicit Manifest limit attestation is required only when model execution is enabled. External flags remain false in examples.
+- Task 5 validation: `npm run check` passes 778 tests across 52 files (two Linux-only skips), formatting, lint, strict typing, build and authority validation; PostgreSQL passes 476/476 across 39 files; focused Linux/non-root tests pass 146/146 across six files without skips. Cleanup finds zero test schemas/advisory locks. The composed daemon and local fake Manifest crash-repair tests pass; invalid worker role exits 1 with a closed log only. No live provider, SSH/server, deployment or production action occurred.
+
 ## Launch Blockers
 
 - The admission-only test deployment is approved and running under a narrow exception. Outbound messaging, models, n8n actions, live customer data, and production deployment remain unauthorized.
@@ -148,7 +152,7 @@ All secret values are intentionally absent from this repository. Create them dur
 - Actual encrypted backup/restore procedures and deployed human-takeover behavior must still pass their acceptance tests; the local restore-gate primitive alone does not satisfy P6-004.
 
 The current tracker action is P6-002, following the approved implementation
-plan in sequence from Task 5. All live
+plan in sequence from Task 6. All live
 Meta, Manifest, network, deployment, test-asset, and production
 actions remain separately gated. P1-GATE remains a separate explicit review
 record.

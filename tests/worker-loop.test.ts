@@ -13,6 +13,10 @@ const defaults = () => ({
 });
 
 describe('bounded worker lifecycle', () => {
+  test('full call-plus-grace drain budget may exceed the separate grace setting ceiling', async () => {
+    const loop = createWorkerLoop({ ...defaults(), shutdownGraceMilliseconds: 500000 });
+    await loop.stop();
+  });
   test('heartbeat exposes only closed states and supplied clock; observer errors do not stop polling', async () => {
     const options = defaults();
     const heartbeat = vi.fn(() => {
