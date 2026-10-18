@@ -1,0 +1,6 @@
+ARG OPERATIONS_IMAGE
+FROM ${OPERATIONS_IMAGE}
+WORKDIR /workspace
+COPY --from=fcd-support-integration-test:local --chown=node:node /workspace/node_modules ./node_modules
+COPY --from=fcd-support-integration-test:local --chown=node:node /workspace/package.json ./package.json
+ENTRYPOINT ["node", "/workspace/node_modules/vitest/vitest.mjs"]

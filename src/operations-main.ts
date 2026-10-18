@@ -9,6 +9,20 @@ import { loadPrivacyKeyring } from './operations/privacy-keyring.js';
 import { databaseReadinessPorts } from './operations/role-runtime.js';
 import { checkRuntimeReadiness } from './operations/runtime-readiness.js';
 import { loadRoleEnvironment } from './operations/secret-files.js';
+import {
+  createEncryptedBackup,
+  readBackupManifest,
+  verifyEncryptedBackup,
+} from './operations/backup.js';
+import { pruneEncryptedBackups } from './operations/backup-retention.js';
+import {
+  hasBackupCatalog,
+  listCatalogManifests,
+  parseBackupCommand,
+  registerBackup,
+  runScheduledBackup,
+} from './operations/backup-command.js';
+import { PostgresOperationsStore } from './persistence/postgres-operations-store.js';
 import { parseLearningPolicy } from './learning/learning-input.js';
 import { parseOutboundPolicyInput } from './outbound/outbound-policy-input.js';
 
@@ -31,6 +45,110 @@ export async function runOperationsMain(): Promise<void> {
   const logger = createSafeLogger();
   let pool: pg.Pool | undefined;
   try {
+    const args = process.argv.slice(2);
+    if (['backup', 'verify-backup', 'prune-backups'].includes(args[0] ?? '')) {
+      const command = parseBackupCommand(args);
+      const role = command.job === 'verify-backup' ? 'verify_backup' : 'backup';
+      const environment = await loadRoleEnvironment(role, process.env);
+      const config = loadOperationsConfig(role, environment);
+      const pathSetting = (name: string) => z.string().min(1).parse(process.env[name]);
+      const common = {
+        archiveDirectory: pathSetting('BACKUP_ARCHIVE_DIRECTORY'),
+        manifestHmacFile: pathSetting('RECOVERY_MANIFEST_HMAC_FILE'),
+        timeoutMilliseconds: config.maximumCallMilliseconds,
+      };
+      pool = new pg.Pool({
+        connectionString: environment.DATABASE_URL,
+        max: 2,
+        connectionTimeoutMillis: config.maximumCallMilliseconds,
+        query_timeout: config.maximumCallMilliseconds,
+        statement_timeout: config.maximumCallMilliseconds,
+      });
+      pool.on('error', () => {
+        logger.error('database_pool_error');
+      });
+      let processed = 0;
+      let skipped = false;
+      if ('scheduledAt' in command && command.scheduledAt > new Date())
+        throw new Error('operations_command_invalid');
+      if (command.job === 'backup') {
+        const options = {
+          ...common,
+          connectionString: z.string().min(1).parse(environment.DATABASE_URL),
+          recipientFile: pathSetting('BACKUP_ENCRYPTION_RECIPIENT_FILE'),
+          temporaryDirectory: pathSetting('BACKUP_TMPFS_DIRECTORY'),
+          gitRevision: z
+            .string()
+            .regex(/^[a-f0-9]{40}$/u)
+            .parse(environment.OPS_GIT_REVISION),
+          schemaRevision: z
+            .string()
+            .regex(/^[0-9]{6}$/u)
+            .parse(environment.OPS_SCHEMA_REVISION),
+          backupClass: command.backupClass,
+          now: command.scheduledAt,
+        };
+        if (command.backupClass === 'pre_migration') {
+          const manifest = await createEncryptedBackup(options);
+          // A signed archive exists before the first operations table is installed.
+          if (await hasBackupCatalog(pool)) await registerBackup(pool, manifest, 'created');
+          processed = 1;
+        } else {
+          const result = await runScheduledBackup(pool, options);
+          skipped = result.status === 'skipped';
+          processed = skipped ? 0 : 1;
+        }
+      } else if (command.job === 'verify-backup') {
+        const manifest = await readBackupManifest(
+          common.archiveDirectory,
+          command.backupRef,
+          common.manifestHmacFile,
+        );
+        await verifyEncryptedBackup({
+          ...common,
+          identityFile: pathSetting('BACKUP_AGE_IDENTITY_FILE'),
+          expectedManifest: manifest,
+        });
+        if (await hasBackupCatalog(pool)) await registerBackup(pool, manifest, 'verified');
+        processed = 1;
+      } else {
+        const client = await pool.connect();
+        try {
+          await client.query(
+            "select pg_advisory_lock(hashtextextended('fcd-support:backup-schedule',0))",
+          );
+          const manifests = await listCatalogManifests(
+            pool,
+            common.archiveDirectory,
+            common.manifestHmacFile,
+          );
+          const refs = await pruneEncryptedBackups({
+            ...common,
+            manifests,
+            policy: { daily: config.dailyRetention, monthly: config.monthlyRetention },
+            evaluatedAt: command.scheduledAt,
+          });
+          for (const ref of refs) {
+            const manifest = manifests.find((entry) => entry.backupRef === ref);
+            if (manifest === undefined) throw new Error('backup_catalog_invalid');
+            const { signature: _signature, ...material } = manifest;
+            void _signature;
+            await new PostgresOperationsStore(pool).recordBackup({
+              ...material,
+              createdAt: new Date(material.createdAt),
+              state: 'pruned',
+            });
+          }
+          processed = refs.length;
+        } finally {
+          client.release(true);
+        }
+      }
+      process.stdout.write(
+        `${JSON.stringify({ status: skipped ? 'skipped' : 'completed', processed, reasonCode: skipped ? 'not_due' : 'ok' })}\n`,
+      );
+      return;
+    }
     const command = parseOperationsCommand(process.argv.slice(2));
     const environment = await loadRoleEnvironment('maintenance', process.env);
     const config = loadOperationsConfig('maintenance', environment);

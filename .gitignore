@@ -30,6 +30,12 @@ exports/
 *.sql.gz
 *.dump
 *.backup
+*.age
+*.agekey
+*.identity
+*.checkpoint
+*.checkpoint.json
+*.partial
 
 # Tests and tooling
 .worktrees/
