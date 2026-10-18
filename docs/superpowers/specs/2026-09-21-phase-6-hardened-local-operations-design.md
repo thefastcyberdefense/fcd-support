@@ -3,8 +3,9 @@
 Status: written specification approved by the project owner on 2026-10-04.
 Amendment status (2026-10-18): the owner approved the private Unix-socket/SSH
 direction, then reviewed and approved the written Management access amendment.
-Its corresponding implementation-plan revision awaits owner review; no socket
-implementation or deployment is approved by the specification alone.
+The owner also approved its corresponding implementation-plan revision;
+local test-first implementation is in progress. Deployment is not approved by
+either document alone.
 This document authorizes implementation planning only. Implementation, local
 Docker execution, Ubuntu deployment, external-service changes, test-asset
 traffic, and production actions remain subject to their recorded gates.
@@ -178,8 +179,8 @@ credential-bearing, or outside the configured private origin contract.
 
 The original host-loopback Docker TCP design failed Task 8's realistic local
 isolation gate. It must not be deployed. The following owner-approved written
-amendment replaces that target; implementation awaits approval of the revised
-implementation plan. Private health and metrics remain dashboard data, not
+amendment replaces that target; local implementation follows the owner-approved
+revised plan and its validation gates. Private health and metrics remain dashboard data, not
 tunnel routes. All other Phase 6 authority and external-action gates remain.
 
 #### 2026-10-18 private-admin transport amendment — written specification approved

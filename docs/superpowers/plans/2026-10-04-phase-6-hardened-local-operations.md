@@ -25,7 +25,7 @@ Date: 2026-10-04
 
 Status: approved by the project owner for sequential implementation on
 2026-10-18 (Asia/Dhaka). Tasks 1–7 are locally complete; Task 8 is in progress
-and blocked on review of the plan amendment below; Tasks 9–16 remain pending.
+under the approved socket amendment below; Tasks 9–16 remain pending.
 Tracker gates close only when their complete implementation evidence exists.
 
 2026-10-18 Task 8 checkpoint: implementation is in progress but its topology
@@ -40,7 +40,9 @@ The owner subsequently approved the private Unix-socket HTTP/SSH direction,
 then reviewed and approved its written specification amendment on 2026-10-18.
 Privileged host firewall enforcement was not selected. This plan revision
 replaces Task 8's failed TCP target and updates Tasks 11, 13, 15 and 16; it
-awaits owner review before implementation. No socket transport is implemented.
+was explicitly approved by the owner for test-first implementation. Socket
+transport is implemented locally; realistic topology passes, and Task 8's final
+regression/evidence/commit gate is in progress, not complete.
 Tasks 1–7 remain complete, including Task 6's historical TCP evidence; do not
 redo them. Task 8's base remains `6df0111754232e4cf6c7524ca3a0600a4b2011d5`.
 See `docs/operations/runtime-compose-contract.md` for the exact evidence.
@@ -1592,8 +1594,8 @@ amended plan or mark the socket transport implemented.
 
 Preserved execution method: sequential native development with executing-plans,
 per-task TDD/self-verification and one fresh whole-plan review at the end.
-No per-task subagent dispatch. The original plan was approved; this focused
-socket amendment awaits owner review before Task 8 resumes. After that review,
-continue remaining tasks in sequence with exact evidence and the unchanged
+No per-task subagent dispatch. The owner approved the original plan and this
+focused socket amendment. Continue Task 8 and remaining tasks in sequence with
+exact evidence and the unchanged
 Task 8 BASE. This plan does not authorize the later server action merely
 because local tests pass.

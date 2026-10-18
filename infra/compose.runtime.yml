@@ -110,9 +110,8 @@ services:
       MODEL_EXECUTION_ENABLED: 'false'
       OUTBOUND_EXECUTION_ENABLED: 'false'
       N8N_EXECUTION_ENABLED: 'false'
-      ADMIN_HOST: 0.0.0.0
-      ADMIN_PORT: '3004'
-      ADMIN_LISTEN_MODE: container_private
+      ADMIN_LISTEN_MODE: unix
+      ADMIN_SOCKET_PATH: /run/fcd-support-admin/admin.sock
       ADMIN_ORIGIN: ${FCD_ADMIN_ORIGIN:?FCD_ADMIN_ORIGIN must be set}
       ADMIN_BROWSER_PORT: ${FCD_ADMIN_BROWSER_PORT:?FCD_ADMIN_BROWSER_PORT must be set}
       DATABASE_URL_FILE: /run/secrets/admin-database
@@ -125,9 +124,9 @@ services:
         [
           'CMD',
           'node',
-          '--input-type=module',
-          '-e',
-          "try { const r=await fetch('http://127.0.0.1:3004/login',{signal:AbortSignal.timeout(2000)}); process.exit(r.status===200?0:1); } catch { process.exit(1); }",
+          'dist/admin/admin-socket-health.js',
+          '/run/fcd-support-admin/admin.sock',
+          '${FCD_HEALTH_TIMEOUT_MS:?FCD_HEALTH_TIMEOUT_MS must be set}',
         ]
       interval: ${FCD_HEALTH_INTERVAL_MS:?FCD_HEALTH_INTERVAL_MS must be set}ms
       timeout: ${FCD_HEALTH_TIMEOUT_MS:?FCD_HEALTH_TIMEOUT_MS must be set}ms
@@ -136,9 +135,14 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    networks: [admin_data, management]
-    ports:
-      - '127.0.0.1:${FCD_ADMIN_HOST_PORT:?FCD_ADMIN_HOST_PORT must be set}:3004'
+    networks: [admin_data]
+    volumes:
+      - type: bind
+        source: ${FCD_ADMIN_SOCKET_ROOT:?FCD_ADMIN_SOCKET_ROOT must be set}
+        target: /run/fcd-support-admin
+        read_only: false
+        bind:
+          create_host_path: false
 
   fcd-support-reply:
     <<: *security
@@ -281,14 +285,6 @@ services:
     networks: [notification_data, notification]
 
 networks:
-  management:
-    name: ${FCD_RUNTIME_PROJECT:?FCD_RUNTIME_PROJECT must be set}-management
-    driver: bridge
-    driver_opts:
-      com.docker.network.bridge.gateway_mode_ipv4: nat
-      com.docker.network.bridge.gateway_mode_ipv6: nat
-      com.docker.network.bridge.host_binding_ipv4: 127.0.0.1
-      com.docker.network.bridge.enable_icc: 'false'
   webhook_data:
     name: ${FCD_RUNTIME_PROJECT:?FCD_RUNTIME_PROJECT must be set}-webhook-data
     internal: true

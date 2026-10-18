@@ -1,4 +1,5 @@
 import { Buffer } from 'node:buffer';
+import { posix } from 'node:path';
 
 import { z } from 'zod';
 
@@ -9,7 +10,8 @@ const encodedKeySchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
 const environmentSchema = z.object({
   ADMIN_ACTION_TTL_MS: z.coerce.number().int().min(60_000).max(3_600_000).default(900_000),
   ADMIN_HOST: z.string().trim().default('127.0.0.1'),
-  ADMIN_LISTEN_MODE: z.enum(['local', 'container_private']).default('local'),
+  ADMIN_LISTEN_MODE: z.enum(['local', 'container_private', 'unix']).default('local'),
+  ADMIN_SOCKET_PATH: z.string().optional(),
   ADMIN_BROWSER_PORT: z.coerce.number().int().min(1).max(65535).optional(),
   ADMIN_LIST_LIMIT: z.coerce.number().int().min(1).max(500).default(100),
   ADMIN_MFA_ENCRYPTION_KEY: encodedKeySchema,
@@ -57,6 +59,7 @@ const settingOrder = [
   'DATABASE_URL',
   'ADMIN_HOST',
   'ADMIN_LISTEN_MODE',
+  'ADMIN_SOCKET_PATH',
   'ADMIN_BROWSER_PORT',
   'ADMIN_LIST_LIMIT',
   'ADMIN_PORT',
@@ -84,6 +87,13 @@ const settingOrder = [
 ] as const;
 
 export interface AdminConfig {
+  readonly listener:
+    | {
+        readonly kind: 'tcp';
+        readonly host: '127.0.0.1' | '::1' | '0.0.0.0';
+        readonly port: number;
+      }
+    | { readonly kind: 'unix'; readonly path: string };
   readonly listLimit: number;
   readonly learningPolicy: LearningPolicy;
   readonly actionTtlMilliseconds: number;
@@ -146,7 +156,25 @@ export function loadAdminConfig(
   }
 
   const host = result.data.ADMIN_HOST;
+  const unix = result.data.ADMIN_LISTEN_MODE === 'unix';
   const container = result.data.ADMIN_LISTEN_MODE === 'container_private';
+  const socketPath = result.data.ADMIN_SOCKET_PATH;
+  if (unix) {
+    if (environment.ADMIN_HOST !== undefined) fail(['ADMIN_HOST']);
+    if (environment.ADMIN_PORT !== undefined) fail(['ADMIN_PORT']);
+    if (
+      socketPath === undefined ||
+      !socketPath.isWellFormed() ||
+      !posix.isAbsolute(socketPath) ||
+      posix.normalize(socketPath) !== socketPath ||
+      posix.basename(socketPath) !== 'admin.sock' ||
+      Buffer.from(socketPath, 'utf8').some((byte) => byte < 32 || byte === 127) ||
+      Buffer.byteLength(socketPath, 'utf8') > 107
+    )
+      fail(['ADMIN_SOCKET_PATH']);
+    if (result.data.ADMIN_BROWSER_PORT === undefined) fail(['ADMIN_BROWSER_PORT']);
+    if (result.data.ADMIN_ORIGIN === undefined) fail(['ADMIN_ORIGIN']);
+  } else if (socketPath !== undefined) fail(['ADMIN_SOCKET_PATH']);
   if (container ? host !== '0.0.0.0' : host !== '127.0.0.1' && host !== '::1') fail(['ADMIN_HOST']);
   if (host !== '127.0.0.1' && host !== '::1' && host !== '0.0.0.0') fail(['ADMIN_HOST']);
   if (container && result.data.ADMIN_ORIGIN === undefined) fail(['ADMIN_ORIGIN']);
@@ -160,15 +188,13 @@ export function loadAdminConfig(
   const secureCookie = result.data.ADMIN_SECURE_COOKIE === 'true';
   if (
     parsedOrigin.origin !== origin ||
-    (container
+    (container || unix
       ? !['127.0.0.1', '[::1]'].includes(parsedOrigin.hostname)
       : parsedOrigin.hostname !== expectedHostname) ||
-    parsedOrigin.port !==
-      String(
-        container
-          ? (result.data.ADMIN_BROWSER_PORT ?? result.data.ADMIN_PORT)
-          : result.data.ADMIN_PORT,
-      ) ||
+    Number(parsedOrigin.port || 80) !==
+      (container || unix
+        ? (result.data.ADMIN_BROWSER_PORT ?? result.data.ADMIN_PORT)
+        : result.data.ADMIN_PORT) ||
     parsedOrigin.protocol !== 'http:' ||
     secureCookie
   ) {
@@ -188,6 +214,10 @@ export function loadAdminConfig(
   }
 
   return {
+    listener:
+      unix && socketPath !== undefined
+        ? { kind: 'unix', path: socketPath }
+        : { kind: 'tcp', host, port: result.data.ADMIN_PORT },
     listLimit: result.data.ADMIN_LIST_LIMIT,
     learningPolicy: {
       minimumGroupCount: result.data.LEARNING_MINIMUM_GROUP_COUNT,

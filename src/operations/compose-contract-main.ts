@@ -22,8 +22,29 @@ export async function runComposeContract(): Promise<void> {
     switch (mode) {
       case 'runtime':
       case 'model':
-        if (revision === undefined || volume !== undefined) throw new Error('invalid');
-        assertRuntimeCompose(input, revision, mode === 'model');
+        if (revision === undefined || process.argv.length !== 8) throw new Error('invalid');
+        {
+          const [adminSocketRoot, configRoot, secretRoot, workspaceRoot] = process.argv.slice(4);
+          if (
+            [adminSocketRoot, configRoot, secretRoot, workspaceRoot].some(
+              (value) => value === undefined,
+            )
+          )
+            throw new Error('invalid');
+          if (
+            adminSocketRoot === undefined ||
+            configRoot === undefined ||
+            secretRoot === undefined ||
+            workspaceRoot === undefined
+          )
+            throw new Error('invalid');
+          assertRuntimeCompose(input, revision, mode === 'model', {
+            adminSocketRoot,
+            configRoot,
+            secretRoot,
+            workspaceRoot,
+          });
+        }
         break;
       case 'operations':
         if (revision === undefined || volume !== undefined) throw new Error('invalid');

@@ -182,7 +182,7 @@ Produce a reproducible, private, recoverable Docker deployment without exposing 
 ### Work
 
 - Pin production dependencies and container images, preferably by immutable digest where operationally supportable.
-- Run application and database containers as non-root where compatible, with read-only filesystems, explicit writable mounts, health checks, resource limits, and no Docker socket or host filesystem access.
+- Run application and database containers as non-root where compatible, with read-only filesystems, explicit writable mounts, health checks, resource limits, and no Docker socket or broad host filesystem access. The approved dedicated owner-only admin socket directory is the sole new writable host-bind exception.
 - Use separate least-privilege ingress, data, and model-network attachments. PostgreSQL has no published port; Manifest is reached through the verified Docker service/network name rather than a LAN address.
 - Keep application health, metrics, migrations, and reviewer controls private.
 - Validate forward migrations, backup-before-migration behavior, rollback procedures, and restoration into an isolated database.
@@ -194,7 +194,7 @@ Produce a reproducible, private, recoverable Docker deployment without exposing 
 ### Exit Gate
 
 - Compose validation, container hardening checks, migrations, backup, restore, deletion-after-restore, and failure recovery tests pass locally.
-- Network tests show only the intended container-to-container paths and no public host ports. Task 8's host-loopback Docker TCP admin design failed isolation and must not be deployed. The owner approved the written private Unix-socket/SSH specification amendment; its revised implementation plan awaits review. The amended target publishes no runtime Docker host port or admin TCP listener; only the SSH client's browser forward binds to loopback.
+- Network tests show only the intended container-to-container paths and no public host ports. Task 8's host-loopback Docker TCP admin design failed isolation and must not be deployed. The owner approved its written socket/SSH specification and revised implementation plan. The amended runtime publishes no Docker host port or admin TCP listener; only the SSH client's browser forward binds to loopback. Local proof is not deployment approval.
 
 Phase 6 written specification: `docs/superpowers/specs/2026-09-21-phase-6-hardened-local-operations-design.md` (owner approved 2026-10-04). Implementation plan: `docs/superpowers/plans/2026-10-04-phase-6-hardened-local-operations.md` (owner approved for sequential implementation 2026-10-18). P6 remains local implementation and validation before any separately approved server action.
 

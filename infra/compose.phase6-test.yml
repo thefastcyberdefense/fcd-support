@@ -49,8 +49,23 @@ services:
     environment: !override { PORT: '3003' }
   fcd-support-admin:
     <<: *fake
-    environment: !override { PORT: '3004' }
-    ports: !override ['127.0.0.1::3004']
+    image: ${FCD_SOCKET_TEST_IMAGE:?FCD_SOCKET_TEST_IMAGE must be set}
+    environment: !override {}
+    entrypoint: !override
+      - node
+      - --input-type=module
+      - -e
+      - "import Fastify from 'fastify'; import {startAdminSocket} from './dist/admin/admin-socket.js'; const app=Fastify({logger:false}); app.get('/login',async()=> 'synthetic-network-fixture'); await startAdminSocket(app,'/run/fcd-support-admin/admin.sock');"
+    volumes: !override
+      - type: volume
+        source: admin-socket
+        target: /run/fcd-support-admin
+    healthcheck:
+      test:
+        [CMD, node, dist/admin/admin-socket-health.js, /run/fcd-support-admin/admin.sock, '1000']
+      interval: 1s
+      timeout: 2s
+      retries: 20
   fcd-support-reply:
     <<: *fake
     environment: !override { PORT: '8080' }
@@ -85,3 +100,7 @@ networks:
   restore_data:
     name: ${FCD_RUNTIME_PROJECT:?}-restore-data
     internal: true
+volumes:
+  admin-socket:
+    name: ${FCD_RUNTIME_PROJECT:?}-admin-socket
+    external: true

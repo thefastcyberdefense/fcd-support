@@ -11,7 +11,7 @@ export default tseslint.config(
   {
     languageOptions: {
       parserOptions: {
-        projectService: true,
+        projectService: { allowDefaultProject: ['tests/helpers/admin-socket-process.mjs'] },
         tsconfigRootDir: import.meta.dirname,
       },
     },

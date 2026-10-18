@@ -14,6 +14,69 @@ function environment(overrides: Readonly<Record<string, string | undefined>> = {
 }
 
 describe('admin configuration', () => {
+  const unixEnvironment = environment({
+    ADMIN_LISTEN_MODE: 'unix',
+    ADMIN_SOCKET_PATH: '/run/fcd-support-admin/admin.sock',
+    ADMIN_BROWSER_PORT: '4004',
+    ADMIN_ORIGIN: 'http://127.0.0.1:4004',
+  });
+
+  test('unix mode selects no TCP listener and preserves the browser origin', () => {
+    const config = loadAdminConfig(unixEnvironment);
+    expect(config.listener).toEqual({ kind: 'unix', path: '/run/fcd-support-admin/admin.sock' });
+    expect(config.origin).toBe('http://127.0.0.1:4004');
+  });
+
+  test.each([
+    { ADMIN_HOST: '127.0.0.1' },
+    { ADMIN_PORT: '3004' },
+    { ADMIN_SOCKET_PATH: undefined },
+    { ADMIN_BROWSER_PORT: undefined },
+    { ADMIN_ORIGIN: undefined },
+    { ADMIN_ORIGIN: 'http://0.0.0.0:4004' },
+    { ADMIN_ORIGIN: 'http://127.0.0.1:4005' },
+    { ADMIN_SOCKET_PATH: 'admin.sock' },
+    { ADMIN_SOCKET_PATH: '\0synthetic-socket' },
+    { ADMIN_SOCKET_PATH: '/tmp/synthetic/../admin.sock' },
+    { ADMIN_SOCKET_PATH: '/tmp/synthetic\0/admin.sock' },
+    { ADMIN_SOCKET_PATH: `/tmp/${'x'.repeat(100)}/admin.sock` },
+    { ADMIN_SOCKET_PATH: `/tmp/${'স'.repeat(35)}/admin.sock` },
+  ])('refuses unsafe or incomplete unix listener configuration %#', (overrides) => {
+    expect(() => loadAdminConfig({ ...unixEnvironment, ...overrides })).toThrow(
+      'Invalid admin configuration:',
+    );
+  });
+
+  test('TCP mode cannot silently ignore a socket setting', () => {
+    expect(() => loadAdminConfig(environment({ ADMIN_SOCKET_PATH: '/tmp/admin.sock' }))).toThrow(
+      'Invalid admin configuration: ADMIN_SOCKET_PATH',
+    );
+  });
+
+  test('local selection remains a TCP listener', () => {
+    expect(loadAdminConfig(environment()).listener).toEqual({
+      kind: 'tcp',
+      host: '127.0.0.1',
+      port: 3004,
+    });
+  });
+
+  test('unix browser port 80 uses the canonical HTTP loopback origin', () => {
+    const config = loadAdminConfig({
+      ...unixEnvironment,
+      ADMIN_BROWSER_PORT: '80',
+      ADMIN_ORIGIN: 'http://127.0.0.1',
+    });
+    expect(config.origin).toBe('http://127.0.0.1');
+    expect(config.listener.kind).toBe('unix');
+  });
+
+  test('unix paths cannot normalize malformed Unicode into a different filename', () => {
+    expect(() =>
+      loadAdminConfig({ ...unixEnvironment, ADMIN_SOCKET_PATH: '/tmp/\ud800/admin.sock' }),
+    ).toThrow('Invalid admin configuration: ADMIN_SOCKET_PATH');
+  });
+
   test('container admin mode preserves the operator browser origin', () => {
     const config = loadAdminConfig(
       environment({

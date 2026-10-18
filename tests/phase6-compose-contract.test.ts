@@ -13,6 +13,12 @@ import {
 } from '../src/operations/compose-contract.js';
 
 const revision = 'a'.repeat(40);
+const paths = {
+  adminSocketRoot: '/run/synthetic-admin-socket',
+  configRoot: '/protected/config',
+  secretRoot: '/protected/secrets',
+  workspaceRoot: '/workspace/source',
+};
 const root = resolve(import.meta.dirname, '..');
 function read(path: string): string {
   const file = resolve(root, path);
@@ -91,20 +97,24 @@ function fixture() {
       ['webhook-database', 'meta-app-secret', 'meta-verify-token', 'webhook-keyring'],
     ),
     'fcd-support-admin': {
-      ...service(
-        'admin',
-        ['admin_data', 'management'],
-        ['admin-database', 'admin-session', 'admin-mfa'],
-      ),
+      ...service('admin', ['admin_data'], ['admin-database', 'admin-session', 'admin-mfa']),
       environment: {
         ...service('admin', [], []).environment,
-        ADMIN_HOST: '0.0.0.0',
-        ADMIN_LISTEN_MODE: 'container_private',
+        ADMIN_LISTEN_MODE: 'unix',
+        ADMIN_SOCKET_PATH: '/run/fcd-support-admin/admin.sock',
         ADMIN_ORIGIN: 'http://127.0.0.1:3004',
-        ADMIN_PORT: '3004',
         ADMIN_BROWSER_PORT: '3004',
       },
-      ports: [{ target: 3004, published: '3004', host_ip: '127.0.0.1', protocol: 'tcp' }],
+      ports: [] as Record<string, unknown>[],
+      volumes: [
+        {
+          type: 'bind',
+          source: paths.adminSocketRoot,
+          target: '/run/fcd-support-admin',
+          read_only: false,
+          bind: { create_host_path: false },
+        },
+      ],
     },
     'fcd-support-reply': service('reply', ['reply_data'], ['reply-database', 'reply-keyring']),
     'fcd-support-outbound': {
@@ -141,7 +151,6 @@ function fixture() {
     'ingress',
     'provider_egress',
     'notification',
-    'management',
   ];
   const secretNames = Object.values(services).flatMap((s) => s.secrets.map((x) => x.source));
   return {
@@ -152,7 +161,7 @@ function fixture() {
         name,
         {
           name: `fcd-support-${name}`,
-          internal: !['ingress', 'provider_egress', 'notification', 'management'].includes(name),
+          internal: !['ingress', 'provider_egress', 'notification'].includes(name),
           ...(['ingress', 'notification'].includes(name) ? { external: true } : {}),
         },
       ]),
@@ -162,14 +171,13 @@ function fixture() {
 }
 
 describe('Phase 6 Compose contract', () => {
-  test('publishes only admin loopback and excludes provider credentials from ingress', () => {
+  test('accepts socket-only admin without publishing any Docker host port', () => {
     const compose = read('infra/compose.runtime.yml');
-    expect(compose).toContain('127.0.0.1:');
     expect(compose).not.toContain('/var/run/docker.sock');
     expect(compose).not.toContain('network_mode: host');
     expect(compose).not.toMatch(/META_WHATSAPP_ACCESS_TOKEN:\s*\$\{/u);
     expect(() => {
-      assertRuntimeCompose(fixture(), revision, false);
+      assertRuntimeCompose(fixture(), revision, false, paths);
     }).not.toThrow();
   });
 
@@ -252,7 +260,7 @@ describe('Phase 6 Compose contract', () => {
         break;
     }
     expect(() => {
-      assertRuntimeCompose(input, revision, false);
+      assertRuntimeCompose(input, revision, false, paths);
     }).toThrow(/^compose_contract_invalid$/u);
   });
 
@@ -262,7 +270,83 @@ describe('Phase 6 Compose contract', () => {
       META_APP_SECRET: 'synthetic_unapproved_environment_value',
     });
     expect(() => {
-      assertRuntimeCompose(input, revision, false);
+      assertRuntimeCompose(input, revision, false, paths);
+    }).toThrow(/^compose_contract_invalid$/u);
+  });
+
+  test.each([
+    'loopback-port',
+    'tcp-mode',
+    'management',
+    'wrong-source',
+    'auto-create',
+    'readonly',
+    'wrong-target',
+    'extra-mount',
+  ])('refuses admin socket boundary drift: %s', (change) => {
+    const input = fixture();
+    const admin: Record<string, unknown> = input.services['fcd-support-admin'];
+    const mount = input.services['fcd-support-admin'].volumes[0];
+    if (mount === undefined) throw new Error('synthetic_mount_missing');
+    switch (change) {
+      case 'loopback-port':
+        admin.ports = [{ target: 3004, published: '3004', host_ip: '127.0.0.1', protocol: 'tcp' }];
+        break;
+      case 'tcp-mode':
+        Object.assign(input.services['fcd-support-admin'].environment, { ADMIN_HOST: '0.0.0.0' });
+        break;
+      case 'management':
+        input.services['fcd-support-admin'].networks.management = {};
+        break;
+      case 'wrong-source':
+        mount.source = '/run/synthetic-substitution';
+        break;
+      case 'auto-create':
+        admin.volumes = [
+          {
+            type: 'bind',
+            source: paths.adminSocketRoot,
+            target: '/run/fcd-support-admin',
+            bind: { create_host_path: true },
+          },
+        ];
+        break;
+      case 'readonly':
+        mount.read_only = true;
+        break;
+      case 'wrong-target':
+        mount.target = '/app';
+        break;
+      case 'extra-mount':
+        input.services['fcd-support-admin'].volumes.push({
+          type: 'bind',
+          source: paths.adminSocketRoot,
+          target: '/tmp',
+          read_only: false,
+          bind: { create_host_path: false },
+        });
+        break;
+    }
+    expect(() => {
+      assertRuntimeCompose(input, revision, false, paths);
+    }).toThrow(/^compose_contract_invalid$/u);
+  });
+
+  test.each([
+    '/',
+    '/run',
+    '/var/lib/docker/synthetic',
+    paths.configRoot,
+    '/protected',
+    '/protected/secrets/socket',
+    '/workspace/source/socket',
+  ])('refuses a broad or overlapping socket source %#', (source) => {
+    const input = fixture();
+    const mount = input.services['fcd-support-admin'].volumes[0];
+    if (mount === undefined) throw new Error('synthetic_mount_missing');
+    mount.source = source;
+    expect(() => {
+      assertRuntimeCompose(input, revision, false, { ...paths, adminSocketRoot: source });
     }).toThrow(/^compose_contract_invalid$/u);
   });
 

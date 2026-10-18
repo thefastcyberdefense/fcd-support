@@ -1,165 +1,153 @@
 # Phase 6 Local Runtime And Network Contract
 
-## Current status: topology gate FAILS
+## Current status: amended local topology PASS; Task 8 closure pending
 
-This is an incomplete Task 8 checkpoint, not deployment-ready configuration.
-Four real Compose renderings pass the structured validator. The realistic
-network harness deliberately fails with:
+The owner approved the written private Unix-socket/SSH specification and its
+revised implementation plan on 2026-10-18. Local implementation removes the
+admin TCP listener, management bridge and Docker port publication. This is not
+a deployment approval or a Phase 6 gate pass; Tasks 9–16 remain sequenced after
+Task 8's complete verification and committed checkpoint.
 
-```text
-network_probe_failed=ingress-probe:3004:expected-denied:actual-allowed
-```
+The first realistic amended harness passes four production Compose render
+validations, nine allowed and 20 denied TCP probes, no admin TCP listener,
+socket-only health, UID separation, execution-profile isolation, missing external
+network, extra participant, missing secret and occupied client-loopback checks.
+The native Linux suite passes 17 socket and 30 secret-file tests as node; guarded PostgreSQL
+admin identity/dashboard/forwarding regression passes 17 tests across three
+files. Complete PostgreSQL regression passes 484/484 across 41 files. Full-code
+and final clean-revision task verification are recorded in the tracker when
+completed, not inferred from these focused results.
 
-The ingress probe has both the private ingress bridge and its own ordinary
-egress bridge, representing the independently managed tunnel's multihomed
-shape. It reaches the admin container's management-interface port despite a
-loopback host binding. An outbound egress-enabled probe independently reaches
-the same port. Explicit IPv4/IPv6 NAT, loopback binding defaults and disabled
-management ICC did not remove the path on the tested local Docker engine.
-Host-loopback publication and reachability worked; they are not sufficient
-evidence of container-to-container denial. This tests TCP reachability only,
-not an authenticated-admin bypass or actual server/Cloudflare traffic.
+### Retained failed checkpoint
 
-Earlier successful tests used internal-only fake provider egress and an
-ingress-only probe, masking this path. Those results are superseded, not a
-passing topology gate. The final harness preserves ordinary egress topology
-without making any provider call and refuses the unsafe measured state.
-
-Owner direction received on 2026-10-18 for a focused architecture amendment:
-
-- Selected: admin HTTP listens on an owner-only Unix socket, exposed to the
-  browser through SSH forwarding. No admin container TCP port is published.
-  The dashboard, loopback browser origin and existing MFA/session/CSRF rules
-  remain unchanged. This needs a narrow private socket mount and changes the
-  approved TCP/host-publication transport, so it is not implemented yet.
-- Not selected: retain TCP but design and verify explicit host-level Docker
-  firewall enforcement. This introduces privileged host rule lifecycle and
-  separately approved server mutations; no such changes are authorized now.
-
-The owner approved the written amendment in the Phase 6 specification's
-Management access section. Its corresponding detailed plan revision now
-awaits owner review before implementation. No socket implementation has started. The TCP
-configuration and measured-boundary description below describe the failed
-checkpoint only; they are not the selected target or deployment instructions.
-Do not launch these draft files. Synthetic containers, networks and volumes have
-been removed after validated scope checks. No live server or production service
-was changed.
-
-Task 8 supplies local packaging and network evidence, not server deployment
-approval. Continue using the retained admission-only revision/images until the
-exact Phase 6 server replacement is separately authorized. Do not combine a
-current Phase 6 image's strict file-secret contract with the legacy inline-secret
-Compose layout. The old Compose/scripts and rollback references are retained;
-no legacy service or production asset is changed by these files.
+The previous TCP design failed with
+`network_probe_failed=ingress-probe:3004:expected-denied:actual-allowed`.
+Both outbound and a tunnel-like ingress container with ordinary egress reached
+the admin management-interface port despite host-loopback publication, explicit
+IPv4/IPv6 NAT and disabled management ICC. Earlier internal-only fake egress
+masked that path and is not valid isolation evidence. This measured local TCP
+reachability, not an authentication bypass, actual Cloudflare exposure or an
+Ubuntu server result. The socket amendment replaces that design; privileged
+host firewall enforcement was not selected. No host firewall was changed.
 
 ## Separate files and explicit execution
 
-| File                            | Responsibility                                                                              |
-| ------------------------------- | ------------------------------------------------------------------------------------------- |
-| `infra/compose.runtime.yml`     | PostgreSQL, webhook, private admin, FAQ-only reply; profile-gated outbound and notification |
-| `infra/compose.model.yml`       | Explicit `model-execution` overlay adding only the reply worker's Manifest key/network      |
-| `infra/compose.operations.yml`  | Explicitly profiled migrate, backup, verify-backup, checkpoint, health and maintenance jobs |
-| `infra/compose.restore.yml`     | Separate restore project, internal network and explicitly named fresh database volume       |
-| `infra/compose.phase6-test.yml` | Network-only local fakes over the actual runtime topology                                   |
+| File                            | Responsibility                                                                                  |
+| ------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `infra/compose.runtime.yml`     | PostgreSQL, webhook, socket-only admin, FAQ-only reply; profile-gated outbound and notification |
+| `infra/compose.model.yml`       | Explicit model-execution overlay adding only reply's Manifest key/network                       |
+| `infra/compose.operations.yml`  | Explicit migrate, backup, verify-backup, checkpoint, health and maintenance profiles            |
+| `infra/compose.restore.yml`     | Separate restore project/internal network and required fresh volume name                        |
+| `infra/compose.phase6-test.yml` | Synthetic fakes over runtime topology, with a real Unix listener for admin                      |
 
-No external-execution flag has an enabling default. Outbound and notification
-require their profile plus an explicit valid flag; model execution additionally
-requires the model overlay/profile. Base reply has no Manifest mount/network.
-Normal backup has no decryption identity. Verification and restore mount their
-identity separately and read archives through an owner-checked read-only path.
-Non-archive jobs do not mount the backup volume.
+Execution flags have no enabling default. Model use requires its overlay/profile
+and explicit flag; outbound/notification require their profile and explicit flag.
+Normal backup never mounts a decryption identity. Verification/restore use their
+separate identity and owner-checked read-only archive path. Non-archive jobs
+receive no archive volume. Maintenance requires its explicit closed job, stable
+run reference and scheduled time. Database login/grant bootstrap and functional
+operations/restore commands remain assigned to Tasks 9–14.
 
-The maintenance service currently needs an explicit command override supplying
-one of the implemented closed jobs, stable run reference and scheduled UTC
-timestamp. Other operations commands, actual restore, host scheduling and the
-notification runtime remain assigned to Tasks 9–14; packaging their profiles is
-not evidence that these later modules are implemented. Database login/grant
-bootstrap is Task 11. Nothing should be launched from these files yet.
+`FCD_CONFIG_ROOT` contains protected non-secret common/role environment files.
+Only individual required read-only secret files under `FCD_SECRET_ROOT` are
+mounted into each role. Do not print real Compose renderings or runtime
+environments; pipe JSON into the closed validator. Only authored synthetic
+renderings/logs remain in the ignored plan workspace.
 
-`FCD_CONFIG_ROOT` contains protected, non-secret `common.env` and role-specific
-configuration files. Compose receives only individual read-only secret files
-under `FCD_SECRET_ROOT`; credentials, channel identifiers and database URLs must
-never be environment values or arguments. Compose's rendered JSON contains
-configuration values: capture it directly into the closed validator, never print
-it or include a real rendering in evidence. Only the synthetic harness retains
-renderings in its ignored workspace.
+CPU, memory, PID, tmpfs, shutdown and health settings remain required protected
+operator inputs. The validator compares application/operations resources with
+the protected policy; PostgreSQL stays within protected bounds/host capacity.
+Missing or drifting settings, secrets, networks, profiles, tags/labels and mounts
+fail closed. Candidate-parent-labelled builds are not deployed clean-revision
+proof.
 
-CPU, memory, PID, tmpfs, shutdown and health values use required operator inputs.
-The structured validator matches application/operations resource values and
-shutdown grace to the protected operations policy; PostgreSQL is checked against
-protected bounds and host capacity. Per-role tmpfs sizes remain customizable.
-Missing values or drift fail closed. Revision labels, image tags, role mounts,
-network sets, profiles, private admin origin and port bindings are checked as
-structured data, not merely text patterns.
+## Admin socket and browser boundary
 
-## Measured boundaries
+Admin joins only internal `admin_data` and uses
+`ADMIN_LISTEN_MODE=unix` with
+`ADMIN_SOCKET_PATH=/run/fcd-support-admin/admin.sock`.
+Its only new writable bind is the dedicated `FCD_ADMIN_SOCKET_ROOT`, mounted at
+`/run/fcd-support-admin` with `bind.create_host_path=false`. No other runtime,
+operations, restore, tunnel or model role receives this directory.
 
-| Role                        | Networks                                                        |
-| --------------------------- | --------------------------------------------------------------- |
-| Webhook (`fcd-support-api`) | `webhook_data`, external ingress                                |
-| Admin                       | `admin_data`, single-member management bridge                   |
-| Reply                       | `reply_data`; external model network only with explicit overlay |
-| Outbound                    | `outbound_data`, provider egress                                |
-| Notification                | `notification_data`, external notification network              |
-| PostgreSQL                  | Six separate internal per-role data bridges                     |
-| Operations jobs             | Operations data bridge only                                     |
-| Restore                     | Its separate internal restore data network only                 |
+The rendered contract compares the source against independently supplied
+protected socket/config/secret/workspace roots. Broad, overlapping or substituted
+sources fail. Actual host source/ancestor ownership, directory contents and SSH
+UID mapping still require Task 11 preflight and later approved Ubuntu evidence.
+A rendering alone does not establish host permissions.
 
-PostgreSQL is the only database peer on each role's data bridge. A single shared
-database bridge would also permit its application peers to reach each other.
-The ingress alias remains `fcd-support-api`; the existing tunnel target does not
-change. No API, PostgreSQL, worker, operation or restore host port is published.
-The only runtime host binding is `127.0.0.1:<approved-port>:3004` for admin.
+The listener requires a real, non-symlink parent owned by its actual UID/GID,
+mode 0700, and no existing socket-path entry. Linux umask 0177 creates the
+socket mode 0600 from the outset; mode/owner/device/inode are checked. Existing
+files, symlinks, live/stale sockets, malformed paths and unsupported platforms
+fail without unlink or TCP fallback. Local/private test TCP constructors remain
+compatible but cannot satisfy the packaged Phase 6 Compose contract.
 
-On the tested Docker Desktop engine, an internal-only network did not produce
-a usable published host port. Admin therefore also has its own regular bridge.
-The harness checks actual published bindings and makes a host-loopback HTTP
-request, not just an inspection of requested configuration. Future Ubuntu
-validation must repeat this check. The bridge grants ordinary egress, not public
-admin ingress; the loopback bind and existing origin/session/CSRF controls remain
-required. Host preflight must call `assertLoopbackPortAvailable` before creating a
-new binding, except when validating its own retained running service. A real
-occupied-loopback test proves refusal and probe cleanup; do not rely on Docker
-port-allocation error behavior as the collision guard.
+Normal runtime stop closes its listener and database pool once. A replaced
+entry returns a closed process-exit-required disposition: the dedicated CLI
+terminates without Node's ordinary pathname-unlink close, preserving the
+replacement. Crash-stale sockets deliberately refuse restart. Explicit,
+scope-checked stale recovery is Task 11 work, not an implemented cleanup job.
 
-Docker network membership is not a per-destination firewall. Provider egress
-allows general network egress; the existing Meta client separately pins its exact
-approved origin and rejects redirects. Model/notification/ingress networks must
-be private local bridges with exactly the approved participants. The exported
-external-network validator rejects missing networks, Internet-routed networks
-and extra participants. Inspect actual existing networks read-only during the
-later approved server preflight; refuse broad networks rather than silently
-joining them. No existing Manifest, n8n or Cloudflare network is changed here.
-Docker describes these distinctions in its official
-[networking](https://docs.docker.com/compose/how-tos/networking/) and
-[port-publishing](https://docs.docker.com/engine/network/port-publishing/)
-documentation.
+The browser's configurable loopback origin/port are independent of the Unix
+listener. Later deployment uses an SSH client loopback forward to the remote
+socket, never a Docker host TCP publication. Password, MFA, live session/role,
+signed action, origin and CSRF checks remain mandatory; SSH or socket access
+does not grant reviewer authority. Local guarded tests use a synthetic
+TCP-to-socket forward, not live SSH. Health uses the bounded socket-only
+`/login` probe and opens no extra TCP port. Root/the designated owning host UID
+remain trusted; this does not isolate a compromised host or that same UID.
 
-## Local-only evidence
+## Measured network boundaries
 
-Run `bash scripts/test-phase6-local.sh`. It generates one uniquely scoped
-`fcd-support-phase6-test-*` project, guarded `fcd_support_test` database and
-synthetic non-secret configuration. All four production configurations are
-rendered and validated. The test overlay preserves their network attachments
-but substitutes bounded Node HTTP fakes and pinned PostgreSQL; it clears all
-application credentials. These are topology tests, not full application flows,
-model replies, notification delivery or an actual backup/restore.
+| Role         | Networks                                                  |
+| ------------ | --------------------------------------------------------- |
+| Webhook      | webhook_data, external ingress                            |
+| Admin        | admin_data only                                           |
+| Reply        | reply_data; external model only with the explicit overlay |
+| Outbound     | outbound_data, ordinary provider egress                   |
+| Notification | notification_data, external notification                  |
+| PostgreSQL   | Six separate internal per-role data bridges               |
+| Operations   | operations_data only                                      |
+| Restore      | Its separate internal restore network only                |
 
-The harness is required to prove allowed database/fake connections; API denial
-to model, Meta and n8n fakes; worker denial to ingress; ingress denial to admin;
-and isolated restore probe denial to the runtime. It currently FAILS the admin
-denial described above and stops there. All published bindings are inspected
-when preceding checks pass. Further negative checks for extra participants,
-missing-secret loading and occupied host-loopback ports are implemented and
-passed separately/under the earlier restricted test shape; the final realistic
-run stops at the admin-isolation failure before reaching them. The absent
-external-network and profile-auto-start checks pass before that failure. Docker
-Desktop may materialize a missing bind path as an empty directory; the actual
-secret loader still rejects it as a non-file, rather than accepting its existence.
+PostgreSQL is the only database peer on each role's data bridge. Ingress keeps
+the existing fcd-support-api alias. Every runtime Docker host binding is absent.
+The ingress test probe retains both private ingress and ordinary tunnel egress;
+provider egress is not changed to internal-only to obtain a pass. Admin TCP
+denial is measured from each relevant role and its own interface/loopback.
+Kernel listener inspection permits only Docker's internal DNS loopback listener,
+not an admin or other application TCP listener.
 
-Cleanup first resolves and validates container IDs, project labels, names,
-network attachments and volume names against that exact generated project.
-It then removes its own containers/volumes/networks/test image. Unexpected
-ownership or participants refuse cleanup and preserve the stack for inspection.
-No prune command or unrelated project operation is used. Ignored synthetic
-renderings/logs remain in the plan workspace until final review cleanup.
+Docker membership is not a per-destination firewall. General provider egress
+remains constrained separately by the existing exact-origin, redirect-denying
+Meta client. Existing external ingress/model/notification networks must be
+private local bridges with exactly approved peers; the validator rejects missing,
+Internet-routed and over-broad participant sets. Later server inspection must
+refuse a broad network rather than silently change it. No existing network was
+inspected or changed in this local work.
+
+## Local proof and limits
+
+Run `bash scripts/test-phase6-local.sh` locally. Its generated
+`fcd-support-phase6-test-*` project contains only authored synthetic data and
+a guarded fcd_support_test database. All four production definitions are
+rendered through the structured validator. Generic services use network-only
+fakes; admin uses the newly built application candidate and the real socket
+helper with a synthetic login route, not application authority or credentials.
+
+Native Unix tests use Linux tmpfs. A separately labelled native Docker volume,
+seeded non-root from the image's owner-only directory, represents the socket
+directory in the Docker Desktop topology test. The real production bind form is
+rendered/validated, not launched against a Windows filesystem. A positive UID
+1000 probe and explicit kernel EACCES for UIDs 999/65532 establish local
+permissions; wrong-owner listener startup is also rejected. This volume
+substitution is not Ubuntu host-bind or live SSH proof.
+
+Cleanup resolves exact IDs, labels, names, network attachments and volumes
+before removal. Unexpected ownership/participants preserve the stack. No prune,
+unrelated project, real credential, customer content, provider request, live
+tunnel, SSH or server action is involved. Ignored synthetic evidence remains
+until final whole-plan review. Actual Ubuntu ownership/SSH/public-route checks,
+backup/restore and runtime enablement remain later gated work. Preserve the
+legacy admission-only deployment until its exact replacement is authorized.

@@ -30,7 +30,6 @@ probe fcd-support-reply "$(ip manifest-fake model)" 8080 allowed
 probe fcd-support-outbound "$(ip meta-fake provider-egress)" 8080 allowed
 probe fcd-support-notification "$(ip n8n-fake notification)" 8080 allowed
 probe ingress-probe "$(ip fcd-support-api ingress)" 3003 allowed
-probe ingress-probe "$(ip fcd-support-admin management)" 3004 denied
 for fake in manifest-fake meta-fake n8n-fake; do
   case "$fake" in manifest-fake) network=model ;; meta-fake) network=provider-egress ;; n8n-fake) network=notification ;; esac
   probe fcd-support-api "$(ip "$fake" "$network")" 8080 denied
@@ -38,27 +37,26 @@ done
 for worker in fcd-support-reply fcd-support-outbound fcd-support-notification; do
   probe "$worker" "$(ip ingress-probe ingress)" 8080 denied
   probe "$worker" "$(ip fcd-support-api ingress)" 3003 denied
-  probe "$worker" "$(ip fcd-support-admin management)" 3004 denied
+  probe "$worker" "$(ip fcd-support-admin admin-data)" 3004 denied
 done
 probe ingress-probe "$(ip fcd-support-admin admin-data)" 3004 denied
-probe ingress-probe "$(ip fcd-support-admin management)" 3004 denied
 probe fcd-support-outbound "$(ip manifest-fake model)" 8080 denied
 probe fcd-support-outbound "$(ip n8n-fake notification)" 8080 denied
 probe restore-probe "$(ip postgres webhook-data)" 5432 denied
 probe restore-probe "$(ip fcd-support-api webhook-data)" 3003 denied
-probe restore-probe "$(ip fcd-support-admin management)" 3004 denied
+probe restore-probe "$(ip fcd-support-admin admin-data)" 3004 denied
 for id in $(docker ps -q --filter "label=com.docker.compose.project=$PROJECT"); do
   service="$(docker inspect --format '{{index .Config.Labels "com.docker.compose.service"}}' "$id")"
   bindings="$(docker inspect --format '{{json .HostConfig.PortBindings}}' "$id")"
-  if [[ "$service" == fcd-support-admin ]]; then
-    printf '%s' "$bindings" | node -e 'let s="";process.stdin.on("data",x=>s+=x).on("end",()=>{const p=JSON.parse(s);if(Object.keys(p).length!==1||p["3004/tcp"]?.length!==1||p["3004/tcp"][0].HostIp!=="127.0.0.1")process.exit(1);});'
-    actual="$(docker inspect --format '{{json .NetworkSettings.Ports}}' "$id")"
-    port="$(printf '%s' "$actual" | node -e 'let s="";process.stdin.on("data",x=>s+=x).on("end",()=>{const p=JSON.parse(s);if(p["3004/tcp"]?.length!==1||p["3004/tcp"][0].HostIp!=="127.0.0.1"||!/^\d+$/.test(p["3004/tcp"][0].HostPort))process.exit(1);process.stdout.write(p["3004/tcp"][0].HostPort);});')"
-    node -e 'fetch("http://127.0.0.1:"+process.argv[1],{signal:AbortSignal.timeout(2000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1));' "$port"
-  else
-    [[ "$bindings" == '{}' || "$bindings" == null ]] || { echo 'unintended_host_port' >&2; exit 1; }
-  fi
+  [[ "$bindings" == '{}' || "$bindings" == null ]] || { echo 'unintended_host_port' >&2; exit 1; }
+  docker inspect --format '{{json .NetworkSettings.Ports}}' "$id" | node -e 'let s="";process.stdin.on("data",x=>s+=x).on("end",()=>{if(Object.values(JSON.parse(s)||{}).some(x=>x!==null))process.exit(1)});'
+
 done
+probe fcd-support-admin 127.0.0.1 3004 denied
+probe fcd-support-admin "$(ip fcd-support-admin admin-data)" 3004 denied
+docker exec "$(container fcd-support-admin)" node dist/admin/admin-socket-health.js /run/fcd-support-admin/admin.sock 1000
+docker exec "$(container fcd-support-admin)" node --input-type=module -e 'import {readFile} from "node:fs/promises"; for(const file of ["/proc/net/tcp","/proc/net/tcp6"]){const lines=(await readFile(file,"utf8")).trim().split("\n").slice(1);if(lines.some(line=>{const fields=line.trim().split(/\s+/);return fields[3]==="0A"&&!fields[1].startsWith("0B00007F:")}))process.exit(1)}'
+echo 'admin_no_tcp_listener=true'
 echo 'network_contract=true'
 echo "allowed_paths=$PROBE_ALLOWED"
 echo "denied_paths=$PROBE_DENIED"

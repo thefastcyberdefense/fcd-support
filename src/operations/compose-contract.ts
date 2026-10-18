@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { posix, win32 } from 'node:path';
 
 import { loadOperationsConfig } from './operations-config.js';
 import { runtimeRoles } from './operations-types.js';
@@ -44,6 +45,12 @@ const serviceSchema = z.object({
         source: z.string(),
         target: z.string(),
         read_only: z.boolean().optional(),
+        bind: z
+          .strictObject({
+            create_host_path: z.literal(false),
+            propagation: z.literal('rprivate').optional(),
+          })
+          .optional(),
       }),
     )
     .default([]),
@@ -102,7 +109,7 @@ const runtimeContracts: Readonly<Record<string, Contract>> = {
     secrets: ['webhook-database', 'meta-app-secret', 'meta-verify-token', 'webhook-keyring'],
   },
   'fcd-support-admin': {
-    networks: ['admin_data', 'management'],
+    networks: ['admin_data'],
     secrets: ['admin-database', 'admin-session', 'admin-mfa'],
   },
   'fcd-support-reply': { networks: ['reply_data'], secrets: ['reply-database', 'reply-keyring'] },
@@ -285,8 +292,13 @@ function checkCommon(config: Compose, revision: string): void {
     if (
       s.volumes.some(
         (v) =>
-          v.type !== 'volume' ||
-          (v.target !== '/var/lib/postgresql' && v.target !== '/var/lib/fcd-support/backups'),
+          !(
+            name === 'fcd-support-admin' &&
+            v.type === 'bind' &&
+            v.target === '/run/fcd-support-admin'
+          ) &&
+          (v.type !== 'volume' ||
+            (v.target !== '/var/lib/postgresql' && v.target !== '/var/lib/fcd-support/backups')),
       )
     )
       invalid();
@@ -316,13 +328,65 @@ function checkService(s: Service | undefined, contract: Contract, restart: strin
     invalid();
   if (!same(s.profiles, contract.profile === undefined ? [] : [contract.profile])) invalid();
 }
+export interface RuntimeComposePaths {
+  readonly adminSocketRoot: string;
+  readonly configRoot: string;
+  readonly secretRoot: string;
+  readonly workspaceRoot: string;
+}
+
+function canonicalPath(value: string): string {
+  const windows = /^[a-z]:[\\/]/iu.test(value);
+  const api = windows ? win32 : posix;
+  if (!api.isAbsolute(value) || Buffer.from(value).some((byte) => byte < 32 || byte === 127))
+    invalid();
+  const normalized = api.normalize(value).replaceAll('\\', '/').replace(/\/$/u, '');
+  return windows ? normalized.toLowerCase() : normalized;
+}
+
+function validateSocketRoot(paths: RuntimeComposePaths): string {
+  const source = canonicalPath(paths.adminSocketRoot);
+  if (
+    [
+      '',
+      '/run',
+      '/tmp',
+      '/var',
+      '/var/lib',
+      '/etc',
+      '/home',
+      '/usr',
+      '/opt',
+      '/dev',
+      '/proc',
+      '/sys',
+    ].includes(source) ||
+    /^[a-z]:$/iu.test(source) ||
+    source === '/var/lib/docker' ||
+    source.startsWith('/var/lib/docker/')
+  )
+    invalid();
+  for (const protectedRoot of [paths.configRoot, paths.secretRoot, paths.workspaceRoot]) {
+    const protectedPath = canonicalPath(protectedRoot);
+    if (
+      source === protectedPath ||
+      source.startsWith(`${protectedPath}/`) ||
+      protectedPath.startsWith(`${source}/`)
+    )
+      invalid();
+  }
+  return source;
+}
+
 export function assertRuntimeCompose(
   input: unknown,
   revision: string,
   modelEnabled: boolean,
+  paths: RuntimeComposePaths,
 ): void {
   try {
     const config = composeSchema.parse(input);
+    const socketRoot = validateSocketRoot(paths);
     checkCommon(config, revision);
     if (!same(Object.keys(config.services), Object.keys(runtimeContracts))) invalid();
     for (const [name, base] of Object.entries(runtimeContracts)) {
@@ -343,23 +407,28 @@ export function assertRuntimeCompose(
           volumes[0].target !== '/var/lib/postgresql'
         )
           invalid();
-      } else if (volumes?.length !== 0) invalid();
-      if (name !== 'fcd-support-admin' && config.services[name]?.ports.length !== 0) invalid();
+      } else if (name !== 'fcd-support-admin' && volumes?.length !== 0) invalid();
+      if (config.services[name]?.ports.length !== 0) invalid();
     }
     const admin = config.services['fcd-support-admin'];
-    if (admin?.ports.length !== 1) invalid();
-    const binding = admin.ports[0];
+    if (admin?.volumes.length !== 1) invalid();
+    const mount = admin.volumes[0];
     if (
-      binding?.host_ip !== '127.0.0.1' ||
-      binding.target !== 3004 ||
-      !/^[1-9][0-9]{0,4}$/u.test(binding.published) ||
-      Number(binding.published) > 65535
+      mount?.type !== 'bind' ||
+      canonicalPath(mount.source) !== socketRoot ||
+      mount.target !== '/run/fcd-support-admin' ||
+      mount.read_only === true ||
+      mount.bind?.create_host_path !== false
     )
       invalid();
     const origin = new URL(admin.environment.ADMIN_ORIGIN ?? '');
     if (
-      admin.environment.ADMIN_HOST !== '0.0.0.0' ||
-      admin.environment.ADMIN_LISTEN_MODE !== 'container_private' ||
+      admin.environment.ADMIN_HOST !== undefined ||
+      admin.environment.ADMIN_PORT !== undefined ||
+      admin.environment.ADMIN_LISTEN_MODE !== 'unix' ||
+      admin.environment.ADMIN_SOCKET_PATH !== '/run/fcd-support-admin/admin.sock' ||
+      !/^[1-9][0-9]{0,4}$/u.test(admin.environment.ADMIN_BROWSER_PORT ?? '') ||
+      Number(admin.environment.ADMIN_BROWSER_PORT) > 65535 ||
       origin.protocol !== 'http:' ||
       !['127.0.0.1', '[::1]'].includes(origin.hostname) ||
       origin.username !== '' ||
@@ -382,10 +451,7 @@ export function assertRuntimeCompose(
         invalid();
       if (['ingress', 'notification', 'model'].includes(name) && network.external !== true)
         invalid();
-      if (
-        ['management', 'provider_egress'].includes(name) &&
-        (network.internal === true || network.external === true)
-      )
+      if (name === 'provider_egress' && (network.internal === true || network.external === true))
         invalid();
     }
   } catch {

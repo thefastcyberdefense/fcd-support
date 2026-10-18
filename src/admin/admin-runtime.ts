@@ -7,6 +7,7 @@ import { buildAdminApp } from './admin-app.js';
 import { loadAdminConfig } from './admin-config.js';
 import { AesGcmAdminSecretProtector } from './mfa.js';
 import { loadRoleEnvironment } from '../operations/secret-files.js';
+import { startAdminSocket, type AdminSocketHandle } from './admin-socket.js';
 
 export interface CreateAdminRuntimeOptions {
   readonly environment: Readonly<Record<string, string | undefined>>;
@@ -24,6 +25,7 @@ export async function createAdminRoleRuntime(
 export interface AdminRuntime {
   readonly app: FastifyInstance;
   readonly start: () => Promise<void>;
+  readonly stop: () => Promise<'closed' | 'process_exit_required'>;
 }
 export function createAdminRuntime(options: CreateAdminRuntimeOptions): AdminRuntime {
   const config = loadAdminConfig(options.environment);
@@ -66,16 +68,35 @@ export function createAdminRuntime(options: CreateAdminRuntimeOptions): AdminRun
     actionKey: config.sessionHmacKey,
     actionTtlMilliseconds: config.actionTtlMilliseconds,
   });
-  app.addHook('onClose', async () => {
-    await pool.end();
-  });
+  let poolClosure: Promise<void> | undefined;
+  const closePool = () => (poolClosure ??= pool.end());
+  app.addHook('onClose', closePool);
+  let socket: AdminSocketHandle | undefined;
+  let startInvoked = false;
+  let stopping: Promise<'closed' | 'process_exit_required'> | undefined;
   return {
     app,
+    stop: () =>
+      (stopping ??= (async () => {
+        if (socket === undefined) {
+          await app.close();
+          return 'closed';
+        }
+        const status = await socket.close();
+        await closePool();
+        return status;
+      })()),
     start: async () => {
+      if (startInvoked) throw new Error('admin_socket_invalid');
+      startInvoked = true;
       try {
-        await app.listen({ host: config.host, port: config.port });
+        if (config.listener.kind === 'unix')
+          socket = await startAdminSocket(app, config.listener.path);
+        else await app.listen({ host: config.listener.host, port: config.listener.port });
       } catch (error) {
-        await app.close();
+        if (error instanceof Error && error.message === 'admin_socket_exit_required')
+          await closePool();
+        else await app.close();
         throw error;
       }
       logger.info('admin_service_started');

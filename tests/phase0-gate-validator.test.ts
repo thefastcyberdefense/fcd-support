@@ -131,10 +131,12 @@ describe('Phase 0 gate validator', () => {
     const root = await createFixture();
     const matrixPath = join(root, 'docs', 'testing', 'acceptance-matrix.md');
     const matrix = await readFile(matrixPath, 'utf8');
-    await writeFile(
-      matrixPath,
-      matrix.replace('| AC-10 | Model fallback |', '| AC-10 | Provider routing |'),
+    const omittedGate = matrix.replace(
+      /^(\|\s*AC-10\s*\|)\s*Model fallback\s*\|/mu,
+      '$1 Provider routing |',
     );
+    expect(omittedGate).not.toBe(matrix);
+    await writeFile(matrixPath, omittedGate);
 
     const result = runValidator(root);
 
