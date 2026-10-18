@@ -15,6 +15,21 @@ export interface IsolatedTestDatabase {
   readonly schema: string;
 }
 
+export async function rollbackThroughMigration(
+  database: Pick<IsolatedTestDatabase, 'pool' | 'runMigrations'>,
+  targetVersion: number,
+): Promise<void> {
+  const installed = await database.pool.query<{ readonly name: string }>(
+    'select name from pgmigrations',
+  );
+  const versions = installed.rows.map((row) => Number.parseInt(row.name.split('_')[0] ?? '', 10));
+  if (!versions.includes(targetVersion)) throw new Error('Target test migration is not installed');
+  await database.runMigrations(
+    'down',
+    versions.filter((version) => version >= targetVersion).length,
+  );
+}
+
 export function requireIsolatedTestDatabaseUrl(
   environment: Readonly<Record<string, string | undefined>>,
 ): string {

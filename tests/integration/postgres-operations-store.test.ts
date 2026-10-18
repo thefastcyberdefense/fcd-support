@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { PostgresOperationsStore } from '../../src/persistence/postgres-operations-store.js';
 import type { HealthObservation } from '../../src/operations/operations-types.js';
-import { createIsolatedTestDatabase } from './test-database.js';
+import { createIsolatedTestDatabase, rollbackThroughMigration } from './test-database.js';
 import {
   createPhase6Fixture,
   operationsAt,
@@ -299,7 +299,7 @@ describe('PostgreSQL operations metadata', () => {
 
   test('migration thirteen refuses populated downgrade without losing evidence', async () => {
     await fixture.store.recordHealth(unhealthy());
-    await expect(fixture.db.runMigrations('down', 1)).rejects.toMatchObject({ code: '55000' });
+    await expect(rollbackThroughMigration(fixture.db, 13)).rejects.toMatchObject({ code: '55000' });
     expect(
       await fixture.db.pool.query('select count(*)::int as n from operations_health_checks'),
     ).toMatchObject({ rows: [{ n: 1 }] });
@@ -308,7 +308,7 @@ describe('PostgreSQL operations metadata', () => {
   test('migration thirteen applies to the prior schema, rolls down empty and reapplies', async () => {
     const db = await createIsolatedTestDatabase('phase6_operations_cycle');
     try {
-      await db.runMigrations('down', 1);
+      await rollbackThroughMigration(db, 13);
       expect(
         await db.pool.query("select to_regclass('operations_health_checks') as relation"),
       ).toMatchObject({ rows: [{ relation: null }] });

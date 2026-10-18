@@ -24,7 +24,7 @@ the baseline.
 Date: 2026-10-04
 
 Status: approved by the project owner for sequential implementation on
-2026-10-18 (Asia/Dhaka). Tasks 1–2 are locally complete; Tasks 3–16 remain pending.
+2026-10-18 (Asia/Dhaka). Tasks 1–3 are locally complete; Tasks 4–16 remain pending.
 Tracker gates close only when their complete implementation evidence exists.
 
 Task 1 validation: 99/99 focused tests pass in the isolated Linux runner as
@@ -38,6 +38,13 @@ PostgreSQL suite 433/433 across 36 files; complete local gate 731 passed across
 49 files (the same two Linux-only skips), with zero test schemas/advisory locks
 left over. These tests created only synthetic operations/catalogue metadata.
 No backup archive, restored runtime, live integration or server action occurred.
+
+Task 3 validation: the complete PostgreSQL suite passes 459/459 tests across
+38 files; the local gate passes 731 tests across 49 files with the same two
+Linux-only skips. Regression RED runs covered premature completion, restore
+quarantine, source expiry and immutable notification retention deadlines.
+All four notification types retain existing business authority. No live n8n,
+provider, server or deployment action occurred.
 
 ## Global Constraints
 
@@ -385,7 +392,7 @@ N8nResult contains status accepted/retryable/terminal_failed and reasonCode
 ok/timeout/transport_failure/invalid_response/authentication_failed/
 destination_rejected/retry_exhausted. No customer content enters either work table.
 
-- [ ] **Step 1: Add RED tests** for unique source reconciliation, concurrent
+- [x] **Step 1: Add RED tests** for unique source reconciliation, concurrent
       SKIP LOCKED claims, expiry/wrong-owner refusal, incomplete stage retry after
       restart, exact/conflicting replay, and foreign-source rejection.
 
@@ -409,18 +416,18 @@ Use existing policy-fixtures to create a fully synthetic admitted event;
 instantiate processor/work on the isolated test pool. Cover notification
 sources opened during n8n outage, unique source keys and expiry.
 
-- [ ] **Step 2:** Run the two new integration files and migration tests; expect RED.
-- [ ] **Step 3:** Implement closed runtime_processing_work and
+- [x] **Step 2:** Run the two new integration files and migration tests; expect RED.
+- [x] **Step 3:** Implement closed runtime_processing_work and
       notification_delivery_work/notification_delivery_attempts. Reconcile source
       rows transactionally with unique parent/source IDs. Existing
       privacy_notification_intents retain their business authority; new delivery
       rows reference them and existing escalation parents without copying content.
       Claims use current time, bounded leases and SKIP LOCKED. Stage advance commits
       separately from domain service operations; replay repairs any crash gap.
-- [ ] **Step 4:** Apply inherited-work recovery-fence compatibility:
+- [x] **Step 4:** Apply inherited-work recovery-fence compatibility:
       a quarantined source is excluded from reconciliation and claims. Do not delete
       evidence to resurrect a task. Run focused tests/typecheck; expect PASS.
-- [ ] **Step 5:** Commit `feat: add durable runtime and notification work leases`; push.
+- [x] **Step 5:** Commit `feat: add durable runtime and notification work leases`; push.
 
 ### Task 4: Shared worker lifecycle and runtime readiness
 

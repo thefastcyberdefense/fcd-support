@@ -3,7 +3,11 @@ import { Buffer } from 'node:buffer';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 
-import { createIsolatedTestDatabase, type IsolatedTestDatabase } from './test-database.js';
+import {
+  createIsolatedTestDatabase,
+  rollbackThroughMigration,
+  type IsolatedTestDatabase,
+} from './test-database.js';
 import {
   insertSyntheticAppliedCustomerEvent,
   insertSyntheticPendingEvent,
@@ -27,10 +31,7 @@ afterAll(async () => {
 });
 
 async function migrateDownThrough(targetVersion: number): Promise<void> {
-  const installed = await pool.query<{ readonly name: string }>('select name from pgmigrations');
-  const versions = installed.rows.map((row) => Number.parseInt(row.name.split('_')[0] ?? '', 10));
-  if (!versions.includes(targetVersion)) throw new Error('Target test migration is not installed');
-  await runMigrations('down', versions.filter((version) => version >= targetVersion).length);
+  await rollbackThroughMigration({ pool, runMigrations }, targetVersion);
 }
 
 async function createSyntheticConversation(fixtureKey: string): Promise<string> {
@@ -161,7 +162,7 @@ describe('Phase 2 database migrations', () => {
       { table_name: 'knowledge_tags' },
       { table_name: 'knowledge_versions' },
     ]);
-    expect(migrations.rows[0]?.count).toBe(13);
+    expect(migrations.rows[0]?.count).toBe(14);
     expect(trigramExtension.rows).toEqual([{ installed: true }]);
     expect(aliasIndexes.rows.map(({ indexname }) => indexname)).toEqual(
       expect.arrayContaining([
@@ -221,7 +222,7 @@ describe('Phase 2 database migrations', () => {
       'support_reply_draft_knowledge',
       'support_reply_drafts',
     ]);
-    expect(migrations.rows[0]?.count).toBe(13);
+    expect(migrations.rows[0]?.count).toBe(14);
   });
 
   test('create customizable model policy, usage, and lease schema as migration eleven', async () => {
@@ -282,7 +283,7 @@ describe('Phase 2 database migrations', () => {
     expect(policyColumns.rows).toHaveLength(13);
     expect(policyColumns.rows.every(({ column_default }) => column_default === null)).toBe(true);
     expect(prohibitedColumns.rows).toEqual([]);
-    expect(migrations.rows[0]?.count).toBe(13);
+    expect(migrations.rows[0]?.count).toBe(14);
   });
 
   test('create the closed outbound messaging schema as migration twelve', async () => {
@@ -354,7 +355,7 @@ describe('Phase 2 database migrations', () => {
     expect(policyColumns.rows).toHaveLength(12);
     expect(policyColumns.rows.every(({ column_default }) => column_default === null)).toBe(true);
     expect(prohibitedColumns.rows).toEqual([]);
-    expect(migrations.rows[0]?.count).toBe(13);
+    expect(migrations.rows[0]?.count).toBe(14);
   });
 
   test('enforce outbound source, state, correlation, and append-only evidence constraints', async () => {
@@ -1225,7 +1226,7 @@ describe('Phase 2 database migrations', () => {
       { table_name: 'privacy_suppressions' },
       { table_name: 'restore_deletion_gates' },
     ]);
-    expect(migrations.rows[0]?.count).toBe(13);
+    expect(migrations.rows[0]?.count).toBe(14);
   });
 
   test('create the bounded privacy rights workflow tables as migration five', async () => {
