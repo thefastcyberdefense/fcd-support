@@ -12,6 +12,17 @@ import {
 
 export function parseBackupCommand(args: readonly string[]) {
   try {
+    if (args[0] === 'pre-migration-backup') {
+      const [, scheduledAt] = z
+        .tuple([z.literal('pre-migration-backup'), z.iso.datetime({ precision: 3 })])
+        .parse(args);
+      return {
+        job: 'backup' as const,
+        backupClass: 'pre_migration' as const,
+        scheduledAt: new Date(scheduledAt),
+        referenceOnly: true as const,
+      };
+    }
     if (args[0] === 'backup') {
       const [, backupClass, scheduledAt] = z
         .tuple([

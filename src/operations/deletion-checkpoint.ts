@@ -257,7 +257,12 @@ export async function exportDeletionCheckpoint(
       options.sourcePool,
       options.timeoutMilliseconds,
       async (client) => {
-        await client.query('lock table privacy_suppressions in share mode');
+        const helper = await client.query<{ present: boolean }>(
+          "select to_regprocedure('lock_deletion_checkpoint_source()') is not null as present",
+        );
+        if (helper.rows[0]?.present === true)
+          await client.query('select lock_deletion_checkpoint_source()');
+        else await client.query('lock table privacy_suppressions in share mode');
         const watermark = await readCheckpointWatermark({ transactionClient: client });
         const result = await client.query<{
           identity_hmac: string;

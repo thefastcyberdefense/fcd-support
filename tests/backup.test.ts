@@ -245,6 +245,12 @@ test('pruning refuses a missing latest archive and never deletes an older one', 
   expect(await readdir(f.options.archiveDirectory)).toEqual([manifest.backupRef]);
 });
 test('backup CLI accepts only closed scheduled and bootstrap commands', () => {
+  expect(parseBackupCommand(['pre-migration-backup', '2030-03-01T02:00:00.000Z'])).toEqual({
+    job: 'backup',
+    backupClass: 'pre_migration',
+    scheduledAt: new Date('2030-03-01T02:00:00.000Z'),
+    referenceOnly: true,
+  });
   expect(parseBackupCommand(['backup', 'daily', '2030-03-01T02:00:00.000Z'])).toEqual({
     job: 'backup',
     backupClass: 'daily',

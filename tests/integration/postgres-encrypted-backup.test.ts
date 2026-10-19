@@ -180,11 +180,16 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
           child.once('close', resolve);
         });
         expect(code).toBe(0);
+        if (args[0] === 'pre-migration-backup') {
+          expect(output.trim()).toMatch(/^backup_[a-f0-9]{32}$/u);
+          return output.trim();
+        }
         expect(JSON.parse(output)).toMatchObject({
           status: 'completed',
           processed: 1,
           reasonCode: 'ok',
         });
+        return undefined;
       }
       // Bootstrap has no operations tables in the connection's public schema.
       await chmod(identityFile, 0o000);
@@ -202,6 +207,12 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
         ...commonEnvironment,
         BACKUP_AGE_IDENTITY_FILE: identityFile,
       });
+      await chmod(identityFile, 0o000);
+      const returnedRef = await cli(['pre-migration-backup', '2001-01-02T00:00:00.000Z'], {
+        ...commonEnvironment,
+        BACKUP_ENCRYPTION_RECIPIENT_FILE: recipientFile,
+      });
+      expect(await readdir(archiveDirectory)).toContain(returnedRef);
     } finally {
       await chmod(identityFile, 0o600).catch(() => undefined);
       await chmod(wrongIdentityFile, 0o600).catch(() => undefined);

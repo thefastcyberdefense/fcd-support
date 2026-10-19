@@ -27,6 +27,7 @@ import {
 import { PostgresOperationsStore } from './persistence/postgres-operations-store.js';
 import { parseLearningPolicy } from './learning/learning-input.js';
 import { parseOutboundPolicyInput } from './outbound/outbound-policy-input.js';
+import { runForwardMigrations } from './operations/forward-migration.js';
 
 export function parseOperationsCommand(args: readonly string[]) {
   try {
@@ -48,6 +49,92 @@ export async function runOperationsMain(): Promise<void> {
   let pool: pg.Pool | undefined;
   try {
     const args = process.argv.slice(2);
+    if (
+      [
+        'migrate',
+        'deployment-started',
+        'deployment-succeeded',
+        'deployment-failed',
+        'verify-runtime',
+      ].includes(args[0] ?? '')
+    ) {
+      const [job] = z
+        .tuple([
+          z.enum([
+            'migrate',
+            'deployment-started',
+            'deployment-succeeded',
+            'deployment-failed',
+            'verify-runtime',
+          ]),
+        ])
+        .parse(args);
+      const environment = await loadRoleEnvironment('migrate', process.env);
+      const config = loadOperationsConfig('migrate', environment);
+      if (
+        config.modelExecutionEnabled ||
+        config.outboundExecutionEnabled ||
+        config.n8nExecutionEnabled
+      )
+        throw new Error('invalid');
+      const revision = z
+        .string()
+        .regex(/^[a-f0-9]{40}$/u)
+        .parse(environment.OPS_GIT_REVISION);
+      const schemaRevision = z
+        .string()
+        .regex(/^[0-9]{6}$/u)
+        .parse(environment.OPS_SCHEMA_REVISION);
+      const schema = z
+        .string()
+        .regex(/^[a-z][a-z0-9_]{0,62}$/u)
+        .parse(environment.OPS_DATABASE_SCHEMA ?? 'public');
+      pool = new pg.Pool({
+        connectionString: environment.DATABASE_URL,
+        max: 1,
+        connectionTimeoutMillis: config.maximumCallMilliseconds,
+        query_timeout: config.maximumCallMilliseconds,
+        statement_timeout: config.maximumCallMilliseconds,
+      });
+      pool.on('error', () => {
+        logger.error('database_pool_error');
+      });
+      if (job === 'migrate')
+        await runForwardMigrations(pool, {
+          schema,
+          expectedSchemaRevision: schemaRevision,
+          timeoutMilliseconds: config.maximumCallMilliseconds,
+        });
+      else {
+        const actual = await pool.query<{ name: string }>(
+          `select name from "${schema}".pgmigrations order by name desc limit 1`,
+        );
+        if (actual.rows[0]?.name.slice(0, 6) !== schemaRevision) throw new Error('invalid');
+        if (job === 'verify-runtime') {
+          const latest = await pool.query<{ git_revision: string; status: string }>(
+            `select git_revision,status from operations_deployments order by recorded_at desc,id desc limit 1`,
+          );
+          const row = latest.rows[0];
+          if (row?.git_revision !== revision || !['started', 'succeeded'].includes(row.status))
+            throw new Error('invalid');
+        } else
+          await new PostgresOperationsStore(pool).recordDeployment({
+            gitRevision: revision,
+            schemaRevision,
+            recordedAt: new Date(),
+            status:
+              job === 'deployment-started'
+                ? 'started'
+                : job === 'deployment-succeeded'
+                  ? 'succeeded'
+                  : 'failed',
+          });
+      }
+      process.stdout.write(
+        `${JSON.stringify({ status: 'completed', processed: 1, reasonCode: 'ok' })}\n`,
+      );
+      return;
+    }
     if (args[0] === 'checkpoint') {
       z.tuple([z.literal('checkpoint')]).parse(args);
       const environment = await loadRoleEnvironment('checkpoint', process.env);
@@ -100,7 +187,9 @@ export async function runOperationsMain(): Promise<void> {
       );
       return;
     }
-    if (['backup', 'verify-backup', 'prune-backups'].includes(args[0] ?? '')) {
+    if (
+      ['backup', 'pre-migration-backup', 'verify-backup', 'prune-backups'].includes(args[0] ?? '')
+    ) {
       const command = parseBackupCommand(args);
       const role = command.job === 'verify-backup' ? 'verify_backup' : 'backup';
       const environment = await loadRoleEnvironment(role, process.env);
@@ -123,6 +212,7 @@ export async function runOperationsMain(): Promise<void> {
       });
       let processed = 0;
       let skipped = false;
+      let createdReference: string | undefined;
       if ('scheduledAt' in command && command.scheduledAt > new Date())
         throw new Error('operations_command_invalid');
       if (command.job === 'backup') {
@@ -144,6 +234,7 @@ export async function runOperationsMain(): Promise<void> {
         };
         if (command.backupClass === 'pre_migration') {
           const manifest = await createEncryptedBackup(options);
+          createdReference = manifest.backupRef;
           // A signed archive exists before the first operations table is installed.
           if (await hasBackupCatalog(pool)) await registerBackup(pool, manifest, 'created');
           processed = 1;
@@ -197,6 +288,11 @@ export async function runOperationsMain(): Promise<void> {
         } finally {
           client.release(true);
         }
+      }
+      if ('referenceOnly' in command) {
+        if (createdReference === undefined) throw new Error('invalid');
+        process.stdout.write(`${createdReference}\n`);
+        return;
       }
       process.stdout.write(
         `${JSON.stringify({ status: skipped ? 'skipped' : 'completed', processed, reasonCode: skipped ? 'not_due' : 'ok' })}\n`,

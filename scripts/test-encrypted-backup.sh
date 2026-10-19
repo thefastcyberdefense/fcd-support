@@ -3,12 +3,17 @@
 set -Eeuo pipefail
 export MSYS_NO_PATHCONV=1
 MODE="${1:-backup}"
-[[ "$#" -le 1 && ( "$MODE" == backup || "$MODE" == checkpoint ) ]] || { echo backup_test_mode_invalid >&2; exit 1; }
+[[ "$#" -le 1 && ( "$MODE" == backup || "$MODE" == checkpoint || "$MODE" == grants ) ]] || { echo backup_test_mode_invalid >&2; exit 1; }
 UNIT_FILES=(tests/backup.test.ts tests/backup-retention.test.ts)
 INTEGRATION_FILES=(tests/integration/postgres-encrypted-backup.test.ts)
-if [[ "$MODE" == checkpoint ]]; then
+if [[ "$MODE" == checkpoint || "$MODE" == grants ]]; then
   UNIT_FILES+=(tests/deletion-checkpoint.test.ts)
   INTEGRATION_FILES+=(tests/integration/postgres-deletion-checkpoint.test.ts)
+fi
+if [[ "$MODE" == grants ]]; then
+  UNIT_FILES+=(tests/operations-scripts.test.ts)
+  INTEGRATION_FILES+=(tests/integration/postgres-runtime-grants.test.ts)
+  INTEGRATION_FILES+=(tests/integration/postgres-deployment-cli.test.ts tests/integration/postgres-forward-migration.test.ts)
 fi
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NATIVE_ROOT="$ROOT"
@@ -53,6 +58,7 @@ docker run --rm --name "$SCOPE-$job" --label "fcd-support.backup-test=$SCOPE" --
   --tmpfs /workspace/node_modules/.vite-temp:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0700,size=16m \
   --mount "type=volume,src=$VOLUME,dst=/var/lib/fcd-support/backups" \
   --mount "type=bind,src=$NATIVE_ROOT/src,dst=/workspace/src,readonly" \
+  --mount "type=bind,src=$NATIVE_ROOT/scripts,dst=/workspace/scripts,readonly" \
   --mount "type=bind,src=$NATIVE_ROOT/tests,dst=/workspace/tests,readonly" \
   --mount "type=bind,src=$NATIVE_ROOT/migrations,dst=/workspace/migrations,readonly" \
   --mount "type=bind,src=$NATIVE_ROOT/tsconfig.json,dst=/workspace/tsconfig.json,readonly" \
