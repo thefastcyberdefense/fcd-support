@@ -216,6 +216,26 @@ export async function runOperationsMain(): Promise<void> {
       if ('scheduledAt' in command && command.scheduledAt > new Date())
         throw new Error('operations_command_invalid');
       if (command.job === 'backup') {
+        let sourceSchemaRevision = z
+          .string()
+          .regex(/^[0-9]{6}$/u)
+          .parse(environment.OPS_SCHEMA_REVISION);
+        if (command.backupClass === 'pre_migration') {
+          const registry = await pool.query<{ present: boolean }>(
+            "select to_regclass('pgmigrations') is not null as present",
+          );
+          sourceSchemaRevision = '000000';
+          if (registry.rows[0]?.present === true) {
+            const current = await pool.query<{ name: string }>(
+              'select name from pgmigrations order by name desc limit 1',
+            );
+            const name = current.rows[0]?.name;
+            if (name !== undefined) {
+              if (!/^[0-9]{6}_[a-z0-9_]+$/u.test(name)) throw new Error('invalid');
+              sourceSchemaRevision = name.slice(0, 6);
+            }
+          }
+        }
         const options = {
           ...common,
           connectionString: z.string().min(1).parse(environment.DATABASE_URL),
@@ -225,10 +245,7 @@ export async function runOperationsMain(): Promise<void> {
             .string()
             .regex(/^[a-f0-9]{40}$/u)
             .parse(environment.OPS_GIT_REVISION),
-          schemaRevision: z
-            .string()
-            .regex(/^[0-9]{6}$/u)
-            .parse(environment.OPS_SCHEMA_REVISION),
+          schemaRevision: sourceSchemaRevision,
           backupClass: command.backupClass,
           now: command.scheduledAt,
         };

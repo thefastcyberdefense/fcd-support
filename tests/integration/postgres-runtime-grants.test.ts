@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import pg from 'pg';
@@ -19,6 +19,7 @@ import { AdminSecretBytes, AdminSecretText } from '../../src/admin/admin-types.j
 import { AesGcmAdminSecretProtector, generateTotpCode } from '../../src/admin/mfa.js';
 import { runMaintenance } from '../../src/operations/maintenance.js';
 import { exportDeletionCheckpoint } from '../../src/operations/deletion-checkpoint.js';
+import { operationsEnvironment } from '../helpers/operations-fixtures.js';
 import { createEncryptedBackup, verifyEncryptedBackup } from '../../src/operations/backup.js';
 import { registerBackup } from '../../src/operations/backup-command.js';
 import { insertSyntheticAppliedCustomerEvent, syntheticPrivacyKeyring } from './policy-fixtures.js';
@@ -650,6 +651,47 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
           ])
         ).rows,
       ).toEqual([{ state: 'verified' }]);
+      const databaseFile = join(root, 'backup-database');
+      await writeFile(databaseFile, backupUrl.toString(), { mode: 0o600 });
+      const child = spawn(
+        process.execPath,
+        ['/app/dist/operations-main.js', 'pre-migration-backup', '2001-01-01T00:00:00.000Z'],
+        {
+          cwd: '/app',
+          env: {
+            ...operationsEnvironment(),
+            PATH: process.env.PATH,
+            NODE_ENV: 'production',
+            DATABASE_URL_FILE: databaseFile,
+            OPS_GIT_REVISION: 'a'.repeat(40),
+            OPS_SCHEMA_REVISION: '000016',
+            BACKUP_ENCRYPTION_RECIPIENT_FILE: recipient,
+            RECOVERY_MANIFEST_HMAC_FILE: keyFile,
+            BACKUP_ARCHIVE_DIRECTORY: archive,
+            BACKUP_TMPFS_DIRECTORY: root,
+          },
+          stdio: ['ignore', 'pipe', 'ignore'],
+        },
+      );
+      let output = '';
+      child.stdout.setEncoding('utf8');
+      child.stdout.on('data', (value: string) => {
+        output += value;
+        if (output.length > 2048) child.kill('SIGKILL');
+      });
+      const code = await new Promise<number | null>((done, reject) => {
+        child.once('error', () => {
+          reject(new Error('synthetic_cli_spawn_failed'));
+        });
+        child.once('close', done);
+      });
+      expect(code).toBe(0);
+      expect(output.trim()).toMatch(/^backup_[a-f0-9]{32}$/u);
+      const material = JSON.parse(
+        await readFile(join(archive, output.trim(), 'manifest.json'), 'utf8'),
+      ) as { schemaRevision: string };
+      // The target setting must not rewrite the source archive's actual version.
+      expect(material.schemaRevision).toBe('000015');
     } finally {
       await rm(archive, { recursive: true, force: true });
     }

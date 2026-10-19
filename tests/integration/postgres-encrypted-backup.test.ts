@@ -213,6 +213,11 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
         BACKUP_ENCRYPTION_RECIPIENT_FILE: recipientFile,
       });
       expect(await readdir(archiveDirectory)).toContain(returnedRef);
+      if (returnedRef === undefined) throw new Error('synthetic_archive_reference_missing');
+      const bootstrapManifest = JSON.parse(
+        await readFile(join(archiveDirectory, returnedRef, 'manifest.json'), 'utf8'),
+      ) as { schemaRevision: string };
+      expect(bootstrapManifest.schemaRevision).toBe('000000');
     } finally {
       await chmod(identityFile, 0o600).catch(() => undefined);
       await chmod(wrongIdentityFile, 0o600).catch(() => undefined);

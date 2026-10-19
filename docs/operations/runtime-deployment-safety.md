@@ -108,6 +108,12 @@ migration. Startup/verification failure stops applications and preserves volumes
 The backup reference command returns only its opaque internal archive reference;
 ordinary scheduled backup output remains unchanged.
 
+Pre-migration manifests sample the source migration registry rather than copy the
+configured target schema version. An empty registry/schema is recorded as
+`000000`; a populated registry retains its actual source version even when the
+protected configuration names a higher migration target. Native CLI checks cover
+both cases, including the actual nonsuperuser backup login.
+
 Ordering tests substitute only the external Docker process. They do not prove
 that a complete host deployment has occurred. Compiled CLI tests separately
 exercise actual PostgreSQL migration/evidence and actual pg_dump/age verification.
