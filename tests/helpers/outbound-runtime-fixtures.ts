@@ -19,7 +19,7 @@ export function syntheticOutboundRuntimeEnvironment(
       keys: [{ version: 'TEST_v1', keyBase64url: Buffer.alloc(32, 0x51).toString('base64url') }],
     }),
     OPS_GIT_REVISION: 'c'.repeat(40),
-    OPS_SCHEMA_REVISION: '000015',
+    OPS_SCHEMA_REVISION: '000016',
     META_GRAPH_API_VERSION: 'v25.0',
     META_MESSENGER_PAGE_ID: 'PAGE_TEST_outbound_flow',
     META_WHATSAPP_PHONE_NUMBER_ID: 'PHONE_TEST_outbound_flow',

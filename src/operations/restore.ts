@@ -5,6 +5,24 @@ import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import pg from 'pg';
 import { z } from 'zod';
+import type { AdminSecretBytes } from '../admin/admin-types.js';
+import { PostgresRestoreDeletionGate } from '../persistence/postgres-restore-deletion-gate.js';
+import { PostgresRestoreFence } from '../persistence/postgres-restore-fence.js';
+import {
+  PostgresRestoreEvidence,
+  restoreTargetIdentitySchema,
+  type RestoreBinding,
+  type RestoreTargetIdentity,
+} from '../persistence/postgres-restore-evidence.js';
+import { requirePrivacyHmacKeyring } from '../policy/privacy-identity.js';
+import type { PrivacyHmacKeyring } from '../policy/policy-types.js';
+import {
+  assertCheckpointCurrent,
+  importDeletionCheckpoint,
+  readCheckpointWatermark,
+  type CheckpointManifest,
+} from './deletion-checkpoint.js';
+import { runForwardMigrations } from './forward-migration.js';
 import {
   archiveDatabaseConnection,
   readBackupManifest,
@@ -38,6 +56,260 @@ export interface EncryptedRestoreEvidence {
   readonly schemaRevision: string;
   readonly sourceSystemIdentifier: string;
   readonly targetSystemIdentifier: string;
+}
+
+/** Internal database orchestration. The caller is the trusted operations plane,
+ * not an HTTP/model input. Host isolation and Docker identities must be proven
+ * independently; these functions do not inspect Docker or attach applications. */
+export interface RestoreOptions extends EncryptedRestoreOptions {
+  readonly targetPool: pg.Pool;
+  readonly target: RestoreTargetIdentity;
+  readonly restoreRef: string;
+  readonly gitRevision: string;
+  readonly expectedSchemaRevision: string;
+  readonly keyring: PrivacyHmacKeyring;
+  readonly checkpoint: CheckpointManifest;
+  readonly checkpointArchiveFile: string;
+  readonly checkpointSigningKey: AdminSecretBytes;
+  readonly maximumCheckpointAgeMilliseconds: number;
+  readonly maximumCheckpointRows: number;
+  readonly maximumCheckpointPayloadBytes: number;
+  readonly batchLimit: number;
+  readonly maximumBatches: number;
+  readonly clock: () => Date;
+}
+export interface RestoreEvidence extends RestoreBinding {
+  readonly status: 'deletion_verified';
+  readonly quarantined: number;
+  readonly erasedIdentities: number;
+  readonly batches: number;
+}
+
+async function beginRestoreTransaction(client: pg.PoolClient, milliseconds: number) {
+  await client.query('begin isolation level read committed');
+  await client.query(
+    "select set_config('lock_timeout',$1,true),set_config('statement_timeout',$1,true),set_config('transaction_timeout',$1,true)",
+    [`${String(milliseconds)}ms`],
+  );
+}
+
+async function requireRestoreTargetDatabase(
+  client: pg.PoolClient,
+  identity: RestoreTargetIdentity,
+) {
+  const actual = (
+    await client.query<{ id: string; name: string }>(
+      'select system_identifier::text as id,current_database() as name from pg_control_system()',
+    )
+  ).rows[0];
+  if (actual?.id !== identity.systemIdentifier || actual.name !== identity.databaseName)
+    throw new Error('invalid');
+}
+
+export async function restoreAndReconcile(options: RestoreOptions): Promise<RestoreEvidence> {
+  let source: pg.PoolClient | undefined;
+  let target: pg.PoolClient | undefined;
+  try {
+    z.number().int().min(1).max(300000).parse(options.timeoutMilliseconds);
+    z.string()
+      .regex(/^restore_[a-f0-9]{32}$/u)
+      .parse(options.restoreRef);
+    z.string()
+      .regex(/^[a-f0-9]{40}$/u)
+      .parse(options.gitRevision);
+    z.string()
+      .regex(/^[0-9]{6}$/u)
+      .parse(options.expectedSchemaRevision);
+    z.number().int().min(1).max(1000).parse(options.batchLimit);
+    z.number().int().min(1).max(1000000).parse(options.maximumBatches);
+    z.number()
+      .int()
+      .positive()
+      .max(Number.MAX_SAFE_INTEGER)
+      .parse(options.maximumCheckpointAgeMilliseconds);
+    z.number().int().positive().max(2147483647).parse(options.maximumCheckpointRows);
+    z.number()
+      .int()
+      .positive()
+      .max(Number.MAX_SAFE_INTEGER)
+      .parse(options.maximumCheckpointPayloadBytes);
+    const identity = restoreTargetIdentitySchema.parse(options.target);
+    const connection = archiveDatabaseConnection(options.targetConnectionString);
+    if (
+      options.sourcePool === options.targetPool ||
+      identity.systemIdentifier !== options.expectedTargetSystemIdentifier ||
+      identity.databaseName !== connection.env.PGDATABASE ||
+      identity.schema !== options.schema
+    )
+      throw new Error('invalid');
+    const keyring = requirePrivacyHmacKeyring(options.keyring);
+    const startedAt = z.date().parse(options.clock());
+    // Cheap current-source validation before the SQL stream; repeat under the
+    // retained freeze after migration. A precheck alone is never authority.
+    await assertCheckpointCurrent(options.sourcePool, options.checkpoint, {
+      signingKey: options.checkpointSigningKey,
+      evaluatedAt: startedAt,
+      maximumAgeMilliseconds: options.maximumCheckpointAgeMilliseconds,
+    });
+    const restored = await restoreEncryptedBackup(options);
+    // A caller-supplied pool is a distinct capability from the stream URI.
+    // Bind the actual migration-owning connection BEFORE it can execute DDL.
+    await runForwardMigrations(options.targetPool, {
+      schema: options.schema,
+      expectedSchemaRevision: options.expectedSchemaRevision,
+      timeoutMilliseconds: options.timeoutMilliseconds,
+      expectedDatabaseIdentity: {
+        systemIdentifier: identity.systemIdentifier,
+        databaseName: identity.databaseName,
+      },
+    });
+    source = await options.sourcePool.connect();
+    await beginRestoreTransaction(source, options.timeoutMilliseconds);
+    const helper = (
+      await source.query<{ present: boolean }>(
+        "select to_regprocedure('lock_deletion_checkpoint_source()') is not null as present",
+      )
+    ).rows[0];
+    if (helper?.present === true) await source.query('select lock_deletion_checkpoint_source()');
+    else await source.query('lock table privacy_suppressions in share mode');
+    const frozenSource = { transactionClient: source };
+    const evaluatedAt = z.date().parse(options.clock());
+    if (evaluatedAt < startedAt) throw new Error('invalid');
+    const validateCurrent = async (at: Date) => {
+      if (at < evaluatedAt) throw new Error('invalid');
+      await assertCheckpointCurrent(frozenSource, options.checkpoint, {
+        signingKey: options.checkpointSigningKey,
+        evaluatedAt: at,
+        maximumAgeMilliseconds: options.maximumCheckpointAgeMilliseconds,
+      });
+      if (
+        (await systemIdentifier(frozenSource.transactionClient)) !== restored.sourceSystemIdentifier
+      )
+        throw new Error('invalid');
+    };
+    await validateCurrent(evaluatedAt);
+    target = await options.targetPool.connect();
+    await beginRestoreTransaction(target, options.timeoutMilliseconds);
+    await target.query(`set local search_path="${identity.schema}",public`);
+    await requireRestoreTargetDatabase(target, identity);
+    await target.query(
+      "insert into operations_restore_runs(restore_ref,backup_ref,checkpoint_ref,git_revision,schema_revision,state,recorded_at) values($1,$2,$3,$4,$5,'isolated',$6)",
+      [
+        options.restoreRef,
+        options.backupRef,
+        options.checkpoint.checkpointRef,
+        options.gitRevision,
+        options.expectedSchemaRevision,
+        evaluatedAt,
+      ],
+    );
+    const targetTransaction = { transactionClient: target };
+    await importDeletionCheckpoint({
+      targetPool: targetTransaction,
+      currentSourcePool: frozenSource,
+      archiveFile: options.checkpointArchiveFile,
+      identityFile: options.identityFile,
+      signingKey: options.checkpointSigningKey,
+      expectedManifest: options.checkpoint,
+      expectedCurrentWatermark: await readCheckpointWatermark(frozenSource),
+      evaluatedAt,
+      maximumAgeMilliseconds: options.maximumCheckpointAgeMilliseconds,
+      restoreRef: options.restoreRef,
+      timeoutMilliseconds: options.timeoutMilliseconds,
+      maximumRows: options.maximumCheckpointRows,
+      maximumPayloadBytes: options.maximumCheckpointPayloadBytes,
+      ...(options.processes === undefined ? {} : { processes: options.processes }),
+    });
+    const fence = await new PostgresRestoreFence(targetTransaction).quarantine({
+      restoreRef: options.restoreRef,
+      evaluatedAt,
+    });
+    const activeVersions = await target.query<{ key_version: string }>(
+      `select distinct key_version from privacy_suppressions where category='deletion_tombstone'
+      and effective_at <= $1 and (expires_at is null or expires_at > $1) order by key_version`,
+      [evaluatedAt],
+    );
+    const requiredKeyVersions = [
+      ...new Set([...activeVersions.rows.map((row) => row.key_version), keyring.activeVersion]),
+    ].sort();
+    // Crossing a target-only activation/expiry boundary also invalidates the
+    // fixed-time gate, even when no source write advanced its durable clock.
+    const boundary = (
+      await target.query<{ at: Date | null }>(
+        `select min(at) as at from (
+      select effective_at as at from privacy_suppressions where category='deletion_tombstone' and effective_at>$1
+      union all select expires_at from privacy_suppressions where category='deletion_tombstone' and expires_at>$1) boundaries`,
+        [evaluatedAt],
+      )
+    ).rows[0]?.at;
+    const gate = new PostgresRestoreDeletionGate(targetTransaction, keyring);
+    const gateRef = `gate_${randomUUID().replaceAll('-', '')}`;
+    const common = { gateRef, gitRevision: options.gitRevision, evaluatedAt, requiredKeyVersions };
+    let batches = 0;
+    let erasedIdentities = 0;
+    let remaining = 1;
+    while (remaining !== 0 && batches < options.maximumBatches) {
+      const result = await gate.reapplyBatch({
+        ...common,
+        requestKey: `${gateRef}:batch:${String(batches)}`,
+        limit: options.batchLimit,
+      });
+      if (result.status !== 'applied') throw new Error('invalid');
+      erasedIdentities += result.identitiesProcessed;
+      remaining = result.remainingMatches;
+      batches++;
+    }
+    if (remaining !== 0) throw new Error('invalid');
+    await gate.finalizeGate({ ...common, requestKey: `${gateRef}:final` });
+    const finishedAt = z.date().parse(options.clock());
+    if (boundary !== undefined && boundary !== null && finishedAt >= boundary)
+      throw new Error('invalid');
+    await validateCurrent(finishedAt);
+    const binding = await new PostgresRestoreEvidence(targetTransaction).seal({
+      restoreRef: options.restoreRef,
+      backupRef: options.backupRef,
+      checkpointRef: options.checkpoint.checkpointRef,
+      gitRevision: options.gitRevision,
+      schemaRevision: options.expectedSchemaRevision,
+      target: identity,
+      sourceSystemIdentifier: restored.sourceSystemIdentifier,
+      gateRef,
+      requiredKeyVersions,
+      evaluatedAt,
+    });
+    const sealedAt = z.date().parse(options.clock());
+    if (
+      sealedAt < finishedAt ||
+      (boundary !== undefined && boundary !== null && sealedAt >= boundary)
+    )
+      throw new Error('invalid');
+    await validateCurrent(sealedAt);
+    await target.query('commit');
+    // This remains historical database evidence, not a transferable ready token.
+    // Promotion must separately freeze/revalidate the real source and host target.
+    return {
+      ...binding,
+      status: 'deletion_verified',
+      quarantined: fence.quarantined,
+      erasedIdentities,
+      batches,
+    };
+  } catch {
+    throw new Error('restore_reconciliation_failed');
+  } finally {
+    // Destroy one-shot sessions even on success: borrowed services must not leak
+    // a transaction, search_path, freeze, or operation timeout into runtime work.
+    for (const client of [target, source]) {
+      if (client === undefined) continue;
+      try {
+        await client.query('rollback');
+      } catch {
+        /* The one-shot session is always destroyed. */
+      } finally {
+        client.release(true);
+      }
+    }
+  }
 }
 
 async function systemIdentifier(client: pg.PoolClient): Promise<string> {

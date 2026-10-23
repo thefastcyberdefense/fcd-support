@@ -21,7 +21,7 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
       DATABASE_URL_FILE: file,
       OPS_DATABASE_SCHEMA: database.schema,
       OPS_GIT_REVISION: 'a'.repeat(40),
-      OPS_SCHEMA_REVISION: '000015',
+      OPS_SCHEMA_REVISION: '000016',
       OPS_RESOURCE_LIMITS_JSON: JSON.stringify({
         migrate: { cpus: 1, memoryMiB: 512, pids: 64, tmpfsMiB: 32 },
       }),
@@ -61,7 +61,7 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
       expect((await cli('migrate')).code).toBe(0);
       expect(
         (await database.pool.query('select count(*)::int as count from pgmigrations')).rows,
-      ).toEqual([{ count: 15 }]);
+      ).toEqual([{ count: 16 }]);
       expect((await cli('verify-runtime')).code).toBe(1);
       expect((await cli('deployment-started')).code).toBe(0);
       expect((await cli('verify-runtime')).code).toBe(0);

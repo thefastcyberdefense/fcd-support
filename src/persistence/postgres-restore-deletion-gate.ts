@@ -13,7 +13,7 @@ import type {
 } from '../policy/policy-types.js';
 import { eraseLockedIdentities, type LockedDeletionIdentity } from './postgres-deletion-erasure.js';
 import { PolicyIdempotencyConflictError } from './postgres-takeover-policy.js';
-import { withBoundedTransaction } from './postgres-transaction.js';
+import { withBoundedTransaction, type TransactionSource } from './postgres-transaction.js';
 
 export class RestoreDeletionKeyVersionError extends Error {
   public override readonly name = 'RestoreDeletionKeyVersionError';
@@ -69,7 +69,7 @@ export class PostgresRestoreDeletionGate {
   private readonly keyring: PrivacyHmacKeyring;
 
   public constructor(
-    private readonly pool: pg.Pool,
+    private readonly pool: TransactionSource,
     keyring: PrivacyHmacKeyring,
   ) {
     this.keyring = requirePrivacyHmacKeyring(keyring);

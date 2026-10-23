@@ -81,7 +81,7 @@ async function fixture() {
     signingKey,
     archiveDirectory,
     sourceRevision: 'a'.repeat(40),
-    schemaRevision: '000015',
+    schemaRevision: '000016',
     now,
     timeoutMilliseconds: 10000,
     maximumRows: 1000,
@@ -339,7 +339,7 @@ test.skipIf(!native)(
           CHECKPOINT_MAX_ROWS: '1000',
           CHECKPOINT_MAX_PAYLOAD_BYTES: '1048576',
           OPS_GIT_REVISION: 'a'.repeat(40),
-          OPS_SCHEMA_REVISION: '000015',
+          OPS_SCHEMA_REVISION: '000016',
           OPS_RESOURCE_LIMITS_JSON: JSON.stringify({
             checkpoint: { cpus: 1, memoryMiB: 512, pids: 64, tmpfsMiB: 32 },
           }),

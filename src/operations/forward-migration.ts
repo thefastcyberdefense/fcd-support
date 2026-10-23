@@ -8,6 +8,12 @@ export interface ForwardMigrationOptions {
   readonly schema: string;
   readonly expectedSchemaRevision: string;
   readonly timeoutMilliseconds: number;
+  readonly expectedDatabaseIdentity?:
+    | {
+        readonly systemIdentifier: string;
+        readonly databaseName: string;
+      }
+    | undefined;
 }
 
 export async function runForwardMigrations(
@@ -22,6 +28,12 @@ export async function runForwardMigrations(
         schema: z.string().regex(/^[a-z][a-z0-9_]{0,62}$/u),
         expectedSchemaRevision: z.string().regex(/^[0-9]{6}$/u),
         timeoutMilliseconds: z.number().int().min(1).max(300000),
+        expectedDatabaseIdentity: z
+          .strictObject({
+            systemIdentifier: z.string().regex(/^[1-9][0-9]{0,19}$/u),
+            databaseName: z.string().regex(/^[a-z][a-z0-9_]{0,62}$/u),
+          })
+          .optional(),
       })
       .parse(input);
     const versions = (await readdir(directory))
@@ -44,6 +56,20 @@ export async function runForwardMigrations(
     await client.query("select set_config('statement_timeout',$1,false)", [
       `${String(options.timeoutMilliseconds)}ms`,
     ]);
+    if (options.expectedDatabaseIdentity !== undefined) {
+      reason = 'migration_target_invalid';
+      const actual = (
+        await client.query<{ id: string; name: string }>(
+          'select system_identifier::text as id,current_database() as name from pg_control_system()',
+        )
+      ).rows[0];
+      if (
+        actual?.id !== options.expectedDatabaseIdentity.systemIdentifier ||
+        actual.name !== options.expectedDatabaseIdentity.databaseName
+      )
+        throw new Error('invalid');
+      reason = 'migration_failed';
+    }
     const lock = await client.query<{ acquired: boolean }>(
       'select pg_try_advisory_lock(hashtextextended($1,0)) as acquired',
       [`fcd-support:deployment:${options.schema}`],

@@ -147,7 +147,9 @@ All secret values are intentionally absent from this repository. Create them dur
 
 ## Launch Blockers
 
-- Task 11 now includes an internal full-database encrypted-stream restore stage (2026-10-23 Asia/Dhaka), exercised against a fresh isolated local Docker PostgreSQL volume/network. The full archive includes shared extension dependencies; real rows survive restoration and an actual old admission archive forward-migrates afterward. Source-cluster, target substitution/population/session, corrupt/incomplete archive, identity, schema and timeout failures are covered. This is SQL/stream-stage evidence only: the public commands remain disabled while required handlers are absent. Current checkpoint/deletion reconciliation orchestration, authoritative volume/network binding and fresh promotion proof remain unfinished, along with bootstrap-profile wiring, actual runtime verification, rollback and explicit socket recovery. No server or external-service action occurred. See `docs/operations/runtime-deployment-safety.md`.
+- Task 11 now composes full encrypted restore, actual connection-bound forward migration, frozen-source current checkpoint import, inherited-work quarantine/hold, all-active-key bounded erasure and immutable restore evidence (migration 000016). Missing rotated keys, stale checkpoints, target-only time boundaries and batch exhaustion refuse without a partial target pass. A real native RED caught a substituted migration pool creating objects on the synthetic source; identity validation now belongs on the DDL-owning connection before migration. This remains internal historical database evidence, not a host promotion or `ready` token. Volume/network/image fields are trusted controller input; independent Docker inspection, fresh `verifyPromotion` and safe switch, bootstrap wiring, full runtime verification, retained rollback and socket recovery remain Task 11. No server or external-service action occurred. See `docs/operations/runtime-deployment-safety.md`.
+
+- The earlier Task 11 SQL/stream checkpoint (2026-10-23 Asia/Dhaka) proved real full-archive restoration and old-admission forward migration against an isolated local Docker PostgreSQL cluster. Its current checkpoint/deletion composition gap is addressed by the later checkpoint above; independently inspected host binding, fresh promotion and the other host controls remain unfinished. Public commands stay disabled. Historical validation is retained in `docs/operations/runtime-deployment-safety.md`; no server or external-service action occurred.
 
 - Task 11 remains in progress after its guarded prerequisite checkpoint on 2026-10-19 (Asia/Dhaka). The new role bootstrap converges table/column/sequence/function permissions and rejects foreign scopes, memberships and credential reuse; real logins exercise the private repositories and real pg_dump/age/checkpoint operations. Protected literal host configuration, exact revision/image/local-daemon checks, socket/volume separation, flock, controlled-outage ordering and a packaged-schema-bound forward migrator are tested locally. A real mid-migration conflict proves earlier DDL/registry entries roll back atomically. Compiled CLI cases cover migration, revision evidence and opaque backup references without loading an identity into backup. Code gate: 916 passed/52 platform skips; native gate: 87 units and 48 integrations passed. This is not a full deployment/restore pass: public commands fail closed while required runtime-verification and recovery handlers are absent. Complete restore/target binding/promotion, bootstrap-profile wiring, actual container/socket verification, retained rollback and explicit stale-socket recovery remain next within Task 11. See `docs/operations/runtime-deployment-safety.md`.
 
@@ -168,9 +170,10 @@ All secret values are intentionally absent from this repository. Create them dur
 - Actual encrypted backup/restore procedures and deployed human-takeover behavior must still pass their acceptance tests; the local restore-gate primitive alone does not satisfy P6-004.
 
 The current tracker action is P6-004, following the approved implementation
-plan within Task 11 after its role/preflight/migration and isolated SQL/stream
-restore checkpoints. Complete the bound reconciliation and promotion workflow;
-the internal `restored` result is not attachment authorization.
+plan within Task 11 after its role/preflight/migration, isolated SQL/stream and
+composed database-reconciliation checkpoints. Complete independent host target
+inspection and fresh promotion/switching; internal `restored` or
+`deletion_verified` evidence is not attachment authorization.
 The owner-approved socket/SSH specification and plan are implemented locally;
 actual Ubuntu/SSH and all live
 Meta, Manifest, network, deployment, test-asset, and production

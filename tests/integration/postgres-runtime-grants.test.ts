@@ -18,6 +18,7 @@ import { PostgresAdminIdentity } from '../../src/persistence/postgres-admin-iden
 import { AdminSecretBytes, AdminSecretText } from '../../src/admin/admin-types.js';
 import { AesGcmAdminSecretProtector, generateTotpCode } from '../../src/admin/mfa.js';
 import { runMaintenance } from '../../src/operations/maintenance.js';
+import { runForwardMigrations } from '../../src/operations/forward-migration.js';
 import { exportDeletionCheckpoint } from '../../src/operations/deletion-checkpoint.js';
 import { operationsEnvironment } from '../helpers/operations-fixtures.js';
 import { createEncryptedBackup, verifyEncryptedBackup } from '../../src/operations/backup.js';
@@ -94,6 +95,40 @@ function connectionFor(role: string): string {
   url.password = passwords[role] ?? '';
   return url.toString();
 }
+
+test('the nonsuperuser migrator validates its actual database identity without owner credentials', async () => {
+  const id = (
+    await database.pool.query<{ id: string }>(
+      'select system_identifier::text as id from pg_control_system()',
+    )
+  ).rows[0]?.id;
+  if (id === undefined) throw new Error('synthetic_cluster_missing');
+  expect(
+    await runForwardMigrations(poolFor('migrator'), {
+      schema: database.schema,
+      expectedSchemaRevision: '000016',
+      timeoutMilliseconds: 10000,
+      expectedDatabaseIdentity: { systemIdentifier: id, databaseName: 'fcd_support_test' },
+    }),
+  ).toEqual({ schemaRevision: '000016' });
+});
+
+test.each(runtimeDatabaseRoles)('%s cannot mint or mutate restore bindings', async (role) => {
+  const pool = poolFor(role);
+  expect(
+    (
+      await pool.query(`select has_table_privilege(current_user,'operations_restore_bindings','INSERT')
+    or has_table_privilege(current_user,'operations_restore_bindings','UPDATE')
+    or has_table_privilege(current_user,'operations_restore_bindings','DELETE')
+    or has_table_privilege(current_user,'operations_restore_bindings','TRUNCATE') as can_mutate`)
+    ).rows,
+  ).toEqual([{ can_mutate: false }]);
+  await expect(
+    pool.query('insert into operations_restore_bindings(restore_ref) values($1)', [
+      `restore_${'0'.repeat(32)}`,
+    ]),
+  ).rejects.toMatchObject({ code: '42501' });
+});
 test.each(runtimeDatabaseRoles)(
   '%s uses a real nonsuperuser login and cannot create application tables',
   async (role) => {
@@ -186,7 +221,7 @@ test('backup is read-only for business data with only its required content-free 
     class: 'daily',
     createdAt: at,
     gitRevision: 'a'.repeat(40),
-    schemaRevision: '000015',
+    schemaRevision: '000016',
     ciphertextBytes: 100,
     ciphertextSha256: 'b'.repeat(64),
     state: 'created',
@@ -607,7 +642,7 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
         signingKey: new AdminSecretBytes(Buffer.from('synthetic_grants_manifest_key_'.repeat(2))),
         archiveDirectory: archive,
         sourceRevision: 'a'.repeat(40),
-        schemaRevision: '000015',
+        schemaRevision: '000016',
         now: at,
         timeoutMilliseconds: 10000,
         maximumRows: 100,
@@ -629,7 +664,7 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
         archiveDirectory: archive,
         temporaryDirectory: root,
         gitRevision: 'a'.repeat(40),
-        schemaRevision: '000015',
+        schemaRevision: '000016',
         backupClass: 'pre_migration',
         now: at,
         timeoutMilliseconds: 10000,
@@ -664,7 +699,7 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
             NODE_ENV: 'production',
             DATABASE_URL_FILE: databaseFile,
             OPS_GIT_REVISION: 'a'.repeat(40),
-            OPS_SCHEMA_REVISION: '000016',
+            OPS_SCHEMA_REVISION: '000017',
             BACKUP_ENCRYPTION_RECIPIENT_FILE: recipient,
             RECOVERY_MANIFEST_HMAC_FILE: keyFile,
             BACKUP_ARCHIVE_DIRECTORY: archive,
@@ -691,7 +726,7 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
         await readFile(join(archive, output.trim(), 'manifest.json'), 'utf8'),
       ) as { schemaRevision: string };
       // The target setting must not rewrite the source archive's actual version.
-      expect(material.schemaRevision).toBe('000015');
+      expect(material.schemaRevision).toBe('000016');
     } finally {
       await rm(archive, { recursive: true, force: true });
     }

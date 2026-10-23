@@ -185,7 +185,7 @@ describe('durable processing work', () => {
       expect(await work.claim(claimInput())).toEqual([]);
     } finally {
       await db.pool.query(
-        'truncate runtime_restore_quarantine,runtime_recovery_reviews,runtime_recovery_holds',
+        'truncate operations_restore_bindings,runtime_restore_quarantine,runtime_recovery_reviews,runtime_recovery_holds',
       );
     }
   });

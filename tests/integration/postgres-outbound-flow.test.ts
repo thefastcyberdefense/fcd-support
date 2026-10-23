@@ -417,7 +417,7 @@ describe('PostgreSQL outbound worker flow', () => {
     await seedPolicy();
     const source = await seedIntent('daemon');
     await pool.query(
-      "insert into operations_deployments (git_revision,schema_revision,recorded_at,status) values ($1,'000015',$2,'started')",
+      "insert into operations_deployments (git_revision,schema_revision,recorded_at,status) values ($1,'000016',$2,'started')",
       ['c'.repeat(40), workAt],
     );
     const send = vi.fn(() =>

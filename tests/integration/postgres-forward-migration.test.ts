@@ -15,8 +15,33 @@ afterAll(async () => {
 });
 const options = () => ({
   schema: database.schema,
-  expectedSchemaRevision: '000015',
+  expectedSchemaRevision: '000016',
   timeoutMilliseconds: 10000,
+});
+
+test('checks a supplied database identity on the migration-owning connection before any DDL', async () => {
+  const bound = await createIsolatedTestDatabase('bound_migration');
+  try {
+    await rollbackThroughMigration(bound, 1);
+    await expect(
+      runForwardMigrations(bound.pool, {
+        ...options(),
+        schema: bound.schema,
+        expectedDatabaseIdentity: {
+          systemIdentifier: '1111111111111111111',
+          databaseName: 'fcd_support_test',
+        },
+      }),
+    ).rejects.toThrow(/^migration_target_invalid$/u);
+    expect(
+      (await bound.pool.query('select count(*)::int as count from pgmigrations')).rows,
+    ).toEqual([{ count: 0 }]);
+    expect(
+      (await bound.pool.query("select to_regclass('webhook_receipts') is null as absent")).rows,
+    ).toEqual([{ absent: true }]);
+  } finally {
+    await bound.dispose();
+  }
 });
 
 test('fresh empty application schema forward-migrates once and replay is safe', async () => {
@@ -25,14 +50,14 @@ test('fresh empty application schema forward-migrates once and replay is safe', 
     (await database.pool.query('select count(*)::int as count from pgmigrations')).rows,
   ).toEqual([{ count: 0 }]);
   expect(await runForwardMigrations(database.pool, options())).toEqual({
-    schemaRevision: '000015',
+    schemaRevision: '000016',
   });
   expect(await runForwardMigrations(database.pool, options())).toEqual({
-    schemaRevision: '000015',
+    schemaRevision: '000016',
   });
   expect(
     (await database.pool.query('select count(*)::int as count from pgmigrations')).rows,
-  ).toEqual([{ count: 15 }]);
+  ).toEqual([{ count: 16 }]);
 });
 
 test('old admission schema upgrades without discarding its receipt evidence', async () => {
@@ -42,7 +67,7 @@ test('old admission schema upgrades without discarding its receipt evidence', as
     ['a'.repeat(64), new Date('2030-03-01T00:00:00.000Z')],
   );
   expect(await runForwardMigrations(database.pool, options())).toEqual({
-    schemaRevision: '000015',
+    schemaRevision: '000016',
   });
   expect(
     (await database.pool.query('select count(*)::int as count from webhook_receipts')).rows,
@@ -55,7 +80,7 @@ test('schema mismatch refuses before migration and never runs a down migration',
   ).rejects.toThrow(/^migration_configuration_invalid$/u);
   expect(
     (await database.pool.query('select count(*)::int as count from pgmigrations')).rows,
-  ).toEqual([{ count: 15 }]);
+  ).toEqual([{ count: 16 }]);
 });
 
 test('another deployment advisory lock refuses forward migration without waiting', async () => {

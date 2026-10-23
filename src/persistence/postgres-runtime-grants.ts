@@ -105,6 +105,7 @@ const groups = {
     'operations_backup_events',
     'operations_deployments',
     'operations_restore_runs',
+    'operations_restore_bindings',
   ],
   recovery: [
     'deletion_checkpoint_clock',

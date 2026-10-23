@@ -11,9 +11,11 @@ server use.
 
 An internal encrypted-stream restore stage now restores a real full synthetic
 database into a separate local Docker PostgreSQL cluster. This does not complete
-the restore/reconciliation/promotion workflow. Actual container/socket verification,
-bootstrap-profile wiring, authoritative target binding, current checkpoint and
-deletion reconciliation orchestration, bound promotion proof, retained-image rollback
+the restore/reconciliation/promotion workflow. Its internal database composition
+now imports the current checkpoint, quarantines inherited work, reapplies deletion
+and seals an immutable binding. Actual container/socket verification,
+bootstrap-profile wiring, independently inspected host target binding,
+fresh promotion proof, retained-image rollback
 and explicit stale-socket recovery remain Task 11 work. In particular, the operations CLI's
 `verify-runtime` command checks only database schema/deployment metadata; it is
 not evidence of container, network, filesystem, socket or public-route safety.
@@ -196,6 +198,73 @@ took 976 ms. The full Task 11 workflow remains unfinished.
 
 ## Local Verification
 
+### Composed Database Reconciliation
+
+`restoreAndReconcile` is an internal operations-plane function, not a host handler.
+It returns historical `deletion_verified` evidence, never `ready`. The selected
+archive's catalog lifecycle remains unchanged. The public restore/promotion
+commands and operations CLI do not invoke this composition yet.
+
+The function binds the stream destination URI, actual migration-owning PostgreSQL
+connection and reconciliation connection to the same expected cluster/database.
+The migration identity check runs before DDL on that very connection, not on a
+separate preflight session. A native regression first reproduced a substituted
+pool creating schema objects on the synthetic source; it must now reject without
+creating them. Forward migration remains up-only and uses the packaged target
+schema revision.
+
+After restoration/migration, a bounded READ COMMITTED source transaction acquires
+the checkpoint SHARE freeze before resampling its durable clock. The freeze is
+retained through import, quarantine, bounded deletion batches, fresh finalization
+and binding commit. Signed checkpoint freshness is checked before the stream,
+again under that freeze and before commit. Gate key versions come from all active
+target tombstones plus the configured active key, not only the archive's key list.
+Missing old keys, exhausted batch bounds, changed source clocks and crossed
+source or target-only time boundaries refuse the composition.
+The native composition regression attempts an actual competing source deletion
+at binding insertion and requires its bounded lock-timeout refusal, proving the
+freeze remains held at the final evidence step.
+
+Import, new recovery hold/quarantine, erasure, final gate, restore pass and binding
+are one bounded target transaction. Failure rolls those changes back; the SQL
+snapshot remains isolated and is never dropped or attached. One-shot sessions
+are rolled back/destroyed on every path. Limits, batch bounds, age and clock are
+explicit caller configuration within validation ceilings; no provider or customer
+traffic is involved.
+
+Migration 000016 adds `operations_restore_bindings`. It links the immutable
+checkpoint import, source watermark/signature/ciphertext digest, a unique final
+gate and passed restore run to the revision/schema and target identity digest.
+The actual PostgreSQL cluster/database/schema are sampled; volume creation time,
+network and image identities are **trusted host-controller inputs**, not facts
+established by this database library. Native tests use explicitly synthetic host
+metadata and real separate-cluster SQL identities. An independently inspecting
+Docker adapter is still required before host use.
+
+Binding update/delete and populated truncate/downgrade are refused. An empty
+binding table may be truncated only under READ COMMITTED after its ACCESS
+EXCLUSIVE lock; the schema-qualified trigger refuses older isolation snapshots
+and cannot be redirected by a caller's search path. This permits harmless empty
+synthetic reset and empty migration rollback without deleting evidence. Runtime
+roles cannot insert/update/delete/truncate bindings; admin/backup reads do not
+confer publication or promotion authority. A final gate cannot seal two restores,
+concurrent sealing produces one pass, and exact seal replay is refused.
+An actual queued-truncate race starts while a writer's new binding is uncommitted;
+after the writer commits, the guard sees that row and refuses truncation.
+Empty downgrade obtains the same exclusive lock before checking emptiness and
+rejects older isolation snapshots. A separate queued-downgrade regression first
+reproduced loss of newly committed synthetic evidence; it now must retain both
+the binding and migration registry entry. No production down migration is enabled.
+
+`PostgresRestoreEvidence.load` returns historical evidence, including
+`recoveryHeldAtSeal`, not a claim that recovery remains held now. Neither loading
+nor copying that record authorizes attachment. `verifyPromotion`, fresh host
+inspection, current checkpoint refresh with all application access closed,
+failure-safe switching and private-disabled startup remain unfinished. Human
+policy review is still required before external execution after a switch.
+
+### Commands And Evidence
+
 Run the ordinary code and PostgreSQL gates plus the separate pinned nonroot
 native-toolchain gate:
 
@@ -229,3 +298,13 @@ advisory locks, generated role-prefix accounts, synthetic restore databases and
 labelled backup-test containers, networks, volumes and candidate images.
 The fixture checkpoint-wait diagnosis and separate teardown deadline are recorded
 above. These passing gates do not close the full Task 11 completion contract.
+
+The subsequent composed-reconciliation code gate passed 918 tests with 52
+platform-specific skips across 62 files. The complete ordinary PostgreSQL suite
+passed 568 tests with 33 native-only skips across 49 files (117.28 seconds),
+including all 27 binding/migration/concurrency cases and actual nonsuperuser
+migrator identity validation. Native `grants` passed 89 units/60 integrations;
+native `restore` passed 42 units/20 integrations, covering all 33 ordinary
+integration skips together. The loaded-cluster restore file passed in 24.25
+seconds including teardown. These counts do not close Task 11; committed-source
+confirmation is tracked separately from this prerequisite validation.
