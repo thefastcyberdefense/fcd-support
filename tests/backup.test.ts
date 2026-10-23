@@ -130,6 +130,33 @@ test('verification drains the structural listing and never claims a full restore
   ]);
   expect(await readdir(f.options.temporaryDirectory)).toEqual([]);
 });
+
+test.each([0, 2])(
+  'an early successful listing still drains a large decrypt and checks its final exit %i',
+  async (decryptExit) => {
+    const f = await fixture();
+    const expectedManifest = await createEncryptedBackup(f.options);
+    const processes: BackupProcessPort = (file, _args, settings) =>
+      spawn(
+        process.execPath,
+        [
+          '-e',
+          file === 'pg_restore'
+            ? 'process.stdin.once("data",()=>process.exit(0))'
+            : `process.stdin.resume();process.stdout.write(Buffer.alloc(2*1024*1024,0x53),()=>{process.exit(${String(decryptExit)})})`,
+        ],
+        settings,
+      );
+    const verification = verifyEncryptedBackup({
+      ...f.options,
+      processes,
+      identityFile: f.identityFile,
+      expectedManifest,
+    });
+    if (decryptExit === 0) await expect(verification).resolves.toEqual({ status: 'verified' });
+    else await expect(verification).rejects.toThrow(/^backup_verification_failed$/u);
+  },
+);
 test.each([
   'corruption',
   'signed_metadata',

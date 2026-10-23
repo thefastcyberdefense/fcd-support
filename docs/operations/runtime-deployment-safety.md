@@ -9,9 +9,12 @@ host commands refuse an incomplete installation before Docker activity when a
 required verification or recovery handler is absent. They are not ready for
 server use.
 
-Actual container/socket verification, bootstrap-profile wiring, complete isolated
-database restore, bound promotion proof, retained-image rollback and explicit
-stale-socket recovery remain Task 11 work. In particular, the operations CLI's
+An internal encrypted-stream restore stage now restores a real full synthetic
+database into a separate local Docker PostgreSQL cluster. This does not complete
+the restore/reconciliation/promotion workflow. Actual container/socket verification,
+bootstrap-profile wiring, authoritative target binding, current checkpoint and
+deletion reconciliation orchestration, bound promotion proof, retained-image rollback
+and explicit stale-socket recovery remain Task 11 work. In particular, the operations CLI's
 `verify-runtime` command checks only database schema/deployment metadata; it is
 not evidence of container, network, filesystem, socket or public-route safety.
 P6-004 remains in progress and P6-GATE remains blocked.
@@ -119,6 +122,78 @@ that a complete host deployment has occurred. Compiled CLI tests separately
 exercise actual PostgreSQL migration/evidence and actual pg_dump/age verification.
 Those checks still do not constitute a full database restore or promotion.
 
+## Isolated Encrypted Restore Stage
+
+`restoreEncryptedBackup` in `src/operations/restore.ts` is an internal SQL/stream
+primitive, not a host command or a promotion authorization. No public host handler
+or operations CLI invokes it yet. The host controller must independently establish
+fresh volume/network isolation and supply the actual expected target cluster
+identity before invoking it; SQL checks cannot prove Docker network membership.
+
+The primitive selects an archive from the current source's PostgreSQL catalog,
+requires verified/restore-verified state, and matches its signed on-disk manifest,
+metadata and ciphertext digest. A catalog copied inside the selected archive is
+not used to authorize the selection. It compares actual PostgreSQL system identifiers
+and refuses the authoritative source cluster even when a different empty database
+on that cluster was selected. A substituted target identity, populated user schema,
+relation, function, type, extension, large object or another target database session
+is refused. A nonblocking target advisory lock spans the operation.
+
+After independent decrypt/list verification, it streams `age --decrypt` directly
+into `pg_restore --exit-on-error --single-transaction --no-owner --no-acl --dbname`.
+There is no `--clean`, database recreation or plaintext dump file. The database
+name is supplied explicitly: omitting it would emit SQL instead of restoring it.
+PostgreSQL documents the direct-database and all-or-nothing transaction semantics
+in its [pg_restore reference](https://www.postgresql.org/docs/18/app-pgrestore.html).
+Only trusted catalogued application archives are accepted; restore can execute
+source-defined SQL and is not a safe general-purpose importer for untrusted dumps.
+
+The structural verifier drains the decrypt stream after `pg_restore --list`
+finishes its table of contents. Otherwise large valid archives can fail with a
+broken pipe, and stopping at the TOC would not establish complete decryption.
+The bounded sink discards remaining plaintext without buffering it to a file;
+both child exit statuses must still succeed. A late decryption failure continues
+to reject verification. Full restore streams retain strict consumer behavior.
+
+The subprocess environment is restricted, password material stays in an exclusive
+owner-only temporary file on tmpfs, diagnostics are discarded, and SQL/process
+timeouts are supplied explicitly. The streamed ciphertext's digest and open-file
+stability are checked, both cluster identities are sampled again, and the actual
+restored migration registry must match the signed source schema. Temporary
+credentials are removed and one-shot connections are destroyed on success and
+failure. Failures return only closed codes.
+
+A SQL restore error rolls back its restore transaction. A later schema, digest or
+identity verification failure can leave populated isolated data; the primitive
+never deletes that target or switches applications to it. A `restored` result is
+not `ready`, does not change the archive catalog to `restore_verified`, and does
+not replace current checkpoint import, quarantine, rotated-key loading, bounded
+deletion reapplication, a fresh persisted final gate or host target binding.
+
+The separate `restore` native-test mode creates a labelled fresh internal network
+and PostgreSQL volume. It uses a dedicated synthetic source database for a full
+dump, including the shared `pg_trgm` dependency. A schema-only fixture initially
+exposed a missing operator-class restore failure; the retained negative case now
+proves that incomplete archive rolls back atomically rather than silently repairing
+or accepting it. The harness also covers old admission-schema restore followed by
+forward migration, real row preservation, source/target/session refusal, wrong or
+missing identity, corrupt ciphertext, source-schema mismatch and timeout cleanup.
+An additional real archive with 1 MiB of generated synthetic binary data proves
+verification and full restoration beyond pipe-buffer size.
+
+Loaded-cluster reruns exposed a fixture teardown timeout, not a restore assertion
+failure. Closed diagnostics showed the synthetic source database's `DROP DATABASE`
+waiting on PostgreSQL's `IPC / CheckpointDone` after the full regression workload.
+This matches the forced checkpoint in
+[PostgreSQL 18's database cleanup](https://github.com/postgres/postgres/blob/REL_18_STABLE/src/backend/commands/dbcommands.c).
+Snapshot teardown now runs in a separate, bounded 60-second cleanup hook instead
+of consuming the unchanged 20-second assertion deadline. Restore/process
+deadlines are unchanged; no PostgreSQL durability setting was altered and no
+test was skipped. This fixture fix is separate from the large-archive verifier
+fix. The same workload-then-restore reproduction subsequently passed all 14 cases
+in 40.90 seconds including teardown; the old-admission restore/migration assertion
+took 976 ms. The full Task 11 workflow remains unfinished.
+
 ## Local Verification
 
 Run the ordinary code and PostgreSQL gates plus the separate pinned nonroot
@@ -128,6 +203,7 @@ native-toolchain gate:
 npm run check
 docker compose --file infra/compose.test.yml run --rm runner npm run test:integration
 bash scripts/test-encrypted-backup.sh grants
+bash scripts/test-encrypted-backup.sh restore
 ```
 
 The native gate covers Linux-only filesystem, flock and script checks, real
@@ -141,3 +217,15 @@ PostgreSQL suite passed 529 tests with 13 native-only skips across 47 files
 tests, including those 13 integration skips. Post-test inventory reported zero
 temporary schemas, advisory locks, generated database roles and scoped native
 backup containers/volumes/images. These counts do not close Task 11.
+
+The 2026-10-23 (Asia/Dhaka) SQL/stream checkpoint passed `npm run check` with
+918 tests and 52 platform-specific skips across 62 files. The complete ordinary
+PostgreSQL gate passed 529 tests with 27 native-only skips across 48 files
+(103.41 seconds). The native `grants` gate passed 89 units and 48 integrations;
+the native `restore` gate passed 42 units and 14 integrations, including real
+full-size encrypted archive verification/restoration. Together they cover all
+27 ordinary integration skips. Final inventory was zero temporary schemas,
+advisory locks, generated role-prefix accounts, synthetic restore databases and
+labelled backup-test containers, networks, volumes and candidate images.
+The fixture checkpoint-wait diagnosis and separate teardown deadline are recorded
+above. These passing gates do not close the full Task 11 completion contract.

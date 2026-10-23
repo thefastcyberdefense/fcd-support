@@ -166,11 +166,46 @@ const childEnvironment = (): NodeJS.ProcessEnv => ({
   LANG: 'C.UTF-8',
   TZ: 'UTC',
 });
+function listingInput(destination: Writable): { sink: Writable; dispose: () => void } {
+  // pg_restore --list reads only the TOC. Decryption must still consume and
+  // authenticate the entire archive after that successful consumer closes.
+  // The caller separately requires BOTH children to exit successfully.
+  const earlyClose = (error: Error) =>
+    ['EPIPE', 'ECONNRESET', 'ERR_STREAM_DESTROYED'].includes(
+      (error as NodeJS.ErrnoException).code ?? '',
+    );
+  const sink = new Writable({
+    write(chunk: Buffer, encoding, done) {
+      if (destination.destroyed || destination.writableEnded) {
+        done();
+        return;
+      }
+      destination.write(chunk, encoding, (error) => {
+        done(error === null || error === undefined || earlyClose(error) ? undefined : error);
+      });
+    },
+    final(done) {
+      if (!destination.destroyed && !destination.writableEnded) destination.end();
+      done();
+    },
+  });
+  const onError = (error: Error) => {
+    if (!earlyClose(error)) sink.destroy(new Error('pipeline_failed'));
+  };
+  destination.on('error', onError);
+  return {
+    sink,
+    dispose: () => {
+      destination.removeListener('error', onError);
+    },
+  };
+}
 async function runPipeline(
   commands: readonly { file: string; args: readonly string[]; env?: NodeJS.ProcessEnv }[],
   options: Pick<BackupFiles, 'timeoutMilliseconds' | 'processes'>,
   input?: NodeJS.ReadableStream,
   output?: NodeJS.WritableStream,
+  drainListingRemainder = false,
 ): Promise<void> {
   const controller = new AbortController();
   const timer = setTimeout(() => {
@@ -178,6 +213,7 @@ async function runPipeline(
   }, timeout(options.timeoutMilliseconds));
   const children: ChildProcessWithoutNullStreams[] = [];
   const jobs: Promise<unknown>[] = [];
+  let disposeListing: (() => void) | undefined;
   const processes: BackupProcessPort =
     options.processes ?? ((file, args, settings) => spawn(file, args, settings));
   const stop = () => {
@@ -216,7 +252,13 @@ async function runPipeline(
       if (index === 0) continue;
       const previous = children[index - 1];
       if (previous === undefined) throw new Error('invalid');
-      jobs.push(pipeline(previous.stdout, child.stdin, { signal: controller.signal }));
+      if (drainListingRemainder && index === children.length - 1) {
+        const listing = listingInput(child.stdin);
+        disposeListing = listing.dispose;
+        jobs.push(pipeline(previous.stdout, listing.sink, { signal: controller.signal }));
+      } else {
+        jobs.push(pipeline(previous.stdout, child.stdin, { signal: controller.signal }));
+      }
     }
     jobs.push(
       pipeline(
@@ -238,6 +280,7 @@ async function runPipeline(
   } finally {
     clearTimeout(timer);
     controller.signal.removeEventListener('abort', stop);
+    disposeListing?.();
   }
 }
 
@@ -247,6 +290,7 @@ export {
   syncDirectory as syncArchiveDirectory,
   writeExclusive as writeArchiveExclusive,
   runPipeline as runArchivePipeline,
+  connection as archiveDatabaseConnection,
 };
 function connection(value: string): { env: NodeJS.ProcessEnv; pass: string } {
   const url = new URL(value);
@@ -460,6 +504,8 @@ export async function verifyEncryptedBackup(
       ],
       options,
       createReadStream(join(options.archiveDirectory, expected.backupRef, 'archive.age')),
+      undefined,
+      true,
     );
     return { status: 'verified' };
   } catch {
