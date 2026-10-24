@@ -18,6 +18,7 @@ if [[ "$MODE" == grants ]]; then
   INTEGRATION_FILES+=(tests/integration/postgres-runtime-grants.test.ts)
   INTEGRATION_FILES+=(tests/integration/postgres-bootstrap-grants.test.ts)
   UNIT_FILES+=(tests/bootstrap-command.test.ts)
+  UNIT_FILES+=(tests/phase6-compose-contract.test.ts)
   INTEGRATION_FILES+=(tests/integration/postgres-deployment-cli.test.ts tests/integration/postgres-forward-migration.test.ts)
 fi
 if [[ "$MODE" == restore ]]; then
@@ -92,6 +93,7 @@ docker "${launch[@]}" --name "$SCOPE-$job" --label "fcd-support.backup-test=$SCO
   --mount "type=volume,src=$VOLUME,dst=/var/lib/fcd-support/backups" \
   --mount "type=bind,src=$NATIVE_ROOT/src,dst=/workspace/src,readonly" \
   --mount "type=bind,src=$NATIVE_ROOT/scripts,dst=/workspace/scripts,readonly" \
+  --mount "type=bind,src=$NATIVE_ROOT/infra,dst=/workspace/infra,readonly" \
   --mount "type=bind,src=$NATIVE_ROOT/tests,dst=/workspace/tests,readonly" \
   --mount "type=bind,src=$NATIVE_ROOT/migrations,dst=/workspace/migrations,readonly" \
   --mount "type=bind,src=$NATIVE_ROOT/tsconfig.json,dst=/workspace/tsconfig.json,readonly" \

@@ -518,6 +518,17 @@ export function assertOperationsCompose(input: unknown, revision: string): void 
     invalid();
   }
 }
+
+/** Internal normalized input for private-disabled host inspection. Never log
+ * this rendered model: only the inspector's closed result may leave the job. */
+export function readPrivateRuntimeCompose(
+  input: unknown,
+  revision: string,
+  paths: RuntimeComposePaths,
+) {
+  assertRuntimeCompose(input, revision, false, paths);
+  return composeSchema.parse(input);
+}
 export function assertRestoreCompose(
   input: unknown,
   revision: string,

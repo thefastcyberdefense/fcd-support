@@ -21,13 +21,61 @@ the restore/reconciliation/promotion workflow. Its internal database composition
 now imports the current checkpoint, quarantines inherited work, reapplies deletion
 and seals an immutable binding. A separate owner-only bootstrap profile now
 prepares scoped roles before migration and converges application grants afterward.
-Its invocation is not yet wired into public deployment. Actual container/socket verification,
+Its invocation is not yet wired into public deployment. Runtime host inspection now
+has an internal collector and validator, described below; public verification wiring,
 bootstrap orchestration, independently inspected host target binding,
 locked promotion/switch wiring, retained-image rollback
 and explicit stale-socket recovery remain Task 11 work. In particular, the operations CLI's
 `verify-runtime` command checks only database schema/deployment metadata; it is
 not evidence of container, network, filesystem, socket or public-route safety.
 P6-004 remains in progress and P6-GATE remains blocked.
+
+## Current Runtime Host Inspection
+
+`operations-runtime-host.sh` collects two narrowed Docker snapshots around separate
+SQL, API, admin Unix-socket, admin TCP-absence and reply-heartbeat probes. It never
+requests full inspect output, environment values, message rows or secret contents.
+Environment metadata contains names only, plus the three execution flags mapped
+to closed boolean values or an invalid marker. Its compiled validator runs by an
+inspected immutable image ID, without networks, mounts, secrets or Docker access.
+The caller must retain the protected configuration, local-daemon preflight and
+deployment lock throughout this current inspection.
+
+The validator first checks the rendered private-disabled Compose contract. It
+then compares actual images, revisions, commands, non-root users, resource limits,
+read-only roots, capability restrictions, tmpfs settings, mounts, no host ports and
+exact per-role network memberships. Only PostgreSQL, API, admin and reply may be
+present in the runtime project. Each internal data network must have its exact
+expected members; ingress must contain only the API and the independently selected
+peer identified by protected `FCD_INGRESS_PEER_ID`. No route or tunnel is changed.
+All three external execution flags remain false.
+
+All containers, including stopped containers in other projects, are scanned for
+binds overlapping the admin socket root or selected PostgreSQL storage. Secret
+binds must be read-only and match their configured role-specific source files.
+The admin socket/root retain exact UID/GID/mode and device/inode identity; aliases,
+parent mounts, foreign users, replacement and restart between samples refuse.
+The selected local volume must have only the selected PostgreSQL container as a
+user. Successful Docker health alone cannot satisfy any missing process probe.
+
+This is still an internal inspection capability. Public commands remain disabled;
+bootstrap orchestration, locked restore/promotion switching, compatible retained
+rollback and ambiguous-job cancellation/cleanup remain before those commands can
+be enabled. A closed verification result is a current sample, not an attachment
+token or a replacement for source quiescence.
+
+Local validation: `npm run check` passed 1,032 tests with 80 platform skips across
+67 files. The networkless native verifier/collector harness passed 97 tests;
+its five shell cases use a fake Docker transport with the real compiled validator
+and real scoped Unix socket/stat fixtures. They cover success, failed probing,
+changed samples, an extra container and a successful-looking result followed by
+a failed Docker command. The combined pinned native gate passed 268 units and
+68 PostgreSQL integrations. Four narrowed projection formats passed against the
+actual local synthetic Docker test database resources. Those shape checks do not
+attest that the older test database is a hardened runtime, and the fake transport
+cases do not establish a fully deployed private runtime. Final checks found zero
+test schemas, advisory locks, generated roles, scoped helper containers or backup
+candidate images. No server deployment or live service request occurred.
 
 ## Explicit Bootstrap Profile
 

@@ -30,6 +30,7 @@ operations_config_field() {
     FCD_CONFIG_ROOT|FCD_SECRET_ROOT|FCD_ADMIN_SOCKET_ROOT|FCD_STATE_ROOT)
       operations_absolute_path "$value" ;;
     FCD_SUPPORT_REVISION) [[ "$value" =~ ^[a-f0-9]{40}$ ]] ;;
+    FCD_INGRESS_PEER_ID) [[ "$value" =~ ^[a-f0-9]{64}$ ]] ;;
     FCD_SCHEMA_REVISION) [[ "$value" =~ ^[0-9]{6}$ ]] ;;
     FCD_DATABASE_SCHEMA) [[ "$value" =~ ^[a-z][a-z0-9_]{0,62}$ ]] ;;
     FCD_DATABASE_ROLE_PREFIX) [[ "$value" =~ ^fcd_[a-z0-9_]{1,28}$ ]] ;;
