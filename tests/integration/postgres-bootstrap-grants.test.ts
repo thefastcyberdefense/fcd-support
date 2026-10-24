@@ -257,6 +257,7 @@ async function scenario(mode: Mode, viaCli = false) {
       backupUrl.search = '';
       const manifest = await createEncryptedBackup({
         connectionString: backupUrl.toString(),
+        expectedDatabaseIdentity: { systemIdentifier, databaseName: 'fcd_support_test' },
         schemas: [database.schema],
         archiveDirectory,
         temporaryDirectory,

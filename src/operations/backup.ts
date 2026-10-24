@@ -11,6 +11,7 @@ import { Writable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { z } from 'zod';
 import { readSecretFile } from './secret-files.js';
+import { withVerifiedDatabaseSnapshot, type DatabaseIdentity } from './database-identity.js';
 const optionalFlags: Partial<typeof constants> = constants;
 const noFollow = optionalFlags.O_NOFOLLOW ?? 0;
 
@@ -47,6 +48,7 @@ export interface BackupOptions extends BackupFiles {
   readonly backupClass: BackupManifest['class'];
   readonly now: Date;
   readonly schemas?: readonly string[];
+  readonly expectedDatabaseIdentity?: DatabaseIdentity;
   readonly publish?: (source: string, destination: string) => Promise<void>;
 }
 export interface VerifyBackupOptions extends BackupFiles {
@@ -392,25 +394,37 @@ export async function createEncryptedBackup(options: BackupOptions): Promise<Bac
     const passFile = join(workDirectory, 'pgpass');
     await writeExclusive(passFile, database.pass);
     const stage = join(directory, 'archive.partial');
-    await runPipeline(
-      [
+    const dump = async (snapshot?: string) =>
+      runPipeline(
+        [
+          {
+            file: 'pg_dump',
+            args: [
+              '--format=custom',
+              '--no-owner',
+              '--no-acl',
+              '--no-password',
+              ...(snapshot === undefined ? [] : ['--snapshot', snapshot]),
+              ...(schemas ?? []).flatMap((schema) => ['--schema', schema]),
+            ],
+            env: { ...database.env, PGPASSFILE: passFile },
+          },
+          { file: 'age', args: ['--encrypt', '--recipients-file', options.recipientFile] },
+        ],
+        options,
+        undefined,
+        createWriteStream(stage, { flags: 'wx', mode: 0o600 }),
+      );
+    if (options.expectedDatabaseIdentity === undefined) await dump();
+    else
+      await withVerifiedDatabaseSnapshot(
         {
-          file: 'pg_dump',
-          args: [
-            '--format=custom',
-            '--no-owner',
-            '--no-acl',
-            '--no-password',
-            ...(schemas ?? []).flatMap((schema) => ['--schema', schema]),
-          ],
-          env: { ...database.env, PGPASSFILE: passFile },
+          connectionString: options.connectionString,
+          expectedDatabaseIdentity: options.expectedDatabaseIdentity,
+          timeoutMilliseconds: options.timeoutMilliseconds,
         },
-        { file: 'age', args: ['--encrypt', '--recipients-file', options.recipientFile] },
-      ],
-      options,
-      undefined,
-      createWriteStream(stage, { flags: 'wx', mode: 0o600 }),
-    );
+        dump,
+      );
     await syncFile(stage);
     const digest = await cipherDigest(stage);
     const material = { backupRef, ...input, ...digest, state: 'created' as const };

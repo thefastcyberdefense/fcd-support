@@ -18,6 +18,7 @@ import {
   type BackupProcessPort,
 } from './backup.js';
 import { readSecretFile } from './secret-files.js';
+import { assertDatabaseIdentity, type DatabaseIdentity } from './database-identity.js';
 
 const version = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u);
 const watermarkSchema = z.strictObject({
@@ -75,6 +76,7 @@ export interface CheckpointExportOptions extends CheckpointLimits {
   readonly sourceRevision: string;
   readonly schemaRevision: string;
   readonly now: Date;
+  readonly expectedDatabaseIdentity?: DatabaseIdentity;
 }
 interface ValidationOptions {
   readonly signingKey: AdminSecretBytes;
@@ -257,6 +259,8 @@ export async function exportDeletionCheckpoint(
       options.sourcePool,
       options.timeoutMilliseconds,
       async (client) => {
+        if (options.expectedDatabaseIdentity !== undefined)
+          await assertDatabaseIdentity(client, options.expectedDatabaseIdentity);
         const helper = await client.query<{ present: boolean }>(
           "select to_regprocedure('lock_deletion_checkpoint_source()') is not null as present",
         );

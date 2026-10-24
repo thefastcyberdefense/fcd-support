@@ -138,6 +138,8 @@
 Task 11 checkpoint: durable job intent and exact owned-container cancellation
 are implemented internally. Unresolved execution blocks host preflight; public
 deployment wiring and the remaining Task 11 controls are still incomplete.
+Backup/checkpoint CLI source bindings and verified backup snapshots are also
+implemented; owner-bootstrap sequencing and volume switching remain open.
 Validation is recorded in `docs/operations/runtime-deployment-safety.md`.
 
 | ID      | Task                                                                                        | Depends On            | Owner                 | Status      | Evidence / Completion Rule                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Approval Boundary                                                             |

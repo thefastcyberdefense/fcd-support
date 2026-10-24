@@ -29,6 +29,7 @@ import { parseLearningPolicy } from './learning/learning-input.js';
 import { parseOutboundPolicyInput } from './outbound/outbound-policy-input.js';
 import { runForwardMigrations } from './operations/forward-migration.js';
 import { assertMigrationPrincipal } from './operations/migration-principal.js';
+import { assertDatabaseIdentity, parseDatabaseIdentity } from './operations/database-identity.js';
 
 export function parseOperationsCommand(args: readonly string[]) {
   try {
@@ -213,6 +214,11 @@ export async function runOperationsMain(): Promise<void> {
       z.tuple([z.literal('checkpoint')]).parse(args);
       const environment = await loadRoleEnvironment('checkpoint', process.env);
       const config = loadOperationsConfig('checkpoint', environment);
+      const expectedDatabaseIdentity = parseDatabaseIdentity({
+        systemIdentifier: environment.OPS_DATABASE_SYSTEM_IDENTIFIER,
+        databaseName: environment.OPS_DATABASE_NAME,
+      });
+      const sourceState = { failed: false };
       const file = (name: string) => z.string().min(1).parse(process.env[name]);
       const number = (name: string) =>
         z
@@ -229,6 +235,7 @@ export async function runOperationsMain(): Promise<void> {
         statement_timeout: config.maximumCallMilliseconds,
       });
       pool.on('error', () => {
+        sourceState.failed = true;
         logger.error('database_pool_error');
       });
       const bytes = await readSecretFile(file('RECOVERY_MANIFEST_HMAC_FILE'));
@@ -239,6 +246,7 @@ export async function runOperationsMain(): Promise<void> {
         bytes.fill(0);
       }
       const manifest = await exportDeletionCheckpoint({
+        expectedDatabaseIdentity,
         sourcePool: pool,
         recipientFile: file('BACKUP_ENCRYPTION_RECIPIENT_FILE'),
         signingKey,
@@ -256,6 +264,10 @@ export async function runOperationsMain(): Promise<void> {
         maximumRows: number('CHECKPOINT_MAX_ROWS'),
         maximumPayloadBytes: number('CHECKPOINT_MAX_PAYLOAD_BYTES'),
       });
+      const completedPool = pool;
+      pool = undefined;
+      await completedPool.end();
+      if (sourceState.failed) throw new Error('invalid');
       process.stdout.write(
         `${JSON.stringify({ status: 'completed', processed: manifest.rowCount, reasonCode: 'ok' })}\n`,
       );
@@ -268,6 +280,11 @@ export async function runOperationsMain(): Promise<void> {
       const role = command.job === 'verify-backup' ? 'verify_backup' : 'backup';
       const environment = await loadRoleEnvironment(role, process.env);
       const config = loadOperationsConfig(role, environment);
+      const expectedDatabaseIdentity = parseDatabaseIdentity({
+        systemIdentifier: environment.OPS_DATABASE_SYSTEM_IDENTIFIER,
+        databaseName: environment.OPS_DATABASE_NAME,
+      });
+      const sourceState = { failed: false };
       const pathSetting = (name: string) => z.string().min(1).parse(process.env[name]);
       const common = {
         archiveDirectory: pathSetting('BACKUP_ARCHIVE_DIRECTORY'),
@@ -282,8 +299,18 @@ export async function runOperationsMain(): Promise<void> {
         statement_timeout: config.maximumCallMilliseconds,
       });
       pool.on('error', () => {
+        sourceState.failed = true;
         logger.error('database_pool_error');
       });
+      const targetClient = await pool.connect();
+      targetClient.on('error', () => {
+        sourceState.failed = true;
+      });
+      try {
+        await assertDatabaseIdentity(targetClient, expectedDatabaseIdentity);
+      } finally {
+        targetClient.release(true);
+      }
       let processed = 0;
       let skipped = false;
       let createdReference: string | undefined;
@@ -311,6 +338,7 @@ export async function runOperationsMain(): Promise<void> {
           }
         }
         const options = {
+          expectedDatabaseIdentity,
           ...common,
           connectionString: z.string().min(1).parse(environment.DATABASE_URL),
           recipientFile: pathSetting('BACKUP_ENCRYPTION_RECIPIENT_FILE'),
@@ -380,6 +408,10 @@ export async function runOperationsMain(): Promise<void> {
           client.release(true);
         }
       }
+      const completedPool = pool;
+      pool = undefined;
+      await completedPool.end();
+      if (sourceState.failed) throw new Error('invalid');
       if ('referenceOnly' in command) {
         if (createdReference === undefined) throw new Error('invalid');
         process.stdout.write(`${createdReference}\n`);

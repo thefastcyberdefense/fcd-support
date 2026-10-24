@@ -75,7 +75,14 @@ async function fixture() {
   const signingKey = new AdminSecretBytes(
     Buffer.from('synthetic_checkpoint_signing_key_'.repeat(2)),
   );
+  const observed = (
+    await source.pool.query<{ id: string; name: string }>(
+      'select system_identifier::text as id,current_database() as name from pg_catalog.pg_control_system()',
+    )
+  ).rows[0];
+  if (observed === undefined) throw new Error('synthetic_cluster_missing');
   const options = {
+    expectedDatabaseIdentity: { systemIdentifier: observed.id, databaseName: observed.name },
     sourcePool: source.pool,
     recipientFile,
     signingKey,
@@ -101,6 +108,24 @@ async function fixture() {
     },
   };
 }
+test.skipIf(!native)(
+  'checkpoint source identity is checked on the export-owning connection',
+  async () => {
+    const f = await fixture();
+    try {
+      for (const expectedDatabaseIdentity of [
+        { systemIdentifier: '1111111111111111111', databaseName: 'fcd_support_test' },
+        { systemIdentifier: '0', databaseName: 'fcd_support_test' },
+      ]) {
+        const options = { ...f.options, expectedDatabaseIdentity };
+        await expect(exportDeletionCheckpoint(options)).rejects.toThrow('checkpoint_export_failed');
+        expect(await readdir(f.options.archiveDirectory)).toEqual([]);
+      }
+    } finally {
+      await f.close();
+    }
+  },
+);
 test.skipIf(!native)(
   'current encrypted checkpoint reapplies a deletion absent from the selected older state',
   async () => {
@@ -326,37 +351,57 @@ test.skipIf(!native)(
       await writeFile(signingFile, f.options.signingKey.copy(), { mode: 0o600 });
       await chmod(f.identityFile, 0o000);
       const config = operationsEnvironment();
-      const child = spawn(process.execPath, ['/app/dist/operations-main.js', 'checkpoint'], {
-        stdio: ['ignore', 'pipe', 'ignore'],
-        env: {
-          PATH: process.env.PATH,
-          ...config,
-          NODE_ENV: 'production',
-          DATABASE_URL_FILE: databaseFile,
-          BACKUP_ENCRYPTION_RECIPIENT_FILE: f.options.recipientFile,
-          RECOVERY_MANIFEST_HMAC_FILE: signingFile,
-          CHECKPOINT_ARCHIVE_DIRECTORY: f.options.archiveDirectory,
-          CHECKPOINT_MAX_ROWS: '1000',
-          CHECKPOINT_MAX_PAYLOAD_BYTES: '1048576',
-          OPS_GIT_REVISION: 'a'.repeat(40),
-          OPS_SCHEMA_REVISION: '000016',
-          OPS_RESOURCE_LIMITS_JSON: JSON.stringify({
-            checkpoint: { cpus: 1, memoryMiB: 512, pids: 64, tmpfsMiB: 32 },
-          }),
-        },
-      });
-      let output = '';
-      child.stdout.setEncoding('utf8');
-      child.stdout.on('data', (text: string) => {
-        output += text;
-        if (output.length > 4096) child.kill('SIGKILL');
-      });
-      const code = await new Promise<number | null>((done, reject) => {
-        child.once('error', () => {
-          reject(new Error('synthetic_checkpoint_cli_failed'));
+      const invoke = async (override: Record<string, string> = {}) => {
+        const child = spawn(process.execPath, ['/app/dist/operations-main.js', 'checkpoint'], {
+          stdio: ['ignore', 'pipe', 'ignore'],
+          env: {
+            PATH: process.env.PATH,
+            ...config,
+            NODE_ENV: 'production',
+            DATABASE_URL_FILE: databaseFile,
+            BACKUP_ENCRYPTION_RECIPIENT_FILE: f.options.recipientFile,
+            RECOVERY_MANIFEST_HMAC_FILE: signingFile,
+            CHECKPOINT_ARCHIVE_DIRECTORY: f.options.archiveDirectory,
+            CHECKPOINT_MAX_ROWS: '1000',
+            CHECKPOINT_MAX_PAYLOAD_BYTES: '1048576',
+            OPS_GIT_REVISION: 'a'.repeat(40),
+            OPS_SCHEMA_REVISION: '000016',
+            OPS_DATABASE_SYSTEM_IDENTIFIER: f.options.expectedDatabaseIdentity.systemIdentifier,
+            OPS_DATABASE_NAME: f.options.expectedDatabaseIdentity.databaseName,
+            OPS_RESOURCE_LIMITS_JSON: JSON.stringify({
+              checkpoint: { cpus: 1, memoryMiB: 512, pids: 64, tmpfsMiB: 32 },
+            }),
+            ...override,
+          },
         });
-        child.once('close', done);
-      });
+        let output = '';
+        child.stdout.setEncoding('utf8');
+        child.stdout.on('data', (text: string) => {
+          output += text;
+          if (output.length > 4096) child.kill('SIGKILL');
+        });
+        const code = await new Promise<number | null>((done, reject) => {
+          child.once('error', () => {
+            reject(new Error('synthetic_checkpoint_cli_failed'));
+          });
+          child.once('close', done);
+        });
+        return { code, output };
+      };
+      for (const override of [
+        { OPS_DATABASE_SYSTEM_IDENTIFIER: '1111111111111111111' },
+        { OPS_DATABASE_NAME: 'fcd_support_foreign' },
+        { OPS_DATABASE_SYSTEM_IDENTIFIER: '' },
+      ]) {
+        const refused = await invoke(override);
+        expect(refused.code).toBe(1);
+        expect(JSON.parse(refused.output)).toMatchObject({
+          event: 'operations_job_failed',
+          level: 'error',
+        });
+        expect(await readdir(f.options.archiveDirectory)).toEqual([]);
+      }
+      const { code, output } = await invoke();
       expect(code).toBe(0);
       expect(JSON.parse(output)).toMatchObject({
         status: 'completed',

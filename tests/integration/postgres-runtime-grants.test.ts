@@ -688,6 +688,12 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
       ).toEqual([{ state: 'verified' }]);
       const databaseFile = join(root, 'backup-database');
       await writeFile(databaseFile, backupUrl.toString(), { mode: 0o600 });
+      const actualSource = (
+        await database.pool.query<{ id: string; name: string }>(
+          'select system_identifier::text as id,current_database() as name from pg_catalog.pg_control_system()',
+        )
+      ).rows[0];
+      if (actualSource === undefined) throw new Error('synthetic_cluster_missing');
       const child = spawn(
         process.execPath,
         ['/app/dist/operations-main.js', 'pre-migration-backup', '2001-01-01T00:00:00.000Z'],
@@ -700,6 +706,8 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
             DATABASE_URL_FILE: databaseFile,
             OPS_GIT_REVISION: 'a'.repeat(40),
             OPS_SCHEMA_REVISION: '000017',
+            OPS_DATABASE_SYSTEM_IDENTIFIER: actualSource.id,
+            OPS_DATABASE_NAME: actualSource.name,
             BACKUP_ENCRYPTION_RECIPIENT_FILE: recipient,
             RECOVERY_MANIFEST_HMAC_FILE: keyFile,
             BACKUP_ARCHIVE_DIRECTORY: archive,

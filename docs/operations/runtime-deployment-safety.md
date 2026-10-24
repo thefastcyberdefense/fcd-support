@@ -79,6 +79,32 @@ fixture adaptations do not relax the Linux production controller.
 
 ## Deployment SQL Target And Principal
 
+Compiled backup, backup verification and checkpoint jobs now also require
+`OPS_DATABASE_SYSTEM_IDENTIFIER` and `OPS_DATABASE_NAME`. The private host sampler
+supplies these values; a connection URI does not establish the expected identity.
+Missing or mismatched bindings refuse without a new eligible archive. Backup
+checks its metadata connection and passes the binding into archive production.
+The archive producer verifies its actual source, exports a read-only,
+repeatable-read snapshot and passes that snapshot to `pg_dump`. The exporter
+must close successfully before the signed manifest is published. Checked-out
+connection errors are contained, and a terminated exporting session refuses.
+
+Checkpoint export compares identity on its own transaction before taking the
+source freeze and reading suppression state. A caller-held transaction uses
+that same connection. The internal library options remain optional for existing
+compositions; the compiled host CLI requires the binding. Backup/checkpoint
+acknowledgements wait for metadata pool closure. Native tests cover wrong/missing
+bindings, unchanged archive inventories, actual restricted-role backups on
+empty/admission schemas and exporter loss. This does not wire public deployment
+or establish a complete restore/promotion workflow.
+
+Source-binding checkpoint validation: code gate 1,045 passed/146 platform skips;
+pinned native gate 347 units/70 integrations; full ordinary PostgreSQL regression
+574 passed/39 native-only skips across 50 files (118.53 seconds); isolated native
+restore 42 units/22 integrations (26.74-second integration file). All 39 ordinary
+integration skips are covered by the separate native runs. No server, provider
+or production asset was contacted.
+
 The deployment CLI now requires `OPS_DATABASE_SYSTEM_IDENTIFIER`,
 `OPS_DATABASE_NAME` and `OPS_DATABASE_ROLE_PREFIX`. A missing or invalid binding
 refuses before application DDL. The migrator compares actual cluster/database

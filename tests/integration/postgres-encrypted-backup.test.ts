@@ -8,6 +8,8 @@ import { PostgresOperationsStore } from '../../src/persistence/postgres-operatio
 import { runScheduledBackup } from '../../src/operations/backup-command.js';
 import { operationsEnvironment } from '../helpers/operations-fixtures.js';
 import { createIsolatedTestDatabase, requireIsolatedTestDatabaseUrl } from './test-database.js';
+import { withVerifiedDatabaseSnapshot } from '../../src/operations/database-identity.js';
+import { randomUUID } from 'node:crypto';
 
 async function recipient(identity: string): Promise<string> {
   const child = spawn('age-keygen', ['-y', identity], { stdio: ['ignore', 'pipe', 'ignore'] });
@@ -41,6 +43,55 @@ async function generateIdentity(path: string) {
   });
   await chmod(path, 0o600);
 }
+
+test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-toolchain-only')(
+  'a lost snapshot connection refuses without an unhandled transport error',
+  async () => {
+    const database = await createIsolatedTestDatabase('snapshot_connection');
+    try {
+      const actual = (
+        await database.pool.query<{ id: string; name: string }>(
+          'select system_identifier::text as id,current_database() as name from pg_catalog.pg_control_system()',
+        )
+      ).rows[0];
+      if (actual === undefined) throw new Error('synthetic_cluster_missing');
+      const marker = `synthetic_snapshot_${randomUUID().replaceAll('-', '')}`;
+      const url = new URL(database.connectionString);
+      url.searchParams.set('application_name', marker);
+      let reached = false;
+      let terminatedRows: unknown;
+      await expect(
+        withVerifiedDatabaseSnapshot(
+          {
+            connectionString: url.toString(),
+            expectedDatabaseIdentity: { systemIdentifier: actual.id, databaseName: actual.name },
+            timeoutMilliseconds: 3000,
+          },
+          async () => {
+            reached = true;
+            const terminated = await database.pool.query<{ terminated: boolean }>(
+              'select pg_terminate_backend(pid) as terminated from pg_stat_activity where application_name=$1',
+              [marker],
+            );
+            terminatedRows = terminated.rows;
+          },
+        ),
+      ).rejects.toThrow('operations_database_target_invalid');
+      expect(reached).toBe(true);
+      expect(terminatedRows).toEqual([{ terminated: true }]);
+      expect(
+        (
+          await database.pool.query(
+            'select count(*)::int as count from pg_stat_activity where application_name=$1',
+            [marker],
+          )
+        ).rows,
+      ).toEqual([{ count: 0 }]);
+    } finally {
+      await database.dispose();
+    }
+  },
+);
 
 test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-toolchain-only')(
   'real custom-format PostgreSQL backup encrypts with public recipient only and separately verifies',
@@ -84,10 +135,36 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
         now: new Date('2030-01-01T00:00:00.000Z'),
         timeoutMilliseconds: 10000,
       };
+      const observed = (
+        await database.pool.query<{ id: string; name: string }>(
+          'select system_identifier::text as id,current_database() as name from pg_catalog.pg_control_system()',
+        )
+      ).rows[0];
+      if (observed === undefined) throw new Error('synthetic_cluster_missing');
+      const expectedDatabaseIdentity = {
+        systemIdentifier: observed.id,
+        databaseName: observed.name,
+      };
+      for (const expected of [
+        { ...expectedDatabaseIdentity, systemIdentifier: '1111111111111111111' },
+        { ...expectedDatabaseIdentity, databaseName: 'fcd_support_foreign' },
+      ]) {
+        await expect(
+          createEncryptedBackup({
+            ...options,
+            expectedDatabaseIdentity: expected,
+          }),
+        ).rejects.toThrow('backup_failed');
+        expect(await readdir(archiveDirectory)).toEqual([]);
+        expect(await readdir(temporaryDirectory)).toEqual([]);
+      }
       // The encryption invocation cannot access either identity even through an accidental path.
       await chmod(identityFile, 0o000);
       await chmod(wrongIdentityFile, 0o000);
-      const manifest = await createEncryptedBackup(options);
+      const manifest = await createEncryptedBackup({
+        ...options,
+        expectedDatabaseIdentity,
+      });
       expect(manifest.state).toBe('created');
       const files = await readdir(join(archiveDirectory, manifest.backupRef));
       expect(files).toEqual(['archive.age', 'manifest.json']);
@@ -160,8 +237,10 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
         BACKUP_TMPFS_DIRECTORY: temporaryDirectory,
         OPS_GIT_REVISION: 'a'.repeat(40),
         OPS_SCHEMA_REVISION: '000016',
+        OPS_DATABASE_SYSTEM_IDENTIFIER: expectedDatabaseIdentity.systemIdentifier,
+        OPS_DATABASE_NAME: expectedDatabaseIdentity.databaseName,
       };
-      async function cli(args: readonly string[], env: NodeJS.ProcessEnv) {
+      async function cli(args: readonly string[], env: NodeJS.ProcessEnv, expectedCode = 0) {
         const child = spawn(process.execPath, ['/app/dist/operations-main.js', ...args], {
           env,
           stdio: ['ignore', 'pipe', 'pipe'],
@@ -179,7 +258,14 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
           });
           child.once('close', resolve);
         });
-        expect(code).toBe(0);
+        expect(code).toBe(expectedCode);
+        if (expectedCode !== 0) {
+          expect(JSON.parse(output)).toMatchObject({
+            event: 'operations_job_failed',
+            level: 'error',
+          });
+          return undefined;
+        }
         if (args[0] === 'pre-migration-backup') {
           expect(output.trim()).toMatch(/^backup_[a-f0-9]{32}$/u);
           return output.trim();
@@ -193,6 +279,19 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
       }
       // Bootstrap has no operations tables in the connection's public schema.
       await chmod(identityFile, 0o000);
+      const beforeRefusals = await readdir(archiveDirectory);
+      for (const override of [
+        { OPS_DATABASE_SYSTEM_IDENTIFIER: '1111111111111111111' },
+        { OPS_DATABASE_NAME: 'fcd_support_foreign' },
+        { OPS_DATABASE_SYSTEM_IDENTIFIER: '' },
+      ]) {
+        await cli(
+          ['pre-migration-backup', '2001-01-01T00:00:00.000Z'],
+          { ...commonEnvironment, BACKUP_ENCRYPTION_RECIPIENT_FILE: recipientFile, ...override },
+          1,
+        );
+        expect(await readdir(archiveDirectory)).toEqual(beforeRefusals);
+      }
       const before = await readdir(archiveDirectory);
       await cli(['backup', 'pre_migration', '2001-01-01T00:00:00.000Z'], {
         ...commonEnvironment,
