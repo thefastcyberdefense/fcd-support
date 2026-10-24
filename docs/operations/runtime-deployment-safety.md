@@ -9,6 +9,12 @@ host commands refuse an incomplete installation before Docker activity when a
 required verification or recovery handler is absent. They are not ready for
 server use.
 
+A read-only restore-host collector now inspects actual Docker resources and
+binds two matching samples to the selected revision and optional prior host
+identity. Its validator runs in a networkless, unprivileged, read-only container
+without mounts. It is not yet wired into the locked restore/promotion commands;
+it does not replace application shutdown, source quiescence or fresh SQL proof.
+
 An internal encrypted-stream restore stage now restores a real full synthetic
 database into a separate local Docker PostgreSQL cluster. This does not complete
 the restore/reconciliation/promotion workflow. Its internal database composition
@@ -196,6 +202,52 @@ fix. The same workload-then-restore reproduction subsequently passed all 14 case
 in 40.90 seconds including teardown; the old-admission restore/migration assertion
 took 976 ms. The full Task 11 workflow remains unfinished.
 
+## Independent Restore Host Inspection
+
+`scripts/operations-restore-host.sh` supplies `operations_inspect_restore_host`
+to the trusted host-control plane. The caller must retain the existing checked
+deployment lock, protected configuration and local-Docker-endpoint preflight.
+No public entrypoint or application process invokes it yet; missing-handler
+interlocks remain unchanged.
+
+The collector requests only fixed, narrowed Docker metadata: actual image IDs
+and revisions/platforms/users; volume name, creation time, default local-driver
+shape and project/logical labels; internal bridge-network ID and membership;
+and database container health, role, mounts, publication and hardening flags.
+It never requests environment variables, commands, arbitrary labels, secret
+contents or full inspect output. Live-volume name/path aliasing, custom volume
+options, foreign endpoints, extra networks, ports, namespaces, privileges or
+mounts refuse validation. The target must have exactly one healthy hardened
+PostgreSQL endpoint and one volume user. Stopped containers count as volume
+users. A one-shot SQL job must be absent when this probe runs.
+
+The metadata validator is `src/operations/restore-host-main.ts`, backed by
+`restore-host.ts`. Its image is resolved to an immutable ID after checking the
+revision, Linux/amd64 platform and unprivileged image user. The host launches
+that ID with no network, mounts, Docker socket, secrets or database connection;
+CPU, memory and PID bounds come from protected restore configuration. Input is
+bounded to 64 KiB. Optional prior identity is parsed as data, never shell code.
+Child stdout is withheld until successful exit; ambiguous transport results
+and diagnostics produce only `restore_host_invalid`.
+
+Both independently collected samples must validate and retain matching volume,
+creation time, network/image identities and PostgreSQL container ID. This catches
+replacement between samples but is not a reservation against later changes.
+The result is content-free host metadata, not `ready` or a promotion token.
+Actual SQL cluster/database/schema identity still comes from the database leg.
+Fresh promotion must retain quiescence and recheck this host evidence before
+attachment, including after interruption. Recovery-policy review is still
+required before external execution.
+
+The separate `scripts/test-restore-host.sh` harness builds the pinned application,
+operations and PostgreSQL images and creates only labelled synthetic volumes,
+networks and containers. It exercises the collector with the actual local Docker
+CLI and the compiled validator, including a stopped volume reader, foreign
+endpoint, extra database network, live-volume alias, selected runtime-image and
+revision mismatch, and a recreated network under the same name. The harness's
+development-host transport does not establish Ubuntu/SSH, protected host-path
+permissions or deployment-lock preflight. No application attachment occurs.
+
 ## Local Verification
 
 ### Composed Database Reconciliation
@@ -238,8 +290,9 @@ gate and passed restore run to the revision/schema and target identity digest.
 The actual PostgreSQL cluster/database/schema are sampled; volume creation time,
 network and image identities are **trusted host-controller inputs**, not facts
 established by this database library. Native tests use explicitly synthetic host
-metadata and real separate-cluster SQL identities. An independently inspecting
-Docker adapter is still required before host use.
+metadata and real separate-cluster SQL identities. The independent host collector
+above is now available, but locked controller wiring is still required before
+host use.
 
 Binding update/delete and populated truncate/downgrade are refused. An empty
 binding table may be truncated only under READ COMMITTED after its ACCESS
@@ -259,7 +312,7 @@ the binding and migration registry entry. No production down migration is enable
 `PostgresRestoreEvidence.load` returns historical evidence, including
 `recoveryHeldAtSeal`, not a claim that recovery remains held now. Neither loading
 nor copying that record authorizes attachment. `verifyPromotion`, fresh host
-inspection, current checkpoint refresh with all application access closed,
+inspection wiring, current checkpoint refresh with all application access closed,
 failure-safe switching and private-disabled startup remain unfinished. Human
 policy review is still required before external execution after a switch.
 
@@ -273,6 +326,7 @@ npm run check
 docker compose --file infra/compose.test.yml run --rm runner npm run test:integration
 bash scripts/test-encrypted-backup.sh grants
 bash scripts/test-encrypted-backup.sh restore
+bash scripts/test-restore-host.sh
 ```
 
 The native gate covers Linux-only filesystem, flock and script checks, real
@@ -308,3 +362,14 @@ native `restore` passed 42 units/20 integrations, covering all 33 ordinary
 integration skips together. The loaded-cluster restore file passed in 24.25
 seconds including teardown. These counts do not close Task 11; committed-source
 confirmation is tracked separately from this prerequisite validation.
+
+The 2026-10-24 (Asia/Dhaka) host-inspection checkpoint passed `npm run check`
+with 959 tests and 52 platform-specific skips across 64 files, including 41 new
+host-validator/collector cases. The complete ordinary PostgreSQL suite passed
+568 tests with 33 native-only skips across 49 files (120.90 seconds). Native
+`grants` passed 130 units/60 integrations; native `restore` passed 42 units/20
+integrations. Together those gates cover all 33 ordinary integration skips.
+The separate actual-Docker host harness passed eight cases and its JSON
+projection/initial-sample boundary checks. These are local synthetic proofs of
+host sampling, not an installed controller, promotion, application attachment or
+Ubuntu/SSH gate. Task 11/P6-004 remain in progress.

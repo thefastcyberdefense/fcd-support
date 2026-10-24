@@ -1,6 +1,6 @@
 # Project Context
 
-Last reviewed: 2026-10-23 (Asia/Dhaka)
+Last reviewed: 2026-10-24 (Asia/Dhaka)
 
 ## Confirmed Decisions
 
@@ -147,7 +147,9 @@ All secret values are intentionally absent from this repository. Create them dur
 
 ## Launch Blockers
 
-- Task 11 now composes full encrypted restore, actual connection-bound forward migration, frozen-source current checkpoint import, inherited-work quarantine/hold, all-active-key bounded erasure and immutable restore evidence (migration 000016). Missing rotated keys, stale checkpoints, target-only time boundaries and batch exhaustion refuse without a partial target pass. A real native RED caught a substituted migration pool creating objects on the synthetic source; identity validation now belongs on the DDL-owning connection before migration. This remains internal historical database evidence, not a host promotion or `ready` token. Volume/network/image fields are trusted controller input; independent Docker inspection, fresh `verifyPromotion` and safe switch, bootstrap wiring, full runtime verification, retained rollback and socket recovery remain Task 11. No server or external-service action occurred. See `docs/operations/runtime-deployment-safety.md`.
+- Task 11 now has a read-only host collector that samples actual Docker resources twice and checks isolated network membership, stopped/live volume users, image IDs/revisions and PostgreSQL hardening. Its bounded validator runs by immutable image ID without a network, mounts, Docker socket or secrets. Real local Docker fixtures cover substitution and attachment refusals. This supplies host facts only: it is not wired into a locked promotion command, does not prove source quiescence and never authorizes attachment. Fresh `verifyPromotion` and safe switching, full runtime/socket checks, bootstrap wiring, retained rollback and socket recovery remain unfinished. See `docs/operations/runtime-deployment-safety.md`; no server/SSH or live-provider action occurred.
+
+- Task 11 composes full encrypted restore, actual connection-bound forward migration, frozen-source current checkpoint import, inherited-work quarantine/hold, all-active-key bounded erasure and immutable restore evidence (migration 000016). Missing rotated keys, stale checkpoints, target-only time boundaries and batch exhaustion refuse without a partial target pass. A real native RED caught a substituted migration pool creating objects on the synthetic source; identity validation now belongs on the DDL-owning connection before migration. This remains internal historical database evidence, not a host promotion or `ready` token. Volume/network/image fields remain controller inputs to that library; the later Docker inspector above still needs locked wiring. Fresh `verifyPromotion` and safe switch, bootstrap wiring, full runtime verification, retained rollback and socket recovery remain Task 11. No server or external-service action occurred. See `docs/operations/runtime-deployment-safety.md`.
 
 - The earlier Task 11 SQL/stream checkpoint (2026-10-23 Asia/Dhaka) proved real full-archive restoration and old-admission forward migration against an isolated local Docker PostgreSQL cluster. Its current checkpoint/deletion composition gap is addressed by the later checkpoint above; independently inspected host binding, fresh promotion and the other host controls remain unfinished. Public commands stay disabled. Historical validation is retained in `docs/operations/runtime-deployment-safety.md`; no server or external-service action occurred.
 
@@ -172,7 +174,7 @@ All secret values are intentionally absent from this repository. Create them dur
 The current tracker action is P6-004, following the approved implementation
 plan within Task 11 after its role/preflight/migration, isolated SQL/stream and
 composed database-reconciliation checkpoints. Complete independent host target
-inspection and fresh promotion/switching; internal `restored` or
+inspection wiring and fresh promotion/switching; internal `restored` or
 `deletion_verified` evidence is not attachment authorization.
 The owner-approved socket/SSH specification and plan are implemented locally;
 actual Ubuntu/SSH and all live
