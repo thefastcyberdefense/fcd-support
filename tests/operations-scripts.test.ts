@@ -171,7 +171,7 @@ printf '%s\\n' "$phase" >> "$scope/trace"
         '--noprofile',
         '--norc',
         '-c',
-        'source "$TASK_COMMON"; OPS_ROOT="$TASK_ROOT"; OPS_REVISION=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; declare -A OPS_CONFIG=([FCD_COMMAND_TIMEOUT_SECONDS]=10 [FCD_READY_TIMEOUT_SECONDS]=10 [FCD_STOP_GRACE_MS]=1000); operations_deploy',
+        'source "$TASK_COMMON"; OPS_ROOT="$TASK_ROOT"; OPS_REVISION=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; OPS_DATABASE_SYSTEM_IDENTIFIER=1111111111111111111; declare -A OPS_CONFIG=([FCD_COMMAND_TIMEOUT_SECONDS]=10 [FCD_READY_TIMEOUT_SECONDS]=10 [FCD_STOP_GRACE_MS]=1000 [FCD_POSTGRES_DB]=fcd_support_test [FCD_DATABASE_SCHEMA]=public [FCD_DATABASE_ROLE_PREFIX]=fcd_test_order [FCD_SCHEMA_REVISION]=000016); operations_deploy',
       ],
       {
         cwd: root,

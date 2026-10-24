@@ -68,6 +68,33 @@ full ordinary PostgreSQL regression remains the earlier bootstrap checkpoint's
 
 ## Current Runtime Host Inspection
 
+The same internal validator now has a separate bootstrap mode. It requires only
+the selected PostgreSQL container on all six private data networks, matching
+storage/image/resource proofs, and an absent admin socket. Application members,
+extra volume users, changed samples and overlapping foreign binds refuse. A
+stopped admin container retaining the socket-root bind also blocks this proof;
+future deployment orchestration must dispose of the verified stopped application
+container rather than unlinking a socket or weakening that boundary.
+
+`operations-database.sh` reads the system identifier from the selected container's
+fixed PostgreSQL control-file path. Image, revision, unique container and start
+identity are checked before and after the read. The fixed container-side parser
+rejects tool failures, warnings and duplicate identifiers. The host accepts only
+one positive unsigned 64-bit decimal line, preserving trailing delimiters while
+checking it. Runtime inspection passes this freshly sampled value and the protected
+database/schema/role-prefix/revision fields into the deployment SQL job. It does
+not derive the expected cluster from the same unverified connection URI.
+
+Validation for this extension: code gate 1,045 passed/104 platform skips across
+68 files; networkless native harness 134 passed; combined pinned native gate
+305 units/68 integrations. Thirteen new metadata cases, seven shell bootstrap
+cases, seventeen physical-reader cases and the identifier-to-job bridge pass.
+The physical-reader cases include actual execution of the fixed parser against
+synthetic warning/duplicate/failure output. All five projection/parser checks pass
+against actual local test Docker resources, including control-file/SQL identity
+equality. Docker transport remains faked in the shell orchestration cases. No
+fully deployed runtime, bootstrap ordering or server acceptance is established.
+
 `operations-runtime-host.sh` collects two narrowed Docker snapshots around separate
 SQL, API, admin Unix-socket, admin TCP-absence and reply-heartbeat probes. It never
 requests full inspect output, environment values, message rows or secret contents.

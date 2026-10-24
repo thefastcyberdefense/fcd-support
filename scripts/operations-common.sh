@@ -137,9 +137,21 @@ operations_docker() {
 }
 
 operations_job() {
-  local service="$1"; shift
+  local service="$1" field; shift
+  local -a target=()
+  if [[ "$service" == migrate ]]; then
+    [[ "${OPS_DATABASE_SYSTEM_IDENTIFIER:-}" =~ ^[1-9][0-9]{0,19}$ ]] || return 1
+    for field in FCD_POSTGRES_DB FCD_DATABASE_SCHEMA FCD_DATABASE_ROLE_PREFIX FCD_SCHEMA_REVISION; do
+      [[ -n "${OPS_CONFIG[$field]:-}" ]] && operations_config_field "$field" "${OPS_CONFIG[$field]}" || return 1
+    done
+    target=(--env "OPS_DATABASE_SYSTEM_IDENTIFIER=$OPS_DATABASE_SYSTEM_IDENTIFIER"
+      --env "OPS_DATABASE_NAME=${OPS_CONFIG[FCD_POSTGRES_DB]}"
+      --env "OPS_DATABASE_SCHEMA=${OPS_CONFIG[FCD_DATABASE_SCHEMA]}"
+      --env "OPS_DATABASE_ROLE_PREFIX=${OPS_CONFIG[FCD_DATABASE_ROLE_PREFIX]}"
+      --env "OPS_SCHEMA_REVISION=${OPS_CONFIG[FCD_SCHEMA_REVISION]}")
+  fi
   operations_compose operations --profile "operations-$service" run --rm --no-TTY --no-deps \
-    "$service" node dist/operations-main.js "$@"
+    "${target[@]}" "$service" node dist/operations-main.js "$@"
 }
 
 operations_stop_applications() {

@@ -24,5 +24,5 @@ docker run --rm --name "$SCOPE" --label "fcd-support.runtime-host-test=$SCOPE" \
   --mount "type=bind,src=$NATIVE_ROOT/vitest.config.ts,dst=/workspace/vitest.config.ts,readonly" \
   --mount "type=bind,src=$NATIVE_ROOT/tsconfig.json,dst=/workspace/tsconfig.json,readonly" \
   --env RUN_ENCRYPTED_BACKUP_TESTS=synthetic-operations-toolchain-only \
-  fcd-support-integration-test:local npx vitest run tests/phase6-compose-contract.test.ts
+  fcd-support-integration-test:local npx vitest run tests/phase6-compose-contract.test.ts tests/database-identity-script.test.ts
 echo runtime_host_local=true

@@ -86,7 +86,7 @@ const container = z.strictObject({
 });
 const snapshot = z.strictObject({
   images: z.strictObject({ postgres: image, runtime: image }),
-  containers: z.array(container).length(4),
+  containers: z.array(container).min(1).max(4),
   networks: z
     .array(
       z.strictObject({
@@ -100,7 +100,8 @@ const snapshot = z.strictObject({
         members: z.array(id).min(1).max(4),
       }),
     )
-    .length(7),
+    .min(6)
+    .max(7),
   volume: z.strictObject({
     name,
     driver: z.literal('local'),
@@ -115,18 +116,20 @@ const snapshot = z.strictObject({
     mountpoint: path,
     users: z.array(id).length(1),
   }),
-  socket: z.strictObject({
-    device: z.string().regex(/^[0-9]{1,20}$/u),
-    inode: z.string().regex(/^[1-9][0-9]{0,19}$/u),
-    uid: z.literal(1000),
-    gid: z.literal(1000),
-    mode: z.literal(0o600),
-    rootDevice: z.string().regex(/^[0-9]{1,20}$/u),
-    rootInode: z.string().regex(/^[1-9][0-9]{0,19}$/u),
-    rootUid: z.literal(1000),
-    rootGid: z.literal(1000),
-    rootMode: z.literal(0o700),
-  }),
+  socket: z
+    .strictObject({
+      device: z.string().regex(/^[0-9]{1,20}$/u),
+      inode: z.string().regex(/^[1-9][0-9]{0,19}$/u),
+      uid: z.literal(1000),
+      gid: z.literal(1000),
+      mode: z.literal(0o600),
+      rootDevice: z.string().regex(/^[0-9]{1,20}$/u),
+      rootInode: z.string().regex(/^[1-9][0-9]{0,19}$/u),
+      rootUid: z.literal(1000),
+      rootGid: z.literal(1000),
+      rootMode: z.literal(0o700),
+    })
+    .nullable(),
   hostBinds: z
     .array(z.strictObject({ containerId: id, source: path, canonicalSource: path }))
     .max(512),
@@ -191,38 +194,42 @@ function stable(value: unknown): string {
 
 /** A current sample, never an attachment token. The trusted collector must
  * retain its deployment lock and obtain real readiness/stat/Docker facts. */
-export function inspectRuntimeHostSamples(
+function inspectHostSamples(
   input: unknown,
   renderedCompose: unknown,
-  options: RuntimeHostOptions,
+  options: Omit<RuntimeHostOptions, 'ingressPeerId'> & { readonly ingressPeerId?: string },
+  bootstrap: boolean,
 ): { readonly status: 'verified' } {
   try {
     revision.parse(options.revision);
-    id.parse(options.ingressPeerId);
+    const ingressPeerId = bootstrap ? undefined : id.parse(options.ingressPeerId);
+    const roles: readonly (typeof activeRoles)[number][] = bootstrap ? ['postgres'] : activeRoles;
     const config = readPrivateRuntimeCompose(renderedCompose, options.revision, options.paths);
     for (const p of Object.values(options.paths)) path.parse(p);
-    const samples = z
-      .strictObject({
-        before: snapshot,
-        after: snapshot,
-        probes: z.strictObject({
-          postgresSql: z.literal(true),
-          apiHttp: z.literal(true),
-          adminSocket: z.literal(true),
-          adminNoTcp: z.literal(true),
-          replyHeartbeat: z.literal(true),
-        }),
-      })
-      .parse(input);
+    const runtimeSamples = z.strictObject({
+      before: snapshot,
+      after: snapshot,
+      probes: z.strictObject({
+        postgresSql: z.literal(true),
+        apiHttp: z.literal(true),
+        adminSocket: z.literal(true),
+        adminNoTcp: z.literal(true),
+        replyHeartbeat: z.literal(true),
+      }),
+    });
+    const samples = (
+      bootstrap ? z.strictObject({ before: snapshot, after: snapshot }) : runtimeSamples
+    ).parse(input);
     const expectedVolume = config.volumes?.['postgres-data']?.name;
     if (expectedVolume === undefined) invalid();
     for (const actual of [samples.before, samples.after]) {
       if (
+        (bootstrap ? actual.socket !== null : actual.socket === null) ||
         !same(
           actual.containers.map((c) => c.service),
-          activeRoles,
+          roles,
         ) ||
-        new Set(actual.containers.map((c) => c.id)).size !== 4
+        new Set(actual.containers.map((c) => c.id)).size !== roles.length
       )
         invalid();
       for (const [role, img] of Object.entries(actual.images)) {
@@ -238,23 +245,21 @@ export function inspectRuntimeHostSamples(
       const admin = actual.containers.find((c) => c.service === 'fcd-support-admin');
       if (
         postgres === undefined ||
-        admin === undefined ||
+        (!bootstrap && admin === undefined) ||
         actual.volume.name !== expectedVolume ||
         actual.volume.project !== config.name ||
         actual.volume.users[0] !== postgres.id
       )
         invalid();
       const networkKeys = [
-        ...new Set(
-          activeRoles.flatMap((role) => Object.keys(config.services[role]?.networks ?? {})),
-        ),
+        ...new Set(roles.flatMap((role) => Object.keys(config.services[role]?.networks ?? {}))),
       ];
       if (
         !same(
           actual.networks.map((n) => n.name),
           networkKeys.map((key) => config.networks[key]?.name ?? ''),
         ) ||
-        new Set(actual.networks.map((n) => n.id)).size !== 7
+        new Set(actual.networks.map((n) => n.id)).size !== networkKeys.length
       )
         invalid();
       for (const key of networkKeys) {
@@ -267,7 +272,10 @@ export function inspectRuntimeHostSamples(
         const members = actual.containers
           .filter((c) => Object.keys(config.services[c.service]?.networks ?? {}).includes(key))
           .map((c) => c.id);
-        if (key === 'ingress') members.push(options.ingressPeerId);
+        if (key === 'ingress') {
+          if (ingressPeerId === undefined) invalid();
+          members.push(ingressPeerId);
+        }
         if (!same(net.members, members)) invalid();
       }
       for (const c of actual.containers) {
@@ -391,7 +399,8 @@ export function inspectRuntimeHostSamples(
         if (overlaps(bind.canonicalSource, actual.volume.mountpoint)) invalid();
         if (overlaps(bind.canonicalSource, options.paths.adminSocketRoot)) {
           if (
-            bind.containerId !== admin.id ||
+            bootstrap ||
+            bind.containerId !== admin?.id ||
             bind.source !== options.paths.adminSocketRoot ||
             bind.canonicalSource !== options.paths.adminSocketRoot
           )
@@ -399,11 +408,29 @@ export function inspectRuntimeHostSamples(
           socketUsers++;
         }
       }
-      if (socketUsers !== 1) invalid();
+      if (!bootstrap && socketUsers !== 1) invalid();
     }
     if (stable(samples.before) !== stable(samples.after)) invalid();
     return Object.freeze({ status: 'verified' });
   } catch {
     invalid();
   }
+}
+
+export function inspectRuntimeHostSamples(
+  input: unknown,
+  renderedCompose: unknown,
+  options: RuntimeHostOptions,
+): { readonly status: 'verified' } {
+  return inspectHostSamples(input, renderedCompose, options, false);
+}
+
+/** Before owner preparation, application containers must be stopped/removed,
+ * all data networks must contain only PostgreSQL, and no admin socket may exist. */
+export function inspectBootstrapDatabaseSamples(
+  input: unknown,
+  renderedCompose: unknown,
+  options: Omit<RuntimeHostOptions, 'ingressPeerId'>,
+): { readonly status: 'verified' } {
+  return inspectHostSamples(input, renderedCompose, options, true);
 }

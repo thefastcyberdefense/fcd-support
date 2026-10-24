@@ -7,6 +7,7 @@ export MSYS_NO_PATHCONV=1
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 cd "$ROOT"
 source scripts/operations-runtime-host.sh
+source scripts/operations-database.sh
 ID="$(docker ps --quiet --no-trunc --filter label=com.docker.compose.project=fcd-support-test --filter label=com.docker.compose.service=postgres)"
 [[ "$ID" =~ ^[a-f0-9]{64}$ ]] || exit 1
 [[ "$(docker network inspect --format '{{index .Labels "com.docker.compose.project"}}/{{.Internal}}' fcd-support-test_data)" == fcd-support-test/true ]] || exit 1
@@ -33,3 +34,7 @@ docker image inspect --format "$OPERATIONS_RUNTIME_IMAGE_FORMAT" "$IMAGE" 2>/dev
 VOLUME="$(docker container inspect --format '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}}{{end}}{{end}}' "$ID")"
 [[ "$VOLUME" == fcd-support-test_postgres_test_data ]] || exit 1
 { docker volume inspect --format "$OPERATIONS_RUNTIME_VOLUME_FORMAT" "$VOLUME" 2>/dev/null; printf '}'; } | check_json volume
+PHYSICAL="$(docker exec "$ID" env LC_ALL=C bash -o pipefail -c "$OPERATIONS_DATABASE_CONTROL_COMMAND" 2>/dev/null)"
+SQL="$(docker exec "$ID" psql -U fcd_support_test -d fcd_support_test -Atc 'select system_identifier::text from pg_catalog.pg_control_system()' 2>/dev/null)"
+[[ "$PHYSICAL" =~ ^[1-9][0-9]{0,19}$ && "$PHYSICAL" == "$SQL" ]] || exit 1
+echo runtime_physical_identity_projection=true

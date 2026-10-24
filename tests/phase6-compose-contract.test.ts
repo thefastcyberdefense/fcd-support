@@ -7,7 +7,10 @@ import { createServer } from 'node:net';
 import { describe, expect, test } from 'vitest';
 
 import { operationsEnvironment } from './helpers/operations-fixtures.js';
-import { inspectRuntimeHostSamples } from '../src/operations/runtime-host.js';
+import {
+  inspectRuntimeHostSamples,
+  inspectBootstrapDatabaseSamples,
+} from '../src/operations/runtime-host.js';
 
 import {
   assertExternalNetworkParticipants,
@@ -648,6 +651,110 @@ test('runtime host proof compares actual resources with the separately validated
   });
 });
 
+function bootstrapHostFixture() {
+  const f = runtimeHostFixture();
+  const postgres = f.samples.before.containers.find((c) => c.service === 'postgres');
+  if (postgres?.id === undefined) throw new Error('synthetic_fixture_invalid');
+  const sample = {
+    ...f.samples.before,
+    containers: [postgres],
+    networks: f.samples.before.networks
+      .filter((n) => n.logicalName !== '')
+      .map((n) => ({ ...n, members: [postgres.id] })),
+    hostBinds: f.samples.before.hostBinds.filter((b) => b.containerId === postgres.id),
+    socket: null as typeof f.samples.before.socket | null,
+  };
+  return {
+    compose: f.compose,
+    options: { revision: f.options.revision, paths: f.options.paths },
+    samples: { before: sample, after: structuredClone(sample) },
+  };
+}
+
+test('bootstrap host proof requires only the selected PostgreSQL on all six private data networks', () => {
+  const f = bootstrapHostFixture();
+  expect(inspectBootstrapDatabaseSamples(f.samples, f.compose, f.options)).toEqual({
+    status: 'verified',
+  });
+});
+
+test.each([
+  'application-present',
+  'application-network-member',
+  'socket-present',
+  'foreign-socket-parent',
+  'volume-user',
+  'volume-name',
+  'image',
+  'root-user',
+  'host-port',
+  'data-source',
+  'restart',
+  'extra-probes',
+] as const)('bootstrap PostgreSQL proof refuses %s before owner preparation', (fault) => {
+  const f = bootstrapHostFixture();
+  const pg = f.samples.after.containers[0];
+  const net = f.samples.after.networks[0];
+  if (pg === undefined || net === undefined) throw new Error('synthetic_fixture_invalid');
+  switch (fault) {
+    case 'application-present': {
+      const other = runtimeHostFixture().samples.before.containers[1];
+      if (other === undefined) throw new Error('synthetic_fixture_invalid');
+      f.samples.after.containers.push(other);
+      break;
+    }
+    case 'application-network-member':
+      net.members.push('2'.repeat(64));
+      break;
+    case 'socket-present':
+      f.samples.after.socket = runtimeHostFixture().samples.before.socket;
+      break;
+    case 'foreign-socket-parent':
+      f.samples.after.hostBinds.push({
+        containerId: '0'.repeat(64),
+        source: '/run',
+        canonicalSource: '/run',
+      });
+      break;
+    case 'volume-user':
+      f.samples.after.volume.users.push('0'.repeat(64));
+      break;
+    case 'volume-name':
+      f.samples.after.volume.name = 'fcd-support-foreign';
+      break;
+    case 'image':
+      f.samples.after.images.postgres.id = `sha256:${'0'.repeat(64)}`;
+      break;
+    case 'root-user':
+      pg.user = 'root';
+      break;
+    case 'host-port':
+      pg.hostPortBindings = 1;
+      break;
+    case 'data-source': {
+      const data = pg.mounts.find((m) => m.type === 'volume');
+      if (data === undefined) throw new Error('synthetic_fixture_invalid');
+      data.source = '/foreign';
+      break;
+    }
+    case 'restart':
+      pg.startedAt = '2030-04-01T00:01:00Z';
+      break;
+    case 'extra-probes':
+      expect(() =>
+        inspectBootstrapDatabaseSamples(
+          { ...f.samples, probes: runtimeHostFixture().samples.probes },
+          f.compose,
+          f.options,
+        ),
+      ).toThrow(/^runtime_host_invalid$/u);
+      return;
+  }
+  expect(() => inspectBootstrapDatabaseSamples(f.samples, f.compose, f.options)).toThrow(
+    /^runtime_host_invalid$/u,
+  );
+});
+
 test.runIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS === 'synthetic-operations-toolchain-only')(
   'compiled runtime validator consumes only bounded metadata and emits a closed result',
   () => {
@@ -699,6 +806,30 @@ test.runIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS === 'synthetic-operations-tool
         stderr: 'runtime_host_invalid\n',
       });
     }
+    const boot = bootstrapHostFixture();
+    const prepared = spawnSync(
+      process.execPath,
+      [
+        entry,
+        'bootstrap',
+        revision,
+        paths.adminSocketRoot,
+        paths.configRoot,
+        paths.secretRoot,
+        paths.workspaceRoot,
+      ],
+      {
+        input: JSON.stringify({ compose: boot.compose, samples: boot.samples }),
+        encoding: 'utf8',
+        timeout: 3000,
+        maxBuffer: 2048,
+      },
+    );
+    expect({ status: prepared.status, stdout: prepared.stdout, stderr: prepared.stderr }).toEqual({
+      status: 0,
+      stdout: '{"status":"verified"}\n',
+      stderr: '',
+    });
   },
   15000,
 );
@@ -944,20 +1075,44 @@ test.each([
 
 test
   .runIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS === 'synthetic-operations-toolchain-only')
-  .each(['ok', 'probe', 'changed', 'extra-container', 'validator-ambiguous'] as const)(
+  .each([
+    'ok',
+    'probe',
+    'changed',
+    'extra-container',
+    'validator-ambiguous',
+    'bootstrap',
+    'bootstrap-network',
+    'bootstrap-socket',
+    'bootstrap-application',
+    'bootstrap-changed',
+    'bootstrap-ambiguous',
+    'bootstrap-foreign-bind',
+  ] as const)(
   'runtime host collector handles %s with real shell and compiled validator',
   async (fault) => {
     const root = await mkdtemp('/run/fcd-support/runtime-host-test-');
     const bin = await mkdtemp('/var/lib/fcd-support/backups/runtime-host-bin-');
     await chmod(root, 0o700);
     await chmod(bin, 0o700);
-    const original = runtimeHostFixture();
+    const bootstrap = fault.startsWith('bootstrap');
+    const original = bootstrap ? bootstrapHostFixture() : runtimeHostFixture();
     const f = JSON.parse(
       JSON.stringify(original)
         .replaceAll(paths.adminSocketRoot, `${root}/socket`)
         .replaceAll(paths.secretRoot, `${root}/secrets`)
         .replaceAll(paths.configRoot, `${root}/config`),
     ) as typeof original;
+    if (fault === 'bootstrap-network') {
+      const network = f.samples.before.networks[0];
+      if (network === undefined) throw new Error('synthetic_fixture_invalid');
+      network.members.push('0'.repeat(64));
+    }
+    if (fault === 'bootstrap-application') {
+      const app = runtimeHostFixture().samples.before.containers[1];
+      if (app === undefined) throw new Error('synthetic_fixture_invalid');
+      f.samples.before.containers.push(app);
+    }
     await mkdir(f.options.paths.adminSocketRoot, { mode: 0o700 });
     for (const bind of f.samples.before.hostBinds.filter(
       (b) => b.source !== f.options.paths.adminSocketRoot,
@@ -970,12 +1125,14 @@ test
     });
     let listening = false;
     try {
-      await new Promise<void>((done, reject) => {
-        server.once('error', reject);
-        server.listen(join(f.options.paths.adminSocketRoot, 'admin.sock'), done);
-      });
-      listening = true;
-      await chmod(join(f.options.paths.adminSocketRoot, 'admin.sock'), 0o600);
+      if (!bootstrap || fault === 'bootstrap-socket') {
+        await new Promise<void>((done, reject) => {
+          server.once('error', reject);
+          server.listen(join(f.options.paths.adminSocketRoot, 'admin.sock'), done);
+        });
+        listening = true;
+        await chmod(join(f.options.paths.adminSocketRoot, 'admin.sock'), 0o600);
+      }
       await writeFile(join(bin, 'fixture.json'), JSON.stringify(f), { mode: 0o600 });
       await writeFile(join(bin, 'failure'), fault, { mode: 0o600 });
       await writeFile(
@@ -985,7 +1142,12 @@ set -eu
 scope="$(dirname "$0")"
 printf '%s\\n' docker >> "$scope/trace"
 if [[ " $* " == *" compose "* ]]; then
-  if [[ " $* " == *" config "* ]]; then node "$scope/project.cjs" compose; else printf '{"status":"completed","processed":1,"reasonCode":"ok"}\\n'; fi
+  if [[ " $* " == *" config "* ]]; then node "$scope/project.cjs" compose
+  else
+    [[ " $* " == *"OPS_DATABASE_SYSTEM_IDENTIFIER=1111111111111111111"* && " $* " == *"OPS_DATABASE_ROLE_PREFIX=fcd_support"* && " $* " == *"OPS_DATABASE_NAME=fcd_support_test"* ]] || exit 29
+    printf '%s\\n' sql >> "$scope/trace"
+    printf '{"status":"completed","processed":1,"reasonCode":"ok"}\\n'
+  fi
 elif [[ " $* " == *" ps "* ]]; then node "$scope/project.cjs" ids "$@"
 elif [[ " $* " == *" image inspect "* ]]; then node "$scope/project.cjs" image "$@"
 elif [[ " $* " == *" volume inspect "* ]]; then node "$scope/project.cjs" volume "$@"
@@ -993,11 +1155,12 @@ elif [[ " $* " == *" network inspect "* ]]; then node "$scope/project.cjs" netwo
 elif [[ " $* " == *" container inspect "* ]]; then node "$scope/project.cjs" container "$@"
 elif [[ " $* " == *" exec "* ]]; then
   printf '%s\\n' exec >> "$scope/trace"
+  if [[ " $* " == *"pg_controldata "* ]]; then printf '%s\\n' 1111111111111111111; exit 0; fi
   [[ "$(<"$scope/failure")" != probe ]] || exit 17
   touch "$scope/probed"
 elif [[ " $* " == *" run "* ]]; then
   printf '%s\\n' run >> "$scope/trace"
-  if [[ "$(<"$scope/failure")" == validator-ambiguous ]]; then printf '{"status":"verified"}\\n'; exit 17; fi
+  if [[ "$(<"$scope/failure")" == *ambiguous ]]; then printf '{"status":"verified"}\\n'; exit 17; fi
   while [[ "$1" != dist/operations/runtime-host-main.js ]]; do shift; done
   shift
   exec node "$(<"$scope/cli")" "$@"
@@ -1019,7 +1182,8 @@ if(mode==='compose')output(f.compose);
 else if(mode==='ids') {
   const service=args.find(a=>a.startsWith('label=com.docker.compose.service='))?.split('=').at(-1);
   const list=service?s.containers.filter(c=>c.service===service):args.some(a=>a.startsWith('volume='))?[s.containers[0]]:s.containers;
-  output(list.map(c=>c.id).join('\\n')+(fault==='extra-container'&&!service?'\\n'+'0'.repeat(64):''));
+  const foreign=fault==='bootstrap-foreign-bind'&&!args.some(a=>a.startsWith('label=')||a.startsWith('volume='));
+  output(list.map(c=>c.id).join('\\n')+((fault==='extra-container'&&!service)||foreign?'\\n'+'0'.repeat(64):''));
 } else if(mode==='image') {
   const image=last==='synthetic-pg'?s.images.postgres:s.images.runtime;
   if(format.startsWith('{"'))output(image);else output(image.id+'/'+f.options.revision+'/linux/amd64/'+image.user);
@@ -1029,9 +1193,11 @@ else if(mode==='ids') {
   const net=s.networks.find(n=>n.name===last); if(!net)process.exit(19);
   if(format.startsWith('{"')){const {members,...metadata}=net;output(JSON.stringify(metadata).slice(0,-1));}else output(net.members.join('\\n'));
 } else if(mode==='container') {
+  if(fault==='bootstrap-foreign-bind'&&last==='0'.repeat(64)){output('/run');process.exit(0)}
   const c=s.containers.find(c=>c.id===last);if(!c)process.exit(19);
-  if(format.startsWith('{"')) {
-    const value=structuredClone(c); if(fault==='changed'&&fs.existsSync(path.join(root,'probed')))value.startedAt='2030-04-01T00:01:00Z';output(value);
+  if(format.startsWith('{{.Id}}/'))output(c.id+'/'+c.project+'/'+c.service+'/'+c.revision+'/'+c.imageId+'/'+c.running+'/'+c.paused+'/'+c.restarting+'/'+c.dead+'/'+c.startedAt);
+  else if(format.startsWith('{"')) {
+    const value=structuredClone(c); if((fault==='changed'&&fs.existsSync(path.join(root,'probed')))||(fault==='bootstrap-changed'&&fs.existsSync(path.join(root,'sampled'))))value.startedAt='2030-04-01T00:01:00Z';fs.writeFileSync(path.join(root,'sampled'),'sampled');output(value);
   }else output(c.mounts.filter(m=>m.type==='bind').map(m=>m.source).join('\\n'));
 } else process.exit(19);
 `,
@@ -1055,9 +1221,10 @@ OPS_REVISION=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 declare -A OPS_CONFIG=([FCD_RUNTIME_PROJECT]=fcd-support-runtime [FCD_SUPPORT_REVISION]="$OPS_REVISION" [FCD_SUPPORT_IMAGE]=synthetic-app [FCD_POSTGRES_IMAGE]=synthetic-pg [FCD_OPERATIONS_IMAGE]=synthetic-operations
 [FCD_POSTGRES_VOLUME]=fcd-support-runtime-postgres [FCD_ADMIN_SOCKET_ROOT]="$TASK_ROOT/socket" [FCD_CONFIG_ROOT]="$TASK_ROOT/config" [FCD_SECRET_ROOT]="$TASK_ROOT/secrets"
 [FCD_INGRESS_NETWORK]=fcd-support-runtime-ingress
+[FCD_POSTGRES_DB]=fcd_support_test [FCD_DATABASE_SCHEMA]=public [FCD_DATABASE_ROLE_PREFIX]=fcd_support [FCD_SCHEMA_REVISION]=000016
 [FCD_INGRESS_PEER_ID]=ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff [FCD_COMMAND_TIMEOUT_SECONDS]=10 [FCD_STOP_GRACE_MS]=30000 [FCD_HEALTH_TIMEOUT_MS]=1000
 [FCD_ADMIN_CPUS]=0.5 [FCD_ADMIN_MEMORY_MIB]=256 [FCD_ADMIN_PIDS]=64)
-operations_inspect_runtime_host
+if [[ "$TASK_KIND" == bootstrap ]]; then operations_inspect_bootstrap_database; else operations_inspect_runtime_host; fi
 `,
         ],
         {
@@ -1067,26 +1234,45 @@ operations_inspect_runtime_host
           env: {
             PATH: bin + ':' + (process.env.PATH ?? ''),
             TASK_ROOT: root,
+            TASK_KIND: bootstrap ? 'bootstrap' : 'runtime',
             TASK_CLI: entry,
             TASK_COMMON: resolve('scripts/operations-common.sh'),
             TASK_LIBRARY: resolve('scripts/operations-runtime-host.sh'),
           },
         },
       );
-      if (fault === 'ok' && result.status !== 0)
+      const success = fault === 'ok' || fault === 'bootstrap';
+      if (success && result.status !== 0)
         throw new Error(
           'synthetic_runtime_collector_phases:' + (await readFile(join(bin, 'trace'), 'utf8')),
         );
       expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual(
-        fault === 'ok'
-          ? { status: 0, stdout: 'runtime_host_verified\n', stderr: '' }
+        success
+          ? {
+              status: 0,
+              stdout: bootstrap ? 'bootstrap_database_verified\n' : 'runtime_host_verified\n',
+              stderr: '',
+            }
           : { status: 1, stdout: '', stderr: 'runtime_host_invalid\n' },
       );
       const phases = (await readFile(join(bin, 'trace'), 'utf8')).trim().split('\n');
       expect(phases).toContain('image');
-      if (fault === 'extra-container') expect(phases).not.toContain('exec');
+      if (!bootstrap && fault !== 'extra-container') expect(phases).toContain('sql');
+      else expect(phases).not.toContain('sql');
+      if (fault === 'extra-container' || bootstrap) expect(phases).not.toContain('exec');
       else expect(phases).toContain('exec');
-      if (fault === 'ok' || fault === 'changed' || fault === 'validator-ambiguous')
+      if (
+        fault === 'ok' ||
+        fault === 'changed' ||
+        fault === 'validator-ambiguous' ||
+        [
+          'bootstrap',
+          'bootstrap-network',
+          'bootstrap-changed',
+          'bootstrap-ambiguous',
+          'bootstrap-foreign-bind',
+        ].includes(fault)
+      )
         expect(phases).toContain('run');
       else expect(phases).not.toContain('run');
     } finally {

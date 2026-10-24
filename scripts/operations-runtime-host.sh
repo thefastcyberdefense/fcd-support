@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Internal read-only inspection. Caller retains checked protected configuration,
 # a local Docker endpoint and the deployment lock. No public handler is defined.
+source "$(dirname -- "${BASH_SOURCE[0]}")/operations-database.sh"
 
 OPERATIONS_RUNTIME_CONTAINER_FORMAT='{"id":{{json .Id}},"project":{{json (index .Config.Labels "com.docker.compose.project")}},"service":{{json (index .Config.Labels "com.docker.compose.service")}},"revision":{{json (index .Config.Labels "org.opencontainers.image.revision")}},"imageId":{{json .Image}},"running":{{json .State.Running}},"paused":{{json .State.Paused}},"restarting":{{json .State.Restarting}},"dead":{{json .State.Dead}},"healthy":{{if .State.Health}}{{eq .State.Health.Status "healthy"}}{{else}}false{{end}},"startedAt":{{json .State.StartedAt}},"restartCount":{{json .RestartCount}},"readOnlyRootfs":{{json .HostConfig.ReadonlyRootfs}},"privileged":{{json .HostConfig.Privileged}},"init":{{json (index .HostConfig "Init")}},"user":{{json .Config.User}},"networkMode":{{json .HostConfig.NetworkMode}},"networks":[{{$sep := ""}}{{range $name,$n := .NetworkSettings.Networks}}{{$sep}}{"name":{{json $name}},"id":{{json $n.NetworkID}}}{{$sep = ","}}{{end}}],"hostPortBindings":{{len .HostConfig.PortBindings}},"publishedPortBindings":{{$count := 0}}{{range .NetworkSettings.Ports}}{{if .}}{{$count = 1}}{{end}}{{end}}{{$count}},"publishAllPorts":{{json .HostConfig.PublishAllPorts}},"pidMode":{{json .HostConfig.PidMode}},"ipcMode":{{json .HostConfig.IpcMode}},"utsMode":{{json .HostConfig.UTSMode}},"capAdd":{{json (index .HostConfig "CapAdd")}},"capDrop":{{json (index .HostConfig "CapDrop")}},"securityOpt":{{json (index .HostConfig "SecurityOpt")}},"devices":{{with index .HostConfig "Devices"}}{{len .}}{{else}}0{{end}},"deviceRequests":{{with index .HostConfig "DeviceRequests"}}{{len .}}{{else}}0{{end}},"groupAdd":{{json (index .HostConfig "GroupAdd")}},"volumesFrom":{{json (index .HostConfig "VolumesFrom")}},"extraHosts":{{json (index .HostConfig "ExtraHosts")}},"sysctls":{{json (index .HostConfig "Sysctls")}},"nanoCpus":{{json .HostConfig.NanoCpus}},"memory":{{json .HostConfig.Memory}},"pidsLimit":{{json (index .HostConfig "PidsLimit")}},"stopTimeout":{{json (index .Config "StopTimeout")}},"restartPolicy":{{json .HostConfig.RestartPolicy.Name}},"tmpfs":{{json (index .HostConfig "Tmpfs")}},"command":{{json .Config.Cmd}},"entrypoint":{{json .Config.Entrypoint}},"environmentNames":[{{range $i,$entry := .Config.Env}}{{if $i}},{{end}}{{json (index (split $entry "=") 0)}}{{end}}],"executionFlags":[{{$sep := ""}}{{range $entry := .Config.Env}}{{$name := index (split $entry "=") 0}}{{if or (eq $name "MODEL_EXECUTION_ENABLED") (eq $name "OUTBOUND_EXECUTION_ENABLED") (eq $name "N8N_EXECUTION_ENABLED")}}{{$sep}}{{if or (eq $entry "MODEL_EXECUTION_ENABLED=false") (eq $entry "MODEL_EXECUTION_ENABLED=true") (eq $entry "OUTBOUND_EXECUTION_ENABLED=false") (eq $entry "OUTBOUND_EXECUTION_ENABLED=true") (eq $entry "N8N_EXECUTION_ENABLED=false") (eq $entry "N8N_EXECUTION_ENABLED=true")}}{{json $entry}}{{else}}"invalid"{{end}}{{$sep = ","}}{{end}}{{end}}],"mounts":[{{range $i,$m := .Mounts}}{{if $i}},{{end}}{"type":{{json $m.Type}},"name":{{if $m.Name}}{{json $m.Name}}{{else}}""{{end}},"source":{{json $m.Source}},"destination":{{json $m.Destination}},"readWrite":{{json $m.RW}},"propagation":{{with index $m "Propagation"}}{{json .}}{{else}}""{{end}}}{{end}}]}'
 OPERATIONS_RUNTIME_IMAGE_FORMAT='{"id":{{json .Id}},"revision":{{with index .Config "Labels"}}{{json (index . "org.opencontainers.image.revision")}}{{else}}null{{end}},"os":{{json .Os}},"architecture":{{json .Architecture}},"user":{{json (index .Config "User")}}}'
@@ -28,20 +29,23 @@ operations_runtime_id() {
 }
 
 operations_runtime_snapshot() {
+  local mode="${1:-runtime}" count=4
+  [[ "$#" -le 1 && ( "$mode" == runtime || "$mode" == bootstrap ) ]] || return 1
   local project="${OPS_CONFIG[FCD_RUNTIME_PROJECT]}" root="${OPS_CONFIG[FCD_ADMIN_SOCKET_ROOT]}"
   local ids id container containers='' separator='' role network members metadata networks='' pg_image runtime_image volume users
   local host_binds='' mounts source canonical socket root_stat device inode uid gid mode rdevice rinode ruid rgid rmode
-  local -a list=()
-  ids="$(operations_docker ps --all --quiet --no-trunc --filter "label=com.docker.compose.project=$project")" || return 1
+  local -a list=() listing=(--all) data_roles=(webhook admin reply outbound notification operations ingress)
+  if [[ "$mode" == bootstrap ]]; then listing=(); count=1; data_roles=(webhook admin reply outbound notification operations); fi
+  ids="$(operations_docker ps "${listing[@]}" --quiet --no-trunc --filter "label=com.docker.compose.project=$project")" || return 1
   ids="${ids//$'\n'/ }"; read -r -a list <<<"$ids"
-  (( ${#list[@]} == 4 )) || return 1
+  (( ${#list[@]} == count )) || return 1
   for id in "${list[@]}"; do
     [[ "$id" =~ ^[a-f0-9]{64}$ ]] || return 1
     container="$(operations_docker container inspect --format "$OPERATIONS_RUNTIME_CONTAINER_FORMAT" "$id")" || return 1
     containers+="$separator$container"; separator=,
   done
   separator=''
-  for role in webhook admin reply outbound notification operations ingress; do
+  for role in "${data_roles[@]}"; do
     network="$project-$role-data"
     [[ "$role" != ingress ]] || network="${OPS_CONFIG[FCD_INGRESS_NETWORK]}"
     members="$(operations_docker network inspect --format '{{range $id,$member := .Containers}}{{println $id}}{{end}}' "$network")" || return 1
@@ -74,6 +78,12 @@ operations_runtime_snapshot() {
   done
   operations_private_directory "$root" || return 1
   socket="$root/admin.sock"
+  if [[ "$mode" == bootstrap ]]; then
+    [[ ! -e "$socket" && ! -L "$socket" ]] || return 1
+    printf '{"images":{"postgres":%s,"runtime":%s},"containers":[%s],"networks":[%s],"volume":%s,"hostBinds":[%s],"socket":null}' \
+      "$pg_image" "$runtime_image" "$containers" "$networks" "$volume" "$host_binds"
+    return 0
+  fi
   [[ -S "$socket" && ! -L "$socket" ]] || return 1
   root_stat="$(stat -c '%d:%i:%u:%g:%a' -- "$root")" || return 1
   socket="$(stat -c '%d:%i:%u:%g:%a' -- "$socket")" || return 1
@@ -98,26 +108,46 @@ operations_runtime_probes() {
   operations_docker exec "$reply" node --input-type=module -e 'import {readRuntimeHeartbeat} from "./dist/operations/role-runtime.js";process.exit(readRuntimeHeartbeat("/run/fcd-support/heartbeat.json",new Date(),Number(process.env.OPS_HEALTH_STALE_MS))?0:1)' >/dev/null || return 1
 }
 
-operations_inspect_runtime_host() {
-  local field model before after image validator_image result
-  for field in FCD_RUNTIME_PROJECT FCD_SUPPORT_REVISION FCD_SUPPORT_IMAGE FCD_POSTGRES_IMAGE FCD_OPERATIONS_IMAGE FCD_POSTGRES_VOLUME FCD_INGRESS_NETWORK FCD_INGRESS_PEER_ID FCD_ADMIN_SOCKET_ROOT FCD_CONFIG_ROOT FCD_SECRET_ROOT FCD_HEALTH_TIMEOUT_MS FCD_ADMIN_CPUS FCD_ADMIN_MEMORY_MIB FCD_ADMIN_PIDS; do
+operations_inspect_host() {
+  local mode="$1" field model before after image validator_image result payload
+  local OPS_DATABASE_SYSTEM_IDENTIFIER=''
+  local -a arguments=()
+  [[ "$#" == 1 && ( "$mode" == runtime || "$mode" == bootstrap ) ]] || operations_fail runtime_host_invalid
+  for field in FCD_RUNTIME_PROJECT FCD_SUPPORT_REVISION FCD_SUPPORT_IMAGE FCD_POSTGRES_IMAGE FCD_OPERATIONS_IMAGE FCD_POSTGRES_VOLUME FCD_ADMIN_SOCKET_ROOT FCD_CONFIG_ROOT FCD_SECRET_ROOT FCD_HEALTH_TIMEOUT_MS FCD_ADMIN_CPUS FCD_ADMIN_MEMORY_MIB FCD_ADMIN_PIDS; do
     [[ -n "${OPS_CONFIG[$field]:-}" ]] && operations_config_field "$field" "${OPS_CONFIG[$field]}" || operations_fail runtime_host_invalid
   done
+  if [[ "$mode" == runtime ]]; then
+    for field in FCD_INGRESS_NETWORK FCD_INGRESS_PEER_ID; do
+      [[ -n "${OPS_CONFIG[$field]:-}" ]] && operations_config_field "$field" "${OPS_CONFIG[$field]}" || operations_fail runtime_host_invalid
+    done
+  fi
   (( ${OPS_CONFIG[FCD_HEALTH_TIMEOUT_MS]} <= 300000 )) || operations_fail runtime_host_invalid
   image="$(operations_docker image inspect --format '{{.Id}}/{{index .Config.Labels "org.opencontainers.image.revision"}}/{{.Os}}/{{.Architecture}}/{{.Config.User}}' "${OPS_CONFIG[FCD_OPERATIONS_IMAGE]}")" || operations_fail runtime_host_invalid
   [[ "$image" =~ ^(sha256:[a-f0-9]{64})/([a-f0-9]{40})/linux/amd64/(node|1000|1000:1000)$ && "${BASH_REMATCH[2]}" == "${OPS_CONFIG[FCD_SUPPORT_REVISION]}" ]] || operations_fail runtime_host_invalid
   validator_image="${BASH_REMATCH[1]}"
   model="$(operations_compose runtime --profile '*' config --format json)" || operations_fail runtime_host_invalid
   (( ${#model} <= 1048576 )) || operations_fail runtime_host_invalid
-  before="$(operations_runtime_snapshot)" || operations_fail runtime_host_invalid
-  operations_runtime_probes || operations_fail runtime_host_invalid
-  after="$(operations_runtime_snapshot)" || operations_fail runtime_host_invalid
-  result="$({ printf '{"compose":%s,"samples":{"before":%s,"after":%s,"probes":{"postgresSql":true,"apiHttp":true,"adminSocket":true,"adminNoTcp":true,"replyHeartbeat":true}}}' "$model" "$before" "$after" | \
+  before="$(operations_runtime_snapshot "$mode")" || operations_fail runtime_host_invalid
+  if [[ "$mode" == runtime ]]; then
+    OPS_DATABASE_SYSTEM_IDENTIFIER="$(operations_read_database_identity 2>/dev/null)" || operations_fail runtime_host_invalid
+    operations_runtime_probes || operations_fail runtime_host_invalid
+  fi
+  after="$(operations_runtime_snapshot "$mode")" || operations_fail runtime_host_invalid
+  if [[ "$mode" == bootstrap ]]; then
+    payload="$(printf '{"compose":%s,"samples":{"before":%s,"after":%s}}' "$model" "$before" "$after")"
+    arguments=(bootstrap "${OPS_CONFIG[FCD_SUPPORT_REVISION]}" "${OPS_CONFIG[FCD_ADMIN_SOCKET_ROOT]}" "${OPS_CONFIG[FCD_CONFIG_ROOT]}" "${OPS_CONFIG[FCD_SECRET_ROOT]}" "$OPS_ROOT")
+  else
+    payload="$(printf '{"compose":%s,"samples":{"before":%s,"after":%s,"probes":{"postgresSql":true,"apiHttp":true,"adminSocket":true,"adminNoTcp":true,"replyHeartbeat":true}}}' "$model" "$before" "$after")"
+    arguments=("${OPS_CONFIG[FCD_SUPPORT_REVISION]}" "${OPS_CONFIG[FCD_ADMIN_SOCKET_ROOT]}" "${OPS_CONFIG[FCD_CONFIG_ROOT]}" "${OPS_CONFIG[FCD_SECRET_ROOT]}" "$OPS_ROOT" "${OPS_CONFIG[FCD_INGRESS_PEER_ID]}")
+  fi
+  result="$({ printf '%s' "$payload" | \
     operations_docker run --rm --interactive --pull never --network none --read-only --user 1000:1000 \
       --label "fcd-support.runtime-inspection=${OPS_CONFIG[FCD_RUNTIME_PROJECT]}" --cap-drop ALL --security-opt no-new-privileges \
       --cpus "${OPS_CONFIG[FCD_ADMIN_CPUS]}" --memory "${OPS_CONFIG[FCD_ADMIN_MEMORY_MIB]}m" --pids-limit "${OPS_CONFIG[FCD_ADMIN_PIDS]}" \
-      --entrypoint node "$validator_image" dist/operations/runtime-host-main.js "${OPS_CONFIG[FCD_SUPPORT_REVISION]}" \
-      "${OPS_CONFIG[FCD_ADMIN_SOCKET_ROOT]}" "${OPS_CONFIG[FCD_CONFIG_ROOT]}" "${OPS_CONFIG[FCD_SECRET_ROOT]}" "$OPS_ROOT" "${OPS_CONFIG[FCD_INGRESS_PEER_ID]}"; } 2>/dev/null)" || operations_fail runtime_host_invalid
+      --entrypoint node "$validator_image" dist/operations/runtime-host-main.js "${arguments[@]}"; } 2>/dev/null)" || operations_fail runtime_host_invalid
   [[ "$result" == '{"status":"verified"}' ]] || operations_fail runtime_host_invalid
-  printf '%s\n' runtime_host_verified
+  if [[ "$mode" == bootstrap ]]; then printf '%s\n' bootstrap_database_verified; else printf '%s\n' runtime_host_verified; fi
 }
+
+operations_inspect_runtime_host() { [[ "$#" == 0 ]] || operations_fail runtime_host_invalid; operations_inspect_host runtime; }
+operations_inspect_bootstrap_database() { [[ "$#" == 0 ]] || operations_fail runtime_host_invalid; operations_inspect_host bootstrap; }
