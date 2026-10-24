@@ -16,6 +16,8 @@ if [[ "$MODE" == grants ]]; then
   UNIT_FILES+=(tests/admin-socket-recovery.test.ts)
   UNIT_FILES+=(tests/admin-socket-recovery-script.test.ts)
   INTEGRATION_FILES+=(tests/integration/postgres-runtime-grants.test.ts)
+  INTEGRATION_FILES+=(tests/integration/postgres-bootstrap-grants.test.ts)
+  UNIT_FILES+=(tests/bootstrap-command.test.ts)
   INTEGRATION_FILES+=(tests/integration/postgres-deployment-cli.test.ts tests/integration/postgres-forward-migration.test.ts)
 fi
 if [[ "$MODE" == restore ]]; then

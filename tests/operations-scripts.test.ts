@@ -50,6 +50,39 @@ test('incomplete deployment installation refuses before Docker when the private 
 const native =
   process.platform === 'linux' &&
   process.env.RUN_ENCRYPTED_BACKUP_TESTS === 'synthetic-operations-toolchain-only';
+test.each([
+  { key: 'FCD_DATABASE_SCHEMA', value: 'public', valid: true },
+  { key: 'FCD_DATABASE_SCHEMA', value: 'synthetic_schema', valid: true },
+  { key: 'FCD_DATABASE_SCHEMA', value: 'public;drop', valid: false },
+  { key: 'FCD_DATABASE_ROLE_PREFIX', value: 'fcd_support', valid: true },
+  { key: 'FCD_DATABASE_ROLE_PREFIX', value: 'foreign_roles', valid: false },
+  { key: 'FCD_DATABASE_ROLE_PREFIX', value: 'fcd_' + 'x'.repeat(29), valid: false },
+])('bootstrap protected field $key/$value is closed', ({ key, value, valid }) => {
+  const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash';
+  const result = spawnSync(
+    bash,
+    [
+      '--noprofile',
+      '--norc',
+      '-c',
+      'source "$TASK_COMMON"; operations_config_field "$TASK_KEY" "$TASK_VALUE"',
+    ],
+    {
+      encoding: 'utf8',
+      timeout: 2000,
+      env: {
+        PATH: process.env.PATH,
+        SystemRoot: process.env.SystemRoot,
+        TASK_COMMON: resolve('scripts/operations-common.sh').replaceAll('\\', '/'),
+        TASK_KEY: key,
+        TASK_VALUE: value,
+      },
+    },
+  );
+  expect(result.status).toBe(valid ? 0 : 1);
+  expect(result.stdout).toBe('');
+  expect(result.stderr).toBe('');
+});
 test.runIf(native).each([
   ['valid', 'FCD_RUNTIME_PROJECT=fcd-support-test\n', true],
   [
@@ -322,7 +355,7 @@ esac
         `source "$TASK_COMMON"; OPS_ROOT="$TASK_ROOT/workspace"; OPS_REVISION=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; OPS_ACTION=deploy;
 declare -A OPS_CONFIG=([FCD_SUPPORT_REVISION]="$OPS_REVISION" [FCD_CONFIG_ROOT]="$TASK_CONFIG_ROOT" [FCD_SECRET_ROOT]="$TASK_ROOT/secrets" [FCD_STATE_ROOT]="$TASK_ROOT/state" [FCD_ADMIN_SOCKET_ROOT]="$TASK_SOCKET_ROOT"
 [FCD_RUNTIME_PROJECT]=fcd-support-test [FCD_SUPPORT_IMAGE]=fcd-support-test-app:a [FCD_OPERATIONS_IMAGE]=fcd-support-test-ops:a [FCD_POSTGRES_IMAGE]=fcd-support-test-pg:a
-[FCD_POSTGRES_DB]=fcd_support_test [FCD_POSTGRES_VOLUME]=fcd-support-test-db [FCD_BACKUP_VOLUME]=fcd-support-test-backup
+[FCD_POSTGRES_DB]=fcd_support_test [FCD_DATABASE_SCHEMA]=public [FCD_DATABASE_ROLE_PREFIX]=fcd_support [FCD_POSTGRES_VOLUME]=fcd-support-test-db [FCD_BACKUP_VOLUME]=fcd-support-test-backup
 [FCD_COMMAND_TIMEOUT_SECONDS]=10 [FCD_READY_TIMEOUT_SECONDS]=10 [FCD_STOP_GRACE_MS]=1000 [FCD_SCHEMA_REVISION]=000015);
 operations_preflight; printf '%s\\n' preflight_valid`,
       ],

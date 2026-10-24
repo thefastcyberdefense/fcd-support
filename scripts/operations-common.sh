@@ -31,6 +31,8 @@ operations_config_field() {
       operations_absolute_path "$value" ;;
     FCD_SUPPORT_REVISION) [[ "$value" =~ ^[a-f0-9]{40}$ ]] ;;
     FCD_SCHEMA_REVISION) [[ "$value" =~ ^[0-9]{6}$ ]] ;;
+    FCD_DATABASE_SCHEMA) [[ "$value" =~ ^[a-z][a-z0-9_]{0,62}$ ]] ;;
+    FCD_DATABASE_ROLE_PREFIX) [[ "$value" =~ ^fcd_[a-z0-9_]{1,28}$ ]] ;;
     FCD_SUPPORT_IMAGE|FCD_OPERATIONS_IMAGE|FCD_POSTGRES_IMAGE)
       [[ "$value" =~ ^[a-z0-9][a-z0-9./:@_-]{1,255}$ && "$value" != *..* ]] ;;
     FCD_RUNTIME_PROJECT|FCD_RESTORE_PROJECT|FCD_POSTGRES_VOLUME|FCD_RESTORE_VOLUME|FCD_BACKUP_VOLUME|FCD_INGRESS_NETWORK|FCD_NOTIFICATION_NETWORK)
@@ -223,7 +225,7 @@ operations_image_revisions() {
 operations_preflight() {
   local field path volume shape mountpoint lock before opened shell_pid="$BASHPID"
   for field in FCD_SUPPORT_REVISION FCD_SCHEMA_REVISION FCD_CONFIG_ROOT FCD_SECRET_ROOT FCD_STATE_ROOT FCD_ADMIN_SOCKET_ROOT \
-    FCD_RUNTIME_PROJECT FCD_SUPPORT_IMAGE FCD_OPERATIONS_IMAGE FCD_POSTGRES_IMAGE FCD_POSTGRES_DB FCD_POSTGRES_VOLUME FCD_BACKUP_VOLUME \
+    FCD_RUNTIME_PROJECT FCD_SUPPORT_IMAGE FCD_OPERATIONS_IMAGE FCD_POSTGRES_IMAGE FCD_POSTGRES_DB FCD_DATABASE_SCHEMA FCD_DATABASE_ROLE_PREFIX FCD_POSTGRES_VOLUME FCD_BACKUP_VOLUME \
     FCD_COMMAND_TIMEOUT_SECONDS FCD_READY_TIMEOUT_SECONDS FCD_STOP_GRACE_MS; do
     [[ -n "${OPS_CONFIG[$field]:-}" ]] || operations_fail operations_config_invalid
   done

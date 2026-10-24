@@ -19,13 +19,64 @@ An internal encrypted-stream restore stage now restores a real full synthetic
 database into a separate local Docker PostgreSQL cluster. This does not complete
 the restore/reconciliation/promotion workflow. Its internal database composition
 now imports the current checkpoint, quarantines inherited work, reapplies deletion
-and seals an immutable binding. Actual container/socket verification,
-bootstrap-profile wiring, independently inspected host target binding,
+and seals an immutable binding. A separate owner-only bootstrap profile now
+prepares scoped roles before migration and converges application grants afterward.
+Its invocation is not yet wired into public deployment. Actual container/socket verification,
+bootstrap orchestration, independently inspected host target binding,
 locked promotion/switch wiring, retained-image rollback
 and explicit stale-socket recovery remain Task 11 work. In particular, the operations CLI's
 `verify-runtime` command checks only database schema/deployment metadata; it is
 not evidence of container, network, filesystem, socket or public-route safety.
 P6-004 remains in progress and P6-GATE remains blocked.
+
+## Explicit Bootstrap Profile
+
+The `operations-bootstrap` profile is an explicit one-shot job. It receives the
+PostgreSQL owner URI and eleven distinct role-password files; normal migration,
+backup, verification and application jobs receive none of those bootstrap files.
+It has no archive or database-volume mount, no identity, no host publication and
+only the private operations data network. Its non-root, read-only container uses
+the configured migrator resource limits. The command has no default phase or
+cluster argument, so invoking the profile alone refuses before reading secrets.
+
+`bootstrap-main` requires `prepare` or `converge`, an independently obtained actual
+PostgreSQL system identifier and the protected password-file directory. It binds
+the actual connection's cluster and database before role changes, requires all
+external execution flags disabled, and emits only a closed result. Password DDL
+uses the existing transaction-local logging suppression. A configurable deadline
+rolls back preparation; termination of its one-shot owner connection is handled
+without an uncaught error or successful acknowledgement after an ambiguous close.
+
+Preparation accepts an empty namespace or a known migrated application schema,
+rejects foreign objects without migration evidence, and is replayable. Application
+roles receive no business-table privileges yet. The backup login can read the
+existing business data and sequence positions, with the narrow existing backup
+catalogue exception where that catalogue exists. Separate verification can record
+its result. The dedicated nonsuperuser migrator then runs forward migrations;
+explicit convergence finally grants each runtime role its existing allowlist.
+Protected host configuration now requires `FCD_DATABASE_SCHEMA` and
+`FCD_DATABASE_ROLE_PREFIX`; neither is executable shell content.
+
+Local native fixtures prove empty and old-admission preparation, actual encrypted
+backup with the identity unreadable, separate decryption/list verification before
+migration, nonsuperuser migration, post-migration convergence and receipt
+preservation. They also cover current-catalogue state updates, foreign function/type
+refusal, atomic deadline failure and wrong-cluster CLI refusal. The rendered
+Compose test rejects seven changes involving secret leakage, external networks,
+execution flags, default arguments and profile removal. This is a bootstrap
+prerequisite, not a completed locked host deployment controller.
+
+Bootstrap checkpoint validation on 2026-10-24 (Asia/Dhaka): `npm run check`
+passed 979 tests with 74 platform skips across 67 files. The full ordinary
+PostgreSQL suite passed 574 tests with 37 native-only skips across 50 files
+(138.71 seconds). Native `grants` passed 171 units and 68 integrations; native
+`restore` passed 42 units and 22 integrations, covering every integration skip.
+The render-only bootstrap gate and all seven negative controls passed. The full
+local topology gate passed with nine allowed and twenty denied paths, no admin
+TCP listener and real socket UID separation. Formatting, shell syntax and diff
+checks passed. Final database checks found zero test schemas, advisory locks,
+generated role accounts or synthetic restore databases; no labelled backup-test
+container, volume or network remained. These are local synthetic checks only.
 
 No Ubuntu/SSH deployment, provider/Meta request, external infrastructure mutation or
 production-number action is established by this checkpoint. The immediate

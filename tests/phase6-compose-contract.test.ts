@@ -25,6 +25,22 @@ function read(path: string): string {
   return existsSync(file) ? readFileSync(file, 'utf8') : '';
 }
 
+test('accepts Compose null defaults while retaining explicit application commands', () => {
+  const input = fixture();
+  const rendered = {
+    ...input,
+    services: Object.fromEntries(
+      Object.entries(input.services).map(([name, value]) => [
+        name,
+        { ...value, entrypoint: null, ...(name === 'postgres' ? { command: null } : {}) },
+      ]),
+    ),
+  };
+  expect(() => {
+    assertRuntimeCompose(rendered, revision, false, paths);
+  }).not.toThrow();
+});
+
 function service(role: string, networks: readonly string[], secrets: readonly string[]) {
   const limits = Object.fromEntries(
     [

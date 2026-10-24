@@ -9,6 +9,55 @@ x-security: &security
   stop_grace_period: ${FCD_STOP_GRACE_MS:?FCD_STOP_GRACE_MS must be set}ms
 
 services:
+  # Explicit owner-only preparation/convergence. No default phase is supplied:
+  # starting this profile without the inspected cluster argument must refuse.
+  bootstrap:
+    <<: *security
+    tmpfs:
+      - /run/fcd-support:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0700,size=${FCD_MIGRATE_TMPFS_MIB:?FCD_MIGRATE_TMPFS_MIB must be set}m
+    image: ${FCD_OPERATIONS_IMAGE:?FCD_OPERATIONS_IMAGE must be set}
+    labels:
+      org.opencontainers.image.revision: ${FCD_SUPPORT_REVISION:?FCD_SUPPORT_REVISION must be set}
+    restart: 'no'
+    profiles: [operations-bootstrap]
+    cpus: ${FCD_MIGRATE_CPUS:?FCD_MIGRATE_CPUS must be set}
+    mem_limit: ${FCD_MIGRATE_MEMORY_MIB:?FCD_MIGRATE_MEMORY_MIB must be set}m
+    pids_limit: ${FCD_MIGRATE_PIDS:?FCD_MIGRATE_PIDS must be set}
+    env_file:
+      - ${FCD_CONFIG_ROOT:?FCD_CONFIG_ROOT must be set}/common.env
+    environment:
+      NODE_ENV: production
+      OPS_GIT_REVISION: ${FCD_SUPPORT_REVISION:?FCD_SUPPORT_REVISION must be set}
+      OPS_DATABASE_NAME: ${FCD_POSTGRES_DB:?FCD_POSTGRES_DB must be set}
+      OPS_DATABASE_SCHEMA: ${FCD_DATABASE_SCHEMA:?FCD_DATABASE_SCHEMA must be set}
+      OPS_DATABASE_ROLE_PREFIX: ${FCD_DATABASE_ROLE_PREFIX:?FCD_DATABASE_ROLE_PREFIX must be set}
+      MODEL_EXECUTION_ENABLED: 'false'
+      OUTBOUND_EXECUTION_ENABLED: 'false'
+      N8N_EXECUTION_ENABLED: 'false'
+      DATABASE_URL_FILE: /run/secrets/bootstrap-database
+    secrets:
+      - bootstrap-database
+      - bootstrap-webhook-password
+      - bootstrap-admin-password
+      - bootstrap-reply-password
+      - bootstrap-outbound-password
+      - bootstrap-notification-password
+      - bootstrap-maintenance-password
+      - bootstrap-health-password
+      - bootstrap-backup-password
+      - bootstrap-verify-backup-password
+      - bootstrap-checkpoint-password
+      - bootstrap-migrator-password
+    entrypoint: ['/usr/local/bin/container-entrypoint.sh', 'application']
+    command: ['node', 'dist/operations/bootstrap-main.js']
+    healthcheck:
+      test: ['CMD', 'node', '--input-type=module', '-e', 'process.exit(0)']
+      interval: ${FCD_HEALTH_INTERVAL_MS:?FCD_HEALTH_INTERVAL_MS must be set}ms
+      timeout: ${FCD_HEALTH_TIMEOUT_MS:?FCD_HEALTH_TIMEOUT_MS must be set}ms
+      retries: ${FCD_HEALTH_RETRIES:?FCD_HEALTH_RETRIES must be set}
+      start_period: ${FCD_HEALTH_START_MS:?FCD_HEALTH_START_MS must be set}ms
+    networks: [operations_data]
+
   migrate:
     <<: *security
     tmpfs:
@@ -229,6 +278,30 @@ volumes:
     name: ${FCD_BACKUP_VOLUME:?FCD_BACKUP_VOLUME must be set}
 
 secrets:
+  bootstrap-database:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/bootstrap/bootstrap-database
+  bootstrap-webhook-password:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/bootstrap/passwords/bootstrap-webhook-password
+  bootstrap-admin-password:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/bootstrap/passwords/bootstrap-admin-password
+  bootstrap-reply-password:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/bootstrap/passwords/bootstrap-reply-password
+  bootstrap-outbound-password:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/bootstrap/passwords/bootstrap-outbound-password
+  bootstrap-notification-password:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/bootstrap/passwords/bootstrap-notification-password
+  bootstrap-maintenance-password:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/bootstrap/passwords/bootstrap-maintenance-password
+  bootstrap-health-password:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/bootstrap/passwords/bootstrap-health-password
+  bootstrap-backup-password:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/bootstrap/passwords/bootstrap-backup-password
+  bootstrap-verify-backup-password:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/bootstrap/passwords/bootstrap-verify-backup-password
+  bootstrap-checkpoint-password:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/bootstrap/passwords/bootstrap-checkpoint-password
+  bootstrap-migrator-password:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/bootstrap/passwords/bootstrap-migrator-password
   migrate-database:
     file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/migrate/migrate-database
   backup-database:

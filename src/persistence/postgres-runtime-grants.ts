@@ -20,6 +20,8 @@ export interface RuntimeGrantOptions {
   readonly database: string;
   readonly rolePrefix: string;
   readonly passwordFiles: Readonly<Record<string, string>>;
+  readonly phase?: 'prepare' | 'converge';
+  readonly timeoutMilliseconds?: number;
 }
 const groups = {
   identity: ['contacts', 'channel_identities', 'conversations'],
@@ -127,8 +129,17 @@ export async function configureRuntimeGrants(
 ): Promise<void> {
   const secrets = new Map<string, string>();
   let client: pg.PoolClient | undefined;
-  let destroy = false;
+  const connectionState = { failed: false };
   try {
+    const preparing =
+      z.enum(['prepare', 'converge']).parse(input.phase ?? 'converge') === 'prepare';
+    const timeoutMilliseconds = z
+      .number()
+      .int()
+      .min(1)
+      .max(300000)
+      .optional()
+      .parse(input.timeoutMilliseconds);
     const schema = identifier.parse(input.schema);
     const database = identifier.parse(input.database);
     if (!/^fcd_support(?:_[a-z0-9_]+)?$/u.test(database)) throw new Error('invalid');
@@ -161,7 +172,22 @@ export async function configureRuntimeGrants(
     if (new Set(secrets.values()).size !== secrets.size) throw new Error('invalid');
     client = await pool.connect();
     const connection = client;
+    const onConnectionError = () => {
+      connectionState.failed = true;
+    };
+    // A transaction deadline can terminate a checked-out connection between
+    // queries. It must not escape as an uncaught EventEmitter error. This owner
+    // connection is one-shot and is never returned to the pool for reuse.
+    connection.on('error', onConnectionError);
+    connection.once('end', () => {
+      connection.off('error', onConnectionError);
+    });
     await client.query('begin');
+    if (timeoutMilliseconds !== undefined)
+      await client.query(
+        "select set_config('lock_timeout',$1,true),set_config('statement_timeout',$1,true),set_config('transaction_timeout',$1,true)",
+        [`${String(timeoutMilliseconds)}ms`],
+      );
     // The explicit bootstrap owner can suppress statement/parameter logging before
     // any password-bearing DDL. Failure here sends no password-bearing query.
     await client.query(
@@ -189,9 +215,21 @@ export async function configureRuntimeGrants(
     if (
       tables.some((name) => !knownTables.has(name)) ||
       views.some((name) => !knownViews.has(name)) ||
-      !tables.includes('pgmigrations')
+      (!tables.includes('pgmigrations') && !(preparing && relations.rows.length === 0))
     )
       throw new Error('invalid');
+    if (preparing && !tables.includes('pgmigrations')) {
+      // Only a truly empty application namespace can lack migration evidence.
+      // Do not adopt a foreign routine/type or non-table relation as bootstrap.
+      const empty = await client.query<{ empty: boolean }>(
+        `select
+        not exists(select 1 from pg_class where relnamespace=$1::regnamespace)
+        and not exists(select 1 from pg_proc where pronamespace=$1::regnamespace)
+        and not exists(select 1 from pg_type where typnamespace=$1::regnamespace) as empty`,
+        [schema],
+      );
+      if (empty.rows[0]?.empty !== true) throw new Error('invalid');
+    }
     const owner = `${prefix}_migrator`;
     const ownerSql = quote(owner);
     const schemaSql = quote(schema);
@@ -262,9 +300,10 @@ export async function configureRuntimeGrants(
     }
     // Only this fixed body runs with the schema owner's rights. It grants a
     // transaction-scoped SHARE lock, never a customer-data write capability.
-    await client.query(`create or replace function ${schemaSql}.lock_deletion_checkpoint_source() returns void
-      language plpgsql security definer set search_path=pg_catalog,${schemaSql},pg_temp as $$
-      begin lock table ${schemaSql}.privacy_suppressions in share mode; end $$`);
+    if (tables.includes('privacy_suppressions'))
+      await client.query(`create or replace function ${schemaSql}.lock_deletion_checkpoint_source() returns void
+        language plpgsql security definer set search_path=pg_catalog,${schemaSql},pg_temp as $$
+        begin lock table ${schemaSql}.privacy_suppressions in share mode; end $$`);
     const functions = await client.query<{ signature: string; proname: string }>(
       `select oid::regprocedure::text as signature,proname from pg_proc
       where pronamespace=$1::regnamespace and prokind='f'`,
@@ -349,6 +388,20 @@ export async function configureRuntimeGrants(
         `grant usage on schema ${schemaSql} to ${quote(`${prefix}_${role}`)}; grant connect on database ${quote(database)} to ${quote(`${prefix}_${role}`)}`,
       );
       await grant(role, 'select', ['pgmigrations', 'operations_deployments']);
+    }
+    if (preparing) {
+      // No application data privileges before migration/verification. Only the
+      // explicit backup and separate verification principals may access their
+      // pre-migration data/catalogue scope. Sequence read was granted above;
+      // no business nextval/DDL privilege reaches the backup role.
+      await grant('backup', 'select', [...tables, ...views]);
+      for (const role of ['backup', 'verify_backup'] as const) {
+        await grant(role, 'select,insert', ['operations_backups', 'operations_backup_events']);
+        await grant(role, 'update(state)', ['operations_backups']);
+      }
+      await client.query('commit');
+      if (connectionState.failed) throw new Error('invalid');
+      return;
     }
     await grant('webhook', 'select', ['privacy_suppressions']);
     await write('webhook', ['webhook_receipts', 'webhook_events'], 'select,insert');
@@ -535,17 +588,18 @@ export async function configureRuntimeGrants(
           );
       }
     await client.query('commit');
+    if (connectionState.failed) throw new Error('invalid');
   } catch {
     if (client !== undefined) {
       try {
         await client.query('rollback');
       } catch {
-        destroy = true;
+        /* The failed one-shot owner connection is destroyed below. */
       }
     }
     throw new Error('runtime_grants_invalid');
   } finally {
     secrets.clear();
-    client?.release(destroy);
+    client?.release(true);
   }
 }

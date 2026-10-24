@@ -3,6 +3,7 @@ import { posix, win32 } from 'node:path';
 
 import { loadOperationsConfig } from './operations-config.js';
 import { runtimeRoles } from './operations-types.js';
+import { runtimeDatabaseRoles } from '../persistence/postgres-runtime-grants.js';
 
 const serviceSchema = z.object({
   image: z.string(),
@@ -17,6 +18,8 @@ const serviceSchema = z.object({
   mem_limit: z.union([z.number().positive(), z.string().regex(/^[1-9][0-9]*(?:[kmgKMG])?$/u)]),
   stop_grace_period: z.string().min(1),
   restart: z.string(),
+  command: z.array(z.string()).nullish(),
+  entrypoint: z.array(z.string()).nullish(),
   healthcheck: z.object({
     test: z.array(z.string()).min(2),
     interval: z.string().min(1),
@@ -132,6 +135,12 @@ const runtimeContracts: Readonly<Record<string, Contract>> = {
   },
 };
 const operationSecrets: Readonly<Record<string, readonly string[]>> = {
+  bootstrap: [
+    'bootstrap-database',
+    ...[...runtimeDatabaseRoles, 'migrator'].map(
+      (role) => `bootstrap-${role.replaceAll('_', '-')}-password`,
+    ),
+  ],
   migrate: ['migrate-database'],
   backup: ['backup-database', 'backup-recipient', 'recovery-hmac'],
   'verify-backup': ['verify-database', 'restore-identity', 'recovery-hmac'],
@@ -175,7 +184,9 @@ function checkResourceSettings(name: string, s: Service): void {
   const roleName =
     name === 'postgres' || name === 'fcd-support-api'
       ? 'webhook'
-      : name.replace(/^fcd-support-/u, '').replaceAll('-', '_');
+      : name === 'bootstrap'
+        ? 'migrate'
+        : name.replace(/^fcd-support-/u, '').replaceAll('-', '_');
   const role = z.enum(runtimeRoles).parse(roleName);
   const environment = Object.fromEntries(
     Object.entries(s.environment).map(([key, value]) => [key, value ?? undefined]),
@@ -471,6 +482,23 @@ export function assertOperationsCompose(input: unknown, revision: string): void 
         'no',
       );
       if (s?.ports.length !== 0) invalid();
+      if (name === 'bootstrap') {
+        if (
+          !same(s.command ?? [], ['node', 'dist/operations/bootstrap-main.js']) ||
+          s.command?.[0] !== 'node' ||
+          !same(s.entrypoint ?? [], ['/usr/local/bin/container-entrypoint.sh', 'application']) ||
+          s.entrypoint?.[0] !== '/usr/local/bin/container-entrypoint.sh' ||
+          s.environment.NODE_ENV !== 'production' ||
+          s.environment.DATABASE_URL_FILE !== '/run/secrets/bootstrap-database' ||
+          !/^fcd_support(?:_[a-z0-9_]+)?$/u.test(s.environment.OPS_DATABASE_NAME ?? '') ||
+          !/^[a-z][a-z0-9_]{0,62}$/u.test(s.environment.OPS_DATABASE_SCHEMA ?? '') ||
+          !/^fcd_[a-z0-9_]{1,28}$/u.test(s.environment.OPS_DATABASE_ROLE_PREFIX ?? '') ||
+          ['MODEL_EXECUTION_ENABLED', 'OUTBOUND_EXECUTION_ENABLED', 'N8N_EXECUTION_ENABLED'].some(
+            (flag) => s.environment[flag] !== 'false',
+          )
+        )
+          invalid();
+      }
       const archive = ['backup', 'verify-backup', 'checkpoint'].includes(name);
       if (s.volumes.length !== (archive ? 1 : 0)) invalid();
       if (
