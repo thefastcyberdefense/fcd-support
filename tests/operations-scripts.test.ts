@@ -51,6 +51,10 @@ const native =
   process.platform === 'linux' &&
   process.env.RUN_ENCRYPTED_BACKUP_TESTS === 'synthetic-operations-toolchain-only';
 test.each([
+  { key: 'FCD_RUNTIME_PROJECT', value: 'fcd-support', valid: true },
+  { key: 'FCD_RUNTIME_PROJECT', value: 'fcd-support-runtime', valid: true },
+  { key: 'FCD_RUNTIME_PROJECT', value: 'foreign-project', valid: false },
+  { key: 'FCD_RESTORE_PROJECT', value: 'fcd-support', valid: false },
   { key: 'FCD_DATABASE_SCHEMA', value: 'public', valid: true },
   { key: 'FCD_DATABASE_SCHEMA', value: 'synthetic_schema', valid: true },
   { key: 'FCD_DATABASE_SCHEMA', value: 'public;drop', valid: false },

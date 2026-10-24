@@ -36,7 +36,9 @@ operations_config_field() {
     FCD_DATABASE_ROLE_PREFIX) [[ "$value" =~ ^fcd_[a-z0-9_]{1,28}$ ]] ;;
     FCD_SUPPORT_IMAGE|FCD_OPERATIONS_IMAGE|FCD_POSTGRES_IMAGE)
       [[ "$value" =~ ^[a-z0-9][a-z0-9./:@_-]{1,255}$ && "$value" != *..* ]] ;;
-    FCD_RUNTIME_PROJECT|FCD_RESTORE_PROJECT|FCD_POSTGRES_VOLUME|FCD_RESTORE_VOLUME|FCD_BACKUP_VOLUME|FCD_INGRESS_NETWORK|FCD_NOTIFICATION_NETWORK)
+    FCD_RUNTIME_PROJECT)
+      [[ "$value" == fcd-support || "$value" =~ ^fcd-support[-a-z0-9_]{1,100}$ ]] ;;
+    FCD_RESTORE_PROJECT|FCD_POSTGRES_VOLUME|FCD_RESTORE_VOLUME|FCD_BACKUP_VOLUME|FCD_INGRESS_NETWORK|FCD_NOTIFICATION_NETWORK)
       [[ "$value" =~ ^fcd-support[-a-z0-9_]{1,100}$ ]] ;;
     FCD_POSTGRES_DB) [[ "$value" =~ ^fcd_support(_[a-z0-9_]+)?$ ]] ;;
     FCD_ADMIN_ORIGIN) [[ "$value" =~ ^http://127\.0\.0\.1:[1-9][0-9]{0,4}$ ]] ;;

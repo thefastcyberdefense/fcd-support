@@ -22,13 +22,14 @@ if [[ "$MODE" == grants ]]; then
   UNIT_FILES+=(tests/database-identity-script.test.ts)
   UNIT_FILES+=(tests/operations-job-state.test.ts)
   UNIT_FILES+=(tests/operations-job-lifecycle.test.ts)
+  UNIT_FILES+=(tests/operations-bootstrap-script.test.ts)
   INTEGRATION_FILES+=(tests/integration/postgres-deployment-cli.test.ts tests/integration/postgres-forward-migration.test.ts)
 fi
 if [[ "$MODE" == restore ]]; then
   INTEGRATION_FILES=(tests/integration/postgres-isolated-restore.test.ts)
 fi
 if [[ "$MODE" == state ]]; then
-  UNIT_FILES=(tests/operations-job-state.test.ts tests/operations-job-lifecycle.test.ts tests/operations-scripts.test.ts)
+  UNIT_FILES=(tests/operations-job-state.test.ts tests/operations-job-lifecycle.test.ts tests/operations-scripts.test.ts tests/operations-bootstrap-script.test.ts)
   INTEGRATION_FILES=()
 fi
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

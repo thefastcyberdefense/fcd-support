@@ -79,6 +79,25 @@ fixture adaptations do not relax the Linux production controller.
 
 ## Deployment SQL Target And Principal
 
+The internal database-upgrade helper now composes owner preparation, a separately
+verified pre-migration backup, nonsuperuser forward migration, owner grant
+convergence and final archive registration. It requires an idle protected job
+journal and the PostgreSQL-only host proof. It samples its own physical identity,
+retains container ID/start time, and checks the host/instance/identity around
+each isolated job. Failed stages, invalid references, process restarts and target
+substitutions stop the sequence. It never starts applications or switches storage.
+The existing bare `fcd-support` runtime project is accepted without permitting
+that bare name for isolated restore projects.
+
+Seventeen shell orchestration cases use trusted-function doubles; they do not
+constitute a whole Docker deployment. Code gate: 1,066 passed/146 platform skips
+across 71 files. The native gate passed 368 units/70 integrations, including
+these cases and the actual restricted-role SQL/crypto/CLI tests. The full ordinary
+PostgreSQL and isolated restore runs below were not repeated for this shell-only
+extension. Controlled drain/removal/startup, persistent
+selected-volume state, restore/promotion switching, retained rollback and public
+command wiring remain unfinished.
+
 Compiled backup, backup verification and checkpoint jobs now also require
 `OPS_DATABASE_SYSTEM_IDENTIFIER` and `OPS_DATABASE_NAME`. The private host sampler
 supplies these values; a connection URI does not establish the expected identity.
