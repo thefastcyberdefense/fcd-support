@@ -28,6 +28,7 @@ import { PostgresOperationsStore } from './persistence/postgres-operations-store
 import { parseLearningPolicy } from './learning/learning-input.js';
 import { parseOutboundPolicyInput } from './outbound/outbound-policy-input.js';
 import { runForwardMigrations } from './operations/forward-migration.js';
+import { assertMigrationPrincipal } from './operations/migration-principal.js';
 
 export function parseOperationsCommand(args: readonly string[]) {
   try {
@@ -89,6 +90,24 @@ export async function runOperationsMain(): Promise<void> {
         .string()
         .regex(/^[a-z][a-z0-9_]{0,62}$/u)
         .parse(environment.OPS_DATABASE_SCHEMA ?? 'public');
+      const expectedDatabaseIdentity = {
+        systemIdentifier: z
+          .string()
+          .regex(/^[1-9][0-9]{0,19}$/u)
+          .refine((value) => BigInt(value) <= 18446744073709551615n)
+          .parse(environment.OPS_DATABASE_SYSTEM_IDENTIFIER),
+        databaseName: z
+          .string()
+          .max(63)
+          .regex(/^fcd_support(?:_[a-z0-9_]+)?$/u)
+          .parse(environment.OPS_DATABASE_NAME),
+      };
+      const databaseState = { failed: false };
+      const rolePrefix = z
+        .string()
+        .regex(/^fcd_[a-z0-9_]{1,28}$/u)
+        .parse(environment.OPS_DATABASE_ROLE_PREFIX);
+      const expectedMigratorRole = `${rolePrefix}_migrator`;
       pool = new pg.Pool({
         connectionString: environment.DATABASE_URL,
         max: 1,
@@ -97,6 +116,7 @@ export async function runOperationsMain(): Promise<void> {
         statement_timeout: config.maximumCallMilliseconds,
       });
       pool.on('error', () => {
+        databaseState.failed = true;
         logger.error('database_pool_error');
       });
       if (job === 'migrate')
@@ -104,32 +124,86 @@ export async function runOperationsMain(): Promise<void> {
           schema,
           expectedSchemaRevision: schemaRevision,
           timeoutMilliseconds: config.maximumCallMilliseconds,
+          expectedDatabaseIdentity,
+          expectedMigratorRole,
         });
       else {
-        const actual = await pool.query<{ name: string }>(
-          `select name from "${schema}".pgmigrations order by name desc limit 1`,
-        );
-        if (actual.rows[0]?.name.slice(0, 6) !== schemaRevision) throw new Error('invalid');
-        if (job === 'verify-runtime') {
-          const latest = await pool.query<{ git_revision: string; status: string }>(
-            `select git_revision,status from operations_deployments order by recorded_at desc,id desc limit 1`,
+        const client = await pool.connect();
+        const connectionError = () => {
+          databaseState.failed = true;
+        };
+        client.on('error', connectionError);
+        client.once('end', () => {
+          client.off('error', connectionError);
+        });
+        try {
+          await client.query('begin');
+          await client.query(
+            "select pg_catalog.set_config('lock_timeout',$1,true),pg_catalog.set_config('statement_timeout',$1,true),pg_catalog.set_config('transaction_timeout',$1,true)",
+            [`${String(config.maximumCallMilliseconds)}ms`],
           );
-          const row = latest.rows[0];
-          if (row?.git_revision !== revision || !['started', 'succeeded'].includes(row.status))
+          const identity = (
+            await client.query<{ id: string; name: string }>(
+              'select system_identifier::text as id,current_database() as name from pg_catalog.pg_control_system()',
+            )
+          ).rows[0];
+          if (
+            identity?.id !== expectedDatabaseIdentity.systemIdentifier ||
+            identity.name !== expectedDatabaseIdentity.databaseName
+          )
             throw new Error('invalid');
-        } else
-          await new PostgresOperationsStore(pool).recordDeployment({
-            gitRevision: revision,
-            schemaRevision,
-            recordedAt: new Date(),
-            status:
-              job === 'deployment-started'
-                ? 'started'
-                : job === 'deployment-succeeded'
-                  ? 'succeeded'
-                  : 'failed',
+          await assertMigrationPrincipal(client, {
+            schema,
+            databaseName: expectedDatabaseIdentity.databaseName,
+            roleName: expectedMigratorRole,
           });
+          await client.query("select pg_catalog.set_config('search_path',$1,true)", [
+            `pg_catalog,"${schema}",pg_temp`,
+          ]);
+          const lock = await client.query<{ acquired: boolean }>(
+            'select pg_catalog.pg_try_advisory_xact_lock(pg_catalog.hashtextextended($1,0)) as acquired',
+            [`fcd-support:deployment:${schema}`],
+          );
+          if (lock.rows[0]?.acquired !== true) throw new Error('invalid');
+          const actual = await client.query<{ name: string }>(
+            `select name from "${schema}".pgmigrations order by name desc limit 1`,
+          );
+          if (actual.rows[0]?.name.slice(0, 6) !== schemaRevision) throw new Error('invalid');
+          if (job === 'verify-runtime') {
+            const latest = await client.query<{ git_revision: string; status: string }>(
+              `select git_revision,status from "${schema}".operations_deployments order by recorded_at desc,id desc limit 1`,
+            );
+            const row = latest.rows[0];
+            if (row?.git_revision !== revision || !['started', 'succeeded'].includes(row.status))
+              throw new Error('invalid');
+          } else
+            await new PostgresOperationsStore({ transactionClient: client }).recordDeployment({
+              gitRevision: revision,
+              schemaRevision,
+              recordedAt: new Date(),
+              status:
+                job === 'deployment-started'
+                  ? 'started'
+                  : job === 'deployment-succeeded'
+                    ? 'succeeded'
+                    : 'failed',
+            });
+          await client.query('commit');
+        } catch {
+          try {
+            await client.query('rollback');
+          } catch {
+            /* One-shot connection closes below. */
+          }
+          throw new Error('invalid');
+        } finally {
+          client.release(true);
+        }
       }
+      const completedPool = pool;
+      pool = undefined;
+      await completedPool.end();
+      if (databaseState.failed) throw new Error('invalid');
       process.stdout.write(
         `${JSON.stringify({ status: 'completed', processed: 1, reasonCode: 'ok' })}\n`,
       );

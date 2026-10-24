@@ -3,11 +3,13 @@ import { resolve } from 'node:path';
 import { runner } from 'node-pg-migrate';
 import type pg from 'pg';
 import { z } from 'zod';
+import { assertMigrationPrincipal } from './migration-principal.js';
 
 export interface ForwardMigrationOptions {
   readonly schema: string;
   readonly expectedSchemaRevision: string;
   readonly timeoutMilliseconds: number;
+  readonly expectedMigratorRole?: string | undefined;
   readonly expectedDatabaseIdentity?:
     | {
         readonly systemIdentifier: string;
@@ -28,6 +30,10 @@ export async function runForwardMigrations(
         schema: z.string().regex(/^[a-z][a-z0-9_]{0,62}$/u),
         expectedSchemaRevision: z.string().regex(/^[0-9]{6}$/u),
         timeoutMilliseconds: z.number().int().min(1).max(300000),
+        expectedMigratorRole: z
+          .string()
+          .regex(/^[a-z][a-z0-9_]{0,62}$/u)
+          .optional(),
         expectedDatabaseIdentity: z
           .strictObject({
             systemIdentifier: z.string().regex(/^[1-9][0-9]{0,19}$/u),
@@ -35,6 +41,10 @@ export async function runForwardMigrations(
           })
           .optional(),
       })
+      .refine(
+        (value) =>
+          value.expectedMigratorRole === undefined || value.expectedDatabaseIdentity !== undefined,
+      )
       .parse(input);
     const versions = (await readdir(directory))
       .map((name) => /^([0-9]{6})_[a-z0-9_]+\.ts$/u.exec(name)?.[1])
@@ -53,14 +63,14 @@ export async function runForwardMigrations(
   let reason = 'migration_failed';
   try {
     client = await pool.connect();
-    await client.query("select set_config('statement_timeout',$1,false)", [
+    await client.query("select pg_catalog.set_config('statement_timeout',$1,false)", [
       `${String(options.timeoutMilliseconds)}ms`,
     ]);
     if (options.expectedDatabaseIdentity !== undefined) {
       reason = 'migration_target_invalid';
       const actual = (
         await client.query<{ id: string; name: string }>(
-          'select system_identifier::text as id,current_database() as name from pg_control_system()',
+          'select system_identifier::text as id,current_database() as name from pg_catalog.pg_control_system()',
         )
       ).rows[0];
       if (
@@ -70,8 +80,20 @@ export async function runForwardMigrations(
         throw new Error('invalid');
       reason = 'migration_failed';
     }
+    if (
+      options.expectedMigratorRole !== undefined &&
+      options.expectedDatabaseIdentity !== undefined
+    ) {
+      reason = 'migration_principal_invalid';
+      await assertMigrationPrincipal(client, {
+        schema: options.schema,
+        databaseName: options.expectedDatabaseIdentity.databaseName,
+        roleName: options.expectedMigratorRole,
+      });
+      reason = 'migration_failed';
+    }
     const lock = await client.query<{ acquired: boolean }>(
-      'select pg_try_advisory_lock(hashtextextended($1,0)) as acquired',
+      'select pg_catalog.pg_try_advisory_lock(pg_catalog.hashtextextended($1,0)) as acquired',
       [`fcd-support:deployment:${options.schema}`],
     );
     if (lock.rows[0]?.acquired !== true) {

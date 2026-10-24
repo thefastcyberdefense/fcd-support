@@ -30,6 +30,42 @@ and explicit stale-socket recovery remain Task 11 work. In particular, the opera
 not evidence of container, network, filesystem, socket or public-route safety.
 P6-004 remains in progress and P6-GATE remains blocked.
 
+## Deployment SQL Target And Principal
+
+The deployment CLI now requires `OPS_DATABASE_SYSTEM_IDENTIFIER`,
+`OPS_DATABASE_NAME` and `OPS_DATABASE_ROLE_PREFIX`. A missing or invalid binding
+refuses before application DDL. The migrator compares actual cluster/database
+identity on its DDL-owning connection. Deployment evidence and SQL verification
+perform the same comparison on their transaction-owning connection and take the
+same deployment advisory lock before accessing revision evidence.
+
+The actual session login and current role must both match the managed migrator.
+That role must retain its bootstrap scope marker, own the expected schema, use
+that schema, have no memberships and have the intended nonsuperuser attributes.
+The bootstrap owner URI is refused even if it points to the right database. A
+correctly named role later promoted to superuser is also refused. The fixed
+catalogue helpers are schema-qualified, and evidence writes use the checked
+transaction and narrowed search path. Success is emitted only after the one-shot
+connection and pool close successfully.
+
+Native RED reproduced both a wrong cluster being ignored and owner credentials
+being accepted for application migration. The updated compiled CLI fixture uses
+a real prepared nonsuperuser login, rejects those cases before schema changes,
+and proves that target/principal refusals do not add deployment rows. It also
+rejects a competing deployment lock. Actual local test `pg_controldata` and SQL
+system identifiers matched; only that closed comparison result was recorded.
+The host wrapper still needs to sample and pass that physical binding dynamically
+as part of bootstrap/deployment orchestration. This change does not enable a
+public deployment handler or authorize server mutation.
+
+Target/principal checkpoint validation: `npm run check` passed 1,032 tests with
+80 platform skips across 67 files. Pinned native `grants` passed 268 units and
+68 integrations, including the expanded compiled CLI case (6.54 seconds).
+Native `restore` passed 42 units and 22 integrations (26.69-second file including
+teardown), retaining older-admission and substituted-target coverage. The latest
+full ordinary PostgreSQL regression remains the earlier bootstrap checkpoint's
+574 passed/37 separately covered native skips; it was not rerun for this change.
+
 ## Current Runtime Host Inspection
 
 `operations-runtime-host.sh` collects two narrowed Docker snapshots around separate
