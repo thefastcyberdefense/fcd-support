@@ -21,7 +21,7 @@ the restore/reconciliation/promotion workflow. Its internal database composition
 now imports the current checkpoint, quarantines inherited work, reapplies deletion
 and seals an immutable binding. Actual container/socket verification,
 bootstrap-profile wiring, independently inspected host target binding,
-fresh promotion proof, retained-image rollback
+locked promotion/switch wiring, retained-image rollback
 and explicit stale-socket recovery remain Task 11 work. In particular, the operations CLI's
 `verify-runtime` command checks only database schema/deployment metadata; it is
 not evidence of container, network, filesystem, socket or public-route safety.
@@ -311,10 +311,75 @@ the binding and migration registry entry. No production down migration is enable
 
 `PostgresRestoreEvidence.load` returns historical evidence, including
 `recoveryHeldAtSeal`, not a claim that recovery remains held now. Neither loading
-nor copying that record authorizes attachment. `verifyPromotion`, fresh host
-inspection wiring, current checkpoint refresh with all application access closed,
-failure-safe switching and private-disabled startup remain unfinished. Human
+nor copying that record authorizes attachment. The internal `verifyPromotion`
+prerequisite below now refreshes the database proof. Fresh host inspection and
+quiescence wiring, failure-safe switching and private-disabled startup remain unfinished. Human
 policy review is still required before external execution after a switch.
+
+### Fresh Promotion Verification
+
+`verifyPromotion` requires the historical restore reference plus a distinct
+`verificationRef`, actual target identity, reviewed revision/schema, current
+signed checkpoint, complete active keyring and explicit batch/time bounds.
+It does not restore the SQL archive again. Shared reconciliation imports the
+current checkpoint under the new reference, fences inherited work, reapplies
+deletions and seals a new immutable gate/binding in one target transaction.
+The old import and binding remain unchanged. The additional recovery hold is
+not automatically reviewed or released.
+
+The parent must still be held and unreviewed, match every target identity and
+revision/schema field, and have no failed restore outcome. Current PostgreSQL
+cluster identity must match the source recorded at restore time. The fresh
+checkpoint must retain that source catalogue's epoch and never regress its
+sequence; a valid signature from a different catalogue on the same cluster is
+not sufficient. The target uses the same deployment advisory-lock namespace
+as the migrator, refusing a concurrent deployment instead of returning readiness.
+
+The trusted host caller supplies `assertQuiesced(signal)`. It must retain its
+checked deployment lock, actual source application shutdown and target isolation
+before invoking the verifier until the eventual switch is complete. The
+assertion runs before work and again during the final source freeze. A supplied
+deadline and AbortSignal bound it, including a noncooperative callback; only
+successful completion without a value is accepted. The source freeze remains
+held through checkpoint validation, target commit and final evidence. A stale
+checkpoint, lost quiescence, changed identity, missing key, time boundary or
+exhausted batch bound rolls back all fresh evidence/erasure.
+
+The returned `{status:'ready'}` is an internal result for that still-quiesced
+operation, not a transferable token, saved approval or Docker attachment.
+No public promotion controller invokes it yet. Docker inspection and the
+quiescence implementation must be wired and rechecked through failure-safe
+switching before any application attachment. No external-execution flag is
+enabled by this function.
+
+### Explicit Stale Socket Recovery Prerequisites
+
+`admin-socket-recovery.ts` is a separate compiled filesystem helper. It requires
+Linux UID/GID 1000, a real owned 0700 directory and the exact owned 0600 socket
+device/inode supplied by the checked host. Only an actual bounded Unix
+`ECONNREFUSED` result can permit removal; an active non-HTTP listener, timeout,
+missing path, regular file, directory or symlink is not evidence of staleness.
+The helper rechecks directory/socket identity and its monotonic deadline before
+one unlink. It creates no directory, repairs no permissions and stops no process.
+
+The internal `scripts/operations-admin-socket.sh` controller additionally checks
+a unique exited admin container, exact project/service/revision and selected
+runtime image identity. It scans bind sources of every container, including
+stopped containers, resolves canonical host paths and refuses foreign, aliased
+or ancestor/descendant access to the socket root. The owner's mount must be the
+exact dedicated writable admin-socket mount. Unknown or unresolvable bind shapes
+fail closed rather than being ignored. The root remains subject to the shared
+protected-ancestor/local-daemon/deployment-lock preflight.
+
+The helper image is resolved to a checked immutable ID. Its invocation has no
+network, Docker socket or secrets, a read-only root filesystem, explicit resource
+bounds and only the dedicated socket-directory bind. Ambiguous transport stdout
+is withheld. Native tests exercise the real compiled filesystem helper behind
+a fake external Docker transport; they do not establish real Ubuntu daemon,
+UID mapping or SSH behavior. Neither this library nor its helper is wired into
+the public recovery command yet. Cancellation/cleanup of ambiguous jobs, full
+runtime verification and the completed host controller remain required before
+enabling that command.
 
 ### Commands And Evidence
 
@@ -373,3 +438,16 @@ The separate actual-Docker host harness passed eight cases and its JSON
 projection/initial-sample boundary checks. These are local synthetic proofs of
 host sampling, not an installed controller, promotion, application attachment or
 Ubuntu/SSH gate. Task 11/P6-004 remain in progress.
+
+The subsequent promotion/socket prerequisite gate passed 959 code tests with
+74 platform skips across 66 files. The additional 22 Linux socket cases pass
+in the native gate, including the real compiled helper behind the fake Docker
+transport. Native `grants` passed 152 units/60 integrations; native `restore`
+passed 42 units/22 integrations. These include post-restore deletion refresh,
+source-catalogue substitution and sequence regression refusal, quiescence
+deadline/abort and rollback, binding replay refusal and source-freeze contention.
+Three narrowed projection shapes were also checked against actual local test
+Docker metadata. The full ordinary PostgreSQL regression passed 568 tests with
+35 native-only skips across 49 files (116.04 seconds); all 35 skips are covered
+by the native gates. This is still not a public recovery/promotion command, actual
+server deployment or P6-GATE pass.

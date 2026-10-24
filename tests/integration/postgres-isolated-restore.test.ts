@@ -14,7 +14,11 @@ import {
 } from '../../src/operations/backup.js';
 import { registerBackup } from '../../src/operations/backup-command.js';
 import { runForwardMigrations } from '../../src/operations/forward-migration.js';
-import { restoreAndReconcile, restoreEncryptedBackup } from '../../src/operations/restore.js';
+import {
+  restoreAndReconcile,
+  restoreEncryptedBackup,
+  verifyPromotion,
+} from '../../src/operations/restore.js';
 import { exportDeletionCheckpoint } from '../../src/operations/deletion-checkpoint.js';
 import { createIdentityHmac } from '../../src/policy/privacy-identity.js';
 import { insertSyntheticAppliedCustomerEvent, syntheticPrivacyKeyring } from './policy-fixtures.js';
@@ -239,17 +243,25 @@ async function additionalArchive(
 }
 
 async function reconciliationFixture(
-  mode: 'normal' | 'batch_exhausted' | 'missing_rotated_key' | 'target_time_boundary' = 'normal',
+  mode:
+    | 'normal'
+    | 'promotion'
+    | 'batch_exhausted'
+    | 'missing_rotated_key'
+    | 'target_time_boundary' = 'normal',
 ) {
   const snapshot = await createRestoreSource();
   cleanup.snapshots.add(snapshot);
   const marker = randomUUID().replaceAll('-', '');
   const at = new Date('2030-03-01T00:00:01.000Z');
-  const identities = Array.from({ length: mode === 'batch_exhausted' ? 2 : 1 }, (_, index) => ({
-    channel: 'whatsapp' as const,
-    channelAccountId: `PHONE_TEST_restore_${marker}`,
-    externalContactId: `CONTACT_TEST_restore_${marker}_${String(index)}`,
-  }));
+  const identities = Array.from(
+    { length: ['batch_exhausted', 'promotion'].includes(mode) ? 2 : 1 },
+    (_, index) => ({
+      channel: 'whatsapp' as const,
+      channelAccountId: `PHONE_TEST_restore_${marker}`,
+      externalContactId: `CONTACT_TEST_restore_${marker}_${String(index)}`,
+    }),
+  );
   for (const [index, identity] of identities.entries())
     await insertSyntheticAppliedCustomerEvent(snapshot.pool, {
       fixtureKey: `restore_reconcile_${marker}_${String(index)}`,
@@ -271,7 +283,7 @@ async function reconciliationFixture(
   const archive = await additionalArchive('000016', undefined, snapshot);
   const key = syntheticPrivacyKeyring.keys.get('TEST_v1');
   if (key === undefined) throw new Error('synthetic_key_missing');
-  for (const identity of identities)
+  for (const identity of mode === 'promotion' ? identities.slice(0, 1) : identities)
     await source.pool.query(
       `insert into privacy_suppressions(identity_hmac,channel,category,reason_code,effective_at,key_version)
     values($1,'whatsapp','deletion_tombstone','customer_deletion',$2,'TEST_v1')`,
@@ -292,7 +304,7 @@ async function reconciliationFixture(
     maximumRows: 1000,
     maximumPayloadBytes: 1048576,
   });
-  return { snapshot, archive, at, signingKey, checkpoint };
+  return { snapshot, archive, at, signingKey, checkpoint, identities };
 }
 
 function reconciliationOptions(
@@ -332,6 +344,240 @@ function reconciliationOptions(
     clock: () => fixture.at,
   };
 }
+
+async function promotionFixture() {
+  const fixture = await reconciliationFixture('promotion');
+  const at = new Date(fixture.at.getTime() + 2000);
+  const key = syntheticPrivacyKeyring.keys.get('TEST_v1');
+  const identity = fixture.identities[1];
+  if (key === undefined || identity === undefined) throw new Error('synthetic_key_missing');
+  const refresh = async () => {
+    await source.pool.query(
+      `insert into privacy_suppressions(identity_hmac,channel,category,reason_code,effective_at,key_version)
+      values($1,'whatsapp','deletion_tombstone','customer_deletion',$2,'TEST_v1')`,
+      [createIdentityHmac(identity, { key, version: 'TEST_v1' }), at],
+    );
+    return exportDeletionCheckpoint({
+      sourcePool: source.pool,
+      recipientFile: join(root, 'recipient'),
+      signingKey: fixture.signingKey,
+      archiveDirectory,
+      sourceRevision: 'a'.repeat(40),
+      schemaRevision: '000016',
+      now: at,
+      timeoutMilliseconds: 10000,
+      maximumRows: 1000,
+      maximumPayloadBytes: 1048576,
+    });
+  };
+  return { fixture, at, refresh };
+}
+
+test.skipIf(!enabled)(
+  'promotion refreshes post-restore deletions under retained source freeze instead of trusting the old pass',
+  async () => {
+    const { fixture, at, refresh } = await promotionFixture();
+    await withTarget(async (input, pool) => {
+      const command = reconciliationOptions(fixture, input, pool);
+      await restoreAndReconcile(command);
+      const countLive = async () =>
+        (
+          await pool.query<{ count: number }>(
+            `select count(*)::int as count from "${fixture.snapshot.schema}".channel_identities where external_contact_id !~ '^deleted:'`,
+          )
+        ).rows;
+      expect(await countLive()).toEqual([{ count: 1 }]);
+      const checkpoint = await refresh();
+      const verificationRef = `restore_${randomUUID().replaceAll('-', '')}`;
+      let quiescenceChecks = 0;
+      const promotion = {
+        ...command,
+        verificationRef,
+        checkpoint,
+        checkpointArchiveFile: join(archiveDirectory, checkpoint.checkpointRef, 'archive.age'),
+        clock: () => at,
+        assertQuiesced: async () => {
+          if (++quiescenceChecks !== 2) return;
+          const contender = await source.pool.connect();
+          try {
+            await contender.query("set lock_timeout='200ms'; set statement_timeout='1000ms'");
+            await expect(
+              contender.query(
+                `insert into privacy_suppressions(identity_hmac,channel,category,reason_code,effective_at,key_version)
+              values($1,'messenger','deletion_tombstone','customer_deletion',$2,'TEST_v1')`,
+                [randomBytes(32).toString('hex'), at],
+              ),
+            ).rejects.toMatchObject({ code: '55P03' });
+          } finally {
+            contender.release(true);
+          }
+        },
+      };
+      await expect(
+        verifyPromotion({
+          ...promotion,
+          checkpoint: fixture.checkpoint,
+          checkpointArchiveFile: command.checkpointArchiveFile,
+        }),
+      ).rejects.toThrow(/^promotion_verification_failed$/u);
+      quiescenceChecks = 0;
+      await expect(verifyPromotion(promotion)).resolves.toEqual({ status: 'ready' });
+      expect(quiescenceChecks).toBe(2);
+      expect(await countLive()).toEqual([{ count: 0 }]);
+      expect(
+        (
+          await pool.query(
+            `select restore_ref,checkpoint_ref from "${fixture.snapshot.schema}".operations_restore_bindings order by recorded_at`,
+          )
+        ).rows,
+      ).toEqual([
+        { restore_ref: command.restoreRef, checkpoint_ref: fixture.checkpoint.checkpointRef },
+        { restore_ref: verificationRef, checkpoint_ref: checkpoint.checkpointRef },
+      ]);
+      await expect(verifyPromotion(promotion)).rejects.toThrow(/^promotion_verification_failed$/u);
+      expect(
+        (
+          await pool.query(
+            `select count(*)::int as count from "${fixture.snapshot.schema}".operations_restore_bindings`,
+          )
+        ).rows,
+      ).toEqual([{ count: 2 }]);
+    });
+  },
+  20000,
+);
+
+test.skipIf(!enabled)(
+  'promotion refuses substituted targets and interrupted quiescence without partial fresh evidence or erasure',
+  async () => {
+    const { fixture, at, refresh } = await promotionFixture();
+    await withTarget(async (input, pool) => {
+      const command = reconciliationOptions(fixture, input, pool);
+      await restoreAndReconcile(command);
+      const checkpoint = await refresh();
+      const verificationRef = `restore_${randomUUID().replaceAll('-', '')}`;
+      const promotion = {
+        ...command,
+        verificationRef,
+        checkpoint,
+        checkpointArchiveFile: join(archiveDirectory, checkpoint.checkpointRef, 'archive.age'),
+        clock: () => at,
+        assertQuiesced: () => Promise.resolve(undefined),
+      };
+      for (const changed of [
+        { ...promotion, target: { ...promotion.target, networkId: 'f'.repeat(64) } },
+        { ...promotion, gitRevision: 'f'.repeat(40) },
+        { ...promotion, verificationRef: command.restoreRef },
+      ])
+        await expect(verifyPromotion(changed)).rejects.toThrow(/^promotion_verification_failed$/u);
+      // Same PostgreSQL cluster, different authoritative catalogue/clock. A
+      // correctly signed but unrelated checkpoint must not replace the source.
+      const substitutedCheckpoint = await exportDeletionCheckpoint({
+        sourcePool: fixture.snapshot.pool,
+        recipientFile: join(root, 'recipient'),
+        signingKey: fixture.signingKey,
+        archiveDirectory,
+        sourceRevision: 'a'.repeat(40),
+        schemaRevision: '000016',
+        now: at,
+        timeoutMilliseconds: 10000,
+        maximumRows: 1000,
+        maximumPayloadBytes: 1048576,
+      });
+      await expect(
+        verifyPromotion({
+          ...promotion,
+          sourcePool: fixture.snapshot.pool,
+          checkpoint: substitutedCheckpoint,
+          checkpointArchiveFile: join(
+            archiveDirectory,
+            substitutedCheckpoint.checkpointRef,
+            'archive.age',
+          ),
+        }),
+      ).rejects.toThrow(/^promotion_verification_failed$/u);
+      await fixture.snapshot.pool.query(
+        'update deletion_checkpoint_clock set source_epoch=$1,revision=$2 where singleton',
+        [
+          fixture.checkpoint.watermark.sourceEpoch,
+          (BigInt(fixture.checkpoint.watermark.sequence) - 1n).toString(),
+        ],
+      );
+      const regressed = await exportDeletionCheckpoint({
+        sourcePool: fixture.snapshot.pool,
+        recipientFile: join(root, 'recipient'),
+        signingKey: fixture.signingKey,
+        archiveDirectory,
+        sourceRevision: 'a'.repeat(40),
+        schemaRevision: '000016',
+        now: at,
+        timeoutMilliseconds: 10000,
+        maximumRows: 1000,
+        maximumPayloadBytes: 1048576,
+      });
+      await expect(
+        verifyPromotion({
+          ...promotion,
+          sourcePool: fixture.snapshot.pool,
+          checkpoint: regressed,
+          checkpointArchiveFile: join(archiveDirectory, regressed.checkpointRef, 'archive.age'),
+        }),
+      ).rejects.toThrow(/^promotion_verification_failed$/u);
+      let checks = 0;
+      await expect(
+        verifyPromotion({
+          ...promotion,
+          assertQuiesced: () => {
+            if (++checks === 2) throw new Error('synthetic_quiescence_lost');
+            return Promise.resolve(undefined);
+          },
+        }),
+      ).rejects.toThrow(/^promotion_verification_failed$/u);
+      expect(checks).toBe(2);
+      const stalled = verifyPromotion({
+        ...promotion,
+        timeoutMilliseconds: 50,
+        assertQuiesced: () => new Promise<void>(() => undefined),
+      }).then(
+        () => 'ready',
+        (error: unknown) => (error instanceof Error ? error.message : 'synthetic_unexpected_error'),
+      );
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const exhausted = new Promise<string>((resolve) => {
+          timer = setTimeout(() => {
+            resolve('synthetic_wait_exhausted');
+          }, 500);
+        });
+        expect(await Promise.race([stalled, exhausted])).toBe('promotion_verification_failed');
+      } finally {
+        clearTimeout(timer);
+      }
+      for (const table of [
+        'operations_restore_bindings',
+        'operations_restore_runs',
+        'restore_checkpoint_imports',
+        'runtime_recovery_holds',
+      ])
+        expect(
+          (
+            await pool.query(
+              `select count(*)::int as count from "${fixture.snapshot.schema}".${table} where restore_ref=$1`,
+              [verificationRef],
+            )
+          ).rows,
+        ).toEqual([{ count: 0 }]);
+      expect(
+        (
+          await pool.query(
+            `select count(*)::int as count from "${fixture.snapshot.schema}".channel_identities where external_contact_id !~ '^deleted:'`,
+          )
+        ).rows,
+      ).toEqual([{ count: 1 }]);
+    });
+  },
+  20000,
+);
 
 test.skipIf(!enabled)(
   'full restore composes current checkpoint, quarantine, bounded erasure and immutable target binding',

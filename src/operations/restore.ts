@@ -85,6 +85,26 @@ export interface RestoreEvidence extends RestoreBinding {
   readonly batches: number;
 }
 
+type ReconciliationOptions = Omit<
+  RestoreOptions,
+  | 'targetConnectionString'
+  | 'expectedTargetSystemIdentifier'
+  | 'schema'
+  | 'archiveDirectory'
+  | 'temporaryDirectory'
+  | 'manifestHmacFile'
+  | 'backupRef'
+> & { readonly backupRef?: string };
+
+/** Trusted host-control capability only. The caller retains its deployment lock,
+ * verified isolation and ALL application shutdown from before this call through
+ * the switch. Neither this return value nor historical evidence is a token.
+ * A new verificationRef preserves the original immutable restore/import. */
+export interface PromotionOptions extends Omit<ReconciliationOptions, 'backupRef'> {
+  readonly verificationRef: string;
+  readonly assertQuiesced: (signal: AbortSignal) => Promise<unknown>;
+}
+
 async function beginRestoreTransaction(client: pg.PoolClient, milliseconds: number) {
   await client.query('begin isolation level read committed');
   await client.query(
@@ -106,44 +126,47 @@ async function requireRestoreTargetDatabase(
     throw new Error('invalid');
 }
 
+function validateReconciliation(options: ReconciliationOptions, beganAt?: Date) {
+  z.number().int().min(1).max(300000).parse(options.timeoutMilliseconds);
+  z.string()
+    .regex(/^restore_[a-f0-9]{32}$/u)
+    .parse(options.restoreRef);
+  z.string()
+    .regex(/^[a-f0-9]{40}$/u)
+    .parse(options.gitRevision);
+  z.string()
+    .regex(/^[0-9]{6}$/u)
+    .parse(options.expectedSchemaRevision);
+  z.number().int().min(1).max(1000).parse(options.batchLimit);
+  z.number().int().min(1).max(1000000).parse(options.maximumBatches);
+  z.number()
+    .int()
+    .positive()
+    .max(Number.MAX_SAFE_INTEGER)
+    .parse(options.maximumCheckpointAgeMilliseconds);
+  z.number().int().positive().max(2147483647).parse(options.maximumCheckpointRows);
+  z.number()
+    .int()
+    .positive()
+    .max(Number.MAX_SAFE_INTEGER)
+    .parse(options.maximumCheckpointPayloadBytes);
+  const identity = restoreTargetIdentitySchema.parse(options.target);
+  if (options.sourcePool === options.targetPool) throw new Error('invalid');
+  const keyring = requirePrivacyHmacKeyring(options.keyring);
+  const startedAt = z.date().parse(beganAt ?? options.clock());
+  return { identity, keyring, startedAt };
+}
+
 export async function restoreAndReconcile(options: RestoreOptions): Promise<RestoreEvidence> {
-  let source: pg.PoolClient | undefined;
-  let target: pg.PoolClient | undefined;
   try {
-    z.number().int().min(1).max(300000).parse(options.timeoutMilliseconds);
-    z.string()
-      .regex(/^restore_[a-f0-9]{32}$/u)
-      .parse(options.restoreRef);
-    z.string()
-      .regex(/^[a-f0-9]{40}$/u)
-      .parse(options.gitRevision);
-    z.string()
-      .regex(/^[0-9]{6}$/u)
-      .parse(options.expectedSchemaRevision);
-    z.number().int().min(1).max(1000).parse(options.batchLimit);
-    z.number().int().min(1).max(1000000).parse(options.maximumBatches);
-    z.number()
-      .int()
-      .positive()
-      .max(Number.MAX_SAFE_INTEGER)
-      .parse(options.maximumCheckpointAgeMilliseconds);
-    z.number().int().positive().max(2147483647).parse(options.maximumCheckpointRows);
-    z.number()
-      .int()
-      .positive()
-      .max(Number.MAX_SAFE_INTEGER)
-      .parse(options.maximumCheckpointPayloadBytes);
-    const identity = restoreTargetIdentitySchema.parse(options.target);
+    const { identity, startedAt } = validateReconciliation(options);
     const connection = archiveDatabaseConnection(options.targetConnectionString);
     if (
-      options.sourcePool === options.targetPool ||
       identity.systemIdentifier !== options.expectedTargetSystemIdentifier ||
       identity.databaseName !== connection.env.PGDATABASE ||
       identity.schema !== options.schema
     )
       throw new Error('invalid');
-    const keyring = requirePrivacyHmacKeyring(options.keyring);
-    const startedAt = z.date().parse(options.clock());
     // Cheap current-source validation before the SQL stream; repeat under the
     // retained freeze after migration. A precheck alone is never authority.
     await assertCheckpointCurrent(options.sourcePool, options.checkpoint, {
@@ -163,6 +186,68 @@ export async function restoreAndReconcile(options: RestoreOptions): Promise<Rest
         databaseName: identity.databaseName,
       },
     });
+    return await reconcileRestoredTarget(options, startedAt, restored.sourceSystemIdentifier);
+  } catch {
+    throw new Error('restore_reconciliation_failed');
+  }
+}
+
+export async function verifyPromotion(options: PromotionOptions): Promise<{ status: 'ready' }> {
+  try {
+    const { startedAt } = validateReconciliation(options);
+    z.string()
+      .regex(/^restore_[a-f0-9]{32}$/u)
+      .parse(options.verificationRef);
+    if (
+      options.verificationRef === options.restoreRef ||
+      typeof options.assertQuiesced !== 'function'
+    )
+      throw new Error('invalid');
+    const assertQuiesced = async () => {
+      const finished = new AbortController();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          Promise.resolve()
+            .then(() => options.assertQuiesced(finished.signal))
+            .then((outcome) => {
+              if (finished.signal.aborted || outcome !== undefined) throw new Error('invalid');
+            }),
+          new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(() => {
+              reject(new Error('invalid'));
+              finished.abort();
+            }, options.timeoutMilliseconds);
+          }),
+        ]);
+      } finally {
+        finished.abort();
+        clearTimeout(timer);
+      }
+    };
+    await assertQuiesced();
+    await reconcileRestoredTarget(
+      { ...options, restoreRef: options.verificationRef },
+      startedAt,
+      undefined,
+      { restoreRef: options.restoreRef, assertQuiesced },
+    );
+    return { status: 'ready' };
+  } catch {
+    throw new Error('promotion_verification_failed');
+  }
+}
+
+async function reconcileRestoredTarget(
+  options: ReconciliationOptions,
+  startedAt: Date,
+  expectedSourceIdentifier?: string,
+  promotion?: { readonly restoreRef: string; readonly assertQuiesced: () => Promise<void> },
+): Promise<RestoreEvidence> {
+  let source: pg.PoolClient | undefined;
+  let target: pg.PoolClient | undefined;
+  try {
+    const { identity, keyring } = validateReconciliation(options, startedAt);
     source = await options.sourcePool.connect();
     await beginRestoreTransaction(source, options.timeoutMilliseconds);
     const helper = (
@@ -173,6 +258,13 @@ export async function restoreAndReconcile(options: RestoreOptions): Promise<Rest
     if (helper?.present === true) await source.query('select lock_deletion_checkpoint_source()');
     else await source.query('lock table privacy_suppressions in share mode');
     const frozenSource = { transactionClient: source };
+    const sourceSystemIdentifier = await systemIdentifier(source);
+    if (
+      sourceSystemIdentifier === identity.systemIdentifier ||
+      (expectedSourceIdentifier !== undefined &&
+        sourceSystemIdentifier !== expectedSourceIdentifier)
+    )
+      throw new Error('invalid');
     const evaluatedAt = z.date().parse(options.clock());
     if (evaluatedAt < startedAt) throw new Error('invalid');
     const validateCurrent = async (at: Date) => {
@@ -182,9 +274,7 @@ export async function restoreAndReconcile(options: RestoreOptions): Promise<Rest
         evaluatedAt: at,
         maximumAgeMilliseconds: options.maximumCheckpointAgeMilliseconds,
       });
-      if (
-        (await systemIdentifier(frozenSource.transactionClient)) !== restored.sourceSystemIdentifier
-      )
+      if ((await systemIdentifier(frozenSource.transactionClient)) !== sourceSystemIdentifier)
         throw new Error('invalid');
     };
     await validateCurrent(evaluatedAt);
@@ -192,11 +282,52 @@ export async function restoreAndReconcile(options: RestoreOptions): Promise<Rest
     await beginRestoreTransaction(target, options.timeoutMilliseconds);
     await target.query(`set local search_path="${identity.schema}",public`);
     await requireRestoreTargetDatabase(target, identity);
+    const locked = await target.query<{ acquired: boolean }>(
+      'select pg_try_advisory_xact_lock(hashtextextended($1,0)) as acquired',
+      [`fcd-support:deployment:${identity.schema}`],
+    );
+    if (locked.rows[0]?.acquired !== true) throw new Error('invalid');
+    let backupRef = options.backupRef;
+    if (promotion !== undefined) {
+      // Keep recovery review and parent evidence stable through the fresh pass.
+      await target.query(
+        'lock table operations_restore_runs,operations_restore_bindings,runtime_recovery_holds,runtime_recovery_reviews in share row exclusive mode',
+      );
+      const parent = await new PostgresRestoreEvidence({ transactionClient: target }).load(
+        promotion.restoreRef,
+      );
+      const held = (
+        await target.query<{ held: boolean }>(
+          `select exists(
+        select 1 from runtime_recovery_holds hold where hold.restore_ref=$1 and hold.created_at <= $2
+        and not exists(select 1 from runtime_recovery_reviews review where review.restore_ref=hold.restore_ref)
+        and not exists(select 1 from operations_restore_runs run where run.restore_ref=hold.restore_ref and run.state='failed')
+      ) as held`,
+          [promotion.restoreRef, evaluatedAt],
+        )
+      ).rows[0]?.held;
+      if (
+        held !== true ||
+        parent.gitRevision !== options.gitRevision ||
+        parent.schemaRevision !== options.expectedSchemaRevision ||
+        parent.sourceSystemIdentifier !== sourceSystemIdentifier ||
+        parent.sourceWatermark.sourceEpoch !== options.checkpoint.watermark.sourceEpoch ||
+        BigInt(options.checkpoint.watermark.sequence) < BigInt(parent.sourceWatermark.sequence) ||
+        parent.recordedAt > evaluatedAt ||
+        JSON.stringify(parent.target) !== JSON.stringify(identity)
+      )
+        throw new Error('invalid');
+      backupRef = parent.backupRef;
+    }
+    backupRef = z
+      .string()
+      .regex(/^backup_[a-f0-9]{32}$/u)
+      .parse(backupRef);
     await target.query(
       "insert into operations_restore_runs(restore_ref,backup_ref,checkpoint_ref,git_revision,schema_revision,state,recorded_at) values($1,$2,$3,$4,$5,'isolated',$6)",
       [
         options.restoreRef,
-        options.backupRef,
+        backupRef,
         options.checkpoint.checkpointRef,
         options.gitRevision,
         options.expectedSchemaRevision,
@@ -267,16 +398,17 @@ export async function restoreAndReconcile(options: RestoreOptions): Promise<Rest
     await validateCurrent(finishedAt);
     const binding = await new PostgresRestoreEvidence(targetTransaction).seal({
       restoreRef: options.restoreRef,
-      backupRef: options.backupRef,
+      backupRef,
       checkpointRef: options.checkpoint.checkpointRef,
       gitRevision: options.gitRevision,
       schemaRevision: options.expectedSchemaRevision,
       target: identity,
-      sourceSystemIdentifier: restored.sourceSystemIdentifier,
+      sourceSystemIdentifier,
       gateRef,
       requiredKeyVersions,
       evaluatedAt,
     });
+    await promotion?.assertQuiesced();
     const sealedAt = z.date().parse(options.clock());
     if (
       sealedAt < finishedAt ||
