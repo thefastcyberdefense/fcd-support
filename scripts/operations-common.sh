@@ -260,6 +260,9 @@ operations_preflight() {
   opened="$(stat -Lc '%d:%i' -- "/proc/$shell_pid/fd/$OPS_LOCK_DESCRIPTOR")" || operations_fail operations_lock_invalid
   [[ "$before" == "$opened" ]] || operations_fail operations_lock_invalid
   flock --nonblock "$OPS_LOCK_DESCRIPTOR" 2>/dev/null || operations_fail operations_lock_conflict
+  # A crashed job may still be running or may have committed without an ACK.
+  # Its protected record must be reconciled before any new host operation.
+  [[ ! -e "${OPS_CONFIG[FCD_STATE_ROOT]}/active-job" && ! -L "${OPS_CONFIG[FCD_STATE_ROOT]}/active-job" ]] || operations_fail operations_job_pending
   unset OPS_DOCKER_ENDPOINT
   OPS_DOCKER_ENDPOINT="$(operations_docker context inspect --format '{{(index .Endpoints "docker").Host}}')" || operations_fail operations_daemon_invalid
   [[ "$OPS_DOCKER_ENDPOINT" == unix:///* ]] && operations_absolute_path "${OPS_DOCKER_ENDPOINT#unix://}" || operations_fail operations_daemon_invalid

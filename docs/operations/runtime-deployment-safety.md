@@ -30,6 +30,53 @@ and explicit stale-socket recovery remain Task 11 work. In particular, the opera
 not evidence of container, network, filesystem, socket or public-route safety.
 P6-004 remains in progress and P6-GATE remains blocked.
 
+## Durable Operation Job Lifecycle
+
+The internal host controller now journals job intent under the pre-provisioned
+`FCD_STATE_ROOT` before creating a stopped container. The root must be owned by
+UID/GID 1000, mode 0700, on supported persistent local storage. Each journal is
+a mode-0600, single-link literal record, checked against the held deployment
+lock descriptor. It stores only scope/reference, service, revision, immutable
+image ID, command hash, container ID and phase. It contains no command arguments,
+credentials or business state. Writes and directory changes are synchronized;
+PostgreSQL remains authoritative for application state.
+
+Jobs use a unique Compose project and the existing private operations network.
+Their archive volume must already exist; operations Compose cannot create it.
+The controller checks the unique container, actual image, both Compose and job
+scope labels, command and stopped state, then durably records its container ID
+and started phase before issuing start. A success acknowledgement is buffered
+until exit, fixed output validation, exact container removal and absence checks
+have succeeded and the journal has been cleared.
+
+Lost acknowledgements, failed jobs and uncertain cleanup preserve an unresolved
+record. The controller attempts bounded shutdown/removal only for a verified
+owned container. Successful cancellation does not establish whether a database
+transaction committed, so it never silently clears uncertainty or replays the
+job. A controller killed after start also leaves the record. Host preflight
+refuses any pending record, including a symlink, before Docker access. Resolving
+uncertainty still requires operation-specific postcondition reconciliation;
+the internal filesystem transition helper is not a portable approval token.
+
+Native tests cover 21 filesystem journal cases and 19 job lifecycle cases,
+including process death, failed cancellation, wrong ownership/project/service,
+duplicate discovery and lost create/start/wait/removal acknowledgements. Their
+Docker transport is a test-owned executable double. The complete pinned native
+gate passed 347 units and 68 integrations; the code gate passed 1,045 tests with
+146 platform skips across 70 files. The full ordinary PostgreSQL regression and
+isolated restore suite were not rerun for this host-only change. These internal
+prerequisites do not enable the public deployment commands or close Task 11.
+Bootstrap orchestration, source binding, selected-volume state, restore switching,
+retained rollback, pending-job reconciliation and final public wiring remain.
+
+A separate actual local Docker check runs the fixed stopped-create helper. It
+refuses an absent external archive volume without creating it, then verifies the
+created container's image/scope/command, hardening, archive configuration and
+private network configuration. Its start timestamp stays zero: no job executes
+and no database connection occurs. Scoped cleanup passes. Windows uses a
+test-owned Compose-plugin configuration and empty-file/path adaptation; these
+fixture adaptations do not relax the Linux production controller.
+
 ## Deployment SQL Target And Principal
 
 The deployment CLI now requires `OPS_DATABASE_SYSTEM_IDENTIFIER`,

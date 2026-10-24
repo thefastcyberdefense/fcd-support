@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 export MSYS_NO_PATHCONV=1
 MODE="${1:-backup}"
-[[ "$#" -le 1 && ( "$MODE" == backup || "$MODE" == checkpoint || "$MODE" == grants || "$MODE" == restore ) ]] || { echo backup_test_mode_invalid >&2; exit 1; }
+[[ "$#" -le 1 && ( "$MODE" == backup || "$MODE" == checkpoint || "$MODE" == grants || "$MODE" == restore || "$MODE" == state ) ]] || { echo backup_test_mode_invalid >&2; exit 1; }
 UNIT_FILES=(tests/backup.test.ts tests/backup-retention.test.ts)
 INTEGRATION_FILES=(tests/integration/postgres-encrypted-backup.test.ts)
 if [[ "$MODE" == checkpoint || "$MODE" == grants ]]; then
@@ -20,10 +20,16 @@ if [[ "$MODE" == grants ]]; then
   UNIT_FILES+=(tests/bootstrap-command.test.ts)
   UNIT_FILES+=(tests/phase6-compose-contract.test.ts)
   UNIT_FILES+=(tests/database-identity-script.test.ts)
+  UNIT_FILES+=(tests/operations-job-state.test.ts)
+  UNIT_FILES+=(tests/operations-job-lifecycle.test.ts)
   INTEGRATION_FILES+=(tests/integration/postgres-deployment-cli.test.ts tests/integration/postgres-forward-migration.test.ts)
 fi
 if [[ "$MODE" == restore ]]; then
   INTEGRATION_FILES=(tests/integration/postgres-isolated-restore.test.ts)
+fi
+if [[ "$MODE" == state ]]; then
+  UNIT_FILES=(tests/operations-job-state.test.ts tests/operations-job-lifecycle.test.ts tests/operations-scripts.test.ts)
+  INTEGRATION_FILES=()
 fi
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NATIVE_ROOT="$ROOT"
@@ -58,6 +64,7 @@ cleanup() {
   done
 }
 trap cleanup EXIT
+if [[ "$MODE" != state ]]; then
 docker compose --file "$NATIVE_ROOT/infra/compose.test.yml" up --detach --wait postgres >/dev/null
 # This is the repository's isolated trust-auth synthetic DB, never a server network.
 [[ "$(docker network inspect --format '{{.Internal}}' fcd-support-test_data)" == true ]]
@@ -65,6 +72,7 @@ docker compose --file "$NATIVE_ROOT/infra/compose.test.yml" up --detach --wait p
 for container in $(docker network inspect --format '{{range $id, $member := .Containers}}{{$id}} {{end}}' fcd-support-test_data); do
   [[ "$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}/{{index .Config.Labels "com.docker.compose.service"}}' "$container")" == fcd-support-test/postgres ]] || { echo backup_test_network_participant_invalid >&2; exit 1; }
 done
+fi
 docker build --platform linux/amd64 --build-arg "VCS_REF=$REVISION" --file "$NATIVE_ROOT/infra/Dockerfile.operations" --tag "$OPS" "$NATIVE_ROOT" >/dev/null 2>&1 || { echo backup_operations_build_failed >&2; exit 1; }
 docker build --platform linux/amd64 --build-arg "OPERATIONS_IMAGE=$OPS" --file "$NATIVE_ROOT/infra/Dockerfile.backup-test" --tag "$RUNNER" "$NATIVE_ROOT" >/dev/null 2>&1 || { echo backup_runner_build_failed >&2; exit 1; }
 docker volume create --label "fcd-support.backup-test=$SCOPE" "$VOLUME" >/dev/null
@@ -85,9 +93,10 @@ if [[ "$MODE" == restore ]]; then
 fi
 run_tests() {
 local job="$1"; shift
-local launch=(run --rm)
+local launch=(run --rm) network=fcd-support-test_data
+[[ "$MODE" != state ]] || network=none
 if [[ "$MODE" == restore && "$job" == integration ]]; then launch=(create); fi
-docker "${launch[@]}" --name "$SCOPE-$job" --label "fcd-support.backup-test=$SCOPE" --network fcd-support-test_data --read-only --cap-drop ALL \
+docker "${launch[@]}" --name "$SCOPE-$job" --label "fcd-support.backup-test=$SCOPE" --network "$network" --read-only --cap-drop ALL \
   --security-opt no-new-privileges --cpus 1 --memory 1g --pids-limit 128 \
   --tmpfs /run/fcd-support:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0700,size=64m \
   --tmpfs /workspace/node_modules/.vite-temp:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0700,size=16m \
@@ -114,5 +123,5 @@ if [[ "$MODE" == restore && "$job" == integration ]]; then
 fi
 }
 run_tests unit run "${UNIT_FILES[@]}"
-run_tests integration run --config vitest.integration.config.ts "${INTEGRATION_FILES[@]}"
-echo encrypted_backup_local=true
+if (( ${#INTEGRATION_FILES[@]} > 0 )); then run_tests integration run --config vitest.integration.config.ts "${INTEGRATION_FILES[@]}"; fi
+if [[ "$MODE" == state ]]; then echo operations_state_local=true; else echo encrypted_backup_local=true; fi

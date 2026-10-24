@@ -26,6 +26,7 @@ docker compose --env-file "$NATIVE_FIXTURE/fixture.env" --file infra/compose.ope
     let raw=""; for await(const chunk of process.stdin) { raw+=chunk; if(raw.length>1048576)process.exit(1); }
     try {
       const model=JSON.parse(raw); assertOperationsCompose(model,process.argv[1]);
+      if(model.volumes?.backups?.external!==true)throw 0;
       const b=model.services.bootstrap;
       if(!b || b.user!=="node" || b.read_only!==true || b.restart!=="no" || (b.ports??[]).length || (b.volumes??[]).length)throw 0;
       if(JSON.stringify(b.command)!==JSON.stringify(["node","dist/operations/bootstrap-main.js"]) || JSON.stringify(b.profiles)!==JSON.stringify(["operations-bootstrap"]))throw 0;
@@ -45,6 +46,7 @@ docker compose --env-file "$NATIVE_FIXTURE/fixture.env" --file infra/compose.ope
         m=>m.services.migrate.secrets.push({source:"bootstrap-database"}),
         m=>m.services.backup.secrets.push({source:"bootstrap-backup-password"}),
         m=>m.services.bootstrap.networks.ingress={},
+        m=>delete m.volumes.backups.external,
       ]) {
         const changed=structuredClone(model); mutate(changed); let refused=false;
         try { assertOperationsCompose(changed,process.argv[1]); } catch { refused=true; }

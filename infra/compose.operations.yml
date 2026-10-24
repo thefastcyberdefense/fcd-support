@@ -276,6 +276,7 @@ networks:
 volumes:
   backups:
     name: ${FCD_BACKUP_VOLUME:?FCD_BACKUP_VOLUME must be set}
+    external: true
 
 secrets:
   bootstrap-database:

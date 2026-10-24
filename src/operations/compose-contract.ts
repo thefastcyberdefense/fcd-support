@@ -86,7 +86,9 @@ const composeSchema = z.object({
     }),
   ),
   secrets: z.record(z.string(), z.object({ file: z.string().min(1) })),
-  volumes: z.record(z.string(), z.object({ name: z.string().min(1) })).optional(),
+  volumes: z
+    .record(z.string(), z.object({ name: z.string().min(1), external: z.boolean().optional() }))
+    .optional(),
 });
 type Compose = z.infer<typeof composeSchema>;
 type Service = z.infer<typeof serviceSchema>;
@@ -511,7 +513,9 @@ export function assertOperationsCompose(input: unknown, revision: string): void 
     }
     if (
       !same(Object.keys(config.networks), ['operations_data']) ||
-      config.networks.operations_data?.external !== true
+      config.networks.operations_data?.external !== true ||
+      !same(Object.keys(config.volumes ?? {}), ['backups']) ||
+      config.volumes?.backups?.external !== true
     )
       invalid();
   } catch {

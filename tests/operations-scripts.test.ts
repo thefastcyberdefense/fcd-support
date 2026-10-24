@@ -257,6 +257,8 @@ test.runIf(native).each([
   ['volume-driver', 'operations_volume_invalid'],
   ['lock-symlink', 'operations_lock_invalid'],
   ['lock-conflict', 'operations_lock_conflict'],
+  ['pending-job', 'operations_job_pending'],
+  ['pending-job-symlink', 'operations_job_pending'],
 ] as const)('host preflight handles %s without repairs or data mutation', async (kind, error) => {
   const root = await mkdtemp('/run/fcd-support/preflight-test-');
   roots.push(root);
@@ -265,6 +267,11 @@ test.runIf(native).each([
     await mkdir(join(root, name), { mode: 0o700 });
   const lock = join(root, 'state', 'deployment.lock');
   await writeFile(lock, '', { mode: 0o600 });
+  if (kind === 'pending-job')
+    await writeFile(join(root, 'state', 'active-job'), 'synthetic_unresolved_job\n', {
+      mode: 0o600,
+    });
+  if (kind === 'pending-job-symlink') await symlink(lock, join(root, 'state', 'active-job'));
   const bin = await mkdtemp('/var/lib/fcd-support/backups/preflight-bin-');
   roots.push(bin);
   await chmod(bin, 0o700);
@@ -290,6 +297,7 @@ esac
 set -eu
 scope="$(dirname "$0")"; root="$(<"$scope/root")"; kind="$(<"$scope/kind")"
 if [[ "$1" == --host ]]; then shift 2; fi
+printf '%s\\n' read >> "$scope/docker-reads"
 [[ "$1 $2" == 'image inspect' || "$1 $2" == 'volume inspect' || "$1 $2" == 'context inspect' ]] || { printf '%s\\n' mutation >> "$scope/mutations"; exit 19; }
 if [[ "$1" == context ]]; then
   if [[ "$kind" == remote-daemon ]]; then printf '%s\\n' tcp://remote.invalid:2376; else printf '%s\\n' unix:///var/run/docker.sock; fi
@@ -375,6 +383,8 @@ operations_preflight; printf '%s\\n' preflight_valid`,
     );
     expect(result.status).toBe(error === '' ? 0 : 1);
     expect(result.stderr.trim()).toBe(error);
+    if (kind === 'pending-job' || kind === 'pending-job-symlink')
+      expect(existsSync(join(bin, 'docker-reads'))).toBe(false);
     expect(result.stdout.trim()).toBe(error === '' ? 'preflight_valid' : '');
     expect(existsSync(join(bin, 'mutations'))).toBe(false);
     expect(existsSync(join(root, 'socket'))).toBe(true);
