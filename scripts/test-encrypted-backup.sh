@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 export MSYS_NO_PATHCONV=1
 MODE="${1:-backup}"
-[[ "$#" -le 1 && ( "$MODE" == backup || "$MODE" == checkpoint || "$MODE" == grants || "$MODE" == restore || "$MODE" == state ) ]] || { echo backup_test_mode_invalid >&2; exit 1; }
+[[ ( "$#" -le 1 || ( "$#" == 2 && "$MODE" == state ) ) && ( "$MODE" == backup || "$MODE" == checkpoint || "$MODE" == grants || "$MODE" == restore || "$MODE" == state ) ]] || { echo backup_test_mode_invalid >&2; exit 1; }
 UNIT_FILES=(tests/backup.test.ts tests/backup-retention.test.ts)
 INTEGRATION_FILES=(tests/integration/postgres-encrypted-backup.test.ts)
 if [[ "$MODE" == checkpoint || "$MODE" == grants ]]; then
@@ -25,14 +25,23 @@ if [[ "$MODE" == grants ]]; then
   UNIT_FILES+=(tests/operations-bootstrap-script.test.ts)
   UNIT_FILES+=(tests/operations-deployment-state.test.ts)
   UNIT_FILES+=(tests/operations-drain-script.test.ts)
+  UNIT_FILES+=(tests/operations-adoption-script.test.ts)
   INTEGRATION_FILES+=(tests/integration/postgres-deployment-cli.test.ts tests/integration/postgres-forward-migration.test.ts)
 fi
 if [[ "$MODE" == restore ]]; then
   INTEGRATION_FILES=(tests/integration/postgres-isolated-restore.test.ts)
 fi
 if [[ "$MODE" == state ]]; then
-  UNIT_FILES=(tests/operations-job-state.test.ts tests/operations-job-lifecycle.test.ts tests/operations-scripts.test.ts tests/operations-bootstrap-script.test.ts tests/operations-deployment-state.test.ts tests/operations-drain-script.test.ts)
+  UNIT_FILES=(tests/operations-job-state.test.ts tests/operations-job-lifecycle.test.ts tests/operations-scripts.test.ts tests/operations-bootstrap-script.test.ts tests/operations-deployment-state.test.ts tests/operations-drain-script.test.ts tests/operations-adoption-script.test.ts)
   INTEGRATION_FILES=()
+  # Focused native filesystem iteration, restricted to the fixed state suite.
+  # The complete grants gate always runs its full unit/integration selection.
+  if [[ "$#" == 2 ]]; then
+    selected=''
+    for file in "${UNIT_FILES[@]}"; do [[ "$file" != "$2" ]] || selected="$file"; done
+    [[ -n "$selected" ]] || { echo backup_test_mode_invalid >&2; exit 1; }
+    UNIT_FILES=("$selected")
+  fi
 fi
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NATIVE_ROOT="$ROOT"

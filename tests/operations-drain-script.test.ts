@@ -25,6 +25,7 @@ test
   .each([
     'ok',
     'admission',
+    'admission-adoption',
     'admission-root-container',
     'no-apps',
     'wrong-image',
@@ -168,7 +169,7 @@ declare -A OPS_CONFIG=([FCD_STATE_ROOT]="$TASK_ROOT/state" [FCD_RUNTIME_PROJECT]
 [FCD_COMMAND_TIMEOUT_SECONDS]=5 [FCD_STOP_GRACE_MS]=1000 [FCD_ADMIN_SOCKET_ROOT]="$TASK_ROOT/socket" [FCD_CONFIG_ROOT]="$TASK_ROOT/config" [FCD_SECRET_ROOT]="$TASK_ROOT/secrets"
 [FCD_POSTGRES_VOLUME]=fcd-support-original [FCD_SUPPORT_REVISION]=${'b'.repeat(40)})
 exec {OPS_LOCK_DESCRIPTOR}<>"$TASK_ROOT/state/deployment.lock"; flock --nonblock "$OPS_LOCK_DESCRIPTOR"
-${fault === 'no-marker' ? 'operations_selection_create' : 'operations_selection_adopt_draining'} ${ref} fcd-support-original fcd-support postgres-data 2030-04-01T00:00:00Z 1111111111111111111 fcd_support ${revision} 000016
+${fault === 'admission-adoption' ? `source "$TASK_ADOPTION"; operations_adopt_admission ${revision} ${appImage} ${pgImage}` : `${fault === 'no-marker' ? 'operations_selection_create' : 'operations_selection_adopt_draining'} ${ref} fcd-support-original fcd-support postgres-data 2030-04-01T00:00:00Z 1111111111111111111 fcd_support ${revision} 000016`}
 ${fault === 'pending-job' ? 'printf synthetic_uncertain_job > "$TASK_ROOT/state/active-job";' : ''}
 operations_drain_owned_applications ${revision} ${appImage} ${pgImage} ${sourceMode}
 `,
@@ -182,10 +183,18 @@ operations_drain_owned_applications ${revision} ${appImage} ${pgImage} ${sourceM
             TASK_COMMON: resolve('scripts/operations-common.sh'),
             TASK_STATE: resolve('scripts/operations-deployment-state.sh'),
             TASK_LIBRARY: resolve('scripts/operations-drain.sh'),
+            TASK_ADOPTION: resolve('scripts/operations-adoption.sh'),
           },
         },
       );
-      const success = ['ok', 'admission', 'no-apps', 'stop-ack', 'remove-ack'].includes(fault);
+      const success = [
+        'ok',
+        'admission',
+        'admission-adoption',
+        'no-apps',
+        'stop-ack',
+        'remove-ack',
+      ].includes(fault);
       expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
         status: success ? 0 : 1,
         stdout: '',

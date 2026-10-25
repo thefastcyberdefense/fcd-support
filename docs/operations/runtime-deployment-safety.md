@@ -115,7 +115,8 @@ The internal drain helper requires a durable `draining` selection with possible
 writes recorded before any signal. A ready managed selection can enter this
 phase. First adoption of the legacy admission deployment can initialize directly
 in `draining`, without creating false ready or retained-image evidence. Adoption
-discovery and public deployment integration are still pending. Before ready,
+is now preceded by protected source discovery; public deployment integration is
+still pending. Before ready,
 the schema field is a lower bound; only fresh SQL verification can establish
 the schema for startup and retention.
 
@@ -158,6 +159,41 @@ Full ordinary PostgreSQL and isolated restore were not rerun for this host-only
 checkpoint; their latest results remain 574/39 native-only skips and 42 units/22
 integrations respectively. No SSH, server, provider or external infrastructure
 action occurred.
+
+### First-admission discovery
+
+The internal admission adopter requires independently supplied source revision
+and immutable application/PostgreSQL image IDs. Under the deployment lock, it
+refuses an existing pointer, pending replacement, active operation, used-volume
+history or retained bundle before Docker access. It verifies the source images,
+single running non-root legacy PostgreSQL actor, exact selected volume mount,
+local default volume driver, creation time and Compose provenance. A strict
+physical identifier read is surrounded by matching actor, mount, volume and image
+samples. Changed or ambiguous discovery creates no new selection.
+
+Successful discovery initializes a fresh draining reference with possible writes
+already recorded, the observed physical cluster and source revision. Schema
+`000000` is explicitly provisional until SQL verification; adoption does not
+claim schema readiness or create a retained bundle. It never stops, removes or
+starts a container. The controller must next invoke the separately verified
+drain with the same source image pins. Native cases cover the composition of
+adoption followed by drain, as well as standalone discovery refusals. A failed
+durable write preserves partial history for reconciliation rather than erasing
+it. The adopter remains internal; PostgreSQL container convergence, startup and
+public controller integration are still unfinished.
+
+For focused development, the networkless `state` test mode accepts one optional
+test file from its fixed allowlist. Unknown paths and filtering the full `grants`
+gate are refused before Docker; the complete gate always runs every selected
+unit and integration test.
+
+Adoption validation on 2026-10-25 (Asia/Dhaka): `npm run check` passed 1,072 tests
+with 232 platform skips across 74 files, plus lint, typecheck and build. The pinned
+native gate passed 460 units across 17 files and 70 PostgreSQL integrations across
+six files (35.53 seconds for integrations), including the 16 discovery cases and
+28 drain cases. Focused test-filter refusal checks passed twice. Full ordinary
+PostgreSQL and isolated restore were not rerun; the SQL/restore implementation
+and previous results are unchanged. This is local synthetic evidence only.
 
 Validation: code gate 1,066 passed/171 platform skips across 72 files; combined
 native gate 393 units/70 integrations. The multi-step switch test has a 20-second

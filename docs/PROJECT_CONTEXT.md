@@ -33,7 +33,12 @@ PostgreSQL, images, volumes and any stale socket owner. Refusal leaves uncertain
 and never restarts an application. Actual legacy PostgreSQL image metadata omits
 both revision labels and the default image user, so admission handling requires
 an independently pinned image ID and an explicitly non-root actual container.
-Public command integration, adoption discovery, startup, promotion/switch,
+The internal first-admission adopter now checks protected history and a single
+legacy PostgreSQL actor against matching volume, mount, image and physical-ID
+samples. It records possible writes and a provisional schema in draining state;
+it never starts/stops actors or creates ready/retained evidence. The verified
+drain is the next separate step. PostgreSQL container convergence is still open.
+Public command integration, startup, promotion/switch,
 retained rollback and pending-job reconciliation remain unfinished. Task 11
 stays IN PROGRESS; P6 is not deployed. See
 `docs/operations/runtime-deployment-safety.md` for scope and validation.
