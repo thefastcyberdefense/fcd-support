@@ -140,7 +140,9 @@ are implemented internally. Unresolved execution blocks host preflight; public
 deployment wiring and the remaining Task 11 controls are still incomplete.
 Backup/checkpoint CLI source bindings and verified backup snapshots are also
 implemented. Database stage ordering is internal; controlled-outage/startup
-wiring and volume switching remain open.
+wiring and volume switching remain open. Protected selection/history and retained
+revision records are implemented internally; Compose application and rollback
+execution are still pending.
 Validation is recorded in `docs/operations/runtime-deployment-safety.md`.
 
 | ID      | Task                                                                                        | Depends On            | Owner                 | Status      | Evidence / Completion Rule                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Approval Boundary                                                             |

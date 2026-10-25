@@ -77,6 +77,45 @@ and no database connection occurs. Scoped cleanup passes. Windows uses a
 test-owned Compose-plugin configuration and empty-file/path adaptation; these
 fixture adaptations do not relax the Linux production controller.
 
+## Protected Selection And Retained Revisions
+
+The internal host metadata library now stores a versioned selection pointer,
+immutable used-volume history and immutable retained revision bundles under
+`FCD_STATE_ROOT`. It uses the checked deployment lock, persistent local storage,
+UID/GID 1000, protected ancestors and mode-0600 single-link files. Records are
+literal data, never sourced. Writes are synchronized; selection replacement
+checks inode/content identity before an atomic rename. A leftover replacement
+file remains for reconciliation and blocks further selection reads.
+
+Selection and history bind project, database/schema namespace, volume origin,
+logical name, creation time and physical system identifier. A restored selection
+requires a different cluster and an unused volume name, records the previous
+volume, and cannot lower the recorded schema revision. Used-volume history is
+never overwritten or deleted by this library. Losing the selection pointer while
+any history exists refuses initialization, including a newly configured volume.
+There is no implicit fallback to configuration or an older volume.
+
+The phases are quiescent, switching, starting, ready and uncertain. Write exposure
+is recorded before application startup. It cannot be cleared for the same volume,
+and uncertainty cannot silently transition to ready. Retained bundles can be
+recorded only from a ready selection; they bind the full revision, namespace,
+schema revision and application/operations/PostgreSQL image IDs. Identical
+retention is idempotent; replacing a bundle with different IDs refuses.
+
+These records contain no business state and grant no attachment authority. The
+trusted controller must still prove current host/SQL identity, fresh restoration
+and deletion evidence, quiescence and compatibility under its lock. Live image
+inspection, rollback execution, selection application to Compose, operation-specific
+uncertainty resolution and public controller wiring remain incomplete. The
+25 new native filesystem cases do not constitute a deployed runtime or switch.
+
+Validation: code gate 1,066 passed/171 platform skips across 72 files; combined
+native gate 393 units/70 integrations. The multi-step switch test has a 20-second
+aggregate allowance for its separately bounded subprocesses; production command
+timeouts are unchanged. The last full ordinary PostgreSQL and isolated restore
+runs remain the source-binding checkpoint below; neither was repeated for this
+host-filesystem-only change.
+
 ## Deployment SQL Target And Principal
 
 The internal database-upgrade helper now composes owner preparation, a separately
