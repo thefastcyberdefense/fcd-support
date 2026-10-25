@@ -352,6 +352,52 @@ journal bytes; startup orchestration passes 22 cases. Docker shutdown in those
 cases uses executable doubles. Full ordinary PostgreSQL and isolated restore
 were not rerun; no server/provider action or public enablement occurred.
 
+### Operation/backend correlation prerequisite
+
+Managed one-shot jobs now receive the same opaque `operation_` reference as their
+durable journal. Operations-only secret loading binds database connections to
+`fcd-support:<reference>` at PostgreSQL startup; the label is 54 ASCII bytes.
+Existing namespace options are preserved and the fixed application name is
+applied last, overriding URI name/options spoofing and ambient defaults. The
+resolved database URI remains non-enumerable/redacted, and errors contain no URI
+or reference values. Runtime application roles reject this field before reading
+credentials; direct legacy CLI use without a reference is unchanged.
+
+Encrypted backup exports pass the canonical name to both the snapshot exporter
+and external `pg_dump`. The native dump connection accepts only the canonical
+name and matching fixed startup options; arbitrary query options remain refused.
+The operations image advertises reference-input capability. That capability and
+reference are correlation metadata, not authorization to clear a journal or
+attach applications.
+
+Actual local PostgreSQL tests verify namespace preservation, startup-name
+override, visibility while connected and disappearance after closure. The real
+encrypted-backup test holds an authored fixture table lock long enough to observe
+both exporter and dump backends under the same reference, then confirms zero
+matching backends before accepting completion. Compiled bootstrap and deployment
+CLI integration fixtures also use operation references. The actual stopped-create
+Docker check verifies the reference environment field without starting the job.
+
+Journal settlement still requires verified job termination and fresh PostgreSQL
+backend/operation postconditions before any clear. No resolver is enabled by
+this change. Legacy untracked images/jobs cannot be assumed settled from a zero
+reference count. Isolated-restore target connection tracking remains part of the
+unfinished restore host integration; its internal static labels are not covered
+by this managed-job claim. No production/server/provider traffic was used.
+
+Correlation checkpoint validation: `npm run check` exited 0 with 1,119 passing
+tests and 270 platform skips across 79 files. The actual stopped-create check
+exited 0 with 11 checks; the job was never started. A prior native regression
+hit the drain fixture's 15-second aggregate subprocess allowance; an isolated
+rerun passed all 28 cases (the slow case took 11.5 seconds). Its aggregate
+allowance is now 30 seconds with a 35-second test deadline; production command
+timeouts are unchanged.
+The complete native grants gate exited 0 with 545 unit tests across 22 files
+and 71 PostgreSQL integration tests across six files (35.89 seconds for the
+integration pass). Cleanup checks found zero generated schemas, roles, advisory
+locks, labelled test resources or candidate images. These are local synthetic
+results; the deployment/restore workflow remains incomplete.
+
 Validation: code gate 1,066 passed/171 platform skips across 72 files; combined
 native gate 393 units/70 integrations. The multi-step switch test has a 20-second
 aggregate allowance for its separately bounded subprocesses; production command

@@ -55,7 +55,8 @@ operations_job_override() {
   printf '{"services":{"%s":{"image":"%s","command":%s,"labels":{' "$OPS_JOB_SERVICE" "$OPS_JOB_IMAGE" "$OPS_JOB_COMMAND_JSON"
   printf '"org.opencontainers.image.revision":"%s",' "${OPS_CONFIG[FCD_SUPPORT_REVISION]}"
   printf '"fcd-support.operation.ref":"%s","fcd-support.operation.parent":"%s",' "$OPS_JOB_REFERENCE" "${OPS_CONFIG[FCD_RUNTIME_PROJECT]}"
-  printf '"fcd-support.operation.service":"%s","fcd-support.operation.command":"%s"},"environment":{' "$OPS_JOB_SERVICE" "$OPS_JOB_COMMAND_HASH"
+  printf '"fcd-support.operation.service":"%s","fcd-support.operation.command":"%s"},"environment":{"OPS_OPERATION_REFERENCE":"%s"' "$OPS_JOB_SERVICE" "$OPS_JOB_COMMAND_HASH" "$OPS_JOB_REFERENCE"
+  separator=,
   for key in OPS_DATABASE_SYSTEM_IDENTIFIER OPS_DATABASE_NAME OPS_DATABASE_SCHEMA OPS_DATABASE_ROLE_PREFIX OPS_SCHEMA_REVISION; do
     printf '%s"%s":"%s"' "$separator" "$key" "${OPS_JOB_TARGET[$key]}"; separator=,
   done

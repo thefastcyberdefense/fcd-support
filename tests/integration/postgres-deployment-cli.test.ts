@@ -86,7 +86,11 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
     ) {
       const child = spawn(process.execPath, ['/app/dist/operations-main.js', command, ...extra], {
         cwd: '/app',
-        env: { ...environment, ...override },
+        env: {
+          ...environment,
+          OPS_OPERATION_REFERENCE: `operation_${randomUUID().replaceAll('-', '')}`,
+          ...override,
+        },
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       let output = '';

@@ -23,6 +23,10 @@ import {
 } from '../src/operations/backup.js';
 import { pruneEncryptedBackups } from '../src/operations/backup-retention.js';
 import { parseBackupCommand } from '../src/operations/backup-command.js';
+import {
+  bindOperationConnectionString,
+  operationApplicationName,
+} from '../src/operations/operation-reference.js';
 
 const collision = vi.hoisted(() => ({ uuid: undefined as string | undefined }));
 vi.mock('node:crypto', async (load) => {
@@ -88,6 +92,18 @@ async function fixture() {
     },
   };
 }
+
+test('tracked backup passes the canonical operation name to the external dump connection', async () => {
+  const f = await fixture();
+  const reference = `operation_${'a'.repeat(32)}`;
+  await createEncryptedBackup({
+    ...f.options,
+    connectionString: bindOperationConnectionString(f.options.connectionString, reference),
+  });
+  const dump = f.calls.find((call) => call.file === 'pg_dump');
+  expect(dump?.env.PGAPPNAME).toBe(operationApplicationName(reference));
+  expect(dump?.args.join(' ')).not.toContain('application_name');
+});
 test('backup needs no identity and persists only ciphertext plus signed metadata', async () => {
   const f = await fixture();
   await rm(f.identityFile);

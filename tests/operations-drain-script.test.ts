@@ -176,7 +176,9 @@ operations_drain_owned_applications ${revision} ${appImage} ${pgImage} ${sourceM
         ],
         {
           encoding: 'utf8',
-          timeout: 15000,
+          // This matrix starts many separately bounded native subprocesses.
+          // Allow host scheduling overhead without changing command deadlines.
+          timeout: 30000,
           env: {
             PATH: root + ':' + (process.env.PATH ?? ''),
             TASK_ROOT: root,
@@ -259,5 +261,5 @@ operations_drain_owned_applications ${revision} ${appImage} ${pgImage} ${sourceM
       await rm(root, { recursive: true, force: true });
     }
   },
-  20000,
+  35000,
 );

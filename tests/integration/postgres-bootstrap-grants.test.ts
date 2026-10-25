@@ -115,6 +115,7 @@ async function scenario(mode: Mode, viaCli = false) {
           OPS_DATABASE_NAME: 'fcd_support_test',
           OPS_DATABASE_SCHEMA: database.schema,
           OPS_DATABASE_ROLE_PREFIX: prefix,
+          OPS_OPERATION_REFERENCE: `operation_${randomUUID().replaceAll('-', '')}`,
           OPS_RESOURCE_LIMITS_JSON: JSON.stringify({
             migrate: { cpus: 1, memoryMiB: 512, pids: 64, tmpfsMiB: 32 },
           }),

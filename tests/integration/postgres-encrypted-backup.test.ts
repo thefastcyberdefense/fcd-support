@@ -10,6 +10,57 @@ import { operationsEnvironment } from '../helpers/operations-fixtures.js';
 import { createIsolatedTestDatabase, requireIsolatedTestDatabaseUrl } from './test-database.js';
 import { withVerifiedDatabaseSnapshot } from '../../src/operations/database-identity.js';
 import { randomUUID } from 'node:crypto';
+import pg from 'pg';
+import {
+  bindOperationConnectionString,
+  operationApplicationName,
+} from '../../src/operations/operation-reference.js';
+
+async function waitForOperationBackends(pool: pg.Pool, reference: string, expected: number) {
+  const deadline = Date.now() + 3000;
+  while (Date.now() < deadline) {
+    const result = await pool.query<{ count: string }>(
+      'select count(*)::text as count from pg_catalog.pg_stat_activity where datname=current_database() and application_name=$1',
+      [operationApplicationName(reference)],
+    );
+    if (result.rows[0]?.count === String(expected)) return;
+    await new Promise((done) => setTimeout(done, 10));
+  }
+  throw new Error('synthetic_operation_backend_count_mismatch');
+}
+
+test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-toolchain-only')(
+  'operation connection startup preserves namespace while overriding name options and disappears after close',
+  async () => {
+    const database = await createIsolatedTestDatabase('operation_reference');
+    const reference = `operation_${randomUUID().replaceAll('-', '')}`;
+    const original = new URL(database.connectionString);
+    original.searchParams.set('application_name', 'synthetic_uri_spoof');
+    original.searchParams.set(
+      'options',
+      `${original.searchParams.get('options') ?? ''} -c application_name=synthetic_option_spoof`,
+    );
+    const pool = new pg.Pool({
+      connectionString: bindOperationConnectionString(original.toString(), reference),
+      max: 1,
+      connectionTimeoutMillis: 1000,
+    });
+    try {
+      const result = await pool.query<{ name: string; schema: string }>(
+        "select current_setting('application_name') as name,current_schema() as schema",
+      );
+      expect(result.rows).toEqual([
+        { name: operationApplicationName(reference), schema: database.schema },
+      ]);
+      await waitForOperationBackends(database.pool, reference, 1);
+      await pool.end();
+      await waitForOperationBackends(database.pool, reference, 0);
+    } finally {
+      if (!pool.ended) await pool.end();
+      await database.dispose();
+    }
+  },
+);
 
 async function recipient(identity: string): Promise<string> {
   const child = spawn('age-keygen', ['-y', identity], { stdio: ['ignore', 'pipe', 'ignore'] });
@@ -161,10 +212,27 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
       // The encryption invocation cannot access either identity even through an accidental path.
       await chmod(identityFile, 0o000);
       await chmod(wrongIdentityFile, 0o000);
-      const manifest = await createEncryptedBackup({
-        ...options,
-        expectedDatabaseIdentity,
-      });
+      const reference = `operation_${randomUUID().replaceAll('-', '')}`;
+      const locker = await database.pool.connect();
+      let work: ReturnType<typeof createEncryptedBackup> | undefined;
+      try {
+        await locker.query('begin');
+        await locker.query('lock table synthetic_backup_marker in access exclusive mode');
+        work = createEncryptedBackup({
+          ...options,
+          connectionString: bindOperationConnectionString(options.connectionString, reference),
+          expectedDatabaseIdentity,
+        });
+        // The lock keeps both the exporter and pg_dump visible long enough to
+        // prove that every source connection has the same operation reference.
+        void work.catch(() => undefined);
+        await waitForOperationBackends(database.pool, reference, 2);
+      } finally {
+        await locker.query('rollback');
+        locker.release();
+      }
+      const manifest = await work;
+      await waitForOperationBackends(database.pool, reference, 0);
       expect(manifest.state).toBe('created');
       const files = await readdir(join(archiveDirectory, manifest.backupRef));
       expect(files).toEqual(['archive.age', 'manifest.json']);

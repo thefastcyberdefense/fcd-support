@@ -4,6 +4,7 @@ import { isAbsolute } from 'node:path';
 import { inspect } from 'node:util';
 
 import { runtimeRoles, type RuntimeRole } from './operations-types.js';
+import { bindOperationConnectionString, operationApplicationName } from './operation-reference.js';
 
 const maximumSecretBytes = 65_536;
 const redacted = '[REDACTED]';
@@ -181,6 +182,22 @@ export async function loadRoleEnvironment(
 ): Promise<Readonly<Record<string, string | undefined>>> {
   if (!runtimeRoles.includes(role)) throw new Error('configuration_invalid');
   const source = { ...environment };
+  const operationReference = source.OPS_OPERATION_REFERENCE;
+  if (operationReference !== undefined) {
+    operationApplicationName(operationReference);
+    if (
+      ![
+        'maintenance',
+        'checkpoint',
+        'backup',
+        'verify_backup',
+        'restore',
+        'health',
+        'migrate',
+      ].includes(role)
+    )
+      throw new Error('operation_reference_invalid');
+  }
   if (
     source.NODE_ENV !== undefined &&
     !['production', 'development', 'test'].includes(source.NODE_ENV)
@@ -230,7 +247,11 @@ export async function loadRoleEnvironment(
         throw new Error('secret_file_required');
       bytes = new TextEncoder().encode(direct);
     }
-    const value = decodeSecret(bytes, structuredSecrets.has(name));
+    const decoded = decodeSecret(bytes, structuredSecrets.has(name));
+    const value =
+      name === 'DATABASE_URL'
+        ? bindOperationConnectionString(decoded, operationReference)
+        : decoded;
     Object.defineProperty(result, name, { value, enumerable: false });
   }
   Object.defineProperties(result, {

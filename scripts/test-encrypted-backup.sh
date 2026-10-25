@@ -30,6 +30,7 @@ if [[ "$MODE" == grants ]]; then
   UNIT_FILES+=(tests/operations-compose-environment.test.ts)
   UNIT_FILES+=(tests/operations-startup-script.test.ts)
   UNIT_FILES+=(tests/operations-containment.test.ts)
+  UNIT_FILES+=(tests/operation-reference.test.ts)
   INTEGRATION_FILES+=(tests/integration/postgres-deployment-cli.test.ts tests/integration/postgres-forward-migration.test.ts)
 fi
 if [[ "$MODE" == restore ]]; then

@@ -104,6 +104,8 @@ if ! operations_job_assert_container created; then
 fi
 [[ "$(docker container inspect --format '{{.State.StartedAt}}/{{.HostConfig.ReadonlyRootfs}}/{{.HostConfig.Privileged}}/{{.Config.User}}/{{.HostConfig.RestartPolicy.Name}}/{{len .HostConfig.PortBindings}}' "$OPS_JOB_CONTAINER")" == 0001-01-01T00:00:00Z/true/false/node/no/0 ]] || exit 1
 echo operation_job_stopped_identity_verified=true
+[[ "$(docker container inspect --format '{{range .Config.Env}}{{if eq (index (split . "=") 0) "OPS_OPERATION_REFERENCE"}}{{println .}}{{end}}{{end}}' "$OPS_JOB_CONTAINER")" == "OPS_OPERATION_REFERENCE=$OPS_JOB_REFERENCE" ]] || exit 1
+echo operation_job_backend_reference_configured=true
 [[ "$(docker container inspect --format '{{json .HostConfig.Binds}}' "$OPS_JOB_CONTAINER")" == "[\"$VOLUME:/var/lib/fcd-support/backups:rw\"]" ]] || { echo operation_job_archive_configuration_failed >&2; exit 1; }
 echo operation_job_external_archive_configured=true
 [[ "$(docker container inspect --format '{{.HostConfig.NetworkMode}}' "$OPS_JOB_CONTAINER")" == "$NETWORK" ]] || { echo operation_job_network_configuration_failed >&2; exit 1; }

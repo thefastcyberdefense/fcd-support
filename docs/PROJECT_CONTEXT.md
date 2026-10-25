@@ -59,6 +59,12 @@ socket owners, unknown/changed actors and pending job records; it cannot authori
 another operation or claim readiness. Invalid startup arguments and ready-state
 entry are preserved without mutation. Pending-job/state-replacement reconciliation
 and public wiring remain open.
+Managed one-shot jobs now carry a journal-matching PostgreSQL application name,
+including snapshot exporters and external dumps. Actual local PostgreSQL tests
+observe the matching backends and their closure; actual stopped creation checks
+the reference without running the job. This is correlation, not journal
+settlement or runtime authority. Legacy untracked jobs and unfinished isolated
+restore target tracking require separate handling before recovery is enabled.
 Public command integration, startup, promotion/switch,
 retained rollback and pending-job reconciliation remain unfinished. Task 11
 stays IN PROGRESS; P6 is not deployed. See

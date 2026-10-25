@@ -296,7 +296,20 @@ export {
 };
 function connection(value: string): { env: NodeJS.ProcessEnv; pass: string } {
   const url = new URL(value);
-  if (!['postgres:', 'postgresql:'].includes(url.protocol) || url.search !== '' || url.hash !== '')
+  const parameters = [...url.searchParams.keys()];
+  const applicationName = url.searchParams.get('application_name');
+  const startupOptions = url.searchParams.get('options');
+  if (
+    !['postgres:', 'postgresql:'].includes(url.protocol) ||
+    url.hash !== '' ||
+    (parameters.length > 0 &&
+      (parameters.length > 2 ||
+        new Set(parameters).size !== parameters.length ||
+        parameters.some((parameter) => !['application_name', 'options'].includes(parameter)) ||
+        applicationName === null ||
+        !/^fcd-support:operation_[a-f0-9]{32}$/u.test(applicationName) ||
+        (startupOptions !== null && startupOptions !== `-c application_name=${applicationName}`)))
+  )
     throw new Error('invalid');
   const fields = [
     url.hostname,
@@ -314,7 +327,16 @@ function connection(value: string): { env: NodeJS.ProcessEnv; pass: string } {
   if (port === undefined || !/^[0-9]+$/u.test(port) || Number(port) < 1 || Number(port) > 65535)
     throw new Error('invalid');
   return {
-    env: { PGHOST: host, PGPORT: port, PGDATABASE: database, PGUSER: user, PGSSLMODE: 'disable' },
+    env: {
+      PGHOST: host,
+      PGPORT: port,
+      PGDATABASE: database,
+      PGUSER: user,
+      PGSSLMODE: 'disable',
+      ...(applicationName === null
+        ? {}
+        : { PGAPPNAME: applicationName, PGOPTIONS: `-c application_name=${applicationName}` }),
+    },
     pass:
       fields.map((field) => field.replaceAll('\\', '\\\\').replaceAll(':', '\\:')).join(':') + '\n',
   };
