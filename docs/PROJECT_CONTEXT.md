@@ -73,6 +73,12 @@ physical database identity, both mutation barriers, zero old backends across all
 databases and no prepared transactions. Neither primitive clears a journal or
 authorizes replay/readiness. Durable probe orchestration, operation-specific
 postconditions and pending-ID/state-replacement resolution remain unfinished.
+First boot also has an immutable, typed intent binding the intended volume,
+namespace, role prefix, revision and image IDs before any future initialization.
+It invents no physical identity or readiness and blocks ordinary initialization/
+adoption/missing-pointer bypass. Actual fresh-volume eligibility, creation,
+PostgreSQL startup, physical identity binding and interrupted-intent reconciliation
+still need their host controller.
 Public command integration, startup, promotion/switch,
 retained rollback and pending-job reconciliation remain unfinished. Task 11
 stays IN PROGRESS; P6 is not deployed. See

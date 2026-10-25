@@ -14,6 +14,7 @@ operations_deployment_record_fields() {
     selection) OPS_DEPLOYMENT_FIELDS=(STATE_VERSION STATE_PROJECT STATE_REF STATE_PHASE STATE_VOLUME STATE_VOLUME_ORIGIN STATE_VOLUME_LOGICAL STATE_VOLUME_CREATED_AT STATE_SYSTEM_IDENTIFIER STATE_DATABASE_NAME STATE_SCHEMA_NAME STATE_PREVIOUS_VOLUME STATE_RESTORE_REF STATE_WRITES_POSSIBLE STATE_REVISION STATE_SCHEMA_REVISION) ;;
     used) OPS_DEPLOYMENT_FIELDS=(USED_VERSION USED_PROJECT USED_VOLUME USED_CREATED_AT USED_SYSTEM_IDENTIFIER USED_FIRST_SELECTION USED_ORIGIN USED_LOGICAL USED_DATABASE_NAME USED_SCHEMA_NAME) ;;
     retained) OPS_DEPLOYMENT_FIELDS=(BUNDLE_VERSION BUNDLE_PROJECT BUNDLE_REVISION BUNDLE_SCHEMA_REVISION BUNDLE_DATABASE_NAME BUNDLE_SCHEMA_NAME BUNDLE_APPLICATION_IMAGE BUNDLE_OPERATIONS_IMAGE BUNDLE_POSTGRES_IMAGE) ;;
+    initial) OPS_DEPLOYMENT_FIELDS=(INITIAL_VERSION INITIAL_PROJECT INITIAL_REF INITIAL_VOLUME INITIAL_REVISION INITIAL_DATABASE_NAME INITIAL_SCHEMA_NAME INITIAL_ROLE_PREFIX INITIAL_SCHEMA_REVISION INITIAL_APPLICATION_IMAGE INITIAL_OPERATIONS_IMAGE INITIAL_POSTGRES_IMAGE) ;;
     *) operations_deployment_state_invalid ;;
   esac
 }
@@ -22,6 +23,7 @@ operations_deployment_record_path() {
   operations_deployment_state_root
   case "$1" in
     selection) [[ -z "$2" ]] || operations_deployment_state_invalid; printf '%s/deployment-state' "${OPS_CONFIG[FCD_STATE_ROOT]}" ;;
+    initial) [[ -z "$2" ]] || operations_deployment_state_invalid; printf '%s/initial-deployment.record' "${OPS_CONFIG[FCD_STATE_ROOT]}" ;;
     retained) [[ "$2" =~ ^[a-f0-9]{40}$ ]] || operations_deployment_state_invalid; printf '%s/retained-%s.record' "${OPS_CONFIG[FCD_STATE_ROOT]}" "$2" ;;
     used)
       operations_config_field FCD_POSTGRES_VOLUME "$2" || operations_deployment_state_invalid
@@ -33,24 +35,25 @@ operations_deployment_record_path() {
 }
 operations_deployment_field() {
   case "$1" in
-    STATE_VERSION|USED_VERSION|BUNDLE_VERSION) [[ "$2" == 1 ]] ;;
-    STATE_PROJECT|USED_PROJECT|BUNDLE_PROJECT) [[ "$2" == "${OPS_CONFIG[FCD_RUNTIME_PROJECT]}" ]] ;;
-    STATE_REF|USED_FIRST_SELECTION) [[ "$2" =~ ^selection_[a-f0-9]{32}$ ]] ;;
+    STATE_VERSION|USED_VERSION|BUNDLE_VERSION|INITIAL_VERSION) [[ "$2" == 1 ]] ;;
+    STATE_PROJECT|USED_PROJECT|BUNDLE_PROJECT|INITIAL_PROJECT) [[ "$2" == "${OPS_CONFIG[FCD_RUNTIME_PROJECT]}" ]] ;;
+    STATE_REF|USED_FIRST_SELECTION|INITIAL_REF) [[ "$2" =~ ^selection_[a-f0-9]{32}$ ]] ;;
     STATE_PHASE) [[ "$2" =~ ^(quiescent|draining|database-changing|switching|starting|ready|uncertain)$ ]] ;;
-    STATE_VOLUME|USED_VOLUME) operations_config_field FCD_POSTGRES_VOLUME "$2" ;;
+    STATE_VOLUME|USED_VOLUME|INITIAL_VOLUME) operations_config_field FCD_POSTGRES_VOLUME "$2" ;;
     STATE_VOLUME_ORIGIN|USED_ORIGIN) [[ "$2" == none ]] || operations_config_field FCD_RUNTIME_PROJECT "$2" ;;
     STATE_VOLUME_LOGICAL|USED_LOGICAL) [[ "$2" =~ ^(postgres-data|restore-data|none)$ ]] ;;
     STATE_VOLUME_CREATED_AT|USED_CREATED_AT) [[ "$2" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,9})?Z$ ]] ;;
     STATE_SYSTEM_IDENTIFIER|USED_SYSTEM_IDENTIFIER)
       [[ "$2" =~ ^[1-9][0-9]{0,19}$ ]] && { (( ${#2} < 20 )) || [[ "$2" < 18446744073709551615 || "$2" == 18446744073709551615 ]]; } ;;
-    STATE_DATABASE_NAME|USED_DATABASE_NAME|BUNDLE_DATABASE_NAME) [[ "$2" == "${OPS_CONFIG[FCD_POSTGRES_DB]}" ]] ;;
-    STATE_SCHEMA_NAME|USED_SCHEMA_NAME|BUNDLE_SCHEMA_NAME) [[ "$2" == "${OPS_CONFIG[FCD_DATABASE_SCHEMA]}" ]] ;;
+    STATE_DATABASE_NAME|USED_DATABASE_NAME|BUNDLE_DATABASE_NAME|INITIAL_DATABASE_NAME) [[ "$2" == "${OPS_CONFIG[FCD_POSTGRES_DB]}" ]] ;;
+    STATE_SCHEMA_NAME|USED_SCHEMA_NAME|BUNDLE_SCHEMA_NAME|INITIAL_SCHEMA_NAME) [[ "$2" == "${OPS_CONFIG[FCD_DATABASE_SCHEMA]}" ]] ;;
     STATE_PREVIOUS_VOLUME) [[ "$2" == none ]] || operations_config_field FCD_POSTGRES_VOLUME "$2" ;;
     STATE_RESTORE_REF) [[ "$2" == none || "$2" =~ ^restore_[a-f0-9]{32}$ ]] ;;
     STATE_WRITES_POSSIBLE) [[ "$2" == yes || "$2" == no ]] ;;
-    STATE_REVISION|BUNDLE_REVISION) [[ "$2" =~ ^[a-f0-9]{40}$ ]] ;;
-    STATE_SCHEMA_REVISION|BUNDLE_SCHEMA_REVISION) [[ "$2" =~ ^[0-9]{6}$ ]] ;;
-    BUNDLE_APPLICATION_IMAGE|BUNDLE_OPERATIONS_IMAGE|BUNDLE_POSTGRES_IMAGE) [[ "$2" =~ ^sha256:[a-f0-9]{64}$ ]] ;;
+    STATE_REVISION|BUNDLE_REVISION|INITIAL_REVISION) [[ "$2" =~ ^[a-f0-9]{40}$ ]] ;;
+    STATE_SCHEMA_REVISION|BUNDLE_SCHEMA_REVISION|INITIAL_SCHEMA_REVISION) [[ "$2" =~ ^[0-9]{6}$ ]] ;;
+    BUNDLE_APPLICATION_IMAGE|BUNDLE_OPERATIONS_IMAGE|BUNDLE_POSTGRES_IMAGE|INITIAL_APPLICATION_IMAGE|INITIAL_OPERATIONS_IMAGE|INITIAL_POSTGRES_IMAGE) [[ "$2" =~ ^sha256:[a-f0-9]{64}$ ]] ;;
+    INITIAL_ROLE_PREFIX) operations_config_field FCD_DATABASE_ROLE_PREFIX "$2" ;;
     *) return 1 ;;
   esac
 }
@@ -185,6 +188,7 @@ operations_selection_initialize() {
   local phase="$1" writes="$2" body file historical; shift 2
   [[ "$#" == 9 ]] || operations_deployment_state_invalid
   operations_deployment_state_root
+  [[ ! -e "${OPS_CONFIG[FCD_STATE_ROOT]}/initial-deployment.record" && ! -L "${OPS_CONFIG[FCD_STATE_ROOT]}/initial-deployment.record" && ! -e "${OPS_CONFIG[FCD_STATE_ROOT]}/initial-deployment.record.next" && ! -L "${OPS_CONFIG[FCD_STATE_ROOT]}/initial-deployment.record.next" ]] || operations_deployment_state_invalid
   file="$(operations_deployment_record_path selection '')" || operations_deployment_state_invalid
   [[ ! -e "$file" && ! -L "$file" && ! -e "$file.next" && ! -L "$file.next" ]] || operations_deployment_state_invalid
   # Missing selection plus any prior history is an unresolved loss, never a
@@ -200,6 +204,44 @@ operations_selection_initialize() {
 }
 operations_selection_create() { operations_selection_initialize quiescent no "$@"; }
 operations_selection_adopt_draining() { operations_selection_initialize draining yes "$@"; }
+
+# Immutable first-boot intent, written before any future volume/PG creation.
+# It has no physical identifier or readiness state: neither exists yet.
+operations_initial_intent_read() {
+  [[ "$#" == 0 ]] || operations_deployment_state_invalid
+  operations_deployment_record_read initial ''
+  declare -gA OPS_INITIAL=()
+  local field
+  for field in "${!OPS_DEPLOYMENT_RECORD[@]}"; do OPS_INITIAL[$field]="${OPS_DEPLOYMENT_RECORD[$field]}"; done
+  OPS_INITIAL_FILE_ID="$OPS_DEPLOYMENT_RECORD_ID"; OPS_INITIAL_FILE_SHA256="$OPS_DEPLOYMENT_RECORD_SHA256"
+}
+operations_initial_intent_matches() {
+  [[ "$#" == 3 ]] || operations_deployment_state_invalid
+  operations_initial_intent_read
+  [[ "${OPS_INITIAL[INITIAL_VOLUME]}" == "${OPS_CONFIG[FCD_POSTGRES_VOLUME]:-}" && "${OPS_INITIAL[INITIAL_REVISION]}" == "${OPS_CONFIG[FCD_SUPPORT_REVISION]:-}" && "${OPS_INITIAL[INITIAL_ROLE_PREFIX]}" == "${OPS_CONFIG[FCD_DATABASE_ROLE_PREFIX]:-}" && "${OPS_INITIAL[INITIAL_SCHEMA_REVISION]}" == "${OPS_CONFIG[FCD_SCHEMA_REVISION]:-}" && "${OPS_INITIAL[INITIAL_APPLICATION_IMAGE]}" == "$1" && "${OPS_INITIAL[INITIAL_OPERATIONS_IMAGE]}" == "$2" && "${OPS_INITIAL[INITIAL_POSTGRES_IMAGE]}" == "$3" ]] || operations_deployment_state_invalid
+}
+operations_initial_intent_create() {
+  local root file token body field
+  [[ "$#" == 3 ]] || operations_deployment_state_invalid
+  operations_deployment_state_root
+  root="${OPS_CONFIG[FCD_STATE_ROOT]}"
+  for field in FCD_POSTGRES_VOLUME FCD_SUPPORT_REVISION FCD_DATABASE_ROLE_PREFIX FCD_SCHEMA_REVISION; do
+    operations_config_field "$field" "${OPS_CONFIG[$field]:-}" || operations_deployment_state_invalid
+  done
+  for file in "$root/deployment-state" "$root/deployment-state.next" "$root/initial-deployment.record" "$root/initial-deployment.record.next" "$root/active-job" "$root"/active-job-*.next "$root"/volume-*.record "$root"/retained-*.record; do
+    [[ ! -e "$file" && ! -L "$file" ]] || operations_deployment_state_invalid
+  done
+  token="$(od -An -N16 -tx1 /dev/urandom)"; token="${token//[[:space:]]/}"
+  [[ "$token" =~ ^[a-f0-9]{32}$ ]] || operations_deployment_state_invalid
+  declare -gA OPS_DEPLOYMENT_RECORD=([INITIAL_VERSION]=1 [INITIAL_PROJECT]="${OPS_CONFIG[FCD_RUNTIME_PROJECT]}"
+    [INITIAL_REF]="selection_$token" [INITIAL_VOLUME]="${OPS_CONFIG[FCD_POSTGRES_VOLUME]}" [INITIAL_REVISION]="${OPS_CONFIG[FCD_SUPPORT_REVISION]}"
+    [INITIAL_DATABASE_NAME]="${OPS_CONFIG[FCD_POSTGRES_DB]}" [INITIAL_SCHEMA_NAME]="${OPS_CONFIG[FCD_DATABASE_SCHEMA]}"
+    [INITIAL_ROLE_PREFIX]="${OPS_CONFIG[FCD_DATABASE_ROLE_PREFIX]}" [INITIAL_SCHEMA_REVISION]="${OPS_CONFIG[FCD_SCHEMA_REVISION]}"
+    [INITIAL_APPLICATION_IMAGE]="$1" [INITIAL_OPERATIONS_IMAGE]="$2" [INITIAL_POSTGRES_IMAGE]="$3")
+  body="$(operations_deployment_record_emit initial '')" || operations_deployment_state_invalid
+  operations_deployment_record_create initial '' "$body"
+  operations_initial_intent_matches "$@"
+}
 operations_selection_transition() {
   local reference="$1" phase="$2" old
   operations_selection_read

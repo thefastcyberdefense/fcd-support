@@ -15,7 +15,7 @@ operations_adoption_checked() {
   root="${OPS_CONFIG[FCD_STATE_ROOT]}"
   [[ ! -e "$OPS_JOB_STATE_FILE" && ! -L "$OPS_JOB_STATE_FILE" ]] || return 1
   # A lost pointer must never disguise an existing managed/used deployment.
-  for file in "$root/deployment-state" "$root/deployment-state.next" "$root"/volume-*.record "$root"/retained-*.record; do
+  for file in "$root/deployment-state" "$root/deployment-state.next" "$root/initial-deployment.record" "$root/initial-deployment.record.next" "$root"/volume-*.record "$root"/retained-*.record; do
     [[ ! -e "$file" && ! -L "$file" ]] || return 1
   done
   image="$(operations_docker image inspect --format "$OPERATIONS_DRAIN_IMAGE_FORMAT" "$application_image")" || return 1

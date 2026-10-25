@@ -126,7 +126,7 @@ operations_runtime_selection_context() {
     OPS_RUNTIME_VOLUME_IDENTITY="$(operations_selection_volume_identity 2>/dev/null)" || operations_fail runtime_host_invalid
   else
     [[ "$mode" == bootstrap && ! -e "$file.next" && ! -L "$file.next" ]] || operations_fail runtime_host_invalid
-    for historical in "$root"/volume-*.record "$root"/retained-*.record; do
+    for historical in "$root/initial-deployment.record" "$root/initial-deployment.record.next" "$root"/volume-*.record "$root"/retained-*.record; do
       [[ ! -e "$historical" && ! -L "$historical" ]] || operations_fail runtime_host_invalid
     done
   fi

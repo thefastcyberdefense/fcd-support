@@ -462,6 +462,37 @@ a wrapper syntax failure; that run is not counted as a gate pass. The frozen
 rerun above supplies the complete passing evidence. Cleanup found zero generated
 schemas, roles, advisory locks, labelled test resources and candidate images.
 
+### First-boot intent prerequisite
+
+An immutable `initial-deployment.record` now binds a random internal selection
+reference, exact revision, three immutable image IDs, intended volume, database,
+schema, role prefix and target schema revision under the existing protected
+root/flock. Its typed 12-field record uses exclusive creation, file/directory
+sync and verified reads. It contains no invented physical database identifier,
+write-exposure flag or readiness state. It cannot be replaced by a second create,
+and changed scope/images or a pending replacement refuse.
+
+Creation refuses existing selection/history, pending job/transition evidence or
+an earlier initialization intent. A pending intent blocks ordinary selection
+initialization, legacy admission adoption and the missing-pointer PostgreSQL
+inspection path. This prevents those paths from treating an interrupted first
+boot as an unused deployment. The intent is metadata only: it neither proves an
+empty target nor creates/attaches a volume, starts PostgreSQL, runs SQL or grants
+application access. The future first-boot controller must verify fresh host
+eligibility before recording intent, create/bind the intended volume safely,
+sample the actual initialized physical identity and publish a matching protected
+selection only after fresh proofs. That controller and interrupted-intent
+reconciliation remain unfinished; no implicit repair or reinitialization exists.
+
+Validation exited 0: `npm run check` passed 1,134 tests with 313 platform skips
+across 82 files; the complete native grants gate passed 603 unit tests across
+25 files and 83 PostgreSQL integration tests across seven files (38.09 seconds
+for integration). This includes 20 first-boot intent/guard cases using real
+protected filesystem/flock boundaries. Syntax, formatting and diff checks passed.
+Cleanup found zero generated schemas, roles, advisory locks, labelled resources
+and candidate images. These checks do not test actual first-boot database startup
+or deploy anything to the local server. Task 11/P6-004 remain in progress.
+
 ### Earlier protected-selection validation
 
 Code gate 1,066 passed/171 platform skips across 72 files; combined
