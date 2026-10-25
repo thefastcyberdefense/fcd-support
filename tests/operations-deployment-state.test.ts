@@ -400,3 +400,39 @@ test.runIf(native)(
   },
   20000,
 );
+
+test.runIf(native)(
+  'a managed drain has a durable non-ready phase before any shutdown',
+  async () => {
+    const f = await fixture();
+    try {
+      success(f.run(`${create}; ${ready}; operations_selection_draining ${ref}`));
+      const body = await readFile(f.file, 'utf8');
+      expect(body).toContain('STATE_PHASE=draining\n');
+      expect(body).toContain('STATE_WRITES_POSSIBLE=yes\n');
+      refused(f.run(`operations_selection_ready ${ref}`));
+      success(f.run(`operations_selection_quiesce ${ref}`));
+    } finally {
+      await f.dispose();
+    }
+  },
+);
+test.runIf(native)(
+  'initial admission adoption records drain intent and possible writes in its first pointer',
+  async () => {
+    const f = await fixture();
+    try {
+      success(
+        f.run(create.replace('operations_selection_create', 'operations_selection_adopt_draining')),
+      );
+      const body = await readFile(f.file, 'utf8');
+      expect(body).toContain('STATE_PHASE=draining\n');
+      expect(body).toContain('STATE_WRITES_POSSIBLE=yes\n');
+      refused(f.run(retain));
+      success(f.run(`operations_selection_uncertain ${ref}`));
+      refused(f.run(`operations_selection_quiesce ${ref}`));
+    } finally {
+      await f.dispose();
+    }
+  },
+);

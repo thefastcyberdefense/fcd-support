@@ -1,5 +1,7 @@
 # Fast Cyber Defense Support Task Tracker
 
+- Phase 6 Task 11 controlled-drain checkpoint (2026-10-25 Asia/Dhaka): internal shutdown now requires a durable draining marker, exact owned source containers/images, private database networks, exclusive storage/socket boundaries and the selected physical cluster. It stops/removes only verified application containers, preserves PostgreSQL/images/volumes, refuses stale sockets, and records uncertainty on failure. Initial legacy adoption has a draining-state primitive; discovery/startup/public controller integration, restore switching, retained rollback, pending-job reconciliation and Tasks 12–16 remain open. Task 11/P6-004 remain IN PROGRESS and P6-GATE blocked. Evidence and limits: `docs/operations/runtime-deployment-safety.md`.
+
 ## How To Use This Tracker
 
 - Status values: `COMPLETE`, `IN PROGRESS`, `PENDING`, `BLOCKED`, `DEFERRED`.

@@ -25,6 +25,19 @@ Last reviewed: 2026-10-24 (Asia/Dhaka)
 
 ## Existing Local Infrastructure
 
+Phase 6 Task 11 now includes an internal controlled-drain helper and durable
+draining state, including a non-ready first-admission adoption primitive. The
+helper verifies owned source actors/images, selected physical storage, private
+database networks and socket ownership before stopping applications; it preserves
+PostgreSQL, images, volumes and any stale socket owner. Refusal leaves uncertainty
+and never restarts an application. Actual legacy PostgreSQL image metadata omits
+both revision labels and the default image user, so admission handling requires
+an independently pinned image ID and an explicitly non-root actual container.
+Public command integration, adoption discovery, startup, promotion/switch,
+retained rollback and pending-job reconciliation remain unfinished. Task 11
+stays IN PROGRESS; P6 is not deployed. See
+`docs/operations/runtime-deployment-safety.md` for scope and validation.
+
 - Server: Ubuntu at `192.168.10.40`; normally online about 12 hours per day.
 - Capacity observed during planning: 4 CPU cores, about 15 GiB RAM with about 13 GiB available, and about 69 GiB free disk. No GPU is present or required.
 - Docker and Docker Compose are already in use.

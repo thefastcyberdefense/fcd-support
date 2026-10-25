@@ -103,4 +103,11 @@ echo operation_job_stopped_identity_verified=true
 echo operation_job_external_archive_configured=true
 [[ "$(docker container inspect --format '{{.HostConfig.NetworkMode}}' "$OPS_JOB_CONTAINER")" == "$NETWORK" ]] || { echo operation_job_network_configuration_failed >&2; exit 1; }
 echo operation_job_private_network_configured=true
+source "$ROOT/scripts/operations-drain.sh"
+# The actual upstream admission image omits Config.Labels and Config.User.
+# These projections must handle both without starting a container.
+upstream='postgres:18.4@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636'
+[[ "$(operations_docker image inspect --format "$OPERATIONS_DRAIN_IMAGE_FORMAT" "$upstream")" == 'sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636/none/linux/amd64/none' ]]
+[[ "$(operations_docker image inspect --format '{{json (index .Config "Entrypoint")}}' "$upstream")" == '["docker-entrypoint.sh"]' ]]
+echo operation_drain_upstream_projections=2
 echo operation_job_never_started=true

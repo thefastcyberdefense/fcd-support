@@ -36,7 +36,7 @@ operations_deployment_field() {
     STATE_VERSION|USED_VERSION|BUNDLE_VERSION) [[ "$2" == 1 ]] ;;
     STATE_PROJECT|USED_PROJECT|BUNDLE_PROJECT) [[ "$2" == "${OPS_CONFIG[FCD_RUNTIME_PROJECT]}" ]] ;;
     STATE_REF|USED_FIRST_SELECTION) [[ "$2" =~ ^selection_[a-f0-9]{32}$ ]] ;;
-    STATE_PHASE) [[ "$2" =~ ^(quiescent|switching|starting|ready|uncertain)$ ]] ;;
+    STATE_PHASE) [[ "$2" =~ ^(quiescent|draining|switching|starting|ready|uncertain)$ ]] ;;
     STATE_VOLUME|USED_VOLUME) operations_config_field FCD_POSTGRES_VOLUME "$2" ;;
     STATE_VOLUME_ORIGIN|USED_ORIGIN) [[ "$2" == none ]] || operations_config_field FCD_RUNTIME_PROJECT "$2" ;;
     STATE_VOLUME_LOGICAL|USED_LOGICAL) [[ "$2" =~ ^(postgres-data|restore-data|none)$ ]] ;;
@@ -72,7 +72,7 @@ operations_deployment_record_check() {
       esac ;;
     selection)
       case "${OPS_DEPLOYMENT_RECORD[STATE_PHASE]}" in
-        starting|ready) [[ "${OPS_DEPLOYMENT_RECORD[STATE_WRITES_POSSIBLE]}" == yes ]] || operations_deployment_state_invalid ;;
+        starting|ready|draining) [[ "${OPS_DEPLOYMENT_RECORD[STATE_WRITES_POSSIBLE]}" == yes ]] || operations_deployment_state_invalid ;;
         switching) [[ "${OPS_DEPLOYMENT_RECORD[STATE_WRITES_POSSIBLE]}" == no && "${OPS_DEPLOYMENT_RECORD[STATE_RESTORE_REF]}" != none ]] || operations_deployment_state_invalid ;;
       esac
       if [[ "${OPS_DEPLOYMENT_RECORD[STATE_RESTORE_REF]}" == none ]]; then
@@ -181,8 +181,8 @@ operations_selection_replace() {
   operations_deployment_record_sync
   operations_selection_read
 }
-operations_selection_create() {
-  local body file historical
+operations_selection_initialize() {
+  local phase="$1" writes="$2" body file historical; shift 2
   [[ "$#" == 9 ]] || operations_deployment_state_invalid
   operations_deployment_state_root
   file="$(operations_deployment_record_path selection '')" || operations_deployment_state_invalid
@@ -192,24 +192,27 @@ operations_selection_create() {
   for historical in "${OPS_CONFIG[FCD_STATE_ROOT]}"/volume-*.record "${OPS_CONFIG[FCD_STATE_ROOT]}"/retained-*.record; do
     [[ ! -e "$historical" && ! -L "$historical" ]] || operations_deployment_state_invalid
   done
-  declare -gA OPS_SELECTION=([STATE_VERSION]=1 [STATE_PROJECT]="${OPS_CONFIG[FCD_RUNTIME_PROJECT]}" [STATE_REF]="$1" [STATE_PHASE]=quiescent [STATE_VOLUME]="$2" [STATE_VOLUME_ORIGIN]="$3" [STATE_VOLUME_LOGICAL]="$4" [STATE_VOLUME_CREATED_AT]="$5" [STATE_SYSTEM_IDENTIFIER]="$6" [STATE_DATABASE_NAME]="$7" [STATE_SCHEMA_NAME]="${OPS_CONFIG[FCD_DATABASE_SCHEMA]}" [STATE_PREVIOUS_VOLUME]=none [STATE_RESTORE_REF]=none [STATE_WRITES_POSSIBLE]=no [STATE_REVISION]="$8" [STATE_SCHEMA_REVISION]="$9")
+  declare -gA OPS_SELECTION=([STATE_VERSION]=1 [STATE_PROJECT]="${OPS_CONFIG[FCD_RUNTIME_PROJECT]}" [STATE_REF]="$1" [STATE_PHASE]="$phase" [STATE_VOLUME]="$2" [STATE_VOLUME_ORIGIN]="$3" [STATE_VOLUME_LOGICAL]="$4" [STATE_VOLUME_CREATED_AT]="$5" [STATE_SYSTEM_IDENTIFIER]="$6" [STATE_DATABASE_NAME]="$7" [STATE_SCHEMA_NAME]="${OPS_CONFIG[FCD_DATABASE_SCHEMA]}" [STATE_PREVIOUS_VOLUME]=none [STATE_RESTORE_REF]=none [STATE_WRITES_POSSIBLE]="$writes" [STATE_REVISION]="$8" [STATE_SCHEMA_REVISION]="$9")
   body="$(operations_selection_body)" || operations_deployment_state_invalid
   operations_selection_used
   operations_deployment_record_create selection '' "$body"
   operations_selection_read
 }
+operations_selection_create() { operations_selection_initialize quiescent no "$@"; }
+operations_selection_adopt_draining() { operations_selection_initialize draining yes "$@"; }
 operations_selection_transition() {
   local reference="$1" phase="$2" old
   operations_selection_read
   [[ "${OPS_SELECTION[STATE_REF]}" == "$reference" ]] || operations_deployment_state_invalid
   old="${OPS_SELECTION[STATE_PHASE]}"
   case "$old:$phase" in
-    ready:quiescent|starting:ready|quiescent:uncertain|switching:uncertain|starting:uncertain|ready:uncertain) ;;
+    ready:draining|draining:quiescent|draining:uncertain|ready:quiescent|starting:ready|quiescent:uncertain|switching:uncertain|starting:uncertain|ready:uncertain) ;;
     *) operations_deployment_state_invalid ;;
   esac
   OPS_SELECTION[STATE_PHASE]="$phase"; operations_selection_replace
 }
 operations_selection_ready() { [[ "$#" == 1 ]] || operations_deployment_state_invalid; operations_selection_transition "$1" ready; }
+operations_selection_draining() { [[ "$#" == 1 ]] || operations_deployment_state_invalid; operations_selection_transition "$1" draining; }
 operations_selection_quiesce() { [[ "$#" == 1 ]] || operations_deployment_state_invalid; operations_selection_transition "$1" quiescent; }
 operations_selection_uncertain() { [[ "$#" == 1 ]] || operations_deployment_state_invalid; operations_selection_transition "$1" uncertain; }
 operations_selection_starting() {

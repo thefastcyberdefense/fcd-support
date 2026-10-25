@@ -95,7 +95,7 @@ never overwritten or deleted by this library. Losing the selection pointer while
 any history exists refuses initialization, including a newly configured volume.
 There is no implicit fallback to configuration or an older volume.
 
-The phases are quiescent, switching, starting, ready and uncertain. Write exposure
+The phases are quiescent, draining, switching, starting, ready and uncertain. Write exposure
 is recorded before application startup. It cannot be cleared for the same volume,
 and uncertainty cannot silently transition to ready. Retained bundles can be
 recorded only from a ready selection; they bind the full revision, namespace,
@@ -107,7 +107,57 @@ trusted controller must still prove current host/SQL identity, fresh restoration
 and deletion evidence, quiescence and compatibility under its lock. Live image
 inspection for retained-image compatibility, rollback execution, controlled-outage/startup integration, operation-specific
 uncertainty resolution and public controller wiring remain incomplete. The
-25 new native filesystem cases do not constitute a deployed runtime or switch.
+native filesystem cases do not constitute a deployed runtime or switch.
+
+### Controlled application drain
+
+The internal drain helper requires a durable `draining` selection with possible
+writes recorded before any signal. A ready managed selection can enter this
+phase. First adoption of the legacy admission deployment can initialize directly
+in `draining`, without creating false ready or retained-image evidence. Adoption
+discovery and public deployment integration are still pending. Before ready,
+the schema field is a lower bound; only fresh SQL verification can establish
+the schema for startup and retention.
+
+Under the checked deployment lock, the helper binds the source revision and
+independently supplied immutable application/PostgreSQL image IDs to each actual
+container, its program, entrypoint, user and lifecycle. It checks private database
+networks, absence of foreign peers, exclusive volume use, absence of application
+named volumes, exact volume creation
+identity and provenance, physical cluster identifier and all stopped/running host
+binds for socket/database aliases. The legacy upstream PostgreSQL image has no
+revision label or default image user. Admission mode accepts that shape only
+for the caller's pinned image ID and still requires the actual container to run
+as PostgreSQL's non-root user. Managed mode requires the source revision label.
+
+It stops reply, outbound, notification, admin and API actors in that order,
+checking the frozen actor set and source instance before and after each step.
+PostgreSQL is never stopped or removed. A remaining socket blocks all container
+removal and preserves its stopped owner for separate recovery; the drain never
+unlinks or repairs it. Only after every actor is stopped and the socket absent
+does the helper remove those exact containers, preserving images and volumes.
+A lost stop/removal acknowledgement can be resolved only by proving the exact
+postcondition. Any refused or interrupted drain remains non-ready; an observed
+failure records uncertainty and never restarts an application. Final volume,
+network, physical identifier and actor proofs precede `quiescent`.
+
+The native shutdown matrix uses an executable Docker double with real protected
+filesystem records, a real deployment lock and real Unix socket fixtures. A
+separate actual local Docker check verifies the omitted-field projections on
+the pinned upstream image and keeps its operation container unstarted. These
+proofs do not establish server shutdown, adoption discovery, application startup,
+promotion, rollback or P6 completion. Public host commands remain disabled.
+
+Validation on 2026-10-25 (Asia/Dhaka): `npm run check` passed 1,072 tests with
+215 platform skips across 73 files, plus lint, strict typecheck and build. The
+complete pinned native gate passed 443 units across 16 files and 70 PostgreSQL
+integrations across six files (36.54 seconds for the integration run), including
+all 27 drain cases and both new draining-state cases. The actual stopped-create
+check passed its seven existing checks and two upstream-image projections.
+Full ordinary PostgreSQL and isolated restore were not rerun for this host-only
+checkpoint; their latest results remain 574/39 native-only skips and 42 units/22
+integrations respectively. No SSH, server, provider or external infrastructure
+action occurred.
 
 Validation: code gate 1,066 passed/171 platform skips across 72 files; combined
 native gate 393 units/70 integrations. The multi-step switch test has a 20-second
