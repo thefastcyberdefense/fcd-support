@@ -95,7 +95,8 @@ never overwritten or deleted by this library. Losing the selection pointer while
 any history exists refuses initialization, including a newly configured volume.
 There is no implicit fallback to configuration or an older volume.
 
-The phases are quiescent, draining, switching, starting, ready and uncertain. Write exposure
+The phases are quiescent, draining, database-changing, switching, starting, ready
+and uncertain. Write exposure
 is recorded before application startup. It cannot be cleared for the same volume,
 and uncertainty cannot silently transition to ready. Retained bundles can be
 recorded only from a ready selection; they bind the full revision, namespace,
@@ -194,6 +195,61 @@ six files (35.53 seconds for integrations), including the 16 discovery cases and
 28 drain cases. Focused test-filter refusal checks passed twice. Full ordinary
 PostgreSQL and isolated restore were not rerun; the SQL/restore implementation
 and previous results are unchanged. This is local synthetic evidence only.
+
+### PostgreSQL container convergence
+
+The internal convergence helper operates only after applications have been
+drained and removed. It verifies a quiescent selection, source revision/image,
+the sole owned PostgreSQL actor, private networks, exclusive volume/socket
+boundaries, physical cluster and data-directory contract. It accepts independently
+pinned admission or managed source images, then binds target Compose interpolation
+to the independently verified immutable PostgreSQL image for the target revision.
+
+Before its first stop/remove/start, it synchronizes `database-changing` state.
+This records the target revision without advancing the schema lower bound,
+changing the selected volume or clearing prior write exposure. It stops and
+removes only the verified old PostgreSQL container, preserves the volume and
+images, and starts only PostgreSQL with dependencies, builds and pulls disabled.
+Lost acknowledgements are resolved only by exact stopped/absent postconditions
+and fresh complete target proof. Full PostgreSQL-only host inspection and the
+selected physical identifier are checked before returning to quiescent. A
+refused mutation records uncertainty; process death leaves a non-ready phase.
+The helper never automatically restarts old actors, switches storage or repairs
+filesystem permissions. It does not run owner bootstrap/migrations or start
+applications; integration with those next stages remains unfinished.
+
+The 19 native convergence cases use real protected filesystem state and a
+deployment lock, an executable Docker double and a stub for the separately
+tested PostgreSQL-only host collector. They do not constitute actual Docker
+replacement, server shutdown or deployment evidence. Two added filesystem cases
+cover the database-changing phase, preserved schema/write history and refusal
+to bypass an outage or clear uncertainty.
+
+### Existing-volume permission prerequisite
+
+An actual local Docker check, `bash scripts/test-postgres-seed.sh`, observed
+`999:999:1777` on a fresh volume seeded by the pinned upstream PostgreSQL image.
+It starts only `stat`, with no network and no database server, then removes its
+scoped container/volume. The hardened image requires `999:999:700` on the data
+root, PostgreSQL-major directory and PGDATA. The convergence helper therefore
+reads those three actual directories before stopping PostgreSQL and refuses
+broad or wrong-owner storage. It never runs `chmod`, `chown` or a repair command.
+
+The eventual public deployment preflight must perform this same read before
+application shutdown. The existing server volume has not been inspected for
+this prerequisite. Task 16 must record its actual modes/owners and, if necessary,
+include an explicit reviewed permission-preparation or isolated-volume migration
+step in the external handoff. The local upstream seed observation does not
+establish the current server's permissions or authorize modifying them.
+
+Convergence validation on 2026-10-25 (Asia/Dhaka): `npm run check` passed 1,072
+tests with 253 platform skips across 75 files, plus lint, typecheck and build.
+The complete pinned native gate passed 481 units across 18 files and 70
+PostgreSQL integrations across six files (34.65 seconds for integrations).
+Focused transition tests passed 30 cases; convergence passed 19. The separate
+actual Docker seed proof passed with no database startup and scoped cleanup.
+Full ordinary PostgreSQL and isolated restore were not rerun for this host-only
+change. Public controllers and the server remain untouched.
 
 Validation: code gate 1,066 passed/171 platform skips across 72 files; combined
 native gate 393 units/70 integrations. The multi-step switch test has a 20-second

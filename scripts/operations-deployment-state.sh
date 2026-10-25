@@ -36,7 +36,7 @@ operations_deployment_field() {
     STATE_VERSION|USED_VERSION|BUNDLE_VERSION) [[ "$2" == 1 ]] ;;
     STATE_PROJECT|USED_PROJECT|BUNDLE_PROJECT) [[ "$2" == "${OPS_CONFIG[FCD_RUNTIME_PROJECT]}" ]] ;;
     STATE_REF|USED_FIRST_SELECTION) [[ "$2" =~ ^selection_[a-f0-9]{32}$ ]] ;;
-    STATE_PHASE) [[ "$2" =~ ^(quiescent|draining|switching|starting|ready|uncertain)$ ]] ;;
+    STATE_PHASE) [[ "$2" =~ ^(quiescent|draining|database-changing|switching|starting|ready|uncertain)$ ]] ;;
     STATE_VOLUME|USED_VOLUME) operations_config_field FCD_POSTGRES_VOLUME "$2" ;;
     STATE_VOLUME_ORIGIN|USED_ORIGIN) [[ "$2" == none ]] || operations_config_field FCD_RUNTIME_PROJECT "$2" ;;
     STATE_VOLUME_LOGICAL|USED_LOGICAL) [[ "$2" =~ ^(postgres-data|restore-data|none)$ ]] ;;
@@ -206,7 +206,7 @@ operations_selection_transition() {
   [[ "${OPS_SELECTION[STATE_REF]}" == "$reference" ]] || operations_deployment_state_invalid
   old="${OPS_SELECTION[STATE_PHASE]}"
   case "$old:$phase" in
-    ready:draining|draining:quiescent|draining:uncertain|ready:quiescent|starting:ready|quiescent:uncertain|switching:uncertain|starting:uncertain|ready:uncertain) ;;
+    ready:draining|draining:quiescent|draining:uncertain|database-changing:quiescent|database-changing:uncertain|ready:quiescent|starting:ready|quiescent:uncertain|switching:uncertain|starting:uncertain|ready:uncertain) ;;
     *) operations_deployment_state_invalid ;;
   esac
   OPS_SELECTION[STATE_PHASE]="$phase"; operations_selection_replace
@@ -215,6 +215,14 @@ operations_selection_ready() { [[ "$#" == 1 ]] || operations_deployment_state_in
 operations_selection_draining() { [[ "$#" == 1 ]] || operations_deployment_state_invalid; operations_selection_transition "$1" draining; }
 operations_selection_quiesce() { [[ "$#" == 1 ]] || operations_deployment_state_invalid; operations_selection_transition "$1" quiescent; }
 operations_selection_uncertain() { [[ "$#" == 1 ]] || operations_deployment_state_invalid; operations_selection_transition "$1" uncertain; }
+operations_selection_database_changing() {
+  [[ "$#" == 2 ]] || operations_deployment_state_invalid
+  operations_selection_read
+  [[ "${OPS_SELECTION[STATE_REF]}" == "$1" && "${OPS_SELECTION[STATE_PHASE]}" == quiescent ]] || operations_deployment_state_invalid
+  operations_deployment_field STATE_REVISION "$2" || operations_deployment_state_invalid
+  OPS_SELECTION[STATE_PHASE]=database-changing; OPS_SELECTION[STATE_REVISION]="$2"
+  operations_selection_replace
+}
 operations_selection_starting() {
   [[ "$#" == 3 ]] || operations_deployment_state_invalid
   operations_selection_read

@@ -37,7 +37,14 @@ The internal first-admission adopter now checks protected history and a single
 legacy PostgreSQL actor against matching volume, mount, image and physical-ID
 samples. It records possible writes and a provisional schema in draining state;
 it never starts/stops actors or creates ready/retained evidence. The verified
-drain is the next separate step. PostgreSQL container convergence is still open.
+drain is the next separate step. Internal PostgreSQL container convergence now
+persists a database-changing phase, replaces only a verified drained source actor
+and requires fresh target host/physical proof before quiescent. It preserves the
+selected volume and does not bootstrap, migrate or start applications. Public
+preflight must check existing data-directory owners/modes before any outage: a
+local fresh upstream seed has mode 1777, whereas the hardened image requires 700.
+Actual server modes remain uninspected; no permission repair is automatic or
+authorized by this local proof.
 Public command integration, startup, promotion/switch,
 retained rollback and pending-job reconciliation remain unfinished. Task 11
 stays IN PROGRESS; P6 is not deployed. See

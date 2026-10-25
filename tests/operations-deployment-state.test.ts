@@ -436,3 +436,45 @@ test.runIf(native)(
     }
   },
 );
+
+test.runIf(native)(
+  'database convergence preserves write history and schema lower bound in a non-ready phase',
+  async () => {
+    const f = await fixture();
+    try {
+      success(f.run(`${create}; ${ready}; operations_selection_quiesce ${ref}`));
+      success(f.run(`operations_selection_database_changing ${ref} ${'b'.repeat(40)}`));
+      const body = await readFile(f.file, 'utf8');
+      expect(body).toContain('STATE_PHASE=database-changing\n');
+      expect(body).toContain(`STATE_REVISION=${'b'.repeat(40)}\n`);
+      expect(body).toContain('STATE_SCHEMA_REVISION=000016\n');
+      expect(body).toContain('STATE_WRITES_POSSIBLE=yes\n');
+      refused(f.run(retain));
+      refused(f.run(`operations_selection_ready ${ref}`));
+      success(f.run(`operations_selection_quiesce ${ref}`));
+    } finally {
+      await f.dispose();
+    }
+  },
+);
+
+test.runIf(native)(
+  'database convergence cannot skip an outage or clear a failed transition',
+  async () => {
+    const f = await fixture();
+    try {
+      success(f.run(`${create}; ${ready}`));
+      refused(f.run(`operations_selection_database_changing ${ref} ${'b'.repeat(40)}`));
+      success(
+        f.run(
+          `operations_selection_quiesce ${ref}; operations_selection_database_changing ${ref} ${'b'.repeat(40)}; operations_selection_uncertain ${ref}`,
+        ),
+      );
+      refused(f.run(`operations_selection_quiesce ${ref}`));
+      refused(f.run(`operations_selection_starting ${ref} ${revision} 000016`));
+      expect(await readFile(f.file, 'utf8')).toContain('STATE_PHASE=uncertain\n');
+    } finally {
+      await f.dispose();
+    }
+  },
+);

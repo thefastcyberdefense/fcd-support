@@ -145,13 +145,26 @@ mutation requires the exact approval boundary recorded in `docs/TODO.md`.
 
 ## Consolidated Readiness Result
 
-| System | Inventory | Production readiness | Next authorized scope |
-|---|---|---|---|
-| Manifest | Complete | Not ready | Local contract implementation and later private-network/recording gate |
-| Meta test assets | Complete | Not ready | Test-token rotation and approved test-asset validation only |
-| n8n | Complete | Private but legacy ownership unresolved | Identify historical API-key owners before disablement |
-| Cloudflare | Complete | Exact test ingress already constrained | No change without separate approval |
+| System           | Inventory | Production readiness                    | Next authorized scope                                                  |
+| ---------------- | --------- | --------------------------------------- | ---------------------------------------------------------------------- |
+| Manifest         | Complete  | Not ready                               | Local contract implementation and later private-network/recording gate |
+| Meta test assets | Complete  | Not ready                               | Test-token rotation and approved test-asset validation only            |
+| n8n              | Complete  | Private but legacy ownership unresolved | Identify historical API-key owners before disablement                  |
+| Cloudflare       | Complete  | Exact test ingress already constrained  | No change without separate approval                                    |
 
 These inventories satisfy the Phase 0 decision evidence requirement. They do
 not close P0-017, P0-018, P0-GATE, any phase exit gate, the remaining Phase 7
 acceptance matrix, or production readiness.
+
+## Phase 6 Existing-Volume Permission Prerequisite
+
+On 2026-10-25 (Asia/Dhaka), a local synthetic Docker seed check observed
+`999:999:1777` on a fresh volume seeded by the pinned upstream PostgreSQL image.
+The Phase 6 image requires `999:999:700` on its data root, major-version directory
+and PGDATA. This was a networkless `stat` process; no database or server inspection
+occurred. The existing server volume's actual modes/owners remain unverified.
+
+Before the Task 16 application outage, inspect those actual directories and
+include any necessary permission preparation or isolated-volume migration in
+the concrete reviewed handoff. No automatic permission repair is implemented
+or authorized. See `runtime-deployment-safety.md` for evidence and limits.
