@@ -398,7 +398,73 @@ integration pass). Cleanup checks found zero generated schemas, roles, advisory
 locks, labelled test resources or candidate images. These are local synthetic
 results; the deployment/restore workflow remains incomplete.
 
-Validation: code gate 1,066 passed/171 platform skips across 72 files; combined
+### Interrupted-job recovery prerequisites
+
+`operations_contain_interrupted_job` is an internal containment primitive for a
+recorded container in created, started or uncertain state. It requires the
+checked local configuration and held deployment lock. Before stopping anything
+it verifies the current exact revision and operations image, image reference
+capability, journal container ID and command hash, unique Compose ownership,
+entrypoint, non-root user, read-only root, no privilege or host publication and
+an unchanged start cookie. A narrow environment projection binds its operation
+reference and database system/name/schema/role-prefix/schema-revision metadata
+to the protected selection and configuration. It never projects a database URI
+or the full environment. Journal and selection replacement checks guard the
+destructive boundaries.
+
+The controller records uncertainty before shutdown. Lost stop or remove
+acknowledgements succeed only when the exact unchanged actor is stopped and its
+subsequent absence is verified. It preserves both uncertain records, the job
+override, PostgreSQL, storage and application containers. It does not replay,
+start another job, inspect logs, clear a journal or report application readiness.
+Pending IDs, pending state replacements and missing actors refuse; adoption and
+resolution of those interrupted boundaries remain unfinished. These checks do
+not independently prove the actual database host/volume: fresh host inspection
+and SQL scope checks remain mandatory for the eventual recovery controller.
+
+`inspectOperationSettlement` provides the separate SQL prerequisite. Its owner
+connection starts a read-only transaction, verifies the physical database identity
+on that connection and requires a distinct, correctly tracked probe reference
+with full PostgreSQL activity visibility. It acquires both existing grants and
+deployment advisory barriers without waiting, clears the statistics snapshot,
+and requires zero old-reference backends across all databases and zero prepared
+transactions across the cluster. Existing or ambiguous activity refuses. It rolls
+back and destroys its connection; the compiled `inspect-settlement` command also
+closes its pool before emitting its fixed acknowledgement. The command reads no
+role password files and changes no grants or business state.
+
+The settlement result is a backend observation after independently verified job
+termination, not evidence of the interrupted job's success. Legacy images and
+untracked connection classes remain unsupported. The SQL probe and containment
+primitive are not yet wired into a durable recovery controller. That controller
+must preserve the original journal while running a separately tracked read-only
+probe, verify operation-specific current postconditions and fresh host state,
+and resolve uncertainty without inventing success or automatically replaying the
+operation. Pending selection replacement, empty first boot, restore ownership/
+switching, retained-image compatibility and public controller integration remain
+Task 11 work. No server deployment or live provider call occurred.
+
+The focused native settlement gate exited 0 with 28 unit tests and 12 actual
+PostgreSQL/compiled-CLI integration tests. Those cases include lingering same-DB
+and other-DB connections, each held advisory barrier, wrong identities and an
+untracked probe. The containment matrix exited 0 with 23 cases using real
+protected filesystem/flock boundaries and a Docker executable double; it did not
+start or stop actual runtime jobs. The prepared-transaction refusal and connection/
+close-failure paths have unit coverage; no actual prepared transaction was created.
+
+The final frozen code gate exited 0 with 1,134 passing tests and 293 platform
+skips across 81 files. The full native grants gate exited 0 with 583 unit tests
+across 24 files and 83 PostgreSQL integration tests across seven files (37.21
+seconds for integration). The actual stopped-create harness exited 0 with 12
+checks, including image recovery-capability labels; its job was never started.
+The earlier full run's tests passed, but editing its active shell runner caused
+a wrapper syntax failure; that run is not counted as a gate pass. The frozen
+rerun above supplies the complete passing evidence. Cleanup found zero generated
+schemas, roles, advisory locks, labelled test resources and candidate images.
+
+### Earlier protected-selection validation
+
+Code gate 1,066 passed/171 platform skips across 72 files; combined
 native gate 393 units/70 integrations. The multi-step switch test has a 20-second
 aggregate allowance for its separately bounded subprocesses; production command
 timeouts are unchanged. The last full ordinary PostgreSQL and isolated restore

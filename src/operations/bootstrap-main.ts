@@ -5,6 +5,7 @@ import pg from 'pg';
 import { z } from 'zod';
 import { loadRoleEnvironment } from './secret-files.js';
 import { loadOperationsConfig } from './operations-config.js';
+import { inspectOperationSettlement } from './operation-settlement.js';
 import {
   configureRuntimeGrants,
   runtimeDatabaseRoles,
@@ -12,6 +13,19 @@ import {
 
 export function parseBootstrapCommand(args: readonly string[]) {
   try {
+    if (args[0] === 'inspect-settlement') {
+      const [phase, reference, systemIdentifier] = z
+        .tuple([
+          z.literal('inspect-settlement'),
+          z.string().regex(/^operation_[a-f0-9]{32}$/u),
+          z
+            .string()
+            .regex(/^[1-9][0-9]{0,19}$/u)
+            .refine((value) => BigInt(value) <= 18446744073709551615n),
+        ])
+        .parse(args);
+      return { phase, reference, systemIdentifier };
+    }
     const [phase, systemIdentifier, passwordDirectory] = z
       .tuple([
         z.enum(['prepare', 'converge']),
@@ -56,15 +70,17 @@ export async function runBootstrapMain(): Promise<void> {
       .string()
       .regex(/^fcd_[a-z0-9_]{1,28}$/u)
       .parse(process.env.OPS_DATABASE_ROLE_PREFIX);
-    const directory = await lstat(command.passwordDirectory);
-    if (
-      !directory.isDirectory() ||
-      directory.isSymbolicLink() ||
-      ![0, 1000].includes(directory.uid) ||
-      (directory.mode & 0o022) !== 0 ||
-      (await realpath(command.passwordDirectory)) !== command.passwordDirectory
-    )
-      throw new Error('invalid');
+    if (command.phase !== 'inspect-settlement') {
+      const directory = await lstat(command.passwordDirectory);
+      if (
+        !directory.isDirectory() ||
+        directory.isSymbolicLink() ||
+        ![0, 1000].includes(directory.uid) ||
+        (directory.mode & 0o022) !== 0 ||
+        (await realpath(command.passwordDirectory)) !== command.passwordDirectory
+      )
+        throw new Error('invalid');
+    }
     // This dedicated, explicit bootstrap process alone receives the owner URI
     // and role password files. No runtime or ordinary backup gains them.
     const environment = await loadRoleEnvironment('migrate', process.env);
@@ -93,20 +109,34 @@ export async function runBootstrapMain(): Promise<void> {
     ).rows[0];
     if (actual?.id !== command.systemIdentifier || actual.database !== database)
       throw new Error('invalid');
-    const passwordFiles = Object.fromEntries(
-      [...runtimeDatabaseRoles, 'migrator'].map((role) => [
-        role,
-        posix.join(command.passwordDirectory, `bootstrap-${role.replaceAll('_', '-')}-password`),
-      ]),
-    );
-    await configureRuntimeGrants(pool, {
-      database,
-      schema,
-      rolePrefix,
-      passwordFiles,
-      phase: command.phase,
-      timeoutMilliseconds: config.maximumCallMilliseconds,
-    });
+    if (command.phase === 'inspect-settlement') {
+      await inspectOperationSettlement(pool, {
+        reference: command.reference,
+        probeReference: z
+          .string()
+          .regex(/^operation_[a-f0-9]{32}$/u)
+          .parse(environment.OPS_OPERATION_REFERENCE),
+        systemIdentifier: command.systemIdentifier,
+        databaseName: database,
+        schema,
+        timeoutMilliseconds: config.maximumCallMilliseconds,
+      });
+    } else {
+      const passwordFiles = Object.fromEntries(
+        [...runtimeDatabaseRoles, 'migrator'].map((role) => [
+          role,
+          posix.join(command.passwordDirectory, `bootstrap-${role.replaceAll('_', '-')}-password`),
+        ]),
+      );
+      await configureRuntimeGrants(pool, {
+        database,
+        schema,
+        rolePrefix,
+        passwordFiles,
+        phase: command.phase,
+        timeoutMilliseconds: config.maximumCallMilliseconds,
+      });
+    }
   } catch {
     failed = true;
   } finally {

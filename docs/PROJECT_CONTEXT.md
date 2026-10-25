@@ -65,6 +65,14 @@ observe the matching backends and their closure; actual stopped creation checks
 the reference without running the job. This is correlation, not journal
 settlement or runtime authority. Legacy untracked jobs and unfinished isolated
 restore target tracking require separate handling before recovery is enabled.
+Internal recovery now has separate recorded-job containment and a read-only owner
+probe for PostgreSQL backend settlement. Containment verifies exact ownership,
+image, command, target metadata and frozen state before stop/removal, preserving
+uncertain journals. The SQL probe requires a distinct tracked reference, actual
+physical database identity, both mutation barriers, zero old backends across all
+databases and no prepared transactions. Neither primitive clears a journal or
+authorizes replay/readiness. Durable probe orchestration, operation-specific
+postconditions and pending-ID/state-replacement resolution remain unfinished.
 Public command integration, startup, promotion/switch,
 retained rollback and pending-job reconciliation remain unfinished. Task 11
 stays IN PROGRESS; P6 is not deployed. See

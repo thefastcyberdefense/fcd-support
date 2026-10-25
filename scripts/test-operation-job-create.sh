@@ -41,6 +41,8 @@ cleanup() {
 trap 'result=$?; cleanup || result=1; exit "$result"' EXIT
 node "$NATIVE_ROOT/tests/helpers/phase6-network-fixture.ts" "$NATIVE_FIXTURE" "$SCOPE" "$REVISION"
 docker build --platform linux/amd64 --build-arg "VCS_REF=$REVISION" --label "fcd-support.job-create-test=$SCOPE" --file infra/Dockerfile.operations --tag "$IMAGE" . >/dev/null 2>&1
+[[ "$(docker image inspect --format '{{index .Config.Labels "fcd-support.operation-reference"}}/{{index .Config.Labels "fcd-support.operation-settlement"}}/{{.Config.User}}' "$IMAGE")" == 1/1/node ]]
+printf '%s\n' operation_job_recovery_capabilities_verified=true
 docker network create --internal --label "fcd-support.job-create-test=$SCOPE" "$NETWORK" >/dev/null
 OPS_DOCKER_ENDPOINT="$(docker context inspect --format '{{(index .Endpoints "docker").Host}}')"
 [[ "$OPS_DOCKER_ENDPOINT" == unix:///* || "$OPS_DOCKER_ENDPOINT" == npipe:////./pipe/dockerDesktopLinuxEngine ]] || exit 1
