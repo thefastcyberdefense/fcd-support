@@ -273,7 +273,7 @@ function checkCommon(config: Compose, revision: string): void {
   if (!/^[a-f0-9]{40}$/u.test(revision)) invalid();
   for (const [name, s] of Object.entries(config.services)) {
     if (
-      !s.image.endsWith(`:${revision}`) ||
+      (!s.image.endsWith(`:${revision}`) && !/^sha256:[a-f0-9]{64}$/u.test(s.image)) ||
       s.labels['org.opencontainers.image.revision'] !== revision
     )
       invalid();

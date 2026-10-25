@@ -63,9 +63,14 @@ declare -A OPS_CONFIG=()
 # This file was just authored by the fixed synthetic fixture generator. It is
 # parsed as literal values; neither it nor real host configuration is sourced.
 while IFS='=' read -r key value; do [[ "$key" != FCD_* ]] || OPS_CONFIG["$key"]="$value"; done < "$FIXTURE/fixture.env"
-OPS_CONFIG[FCD_COMMAND_TIMEOUT_SECONDS]=30; OPS_CONFIG[FCD_STOP_GRACE_MS]=1000
+OPS_CONFIG[FCD_COMMAND_TIMEOUT_SECONDS]=30
 [[ "$(operations_docker info --format '{{.OSType}}')" == linux ]] || exit 1
 OPS_ROOT="$NATIVE_ROOT"; OPS_JOB_SERVICE=backup
+runtime_model="$(operations_compose runtime --profile '*' config --format json)" || { echo operation_private_compose_render_failed >&2; exit 1; }
+printf '%s' "$runtime_model" | node "$NATIVE_ROOT/dist/operations/compose-contract-main.js" runtime "$REVISION" \
+  "${OPS_CONFIG[FCD_ADMIN_SOCKET_ROOT]}" "${OPS_CONFIG[FCD_CONFIG_ROOT]}" "${OPS_CONFIG[FCD_SECRET_ROOT]}" "$NATIVE_ROOT" >/dev/null
+unset runtime_model
+echo operation_private_compose_render_verified=true
 token="$(od -An -N16 -tx1 /dev/urandom)"; token="${token//[[:space:]]/}"
 [[ "$token" =~ ^[a-f0-9]{32}$ ]] || exit 1
 OPS_JOB_PROJECT="fcd-support-operation-$token"; OPS_JOB_REFERENCE="operation_$token"

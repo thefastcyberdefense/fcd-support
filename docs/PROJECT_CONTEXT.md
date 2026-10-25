@@ -45,6 +45,16 @@ preflight must check existing data-directory owners/modes before any outage: a
 local fresh upstream seed has mode 1777, whereas the hardened image requires 700.
 Actual server modes remain uninspected; no permission repair is automatic or
 authorized by this local proof.
+Private Compose now supports immutable image IDs with full revision labels and
+actual container/image-ID binding. The sanitized launcher supplies all execution
+flags as false, including required outbound/notification interpolation, and
+overrides ambient or dictionary attempts to enable them. Actual local runtime
+rendering and stopped operation creation pass without job/application startup
+or database connections. Internal startup now composes verified database upgrade,
+journalled candidate/success metadata, durable write exposure, private API/admin/
+reply startup, full runtime proofs and exact image retention. Its SQL probes use
+the durable executor. Failure retains uncertain state and partial actors;
+verified containment, pending-job reconciliation and public wiring remain open.
 Public command integration, startup, promotion/switch,
 retained rollback and pending-job reconciliation remain unfinished. Task 11
 stays IN PROGRESS; P6 is not deployed. See

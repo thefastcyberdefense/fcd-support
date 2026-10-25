@@ -126,6 +126,7 @@ operations_compose() {
   # An empty explicit env file and empty child environment prevent ambient
   # Compose files/profiles, Docker endpoints, dotenv and credential injection.
   env -i "PATH=$PATH" LC_ALL=C COMPOSE_DISABLE_ENV_FILE=1 "${settings[@]}" \
+    MODEL_EXECUTION_ENABLED=false OUTBOUND_EXECUTION_ENABLED=false N8N_EXECUTION_ENABLED=false \
     timeout --signal=TERM --kill-after="${grace}s" "${seconds}s" \
     docker "${endpoint[@]}" compose --project-directory "$OPS_ROOT" --env-file /dev/null "${files[@]}" "$@" 2>/dev/null
 }

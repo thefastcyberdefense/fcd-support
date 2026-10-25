@@ -317,6 +317,7 @@ function inspectHostSamples(
           expected === undefined ||
           c.project !== config.name ||
           c.revision !== options.revision ||
+          (expected.image.startsWith('sha256:') && c.imageId !== expected.image) ||
           c.imageId !==
             (c.service === 'postgres' ? actual.images.postgres.id : actual.images.runtime.id) ||
           !(

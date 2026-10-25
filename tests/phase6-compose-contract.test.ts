@@ -651,6 +651,71 @@ test('runtime host proof compares actual resources with the separately validated
   });
 });
 
+test.each(['postgres', 'applications'] as const)(
+  'immutable %s image references retain revision-label and actual-image binding',
+  (role) => {
+    const f = runtimeHostFixture();
+    for (const [name, service] of Object.entries(f.compose.services)) {
+      if ((role === 'postgres') === (name === 'postgres'))
+        service.image =
+          name === 'postgres'
+            ? f.samples.before.images.postgres.id
+            : f.samples.before.images.runtime.id;
+    }
+    expect(() => {
+      assertRuntimeCompose(f.compose, revision, false, paths);
+    }).not.toThrow();
+    expect(inspectRuntimeHostSamples(f.samples, f.compose, f.options)).toEqual({
+      status: 'verified',
+    });
+  },
+);
+
+test.each(['postgres', 'applications'] as const)(
+  'immutable %s image references refuse a different actual image ID',
+  (role) => {
+    const f = runtimeHostFixture();
+    for (const [name, service] of Object.entries(f.compose.services)) {
+      if ((role === 'postgres') === (name === 'postgres'))
+        service.image = `sha256:${'9'.repeat(64)}`;
+    }
+    expect(() => {
+      inspectRuntimeHostSamples(f.samples, f.compose, f.options);
+    }).toThrow();
+  },
+);
+
+test('immutable image references still require the exact revision label', () => {
+  const f = runtimeHostFixture();
+  const postgres = f.compose.services.postgres;
+  postgres.image = f.samples.before.images.postgres.id;
+  postgres.labels = { 'org.opencontainers.image.revision': 'b'.repeat(40) };
+  expect(() => {
+    assertRuntimeCompose(f.compose, revision, false, paths);
+  }).toThrow();
+});
+
+test('immutable PostgreSQL image references pass the pre-bootstrap host proof', () => {
+  const f = bootstrapHostFixture();
+  const postgres = f.compose.services.postgres;
+  postgres.image = f.samples.before.images.postgres.id;
+  expect(inspectBootstrapDatabaseSamples(f.samples, f.compose, f.options)).toEqual({
+    status: 'verified',
+  });
+});
+
+test.each([`sha256:${'a'.repeat(63)}`, `sha256:${'A'.repeat(64)}`, `sha256:${'a'.repeat(65)}`])(
+  'immutable image reference %s refuses malformed identity',
+  (image) => {
+    const f = runtimeHostFixture();
+    const postgres = f.compose.services.postgres;
+    postgres.image = image;
+    expect(() => {
+      assertRuntimeCompose(f.compose, revision, false, paths);
+    }).toThrow();
+  },
+);
+
 function bootstrapHostFixture() {
   const f = runtimeHostFixture();
   const postgres = f.samples.before.containers.find((c) => c.service === 'postgres');
@@ -1184,6 +1249,9 @@ test
     'bootstrap-selected-external',
     'bootstrap-selected-system',
     'bootstrap-selected-changed',
+    'immutable-postgres',
+    'immutable-applications',
+    'bootstrap-immutable-postgres',
   ] as const)(
   'runtime host collector handles %s with real shell and compiled validator',
   async (fault) => {
@@ -1199,6 +1267,14 @@ test
         .replaceAll(paths.secretRoot, `${root}/secrets`)
         .replaceAll(paths.configRoot, `${root}/config`),
     ) as typeof original;
+    const immutablePostgres = fault.endsWith('immutable-postgres');
+    const immutableApplications = fault === 'immutable-applications';
+    for (const [name, service] of Object.entries(f.compose.services)) {
+      if (immutablePostgres && name === 'postgres')
+        service.image = f.samples.before.images.postgres.id;
+      if (immutableApplications && name !== 'postgres')
+        service.image = f.samples.before.images.runtime.id;
+    }
     const selected = fault.includes('selected');
     if (selected) {
       const volumeName = 'fcd-support-selected-data';
@@ -1310,7 +1386,7 @@ else if(mode==='ids') {
   const foreign=fault==='bootstrap-foreign-bind'&&!args.some(a=>a.startsWith('label=')||a.startsWith('volume='));
   output(list.map(c=>c.id).join('\\n')+((fault==='extra-container'&&!service)||foreign?'\\n'+'0'.repeat(64):''));
 } else if(mode==='image') {
-  const image=last==='synthetic-pg'?s.images.postgres:s.images.runtime;
+  const image=last==='synthetic-pg'||last===s.images.postgres.id?s.images.postgres:s.images.runtime;
   if(format.startsWith('{"'))output(image);else output(image.id+'/'+f.options.revision+'/linux/amd64/'+image.user);
 } else if(mode==='volume') {
   const {users,...volume}=s.volume; output(JSON.stringify(volume).slice(0,-1));
@@ -1343,7 +1419,7 @@ source "$TASK_COMMON"
 source "$TASK_LIBRARY"
 OPS_ROOT=/workspace/source
 OPS_REVISION=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-declare -A OPS_CONFIG=([FCD_RUNTIME_PROJECT]=fcd-support-runtime [FCD_SUPPORT_REVISION]="$OPS_REVISION" [FCD_SUPPORT_IMAGE]=synthetic-app [FCD_POSTGRES_IMAGE]=synthetic-pg [FCD_OPERATIONS_IMAGE]=synthetic-operations
+declare -A OPS_CONFIG=([FCD_RUNTIME_PROJECT]=fcd-support-runtime [FCD_SUPPORT_REVISION]="$OPS_REVISION" [FCD_SUPPORT_IMAGE]="$TASK_APP_IMAGE" [FCD_POSTGRES_IMAGE]="$TASK_PG_IMAGE" [FCD_OPERATIONS_IMAGE]=synthetic-operations
 [FCD_POSTGRES_VOLUME]=fcd-support-runtime-postgres [FCD_ADMIN_SOCKET_ROOT]="$TASK_ROOT/socket" [FCD_CONFIG_ROOT]="$TASK_ROOT/config" [FCD_SECRET_ROOT]="$TASK_ROOT/secrets"
 [FCD_INGRESS_NETWORK]=fcd-support-runtime-ingress
 [FCD_POSTGRES_DB]=fcd_support_test [FCD_DATABASE_SCHEMA]=public [FCD_DATABASE_ROLE_PREFIX]=fcd_support [FCD_SCHEMA_REVISION]=000016
@@ -1382,6 +1458,10 @@ if [[ "$TASK_KIND" == bootstrap ]]; then operations_inspect_bootstrap_database; 
             TASK_CREATED: f.samples.before.volume.createdAt,
             TASK_FAULT: fault,
             TASK_BIN: bin,
+            TASK_PG_IMAGE: immutablePostgres ? f.samples.before.images.postgres.id : 'synthetic-pg',
+            TASK_APP_IMAGE: immutableApplications
+              ? f.samples.before.images.runtime.id
+              : 'synthetic-app',
             TASK_COMMON: resolve('scripts/operations-common.sh'),
             TASK_LIBRARY: resolve('scripts/operations-runtime-host.sh'),
           },
@@ -1390,6 +1470,7 @@ if [[ "$TASK_KIND" == bootstrap ]]; then operations_inspect_bootstrap_database; 
       const success =
         fault === 'ok' ||
         fault === 'bootstrap' ||
+        fault.includes('immutable') ||
         (selected && (fault.endsWith('restore') || fault.endsWith('external')));
       if (success && result.status !== 0)
         throw new Error(
@@ -1436,6 +1517,7 @@ if [[ "$TASK_KIND" == bootstrap ]]; then operations_inspect_bootstrap_database; 
       else expect(phases).toContain('exec');
       if (
         fault === 'ok' ||
+        fault.includes('immutable') ||
         fault === 'changed' ||
         fault === 'validator-ambiguous' ||
         [

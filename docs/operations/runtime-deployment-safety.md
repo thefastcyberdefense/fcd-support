@@ -251,6 +251,70 @@ actual Docker seed proof passed with no database startup and scoped cleanup.
 Full ordinary PostgreSQL and isolated restore were not rerun for this host-only
 change. Public controllers and the server remain untouched.
 
+### Private Compose integration boundaries
+
+Rendered contracts now accept either full-revision image tags or exact lowercase
+`sha256` image IDs. Full revision labels remain mandatory. Runtime and bootstrap
+host proof bind any configured image ID to the actual container image and the
+independently inspected image metadata. A different actual ID, changed revision
+label or malformed identifier refuses. This allows the convergence stage's
+immutable image interpolation to pass the same full host contract as tagged
+artifacts; a rendered contract alone is not attachment authority.
+
+The sanitized Compose launcher explicitly supplies `MODEL_EXECUTION_ENABLED`,
+`OUTBOUND_EXECUTION_ENABLED` and `N8N_EXECUTION_ENABLED` as `false`, after all
+configuration dictionary values. This satisfies the private runtime's required
+interpolation and prevents ambient or in-memory execution flags from enabling
+providers. These fixed flags enforce the approved private-disabled mode; they
+are not rate/cost limits or model-policy defaults.
+
+The actual local stopped-create harness now renders the runtime through this
+same launcher and validates it with the compiled contract before creating its
+stopped operation container. Its fixture keeps the configured stop grace aligned
+with the synthetic runtime settings. The check starts no application or operation
+job and makes no database connection. Windows fixture path/plugin adaptations
+do not replace the separately gated Ubuntu/SSH validation.
+
+### Bootstrap and private startup composition
+
+The internal startup helper takes independently pinned application, operations
+and PostgreSQL image IDs for the target revision. It checks the selected
+quiescent cluster and namespace, refuses a known higher schema before any
+upgrade, freezes image interpolation and requires the full PostgreSQL-only
+contract/host proof. It then runs the verified owner-prepare, encrypted backup,
+separate verification, migration, grant convergence and registration sequence.
+
+The journalled deployment-started job independently verifies the actual SQL
+schema, principal and cluster before candidate startup evidence is recorded.
+The synchronized starting state records write exposure before Compose starts
+only API, admin and reply with dependencies, builds and pulls disabled. Complete
+runtime host, SQL, socket and process proofs must pass before and after the
+journalled deployment-succeeded job. Only then can the selection become ready
+and retain the three exact image IDs. SQL readiness probes use the durable job
+executor inside this helper's private scope; they do not use the legacy
+`run --rm` path. A lost start response is accepted only after full postcondition
+verification, without replaying start.
+
+The 19 orchestration cases use real Bash with test-owned boundary doubles. They
+cover ordering, known schema incompatibility, target changes, failed upgrade or
+metadata, lost start acknowledgement and failed readiness/retention. They do not
+start real application containers. Failure records uncertainty and preserves
+partial actors and storage. Verified containment of those partial actors and
+pending-job reconciliation remain required before public controller enablement.
+No public deployment/verification handler is introduced by this helper.
+
+Startup integration validation on 2026-10-25 (Asia/Dhaka): `npm run check` passed
+1,102 tests with 256 platform skips across 77 files, plus lint, typecheck and
+build. The full pinned native gate passed 514 units across 20 files and 70
+PostgreSQL integrations across six files (34.85 seconds for integrations).
+This includes all 19 startup orchestration cases, nine direct immutable-image
+cases, three native collector cases and two execution-environment cases. Actual
+local Compose rendering/contract validation, seven existing stopped-create
+checks and two upstream-image projections passed without job startup or database
+connection in that harness. Full ordinary PostgreSQL and isolated restore were
+not rerun; their SQL implementation is unchanged. No SSH/server/provider action
+occurred, and Task 11/P6-004 remain in progress.
+
 Validation: code gate 1,066 passed/171 platform skips across 72 files; combined
 native gate 393 units/70 integrations. The multi-step switch test has a 20-second
 aggregate allowance for its separately bounded subprocesses; production command
