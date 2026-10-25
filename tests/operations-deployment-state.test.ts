@@ -367,3 +367,36 @@ test.runIf(native)(
     }
   },
 );
+
+test.runIf(native)(
+  'Compose volume selection uses the protected pointer and never a stale configured fallback',
+  async () => {
+    const f = await fixture();
+    try {
+      success(
+        f.run(
+          `${create}; OPS_CONFIG[FCD_POSTGRES_VOLUME]=fcd-support-stale; operations_selection_apply; [[ "\${OPS_CONFIG[FCD_POSTGRES_VOLUME]}" == fcd-support-original ]]`,
+        ),
+      );
+      success(
+        f.run(
+          `${ready}; operations_selection_quiesce ${ref}; ${select}; OPS_CONFIG[FCD_POSTGRES_VOLUME]=fcd-support-original; operations_selection_apply; [[ "\${OPS_CONFIG[FCD_POSTGRES_VOLUME]}" == fcd-support-restored ]]`,
+        ),
+      );
+      const result = f.run('operations_selection_volume_identity');
+      expect(result.status).toBe(0);
+      expect(result.stderr).toBe('');
+      expect(JSON.parse(result.stdout)).toEqual({
+        name: 'fcd-support-restored',
+        project: 'fcd-support-restore-synthetic',
+        logicalName: 'restore-data',
+        createdAt: '2030-04-02T00:00:00Z',
+      });
+      await rm(f.file);
+      refused(f.run('operations_selection_apply'));
+    } finally {
+      await f.dispose();
+    }
+  },
+  20000,
+);

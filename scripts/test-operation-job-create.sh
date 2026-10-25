@@ -80,6 +80,9 @@ if operations_job_create_stopped; then echo operation_job_missing_volume_accepte
 if docker volume inspect "$VOLUME" >/dev/null 2>&1; then exit 1; fi
 echo operation_job_missing_volume_refused=true
 docker volume create --label "fcd-support.job-create-test=$SCOPE" "$VOLUME" >/dev/null
+external_labels="$(docker volume inspect --format '{{json (index .Labels "com.docker.compose.project")}}/{{json (index .Labels "com.docker.compose.volume")}}' "$VOLUME")"
+[[ "$external_labels" == '""/""' || "$external_labels" == null/null ]] || exit 1
+echo operation_job_external_label_projection=true
 if ! operations_job_create_stopped; then
   echo operation_job_create_failed >&2; exit 1
 fi

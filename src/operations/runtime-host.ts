@@ -110,8 +110,8 @@ const snapshot = z.strictObject({
       .record(z.string(), z.unknown())
       .nullable()
       .refine((v) => v === null || Object.keys(v).length === 0),
-    project: name,
-    logicalName: z.literal('postgres-data'),
+    project: z.union([name, z.literal('')]).nullable(),
+    logicalName: z.enum(['postgres-data', 'restore-data', '']).nullable(),
     createdAt: z.iso.datetime(),
     mountpoint: path,
     users: z.array(id).length(1),
@@ -138,7 +138,20 @@ export interface RuntimeHostOptions {
   readonly revision: string;
   readonly paths: RuntimeComposePaths;
   readonly ingressPeerId: string;
+  readonly volumeIdentity?: RuntimeVolumeIdentity;
 }
+export interface RuntimeVolumeIdentity {
+  readonly name: string;
+  readonly project: string | null;
+  readonly logicalName: string | null;
+  readonly createdAt: string;
+}
+export const runtimeVolumeIdentitySchema = z.strictObject({
+  name,
+  project: name.nullable(),
+  logicalName: z.enum(['postgres-data', 'restore-data']).nullable(),
+  createdAt: z.iso.datetime(),
+});
 const commands = {
   postgres: ['postgres'],
   'fcd-support-api': ['node', 'dist/main.js'],
@@ -222,6 +235,24 @@ function inspectHostSamples(
     ).parse(input);
     const expectedVolume = config.volumes?.['postgres-data']?.name;
     if (expectedVolume === undefined) invalid();
+    const selected =
+      options.volumeIdentity === undefined
+        ? undefined
+        : runtimeVolumeIdentitySchema.parse(options.volumeIdentity);
+    const expectedProject = selected === undefined ? config.name : selected.project;
+    const expectedLogical = selected === undefined ? 'postgres-data' : selected.logicalName;
+    if (selected !== undefined) {
+      if (selected.name !== expectedVolume) invalid();
+      if (selected.logicalName === 'postgres-data') {
+        if (selected.project !== config.name) invalid();
+      } else if (selected.logicalName === 'restore-data') {
+        if (
+          selected.project === null ||
+          !/^fcd-support-restore-[a-z0-9][a-z0-9-]{0,63}$/u.test(selected.project)
+        )
+          invalid();
+      } else if (selected.project !== null) invalid();
+    }
     for (const actual of [samples.before, samples.after]) {
       if (
         (bootstrap ? actual.socket !== null : actual.socket === null) ||
@@ -247,7 +278,9 @@ function inspectHostSamples(
         postgres === undefined ||
         (!bootstrap && admin === undefined) ||
         actual.volume.name !== expectedVolume ||
-        actual.volume.project !== config.name ||
+        (actual.volume.project === '' ? null : actual.volume.project) !== expectedProject ||
+        (actual.volume.logicalName === '' ? null : actual.volume.logicalName) !== expectedLogical ||
+        (selected !== undefined && actual.volume.createdAt !== selected.createdAt) ||
         actual.volume.users[0] !== postgres.id
       )
         invalid();

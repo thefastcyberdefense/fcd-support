@@ -105,7 +105,7 @@ retention is idempotent; replacing a bundle with different IDs refuses.
 These records contain no business state and grant no attachment authority. The
 trusted controller must still prove current host/SQL identity, fresh restoration
 and deletion evidence, quiescence and compatibility under its lock. Live image
-inspection, rollback execution, selection application to Compose, operation-specific
+inspection for retained-image compatibility, rollback execution, controlled-outage/startup integration, operation-specific
 uncertainty resolution and public controller wiring remain incomplete. The
 25 new native filesystem cases do not constitute a deployed runtime or switch.
 
@@ -115,6 +115,34 @@ aggregate allowance for its separately bounded subprocesses; production command
 timeouts are unchanged. The last full ordinary PostgreSQL and isolated restore
 runs remain the source-binding checkpoint below; neither was repeated for this
 host-filesystem-only change.
+
+The selection adapter now sets Compose's volume interpolation from the validated
+pointer and refuses a missing record. Host inspection reads the protected record
+before and after its Docker/readiness samples. It compares the independently
+sampled physical identifier before SQL probes and rejects changed record stamps,
+stale configured volume names and missing pointers with history. A configured
+runtime also requires starting/ready phase, recorded write exposure and matching
+revision/schema; an empty state root cannot silently verify a running runtime.
+
+The compiled validator accepts a separately supplied exact volume identity:
+name, creation time and the original Docker project/logical labels. This supports
+restored-volume labels and explicitly absent labels on pre-provisioned volumes;
+it never rewrites labels or infers expected provenance from its current sample.
+Without an explicit selection binding, the original managed-volume rule remains.
+The remaining image/resource/network/socket and foreign-bind checks are unchanged.
+
+The host collector cases use a state-reader adapter double and fake Docker
+transport with the real compiled validator; the state protocol is covered
+separately by 26 native filesystem cases. These are component proofs, not an
+actual server deployment or complete promotion. The actual local stopped-create
+proof also checks Docker's absent-label projection on its scoped external volume.
+
+Selection-binding validation: code gate 1,072 passed/186 platform skips across
+72 files; networkless host harness 154 passed; state/lifecycle harness 132 passed;
+combined native gate 414 units/70 integrations. The actual local stopped-create
+check passed seven closed checks and removed its scoped resources. The latest
+full ordinary PostgreSQL and isolated restore evidence remains the earlier
+source-binding checkpoint; this extension changes host metadata verification.
 
 ## Deployment SQL Target And Principal
 

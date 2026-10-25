@@ -1,6 +1,10 @@
 import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
-import { inspectRuntimeHostSamples, inspectBootstrapDatabaseSamples } from './runtime-host.js';
+import {
+  inspectRuntimeHostSamples,
+  inspectBootstrapDatabaseSamples,
+  runtimeVolumeIdentitySchema,
+} from './runtime-host.js';
 
 export async function runRuntimeHostMain(): Promise<void> {
   try {
@@ -21,13 +25,21 @@ export async function runRuntimeHostMain(): Promise<void> {
       chunks.push(chunk);
     }
     const input = z
-      .strictObject({ compose: z.unknown(), samples: z.unknown() })
+      .strictObject({
+        compose: z.unknown(),
+        samples: z.unknown(),
+        volumeIdentity: runtimeVolumeIdentitySchema.optional(),
+      })
       .parse(
         JSON.parse(
           new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks)),
         ) as unknown,
       );
-    const options = { revision, paths: { adminSocketRoot, configRoot, secretRoot, workspaceRoot } };
+    const options = {
+      revision,
+      paths: { adminSocketRoot, configRoot, secretRoot, workspaceRoot },
+      ...(input.volumeIdentity === undefined ? {} : { volumeIdentity: input.volumeIdentity }),
+    };
     const result = bootstrap
       ? inspectBootstrapDatabaseSamples(input.samples, input.compose, options)
       : inspectRuntimeHostSamples(input.samples, input.compose, {

@@ -678,6 +678,88 @@ test('bootstrap host proof requires only the selected PostgreSQL on all six priv
   });
 });
 
+test.each(['runtime', 'bootstrap'] as const)(
+  'protected volume binding permits a selected restored origin in %s mode only with its exact identity',
+  (mode) => {
+    const f = mode === 'runtime' ? runtimeHostFixture() : bootstrapHostFixture();
+    for (const sample of [f.samples.before, f.samples.after]) {
+      sample.volume.project = 'fcd-support-restore-synthetic';
+      sample.volume.logicalName = 'restore-data';
+    }
+    const volumeIdentity = {
+      name: f.samples.before.volume.name,
+      project: 'fcd-support-restore-synthetic',
+      logicalName: 'restore-data',
+      createdAt: f.samples.before.volume.createdAt,
+    };
+    const inspect =
+      mode === 'runtime' ? inspectRuntimeHostSamples : inspectBootstrapDatabaseSamples;
+    const options = { ...f.options, ingressPeerId: runtimeHostFixture().options.ingressPeerId };
+    expect(() => inspect(f.samples, f.compose, options)).toThrow('runtime_host_invalid');
+    const boundOptions = { ...options, volumeIdentity };
+    expect(inspect(f.samples, f.compose, boundOptions)).toEqual({ status: 'verified' });
+  },
+);
+test.each(['runtime', 'bootstrap'] as const)(
+  'a selected externally provisioned volume has an explicit absent-label identity in %s mode',
+  (mode) => {
+    const f = mode === 'runtime' ? runtimeHostFixture() : bootstrapHostFixture();
+    const replace = (s: typeof f.samples.before) => ({
+      ...s,
+      volume: { ...s.volume, project: null, logicalName: null },
+    });
+    const samples = {
+      ...f.samples,
+      before: replace(f.samples.before),
+      after: replace(f.samples.after),
+    };
+    const volumeIdentity = {
+      name: f.samples.before.volume.name,
+      project: null,
+      logicalName: null,
+      createdAt: f.samples.before.volume.createdAt,
+    };
+    const inspect =
+      mode === 'runtime' ? inspectRuntimeHostSamples : inspectBootstrapDatabaseSamples;
+    const options = {
+      ...f.options,
+      ingressPeerId: runtimeHostFixture().options.ingressPeerId,
+      volumeIdentity,
+    };
+    expect(inspect(samples, f.compose, options)).toEqual({ status: 'verified' });
+  },
+);
+test.each(['runtime', 'bootstrap'] as const)(
+  'protected expected volume facts are enforced in %s mode',
+  (mode) => {
+    const f = mode === 'runtime' ? runtimeHostFixture() : bootstrapHostFixture();
+    const actual = f.samples.before.volume;
+    const expected = {
+      name: actual.name,
+      project: actual.project,
+      logicalName: actual.logicalName,
+      createdAt: actual.createdAt,
+    };
+    const inspect =
+      mode === 'runtime' ? inspectRuntimeHostSamples : inspectBootstrapDatabaseSamples;
+    for (const override of [
+      { name: 'fcd-support-substituted' },
+      { project: 'fcd-support-foreign' },
+      { logicalName: 'restore-data' },
+      { createdAt: '2030-05-01T00:00:00.000Z' },
+      { project: null },
+      { approved: true },
+    ]) {
+      const options = {
+        ...f.options,
+        ingressPeerId: runtimeHostFixture().options.ingressPeerId,
+        volumeIdentity: { ...expected, ...override },
+      };
+      expect(() => inspect(f.samples, f.compose, options)).toThrow('runtime_host_invalid');
+    }
+  },
+);
+
 test.each([
   'application-present',
   'application-network-member',
@@ -1088,6 +1170,20 @@ test
     'bootstrap-changed',
     'bootstrap-ambiguous',
     'bootstrap-foreign-bind',
+    'selected-restore',
+    'selected-external',
+    'selected-system',
+    'selected-changed',
+    'selected-missing',
+    'selected-config',
+    'selected-missing-empty',
+    'selected-state-phase',
+    'selected-state-revision',
+    'selected-state-schema',
+    'bootstrap-selected-restore',
+    'bootstrap-selected-external',
+    'bootstrap-selected-system',
+    'bootstrap-selected-changed',
   ] as const)(
   'runtime host collector handles %s with real shell and compiled validator',
   async (fault) => {
@@ -1103,6 +1199,35 @@ test
         .replaceAll(paths.secretRoot, `${root}/secrets`)
         .replaceAll(paths.configRoot, `${root}/config`),
     ) as typeof original;
+    const selected = fault.includes('selected');
+    if (selected) {
+      const volumeName = 'fcd-support-selected-data';
+      const volume = f.compose.volumes['postgres-data'];
+      volume.name = volumeName;
+      for (const sample of [f.samples.before, f.samples.after]) {
+        sample.volume.name = volumeName;
+        sample.volume.project = fault.endsWith('external') ? '' : 'fcd-support-restore-synthetic';
+        sample.volume.logicalName = fault.endsWith('external') ? '' : 'restore-data';
+        sample.volume.mountpoint = '/var/lib/docker/volumes/' + volumeName + '/_data';
+        for (const c of sample.containers)
+          for (const m of c.mounts)
+            if (m.type === 'volume') {
+              m.name = volumeName;
+              m.source = sample.volume.mountpoint;
+            }
+      }
+      await mkdir(join(root, 'state'), { mode: 0o700 });
+      if (fault !== 'selected-missing-empty')
+        await writeFile(
+          join(
+            root,
+            'state',
+            fault === 'selected-missing' ? 'volume-synthetic.record' : 'deployment-state',
+          ),
+          'synthetic_state_reader_adapter_only\n',
+          { mode: 0o600 },
+        );
+    }
     if (fault === 'bootstrap-network') {
       const network = f.samples.before.networks[0];
       if (network === undefined) throw new Error('synthetic_fixture_invalid');
@@ -1224,6 +1349,22 @@ declare -A OPS_CONFIG=([FCD_RUNTIME_PROJECT]=fcd-support-runtime [FCD_SUPPORT_RE
 [FCD_POSTGRES_DB]=fcd_support_test [FCD_DATABASE_SCHEMA]=public [FCD_DATABASE_ROLE_PREFIX]=fcd_support [FCD_SCHEMA_REVISION]=000016
 [FCD_INGRESS_PEER_ID]=ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff [FCD_COMMAND_TIMEOUT_SECONDS]=10 [FCD_STOP_GRACE_MS]=30000 [FCD_HEALTH_TIMEOUT_MS]=1000
 [FCD_ADMIN_CPUS]=0.5 [FCD_ADMIN_MEMORY_MIB]=256 [FCD_ADMIN_PIDS]=64)
+if [[ "$TASK_SELECTED" == yes ]]; then
+  OPS_CONFIG[FCD_STATE_ROOT]="$TASK_ROOT/state"
+  OPS_CONFIG[FCD_POSTGRES_VOLUME]="$TASK_VOLUME"
+  [[ "$TASK_FAULT" != selected-config ]] || OPS_CONFIG[FCD_POSTGRES_VOLUME]=fcd-support-stale
+  # The filesystem protocol has separate real native tests. This adapter double
+  # supplies protected state facts to the real collector/compiled validator.
+  operations_selection_read() {
+    declare -gA OPS_SELECTION=([STATE_VOLUME]="$TASK_VOLUME" [STATE_VOLUME_ORIGIN]=fcd-support-restore-synthetic [STATE_VOLUME_LOGICAL]=restore-data [STATE_VOLUME_CREATED_AT]="$TASK_CREATED" [STATE_SYSTEM_IDENTIFIER]=1111111111111111111 [STATE_REF]=selection_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa [STATE_PHASE]=starting [STATE_WRITES_POSSIBLE]=yes [STATE_REVISION]=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa [STATE_SCHEMA_REVISION]=000016)
+    if [[ "$TASK_FAULT" == *external ]]; then OPS_SELECTION[STATE_VOLUME_ORIGIN]=none; OPS_SELECTION[STATE_VOLUME_LOGICAL]=none; fi
+    if [[ "$TASK_FAULT" == *system || ( "$TASK_FAULT" == selected-changed && -e "$TASK_BIN/probed" ) || ( "$TASK_FAULT" == bootstrap-selected-changed && -e "$TASK_BIN/sampled" ) ]]; then OPS_SELECTION[STATE_SYSTEM_IDENTIFIER]=2222222222222222222; fi
+    if [[ "$TASK_FAULT" == selected-state-phase ]]; then OPS_SELECTION[STATE_PHASE]=quiescent; OPS_SELECTION[STATE_WRITES_POSSIBLE]=no; fi
+    [[ "$TASK_FAULT" != selected-state-revision ]] || OPS_SELECTION[STATE_REVISION]=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    [[ "$TASK_FAULT" != selected-state-schema ]] || OPS_SELECTION[STATE_SCHEMA_REVISION]=000015
+    return 0
+  }
+fi
 if [[ "$TASK_KIND" == bootstrap ]]; then operations_inspect_bootstrap_database; else operations_inspect_runtime_host; fi
 `,
         ],
@@ -1236,12 +1377,20 @@ if [[ "$TASK_KIND" == bootstrap ]]; then operations_inspect_bootstrap_database; 
             TASK_ROOT: root,
             TASK_KIND: bootstrap ? 'bootstrap' : 'runtime',
             TASK_CLI: entry,
+            TASK_SELECTED: selected ? 'yes' : 'no',
+            TASK_VOLUME: f.samples.before.volume.name,
+            TASK_CREATED: f.samples.before.volume.createdAt,
+            TASK_FAULT: fault,
+            TASK_BIN: bin,
             TASK_COMMON: resolve('scripts/operations-common.sh'),
             TASK_LIBRARY: resolve('scripts/operations-runtime-host.sh'),
           },
         },
       );
-      const success = fault === 'ok' || fault === 'bootstrap';
+      const success =
+        fault === 'ok' ||
+        fault === 'bootstrap' ||
+        (selected && (fault.endsWith('restore') || fault.endsWith('external')));
       if (success && result.status !== 0)
         throw new Error(
           'synthetic_runtime_collector_phases:' + (await readFile(join(bin, 'trace'), 'utf8')),
@@ -1255,7 +1404,31 @@ if [[ "$TASK_KIND" == bootstrap ]]; then operations_inspect_bootstrap_database; 
             }
           : { status: 1, stdout: '', stderr: 'runtime_host_invalid\n' },
       );
-      const phases = (await readFile(join(bin, 'trace'), 'utf8')).trim().split('\n');
+      const phases = (await readFile(join(bin, 'trace'), 'utf8').catch(() => ''))
+        .trim()
+        .split('\n');
+      if (selected) {
+        if (
+          [
+            'selected-missing',
+            'selected-config',
+            'selected-missing-empty',
+            'selected-state-phase',
+            'selected-state-revision',
+            'selected-state-schema',
+          ].includes(fault)
+        )
+          expect(phases).toEqual(['']);
+        else {
+          expect(phases).toContain('image');
+          expect(phases).toContain('exec');
+          if (!bootstrap && !fault.endsWith('system')) expect(phases).toContain('sql');
+          else expect(phases).not.toContain('sql');
+          if (success) expect(phases).toContain('run');
+          else expect(phases).not.toContain('run');
+        }
+        return;
+      }
       expect(phases).toContain('image');
       if (!bootstrap && fault !== 'extra-container') expect(phases).toContain('sql');
       else expect(phases).not.toContain('sql');

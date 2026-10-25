@@ -143,6 +143,21 @@ operations_selection_read() {
   [[ "${OPS_DEPLOYMENT_RECORD[USED_CREATED_AT]}" == "${OPS_SELECTION[STATE_VOLUME_CREATED_AT]}" && "${OPS_DEPLOYMENT_RECORD[USED_SYSTEM_IDENTIFIER]}" == "${OPS_SELECTION[STATE_SYSTEM_IDENTIFIER]}" && "${OPS_DEPLOYMENT_RECORD[USED_FIRST_SELECTION]}" == "${OPS_SELECTION[STATE_REF]}" ]] || operations_deployment_state_invalid
   [[ "${OPS_DEPLOYMENT_RECORD[USED_ORIGIN]}" == "${OPS_SELECTION[STATE_VOLUME_ORIGIN]}" && "${OPS_DEPLOYMENT_RECORD[USED_LOGICAL]}" == "${OPS_SELECTION[STATE_VOLUME_LOGICAL]}" ]] || operations_deployment_state_invalid
 }
+operations_selection_apply() {
+  [[ "$#" == 0 ]] || operations_deployment_state_invalid
+  operations_selection_read
+  # This changes interpolation only. It never starts a container, changes DB
+  # namespace or authorizes an attachment without the controller's fresh proof.
+  OPS_CONFIG[FCD_POSTGRES_VOLUME]="${OPS_SELECTION[STATE_VOLUME]}"
+}
+operations_selection_volume_identity() {
+  local project logical
+  [[ "$#" == 0 ]] || operations_deployment_state_invalid
+  operations_selection_read
+  if [[ "${OPS_SELECTION[STATE_VOLUME_ORIGIN]}" == none ]]; then project=null; logical=null;
+  else project="\"${OPS_SELECTION[STATE_VOLUME_ORIGIN]}\""; logical="\"${OPS_SELECTION[STATE_VOLUME_LOGICAL]}\""; fi
+  printf '{"name":"%s","project":%s,"logicalName":%s,"createdAt":"%s"}\n' "${OPS_SELECTION[STATE_VOLUME]}" "$project" "$logical" "${OPS_SELECTION[STATE_VOLUME_CREATED_AT]}"
+}
 operations_selection_body() {
   local field
   declare -gA OPS_DEPLOYMENT_RECORD=()
