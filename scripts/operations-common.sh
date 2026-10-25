@@ -29,7 +29,8 @@ operations_config_field() {
   case "$key" in
     FCD_CONFIG_ROOT|FCD_SECRET_ROOT|FCD_ADMIN_SOCKET_ROOT|FCD_STATE_ROOT)
       operations_absolute_path "$value" ;;
-    FCD_SUPPORT_REVISION) [[ "$value" =~ ^[a-f0-9]{40}$ ]] ;;
+    FCD_SUPPORT_REVISION|FCD_ADMISSION_REVISION) [[ "$value" =~ ^[a-f0-9]{40}$ ]] ;;
+    FCD_ADMISSION_IMAGE|FCD_ADMISSION_POSTGRES_IMAGE) [[ "$value" =~ ^sha256:[a-f0-9]{64}$ ]] ;;
     FCD_INGRESS_PEER_ID) [[ "$value" =~ ^[a-f0-9]{64}$ ]] ;;
     FCD_SCHEMA_REVISION) [[ "$value" =~ ^[0-9]{6}$ ]] ;;
     FCD_DATABASE_SCHEMA) [[ "$value" =~ ^[a-z][a-z0-9_]{0,62}$ ]] ;;
@@ -266,11 +267,20 @@ operations_preflight() {
   # A crashed job may still be running or may have committed without an ACK.
   # Its protected record must be reconciled before any new host operation.
   [[ ! -e "${OPS_CONFIG[FCD_STATE_ROOT]}/active-job" && ! -L "${OPS_CONFIG[FCD_STATE_ROOT]}/active-job" ]] || operations_fail operations_job_pending
+  for path in "${OPS_CONFIG[FCD_STATE_ROOT]}"/active-job-*.next; do
+    [[ ! -e "$path" && ! -L "$path" ]] || operations_fail operations_job_pending
+  done
+  OPS_DEPLOYMENT_HAS_SELECTION=yes
+  if declare -F operations_preflight_selection >/dev/null; then operations_preflight_selection; fi
   unset OPS_DOCKER_ENDPOINT
   OPS_DOCKER_ENDPOINT="$(operations_docker context inspect --format '{{(index .Endpoints "docker").Host}}')" || operations_fail operations_daemon_invalid
   [[ "$OPS_DOCKER_ENDPOINT" == unix:///* ]] && operations_absolute_path "${OPS_DOCKER_ENDPOINT#unix://}" || operations_fail operations_daemon_invalid
   operations_image_revisions
   for volume in "${OPS_CONFIG[FCD_POSTGRES_VOLUME]}" "${OPS_CONFIG[FCD_BACKUP_VOLUME]}"; do
+    if [[ "$OPS_ACTION" == deploy && "$OPS_DEPLOYMENT_HAS_SELECTION" == no && "$volume" == "${OPS_CONFIG[FCD_POSTGRES_VOLUME]}" ]]; then
+      shape="$(operations_docker volume ls --quiet --filter "name=^$volume$")" || operations_fail operations_volume_invalid
+      [[ -n "$shape" ]] || continue
+    fi
     shape="$(operations_docker volume inspect --format '{{.Driver}}/{{.Scope}}/{{if .Options}}custom{{else}}default{{end}}' "$volume")" || operations_fail operations_volume_invalid
     mountpoint="$(operations_docker volume inspect --format '{{.Mountpoint}}' "$volume")" || operations_fail operations_volume_invalid
     [[ "$shape" == local/local/default ]] && operations_absolute_path "$mountpoint" || operations_fail operations_volume_invalid

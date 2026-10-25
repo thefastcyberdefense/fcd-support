@@ -3,6 +3,32 @@
 ## Implementation Status
 
 This is an intermediate Task 11 checkpoint, not a deployment or restore gate pass.
+
+Current command composition now connects `deploy-runtime.sh`, `verify-runtime.sh`,
+`rollback-runtime.sh` and `recover-admin-socket.sh` to the verified internal
+controllers. Restore/promotion entry points remain disabled pending their host
+integration. This is operator CLI availability, not new public HTTP exposure.
+Fresh installation requires an absent target volume and absent runtime project;
+its immutable intent precedes uniquely labelled volume creation and PostgreSQL-only
+startup. Two fresh host/physical proofs precede quiescent pointer publication.
+Interrupted intents, job records and pointer replacements refuse implicit replay.
+Existing ready deployments use retained source image identities, and source
+PostgreSQL directory ownership/modes are checked before application shutdown.
+Legacy admission requires explicit protected `FCD_ADMISSION_REVISION`,
+`FCD_ADMISSION_IMAGE` and `FCD_ADMISSION_POSTGRES_IMAGE` fields supplied by the
+reviewed handoff. No source image identity is guessed from an untrusted label.
+Version-one retained manifests authorize exact-schema rollback only; images are
+not rebuilt, migrations never run down and data-volume selection never rolls
+back automatically. All execution flags remain false.
+
+Controller validation: `npm run check` exited 0 with 1,145 passing tests and 327
+platform skips across 84 files. The complete native grants gate exited 0 with
+628 unit tests across 27 files and 83 PostgreSQL integrations across seven files
+(41.37 seconds for integration). Fourteen first-boot filesystem/Docker-transport
+cases and eleven controller sequencing cases passed. Invalid arguments are
+rejected before loading the larger controller; two initial Windows subprocess
+timeouts exposed that ordering and the corrected entry tests now pass. These
+results do not claim an actual full runtime deployment or server test.
 The role bootstrap library, protected host configuration/preflight, orchestration
 ordering and forward-migration primitive are implemented locally. The public
 host commands refuse an incomplete installation before Docker activity when a

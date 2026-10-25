@@ -76,11 +76,14 @@ postconditions and pending-ID/state-replacement resolution remain unfinished.
 First boot also has an immutable, typed intent binding the intended volume,
 namespace, role prefix, revision and image IDs before any future initialization.
 It invents no physical identity or readiness and blocks ordinary initialization/
-adoption/missing-pointer bypass. Actual fresh-volume eligibility, creation,
-PostgreSQL startup, physical identity binding and interrupted-intent reconciliation
-still need their host controller.
-Public command integration, startup, promotion/switch,
-retained rollback and pending-job reconciliation remain unfinished. Task 11
+adoption/missing-pointer bypass. The first-boot controller now verifies absent
+actors/volume, records intent, creates a uniquely labelled volume, starts only
+PostgreSQL and publishes a quiescent selection after fresh host/physical proofs.
+Interrupted intent refuses implicit replay. Deploy, verify, exact-schema retained
+rollback and explicit socket recovery command entry points now compose the
+verified primitives; source storage modes are checked before application shutdown.
+Restore/promotion command wiring, interrupted-job/state reconciliation and actual
+deployment validation remain unfinished. Task 11
 stays IN PROGRESS; P6 is not deployed. See
 `docs/operations/runtime-deployment-safety.md` for scope and validation.
 

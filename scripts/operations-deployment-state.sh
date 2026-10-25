@@ -242,6 +242,26 @@ operations_initial_intent_create() {
   operations_deployment_record_create initial '' "$body"
   operations_initial_intent_matches "$@"
 }
+
+# Called only after the first-boot controller's fresh host/physical proofs.
+# Historical volume records prohibit reconstructing a lost authoritative pointer.
+operations_initial_intent_publish() {
+  local identifier="$1" created="$2" file body
+  [[ "$#" == 5 ]] || operations_deployment_state_invalid
+  operations_initial_intent_matches "$3" "$4" "$5"
+  operations_deployment_field STATE_SYSTEM_IDENTIFIER "$identifier" && operations_deployment_field STATE_VOLUME_CREATED_AT "$created" || operations_deployment_state_invalid
+  for file in "${OPS_CONFIG[FCD_STATE_ROOT]}/deployment-state" "${OPS_CONFIG[FCD_STATE_ROOT]}/deployment-state.next" "${OPS_CONFIG[FCD_STATE_ROOT]}/active-job" "${OPS_CONFIG[FCD_STATE_ROOT]}"/active-job-*.next "${OPS_CONFIG[FCD_STATE_ROOT]}"/volume-*.record "${OPS_CONFIG[FCD_STATE_ROOT]}"/retained-*.record; do
+    [[ ! -e "$file" && ! -L "$file" ]] || operations_deployment_state_invalid
+  done
+  declare -gA OPS_SELECTION=([STATE_VERSION]=1 [STATE_PROJECT]="${OPS_INITIAL[INITIAL_PROJECT]}" [STATE_REF]="${OPS_INITIAL[INITIAL_REF]}" [STATE_PHASE]=quiescent
+    [STATE_VOLUME]="${OPS_INITIAL[INITIAL_VOLUME]}" [STATE_VOLUME_ORIGIN]="${OPS_INITIAL[INITIAL_PROJECT]}" [STATE_VOLUME_LOGICAL]=postgres-data [STATE_VOLUME_CREATED_AT]="$created"
+    [STATE_SYSTEM_IDENTIFIER]="$identifier" [STATE_DATABASE_NAME]="${OPS_INITIAL[INITIAL_DATABASE_NAME]}" [STATE_SCHEMA_NAME]="${OPS_INITIAL[INITIAL_SCHEMA_NAME]}"
+    [STATE_PREVIOUS_VOLUME]=none [STATE_RESTORE_REF]=none [STATE_WRITES_POSSIBLE]=no [STATE_REVISION]="${OPS_INITIAL[INITIAL_REVISION]}" [STATE_SCHEMA_REVISION]=000000)
+  body="$(operations_selection_body)" || operations_deployment_state_invalid
+  operations_selection_used
+  operations_deployment_record_create selection '' "$body"
+  operations_selection_read
+}
 operations_selection_transition() {
   local reference="$1" phase="$2" old
   operations_selection_read
