@@ -29,13 +29,14 @@ if [[ "$MODE" == grants ]]; then
   UNIT_FILES+=(tests/operations-postgres-converge.test.ts)
   UNIT_FILES+=(tests/operations-compose-environment.test.ts)
   UNIT_FILES+=(tests/operations-startup-script.test.ts)
+  UNIT_FILES+=(tests/operations-containment.test.ts)
   INTEGRATION_FILES+=(tests/integration/postgres-deployment-cli.test.ts tests/integration/postgres-forward-migration.test.ts)
 fi
 if [[ "$MODE" == restore ]]; then
   INTEGRATION_FILES=(tests/integration/postgres-isolated-restore.test.ts)
 fi
 if [[ "$MODE" == state ]]; then
-  UNIT_FILES=(tests/operations-job-state.test.ts tests/operations-job-lifecycle.test.ts tests/operations-scripts.test.ts tests/operations-bootstrap-script.test.ts tests/operations-deployment-state.test.ts tests/operations-drain-script.test.ts tests/operations-adoption-script.test.ts tests/operations-postgres-converge.test.ts tests/operations-compose-environment.test.ts tests/operations-startup-script.test.ts)
+  UNIT_FILES=(tests/operations-job-state.test.ts tests/operations-job-lifecycle.test.ts tests/operations-scripts.test.ts tests/operations-bootstrap-script.test.ts tests/operations-deployment-state.test.ts tests/operations-drain-script.test.ts tests/operations-adoption-script.test.ts tests/operations-postgres-converge.test.ts tests/operations-compose-environment.test.ts tests/operations-startup-script.test.ts tests/operations-containment.test.ts)
   INTEGRATION_FILES=()
   # Focused native filesystem iteration, restricted to the fixed state suite.
   # The complete grants gate always runs its full unit/integration selection.

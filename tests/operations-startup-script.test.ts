@@ -12,6 +12,8 @@ const backup = `backup_${'b'.repeat(32)}`;
 
 test.each([
   'ok',
+  'arguments',
+  'ready-input',
   'image',
   'pending',
   'selection',
@@ -26,6 +28,7 @@ test.each([
   'compose-failed',
   'compose-ack',
   'runtime-proof',
+  'containment-failed',
   'sql-proof',
   'succeeded',
   'post-proof',
@@ -49,6 +52,7 @@ declare -A OPS_CONFIG=([FCD_RUNTIME_PROJECT]=fcd-support [FCD_SUPPORT_REVISION]=
 [FCD_READY_TIMEOUT_SECONDS]=5 [FCD_COMMAND_TIMEOUT_SECONDS]=5 [FCD_STOP_GRACE_MS]=1000)
 printf quiescent > "$TASK_ROOT/phase"; printf no > "$TASK_ROOT/writes"; printf 000015 > "$TASK_ROOT/schema"
 [[ "$TASK_FAULT" != schema ]] || printf 000017 > "$TASK_ROOT/schema"
+[[ "$TASK_FAULT" != ready-input ]] || { printf ready > "$TASK_ROOT/phase"; printf yes > "$TASK_ROOT/writes"; }
 operations_job_state_root() { OPS_JOB_STATE_FILE="$TASK_ROOT/active-job"; }
 operations_selection_read() {
   declare -gA OPS_SELECTION=([STATE_REF]=selection_${'c'.repeat(32)} [STATE_PHASE]="$(<"$TASK_ROOT/phase")" [STATE_VOLUME]=fcd-support-selected
@@ -104,12 +108,18 @@ operations_compose() {
 }
 operations_inspect_runtime_host() {
   printf 'runtime-proof\\n' >> "$TASK_ROOT/trace"
-  [[ -e "$TASK_ROOT/apps" && "$TASK_FAULT" != runtime-proof && "$TASK_FAULT" != compose-failed ]] || return 19
+  [[ -e "$TASK_ROOT/apps" && "$TASK_FAULT" != runtime-proof && "$TASK_FAULT" != compose-failed && "$TASK_FAULT" != containment-failed ]] || return 19
   [[ "$TASK_FAULT" != post-proof || ! -e "$TASK_ROOT/succeeded" ]] || return 19
   operations_job migrate verify-runtime
 }
+operations_contain_private_runtime() {
+  [[ "$(<"$TASK_ROOT/phase")" == uncertain && "$1" == '${app}' ]] || return 19
+  printf 'contain\\n' >> "$TASK_ROOT/trace"
+  [[ "$TASK_FAULT" != containment-failed ]] || return 19
+  if [[ -e "$TASK_ROOT/apps" ]]; then touch "$TASK_ROOT/contained"; fi
+}
 ${fault === 'pending' ? 'touch "$TASK_ROOT/active-job";' : ''}
-operations_start_private_runtime ${app} ${operations} ${postgres}
+operations_start_private_runtime ${app} ${operations} ${fault === 'arguments' ? '' : postgres}
 `,
       ],
       {
@@ -149,6 +159,8 @@ operations_start_private_runtime ${app} ${operations} ${postgres}
     } else if (
       ![
         'image',
+        'arguments',
+        'ready-input',
         'pending',
         'selection',
         'schema',
@@ -163,8 +175,18 @@ operations_start_private_runtime ${app} ${operations} ${postgres}
     ) {
       expect(phases).toContain('start');
       expect(await readFile(join(root, 'phase'), 'utf8')).not.toBe('ready');
+      expect(phases).toContain('contain');
+      expect(
+        await readFile(join(root, 'contained'), 'utf8').then(
+          () => true,
+          () => false,
+        ),
+      ).toBe(fault !== 'containment-failed');
     } else expect(phases).not.toContain('start');
     if (fault === 'schema') expect(phases).not.toContain('upgrade');
+    if (fault === 'ready-input') expect(await readFile(join(root, 'phase'), 'utf8')).toBe('ready');
+    if (fault === 'arguments')
+      expect(await readFile(join(root, 'phase'), 'utf8')).toBe('quiescent');
   } finally {
     await rm(root, { recursive: true, force: true });
   }

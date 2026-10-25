@@ -298,9 +298,10 @@ verification, without replaying start.
 The 19 orchestration cases use real Bash with test-owned boundary doubles. They
 cover ordering, known schema incompatibility, target changes, failed upgrade or
 metadata, lost start acknowledgement and failed readiness/retention. They do not
-start real application containers. Failure records uncertainty and preserves
-partial actors and storage. Verified containment of those partial actors and
-pending-job reconciliation remain required before public controller enablement.
+start real application containers. Failure records uncertainty, then attempts
+verified containment of partial actors while preserving storage and unresolved
+job evidence. Pending-job and state-replacement reconciliation remain required
+before public controller enablement.
 No public deployment/verification handler is introduced by this helper.
 
 Startup integration validation on 2026-10-25 (Asia/Dhaka): `npm run check` passed
@@ -314,6 +315,42 @@ checks and two upstream-image projections passed without job startup or database
 connection in that harness. Full ordinary PostgreSQL and isolated restore were
 not rerun; their SQL implementation is unchanged. No SSH/server/provider action
 occurred, and Task 11/P6-004 remain in progress.
+
+### Partial-start containment
+
+The internal containment helper requires the held deployment lock, a readable
+starting/uncertain target selection with write exposure, the selected volume and
+an independently pinned application image for the exact revision. It verifies
+each target actor's scope, image, user, command, entrypoint and frozen lifecycle;
+admin additionally requires its dedicated socket bind. It stops only those
+verified application actors and continues containing verified peers when another
+actor is unknown or changes. It accepts a lost stop acknowledgement only after
+the exact exited postcondition. Changed/unknown actors are preserved and cause
+a closed failure. The final actor set and stopped identities are checked again.
+
+It never stops PostgreSQL, removes a container/image/volume, repairs a directory,
+unlinks a socket, restarts an actor or executes SQL. Stopped admin owners are
+retained; any remaining socket is left for separately verified recovery. A pending
+one-shot journal does not block this safety stop; its bytes are untouched and
+no new database operation is authorized. Success means only that the verified
+target actors stopped, not socket quiescence, job resolution or runtime readiness.
+
+Startup failures now call this helper after marking uncertainty. Invalid argument
+lists and already-ready/wrong-scope entry states refuse before changing state
+or attempting containment. Unreadable pending replacement state still refuses
+the containment scope check; it requires separate protected-state reconciliation.
+Containment failure preserves uncertainty and does not trigger forced cleanup or
+fallback. Public controllers remain disabled until those remaining recovery
+paths and the rest of Task 11 are complete.
+
+Containment validation on 2026-10-25 (Asia/Dhaka): `npm run check` passed 1,105
+tests with 270 platform skips across 78 files, plus lint, typecheck and build.
+The complete native gate passed 531 units across 21 files and 70 PostgreSQL
+integrations across six files (35.18 seconds for integrations). Fourteen new
+native containment cases preserve actual Unix socket device/inode and pending
+journal bytes; startup orchestration passes 22 cases. Docker shutdown in those
+cases uses executable doubles. Full ordinary PostgreSQL and isolated restore
+were not rerun; no server/provider action or public enablement occurred.
 
 Validation: code gate 1,066 passed/171 platform skips across 72 files; combined
 native gate 393 units/70 integrations. The multi-step switch test has a 20-second

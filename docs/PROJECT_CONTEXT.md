@@ -53,8 +53,12 @@ rendering and stopped operation creation pass without job/application startup
 or database connections. Internal startup now composes verified database upgrade,
 journalled candidate/success metadata, durable write exposure, private API/admin/
 reply startup, full runtime proofs and exact image retention. Its SQL probes use
-the durable executor. Failure retains uncertain state and partial actors;
-verified containment, pending-job reconciliation and public wiring remain open.
+the durable executor. Failure retains uncertain state and attempts to stop only
+verified target applications. Containment preserves PostgreSQL, storage, stopped
+socket owners, unknown/changed actors and pending job records; it cannot authorize
+another operation or claim readiness. Invalid startup arguments and ready-state
+entry are preserved without mutation. Pending-job/state-replacement reconciliation
+and public wiring remain open.
 Public command integration, startup, promotion/switch,
 retained rollback and pending-job reconciliation remain unfinished. Task 11
 stays IN PROGRESS; P6 is not deployed. See

@@ -2,6 +2,7 @@
 # Internal bootstrap/private-start composition, not a public deployment handler.
 # Caller retains exact protected artifacts/config, local Docker and flock.
 source "$(dirname -- "${BASH_SOURCE[0]}")/operations-bootstrap.sh"
+source "$(dirname -- "${BASH_SOURCE[0]}")/operations-containment.sh"
 
 operations_startup_selection() {
   local phase="$1"
@@ -67,12 +68,21 @@ operations_startup_checked() {
 }
 
 operations_start_private_runtime() {
-  if [[ "$#" == 3 ]] && (operations_startup_checked "$@") >/dev/null 2>&1; then return 0; fi
-  # Keep volumes and partial actors for verified containment/reconciliation.
-  # Public orchestration must add that failure leg before this is exposed.
+  [[ "$#" == 3 ]] || operations_fail operations_startup_refused
+  [[ "$1" =~ ^sha256:[a-f0-9]{64}$ && "$2" =~ ^sha256:[a-f0-9]{64}$ && "$3" =~ ^sha256:[a-f0-9]{64}$ ]] || operations_fail operations_startup_refused
+  # An invalid entry must not convert an existing healthy deployment to an
+  # uncertain one or trigger containment of actors this attempt never started.
   (operations_selection_read
+    [[ "${OPS_SELECTION[STATE_PHASE]}" == quiescent && "${OPS_SELECTION[STATE_REVISION]}" == "${OPS_CONFIG[FCD_SUPPORT_REVISION]:-}" && "${OPS_SELECTION[STATE_VOLUME]}" == "${OPS_CONFIG[FCD_POSTGRES_VOLUME]:-}" ]]
+  ) >/dev/null 2>&1 || operations_fail operations_startup_refused
+  if (operations_startup_checked "$@") >/dev/null 2>&1; then return 0; fi
+  if (operations_selection_read
     [[ "${OPS_SELECTION[STATE_REVISION]}" == "${OPS_CONFIG[FCD_SUPPORT_REVISION]:-}" && ( "${OPS_SELECTION[STATE_PHASE]}" == quiescent || "${OPS_SELECTION[STATE_PHASE]}" == starting || "${OPS_SELECTION[STATE_PHASE]}" == ready ) ]] || exit 1
     operations_selection_uncertain "${OPS_SELECTION[STATE_REF]}"
-  ) >/dev/null 2>&1 || true
+  ) >/dev/null 2>&1; then
+    # Stopping verified target actors is containment, even with an unresolved
+    # one-shot job. Never clear/replay that job, remove owners or unlink sockets.
+    (operations_contain_private_runtime "$1") >/dev/null 2>&1 || true
+  fi
   operations_fail operations_startup_refused
 }
