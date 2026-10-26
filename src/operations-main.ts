@@ -211,8 +211,8 @@ export async function runOperationsMain(): Promise<void> {
       );
       return;
     }
-    if (args[0] === 'checkpoint') {
-      z.tuple([z.literal('checkpoint')]).parse(args);
+    if (args[0] === 'checkpoint' || args[0] === 'export-checkpoint-reference') {
+      const [job] = z.tuple([z.enum(['checkpoint', 'export-checkpoint-reference'])]).parse(args);
       const environment = await loadRoleEnvironment('checkpoint', process.env);
       const config = loadOperationsConfig('checkpoint', environment);
       const expectedDatabaseIdentity = parseDatabaseIdentity({
@@ -270,7 +270,9 @@ export async function runOperationsMain(): Promise<void> {
       await completedPool.end();
       if (sourceState.failed) throw new Error('invalid');
       process.stdout.write(
-        `${JSON.stringify({ status: 'completed', processed: manifest.rowCount, reasonCode: 'ok' })}\n`,
+        job === 'export-checkpoint-reference'
+          ? `${manifest.checkpointRef}\n`
+          : `${JSON.stringify({ status: 'completed', processed: manifest.rowCount, reasonCode: 'ok' })}\n`,
       );
       return;
     }

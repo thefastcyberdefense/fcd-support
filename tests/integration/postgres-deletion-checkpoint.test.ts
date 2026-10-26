@@ -335,9 +335,9 @@ test.skipIf(!native)(
     }
   },
 );
-test.skipIf(!native)(
-  'compiled private checkpoint job exports current authority without an identity',
-  async () => {
+test.skipIf(!native).each(['checkpoint', 'export-checkpoint-reference'])(
+  'compiled private %s job exports current authority without an identity',
+  async (command) => {
     const f = await fixture();
     try {
       await addTombstone(f.source.pool, f.options.now);
@@ -352,7 +352,7 @@ test.skipIf(!native)(
       await chmod(f.identityFile, 0o000);
       const config = operationsEnvironment();
       const invoke = async (override: Record<string, string> = {}) => {
-        const child = spawn(process.execPath, ['/app/dist/operations-main.js', 'checkpoint'], {
+        const child = spawn(process.execPath, ['/app/dist/operations-main.js', command], {
           stdio: ['ignore', 'pipe', 'ignore'],
           env: {
             PATH: process.env.PATH,
@@ -403,13 +403,15 @@ test.skipIf(!native)(
       }
       const { code, output } = await invoke();
       expect(code).toBe(0);
-      expect(JSON.parse(output)).toMatchObject({
-        status: 'completed',
-        processed: 1,
-        reasonCode: 'ok',
-      });
       const ref = (await readdir(f.options.archiveDirectory))[0];
       if (ref === undefined) throw new Error('synthetic_checkpoint_archive_missing');
+      if (command === 'export-checkpoint-reference') expect(output).toBe(ref + '\n');
+      else
+        expect(JSON.parse(output)).toMatchObject({
+          status: 'completed',
+          processed: 1,
+          reasonCode: 'ok',
+        });
       const text = await readFile(join(f.options.archiveDirectory, ref, 'manifest.json'), 'utf8');
       expect(text.includes('Synthetic')).toBe(false);
     } finally {

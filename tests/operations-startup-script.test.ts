@@ -14,6 +14,9 @@ test.each([
   'ok',
   'arguments',
   'ready-input',
+  'switching-input',
+  'switching-writes',
+  'switching-unbound',
   'image',
   'pending',
   'selection',
@@ -53,11 +56,17 @@ declare -A OPS_CONFIG=([FCD_RUNTIME_PROJECT]=fcd-support [FCD_SUPPORT_REVISION]=
 printf quiescent > "$TASK_ROOT/phase"; printf no > "$TASK_ROOT/writes"; printf 000015 > "$TASK_ROOT/schema"
 [[ "$TASK_FAULT" != schema ]] || printf 000017 > "$TASK_ROOT/schema"
 [[ "$TASK_FAULT" != ready-input ]] || { printf ready > "$TASK_ROOT/phase"; printf yes > "$TASK_ROOT/writes"; }
+[[ "$TASK_FAULT" != switching-* ]] || { printf switching > "$TASK_ROOT/phase"; printf 000016 > "$TASK_ROOT/schema"; }
+[[ "$TASK_FAULT" != switching-writes ]] || printf yes > "$TASK_ROOT/writes"
 operations_job_state_root() { OPS_JOB_STATE_FILE="$TASK_ROOT/active-job"; }
 operations_selection_read() {
   declare -gA OPS_SELECTION=([STATE_REF]=selection_${'c'.repeat(32)} [STATE_PHASE]="$(<"$TASK_ROOT/phase")" [STATE_VOLUME]=fcd-support-selected
 [STATE_SYSTEM_IDENTIFIER]=1111111111111111111 [STATE_REVISION]=${revision} [STATE_SCHEMA_REVISION]="$(<"$TASK_ROOT/schema")" [STATE_WRITES_POSSIBLE]="$(<"$TASK_ROOT/writes")")
   OPS_SELECTION[STATE_DATABASE_NAME]=fcd_support; OPS_SELECTION[STATE_SCHEMA_NAME]=public
+  if [[ "$TASK_FAULT" == switching-* ]]; then
+    OPS_SELECTION[STATE_RESTORE_REF]=restore_${'b'.repeat(32)}; OPS_SELECTION[STATE_VOLUME_ORIGIN]=fcd-support-restore-synthetic; OPS_SELECTION[STATE_PREVIOUS_VOLUME]=fcd-support-old
+    [[ "$TASK_FAULT" != switching-unbound ]] || OPS_SELECTION[STATE_RESTORE_REF]=none
+  fi
   [[ "$TASK_FAULT" != selection ]] || OPS_SELECTION[STATE_REVISION]=${'b'.repeat(40)}
 }
 operations_selection_starting() {
@@ -135,7 +144,7 @@ operations_start_private_runtime ${app} ${operations} ${fault === 'arguments' ? 
         },
       },
     );
-    const success = fault === 'ok' || fault === 'compose-ack';
+    const success = fault === 'ok' || fault === 'compose-ack' || fault === 'switching-input';
     expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
       status: success ? 0 : 1,
       stdout: '',
@@ -161,6 +170,8 @@ operations_start_private_runtime ${app} ${operations} ${fault === 'arguments' ? 
         'image',
         'arguments',
         'ready-input',
+        'switching-writes',
+        'switching-unbound',
         'pending',
         'selection',
         'schema',

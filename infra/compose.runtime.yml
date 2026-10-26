@@ -39,7 +39,13 @@ services:
       retries: ${FCD_HEALTH_RETRIES:?FCD_HEALTH_RETRIES must be set}
       start_period: ${FCD_HEALTH_START_MS:?FCD_HEALTH_START_MS must be set}ms
     networks:
-      [webhook_data, admin_data, reply_data, outbound_data, notification_data, operations_data]
+      webhook_data: {}
+      admin_data: {}
+      reply_data: {}
+      outbound_data: {}
+      notification_data: {}
+      operations_data:
+        aliases: [fcd-support-source-postgres, fcd-support-restore-postgres]
 
   fcd-support-api:
     <<: *security

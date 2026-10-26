@@ -14,6 +14,7 @@ services:
     image: ${FCD_POSTGRES_IMAGE:?FCD_POSTGRES_IMAGE must be set}
     labels:
       org.opencontainers.image.revision: ${FCD_SUPPORT_REVISION:?FCD_SUPPORT_REVISION must be set}
+      fcd-support.restore.ref: ${FCD_RESTORE_REFERENCE:?FCD_RESTORE_REFERENCE must be set}
     user: postgres
     env_file:
       - ${FCD_CONFIG_ROOT:?FCD_CONFIG_ROOT must be set}/common.env
@@ -38,9 +39,11 @@ services:
       timeout: ${FCD_HEALTH_TIMEOUT_MS:?FCD_HEALTH_TIMEOUT_MS must be set}ms
       retries: ${FCD_HEALTH_RETRIES:?FCD_HEALTH_RETRIES must be set}
       start_period: ${FCD_HEALTH_START_MS:?FCD_HEALTH_START_MS must be set}ms
-    networks: [restore_data]
+    networks:
+      restore_data:
+        aliases: [fcd-support-restore-postgres]
 
-  restore:
+  restore: &restore-job
     <<: *security
     tmpfs:
       - /run/fcd-support:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0700,size=${FCD_RESTORE_TMPFS_MIB:?FCD_RESTORE_TMPFS_MIB must be set}m
@@ -55,35 +58,131 @@ services:
     env_file:
       - ${FCD_CONFIG_ROOT:?FCD_CONFIG_ROOT must be set}/common.env
       - ${FCD_CONFIG_ROOT:?FCD_CONFIG_ROOT must be set}/restore.env
-    environment:
+    environment: &stream-environment
       NODE_ENV: production
       OPS_GIT_REVISION: ${FCD_SUPPORT_REVISION:?FCD_SUPPORT_REVISION must be set}
+      OPS_DATABASE_NAME: ${FCD_POSTGRES_DB:?FCD_POSTGRES_DB must be set}
+      OPS_DATABASE_SCHEMA: ${FCD_DATABASE_SCHEMA:?FCD_DATABASE_SCHEMA must be set}
+      OPS_DATABASE_ROLE_PREFIX: ${FCD_DATABASE_ROLE_PREFIX:?FCD_DATABASE_ROLE_PREFIX must be set}
+      OPS_SCHEMA_REVISION: ${FCD_SCHEMA_REVISION:?FCD_SCHEMA_REVISION must be set}
       MODEL_EXECUTION_ENABLED: 'false'
       OUTBOUND_EXECUTION_ENABLED: 'false'
       N8N_EXECUTION_ENABLED: 'false'
-      DATABASE_URL_FILE: /run/secrets/restore-database
-      PRIVACY_HMAC_KEYRING_FILE: /run/secrets/restore-keyring
+      RESTORE_SOURCE_SERVICE_ALIAS: fcd-support-source-postgres
+      RESTORE_TARGET_SERVICE_ALIAS: fcd-support-restore-postgres
+      RESTORE_SOURCE_ARCHIVE_DATABASE_URL_FILE: /run/secrets/restore-archive-database
+      RESTORE_TARGET_OWNER_DATABASE_URL_FILE: /run/secrets/restore-database
       BACKUP_AGE_IDENTITY_FILE: /run/secrets/restore-identity
       RECOVERY_MANIFEST_HMAC_FILE: /run/secrets/recovery-hmac
-    secrets: [restore-database, restore-keyring, restore-identity, recovery-hmac]
+    secrets: [restore-archive-database, restore-database, restore-identity, recovery-hmac]
     entrypoint: ['/usr/local/bin/container-entrypoint.sh', 'operations-readonly']
-    command: ['node', 'dist/operations-main.js', 'restore']
+    command: ['node', 'dist/operations/restore-stream-main.js']
     healthcheck:
       test: ['CMD', 'node', '--input-type=module', '-e', 'process.exit(0)']
       interval: ${FCD_HEALTH_INTERVAL_MS:?FCD_HEALTH_INTERVAL_MS must be set}ms
       timeout: ${FCD_HEALTH_TIMEOUT_MS:?FCD_HEALTH_TIMEOUT_MS must be set}ms
       retries: ${FCD_HEALTH_RETRIES:?FCD_HEALTH_RETRIES must be set}
       start_period: ${FCD_HEALTH_START_MS:?FCD_HEALTH_START_MS must be set}ms
-    networks: [restore_data]
+    networks: [restore_data, source_data]
     volumes:
       - backups:/var/lib/fcd-support/backups:ro
     depends_on:
       postgres:
         condition: service_healthy
+
+  restore-bootstrap:
+    <<: *restore-job
+    profiles: [restore-bootstrap]
+    env_file:
+      - ${FCD_CONFIG_ROOT:?FCD_CONFIG_ROOT must be set}/common.env
+    environment: &target-environment
+      NODE_ENV: production
+      OPS_GIT_REVISION: ${FCD_SUPPORT_REVISION:?FCD_SUPPORT_REVISION must be set}
+      OPS_DATABASE_NAME: ${FCD_POSTGRES_DB:?FCD_POSTGRES_DB must be set}
+      OPS_DATABASE_SCHEMA: ${FCD_DATABASE_SCHEMA:?FCD_DATABASE_SCHEMA must be set}
+      OPS_DATABASE_ROLE_PREFIX: ${FCD_DATABASE_ROLE_PREFIX:?FCD_DATABASE_ROLE_PREFIX must be set}
+      OPS_SCHEMA_REVISION: ${FCD_SCHEMA_REVISION:?FCD_SCHEMA_REVISION must be set}
+      MODEL_EXECUTION_ENABLED: 'false'
+      OUTBOUND_EXECUTION_ENABLED: 'false'
+      N8N_EXECUTION_ENABLED: 'false'
+      DATABASE_URL_FILE: /run/secrets/restore-database
+    entrypoint: ['/usr/local/bin/container-entrypoint.sh', 'application']
+    command: ['node', 'dist/operations/bootstrap-main.js']
+    secrets:
+      - restore-database
+      - bootstrap-webhook-password
+      - bootstrap-admin-password
+      - bootstrap-reply-password
+      - bootstrap-outbound-password
+      - bootstrap-notification-password
+      - bootstrap-maintenance-password
+      - bootstrap-health-password
+      - bootstrap-backup-password
+      - bootstrap-verify-backup-password
+      - bootstrap-checkpoint-password
+      - bootstrap-archive-reader-password
+      - bootstrap-migrator-password
+    networks: [restore_data]
+    volumes: []
+
+  restore-migrate:
+    <<: *restore-job
+    profiles: [restore-migrate]
+    env_file:
+      - ${FCD_CONFIG_ROOT:?FCD_CONFIG_ROOT must be set}/common.env
+    environment:
+      <<: *target-environment
+      DATABASE_URL_FILE: /run/secrets/restore-migrator-database
+    entrypoint: ['/usr/local/bin/container-entrypoint.sh', 'application']
+    command: ['node', 'dist/operations/restore-migrate-main.js']
+    secrets: [restore-migrator-database]
+    networks: [restore_data]
+    volumes: []
+
+  restore-reconcile: &reconcile-job
+    <<: *restore-job
+    profiles: [restore-reconcile]
+    environment: &reconcile-environment
+      NODE_ENV: production
+      OPS_GIT_REVISION: ${FCD_SUPPORT_REVISION:?FCD_SUPPORT_REVISION must be set}
+      OPS_DATABASE_NAME: ${FCD_POSTGRES_DB:?FCD_POSTGRES_DB must be set}
+      OPS_DATABASE_SCHEMA: ${FCD_DATABASE_SCHEMA:?FCD_DATABASE_SCHEMA must be set}
+      OPS_DATABASE_ROLE_PREFIX: ${FCD_DATABASE_ROLE_PREFIX:?FCD_DATABASE_ROLE_PREFIX must be set}
+      OPS_SCHEMA_REVISION: ${FCD_SCHEMA_REVISION:?FCD_SCHEMA_REVISION must be set}
+      MODEL_EXECUTION_ENABLED: 'false'
+      OUTBOUND_EXECUTION_ENABLED: 'false'
+      N8N_EXECUTION_ENABLED: 'false'
+      RESTORE_SOURCE_SERVICE_ALIAS: fcd-support-source-postgres
+      RESTORE_TARGET_SERVICE_ALIAS: fcd-support-restore-postgres
+      RESTORE_SOURCE_CHECKPOINT_DATABASE_URL_FILE: /run/secrets/restore-checkpoint-database
+      RESTORE_TARGET_OWNER_DATABASE_URL_FILE: /run/secrets/restore-database
+      PRIVACY_HMAC_KEYRING_FILE: /run/secrets/restore-keyring
+      BACKUP_AGE_IDENTITY_FILE: /run/secrets/restore-identity
+      RECOVERY_MANIFEST_HMAC_FILE: /run/secrets/recovery-hmac
+    command: ['node', 'dist/operations/restore-reconcile-main.js']
+    secrets:
+      [
+        restore-checkpoint-database,
+        restore-database,
+        restore-keyring,
+        restore-identity,
+        recovery-hmac,
+      ]
+
+  promote:
+    <<: *reconcile-job
+    profiles: [restore-promote]
+    command: ['node', 'dist/operations/promotion-main.js']
+    stdin_open: true
 networks:
   restore_data:
     name: ${FCD_RESTORE_PROJECT:?FCD_RESTORE_PROJECT must be set}-data
-    internal: true
+    # Created and verified as an internal bridge by the locked host controller.
+    # Jobs keep unique projects so their existing durable journals stay usable.
+    external: true
+  source_data:
+    name: ${FCD_RUNTIME_PROJECT:?FCD_RUNTIME_PROJECT must be set}-operations-data
+    external: true
 volumes:
   restore-data:
     name: ${FCD_RESTORE_VOLUME:?FCD_RESTORE_VOLUME must be set}
@@ -96,9 +195,39 @@ secrets:
     file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/restore/restore-postgres-password
   restore-database:
     file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/restore/restore-database
+  restore-archive-database:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/restore/restore-archive-database
+  restore-checkpoint-database:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/restore/restore-checkpoint-database
+  restore-migrator-database:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/restore/restore-migrator-database
   restore-keyring:
     file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/restore/restore-keyring
   restore-identity:
     file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/verify-backup/restore-identity
   recovery-hmac:
     file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/backup/recovery-hmac
+  bootstrap-webhook-password:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/bootstrap/passwords/bootstrap-webhook-password
+  bootstrap-admin-password:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/bootstrap/passwords/bootstrap-admin-password
+  bootstrap-reply-password:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/bootstrap/passwords/bootstrap-reply-password
+  bootstrap-outbound-password:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/bootstrap/passwords/bootstrap-outbound-password
+  bootstrap-notification-password:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/bootstrap/passwords/bootstrap-notification-password
+  bootstrap-maintenance-password:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/bootstrap/passwords/bootstrap-maintenance-password
+  bootstrap-health-password:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/bootstrap/passwords/bootstrap-health-password
+  bootstrap-backup-password:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/bootstrap/passwords/bootstrap-backup-password
+  bootstrap-verify-backup-password:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/bootstrap/passwords/bootstrap-verify-backup-password
+  bootstrap-checkpoint-password:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/bootstrap/passwords/bootstrap-checkpoint-password
+  bootstrap-archive-reader-password:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/bootstrap/passwords/bootstrap-archive-reader-password
+  bootstrap-migrator-password:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/bootstrap/passwords/bootstrap-migrator-password

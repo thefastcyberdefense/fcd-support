@@ -1,0 +1,44 @@
+name: PostgreSQL and native operations
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: postgres-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  postgres:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Run the complete synthetic PostgreSQL suite
+        run: docker compose --file infra/compose.test.yml run --build --rm runner npm run test:integration
+      - name: Stop the isolated test stack
+        if: always()
+        run: docker compose --file infra/compose.test.yml down --volumes
+
+  native-operations:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Run native permissions, bootstrap and host-operation checks
+        run: bash scripts/test-encrypted-backup.sh grants
+      - name: Run encrypted two-cluster restore and promotion checks
+        run: bash scripts/test-encrypted-backup.sh restore
+      - name: Stop the isolated test stack
+        if: always()
+        run: docker compose --file infra/compose.test.yml down --volumes

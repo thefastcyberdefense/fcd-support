@@ -249,6 +249,11 @@ class SyntheticPromotionPool extends EventEmitter {
 
 test('promotion driver holds only two capabilities and makes two fresh host exchanges before closed completion', async () => {
   const f = fixture();
+  Object.assign(f.options.environment, {
+    PG_MAJOR: '18',
+    PG_VERSION: '18.4-1.pgdg13+1',
+    PGDATA: '/var/lib/postgresql/18/docker',
+  });
   expect(await runPromotionCommand(f.options)).toBe(0);
   expect(f.configurations).toHaveLength(2);
   expect(f.configurations[0]?.options).toContain('default_transaction_read_only=on');

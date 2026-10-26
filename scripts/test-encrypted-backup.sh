@@ -24,6 +24,7 @@ if [[ "$MODE" == grants ]]; then
   INTEGRATION_FILES+=(tests/integration/postgres-runtime-grants.test.ts)
   INTEGRATION_FILES+=(tests/integration/postgres-bootstrap-grants.test.ts)
   UNIT_FILES+=(tests/bootstrap-command.test.ts)
+  UNIT_FILES+=(tests/postgres-runtime-grants.test.ts)
   UNIT_FILES+=(tests/phase6-compose-contract.test.ts)
   UNIT_FILES+=(tests/database-identity-script.test.ts)
   UNIT_FILES+=(tests/operations-job-state.test.ts)
@@ -43,6 +44,10 @@ if [[ "$MODE" == grants ]]; then
   UNIT_FILES+=(tests/operations-first-boot.test.ts)
   UNIT_FILES+=(tests/operations-controller.test.ts)
   UNIT_FILES+=(tests/operations-live-socket-preflight.test.ts)
+  UNIT_FILES+=(tests/operations-restore-controller.test.ts tests/operations-promotion-controller.test.ts)
+  UNIT_FILES+=(tests/restore-job-split.test.ts tests/restore-metadata-script.test.ts tests/promotion-host-transport.test.ts)
+  UNIT_FILES+=(tests/promotion-host.test.ts tests/promotion-host-script.test.ts tests/restore-compose-split.test.ts)
+  UNIT_FILES+=(tests/restore-entrypoints.test.ts)
   INTEGRATION_FILES+=(tests/integration/postgres-operation-settlement.test.ts)
   INTEGRATION_FILES+=(tests/integration/postgres-deployment-cli.test.ts tests/integration/postgres-forward-migration.test.ts)
 fi
@@ -53,6 +58,7 @@ fi
 if [[ "$MODE" == restore ]]; then
   UNIT_FILES+=(tests/maintenance-pool.test.ts tests/restore-command.test.ts)
   UNIT_FILES+=(tests/promotion-command.test.ts tests/promotion-handshake.test.ts tests/restore-metadata.test.ts tests/operations-restore-state.test.ts)
+  UNIT_FILES+=(tests/restore-split-command.test.ts tests/restore-migrate-command.test.ts tests/restore-compose-split.test.ts)
   INTEGRATION_FILES=(tests/integration/postgres-isolated-restore.test.ts tests/integration/postgres-maintenance-pool.test.ts)
 fi
 if [[ "$MODE" == state ]]; then
@@ -62,7 +68,9 @@ if [[ "$MODE" == state ]]; then
   UNIT_FILES+=(tests/operations-health-host.test.ts)
   UNIT_FILES+=(tests/operations-restore-state.test.ts)
   UNIT_FILES+=(tests/operations-live-socket-preflight.test.ts)
+  UNIT_FILES+=(tests/operations-restore-controller.test.ts tests/operations-promotion-controller.test.ts)
   # The complete grants gate always runs its full unit/integration selection.
+  UNIT_FILES+=(tests/promotion-host-script.test.ts)
   if [[ "$#" == 2 ]]; then
     selected=''
     for file in "${UNIT_FILES[@]}"; do [[ "$file" != "$2" ]] || selected="$file"; done

@@ -1,16 +1,62 @@
 # Restricted-capability restore command
 
-The standalone SQL driver is an internal Phase 6 primitive. The public
-`restore-runtime.sh` and `promote-restore.sh` controllers remain unfinished.
-Running this driver does not authorize promotion, application attachment, a
-server action or external traffic. The host controller must retain its operation
-lock and independently prove source quiescence and target isolation throughout.
+## Approved split-job implementation
+
+The owner approved the split-job capability boundary on 2026-10-26. The host
+commands now load the protected restore/promotion controllers and live proof
+ports. Their full failure-matrix and deployment gates remain separate from
+component test passes. Every invocation requires the checked clean revision,
+protected configuration, local daemon and held deployment lock.
+
+```text
+scripts/restore-runtime.sh BACKUP_REF CHECKPOINT_REF FULL_REVISION CONFIG_PATH
+scripts/promote-restore.sh RESTORE_REF FULL_REVISION CONFIG_PATH
+```
+
+The controller creates a fresh labelled volume and internal bridge before
+starting only the isolated PostgreSQL service. One-shot jobs have separate
+operation projects and join the explicitly created target bridge as an external
+Compose network; this does not make that bridge publicly reachable.
+
+| Job | Database credentials | Network access |
+| --- | --- | --- |
+| Stream restore | Metadata-only source archive reader and distinct target owner | Source operations and isolated target bridges |
+| Prepare/converge grants | Target owner and dedicated bootstrap password files | Target bridge only |
+| Forward migration | Restricted target migrator | Target bridge only |
+| Reconcile current deletions | Source checkpoint reader and target owner | Source operations and target bridges |
+| Final promotion | Source checkpoint reader and target owner | Source operations and target bridges |
+
+Only stream/reconciliation/promotion receive the necessary archive verification,
+decryption and deletion material. A job with source reachability receives no
+bootstrap password set or migrator credential. The archive-reader role cannot
+read business tables or mutate the catalog. All external execution flags remain
+false. Operational deadlines and batch limits remain explicit configuration.
+
+Restore intent precedes resource mutations; completion retains that intent and
+records descriptive target metadata. Promotion exports a fresh deletion checkpoint
+and performs two bounded, replay-resistant stdio exchanges while the job retains
+its source SQL freeze. Actual source, target, job, mount and network facts must
+still match. No historical record alone authorizes attachment.
+
+The host records the switching state before removing only the exact verified
+PostgreSQL actors. Both volumes remain preserved. The replacement PostgreSQL
+must pass fresh host and physical-identity checks before private application
+startup. Ambiguous results retain uncertainty and journals; there is no automatic
+replay or old-volume fallback. A selected restored database uses its distinct
+owner URI for future bootstrap operations rather than the old source owner URI.
+
+## Historical combined-driver fixture
+
+The combined driver below is retained for internal regression fixtures only.
+Production Compose does not invoke it or mount its combined capability set.
+It must not be used as an alternative to the approved split-job controllers.
+Its historical interface and validation details are recorded here for those tests.
 
 ```text
 node dist/operations/restore-main.js restore RESTORE_REF BACKUP_REF CHECKPOINT_REF TARGET_METADATA_BASE64
 ```
 
-The production entry point requires Linux UID/GID 1000. References use their
+The historical driver requires Linux UID/GID 1000. References use their
 closed `restore_`, `backup_` and `checkpoint_` prefixes followed by 32 lowercase
 hexadecimal characters. The target argument is canonical padded base64 of strict
 UTF-8 JSON, at most 4 KiB decoded, with fields in this order:

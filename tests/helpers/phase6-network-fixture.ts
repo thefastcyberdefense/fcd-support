@@ -122,6 +122,7 @@ const paths = [
     'backup',
     'verify-backup',
     'checkpoint',
+    'archive-reader',
     'migrator',
   ].map((role) => `bootstrap/passwords/bootstrap-${role}-password`),
   'backup/backup-database',
@@ -135,6 +136,9 @@ const paths = [
   'maintenance/maintenance-keyring',
   'restore/restore-postgres-password',
   'restore/restore-database',
+  'restore/restore-archive-database',
+  'restore/restore-checkpoint-database',
+  'restore/restore-migrator-database',
   'restore/restore-keyring',
 ];
 for (const path of paths) {
@@ -147,6 +151,8 @@ const values: Record<string, string> = {
   FCD_RESTORE_PROJECT: `${project}-restore`,
   FCD_RESTORE_VOLUME: `fcd-support-restore-${project}`,
   FCD_SUPPORT_REVISION: revision,
+  FCD_SCHEMA_REVISION: '000016',
+  FCD_RESTORE_REFERENCE: `restore_${'a'.repeat(32)}`,
   FCD_SUPPORT_IMAGE: `fcd-support-api:${revision}`,
   FCD_POSTGRES_IMAGE: `fcd-support-postgres:${revision}`,
   FCD_OPERATIONS_IMAGE: `fcd-support-operations:${revision}`,

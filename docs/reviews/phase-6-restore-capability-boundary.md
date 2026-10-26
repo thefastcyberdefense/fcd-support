@@ -1,7 +1,16 @@
 # Phase 6 restore capability boundary — decision proposal
 
-Status: proposed, not approved. This document authorizes no deployment, network
-change, secret mount or live traffic. Phase 6 remains incomplete.
+Status: recommended split-job design explicitly approved by the owner on
+2026-10-26 (Asia/Dhaka). Phase 6 implementation may proceed. Phase 6 remains
+incomplete; this design record alone is not a completed deployment gate.
+
+The owner also directed completion through Phase 7 and testing on the existing
+local test server, with fixes guided by actual results. Test Pages/accounts are
+the authorized assets. Record the exact revision, commands, affected services
+and rollback before server mutations; use that authorization within its test
+scope without repeating routine approval questions. Production assets and
+customer-data access remain outside that authorization. Verify protected
+configuration, test-only data scope and Manifest privacy before enabling traffic.
 
 ## Why a decision is needed
 
@@ -78,7 +87,8 @@ promotion never attaches an unverified target or loses either volume. Complete
 the full local failure matrix and P6 gate before preparing the exact server
 deployment handoff. Approval of this design still does not authorize deployment.
 
-## Decision requested
+## Owner decision
 
-Approve the recommended split-job design, or select the fully offline/host-mediated
-alternative. The combined-authority approach remains rejected.
+The owner approved the recommended split-job design and directed implementation
+and real local-server testing. The combined-authority approach remains rejected;
+the fully offline alternative is not selected.

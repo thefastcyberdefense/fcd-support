@@ -26,7 +26,7 @@ operations_job_state_field() {
     JOB_VERSION) [[ "$2" == 1 ]] ;;
     JOB_REF) [[ "$2" =~ ^operation_[a-f0-9]{32}$ ]] ;;
     JOB_PARENT) operations_config_field FCD_RUNTIME_PROJECT "$2" ;;
-    JOB_SERVICE) [[ "$2" =~ ^(bootstrap|migrate|backup|verify-backup|checkpoint|health|maintenance|restore|socket-recovery|runtime-inspection|restore-inspection)$ ]] ;;
+    JOB_SERVICE) [[ "$2" =~ ^(bootstrap|migrate|backup|verify-backup|checkpoint|health|maintenance|restore|restore-bootstrap|restore-migrate|restore-reconcile|promote|socket-recovery|runtime-inspection|restore-inspection)$ ]] ;;
     JOB_REVISION) [[ "$2" =~ ^[a-f0-9]{40}$ ]] ;;
     JOB_IMAGE) [[ "$2" =~ ^sha256:[a-f0-9]{64}$ ]] ;;
     JOB_COMMAND_SHA256) [[ "$2" =~ ^[a-f0-9]{64}$ ]] ;;

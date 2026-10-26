@@ -3,6 +3,7 @@ import type { Readable } from 'node:stream';
 import { pathToFileURL } from 'node:url';
 import pg from 'pg';
 import { z } from 'zod';
+import { isPostgresImageMetadata } from './postgres-image-metadata.js';
 import { AdminSecretBytes } from '../admin/admin-types.js';
 import { PostgresRestoreEvidence } from '../persistence/postgres-restore-evidence.js';
 import {
@@ -52,7 +53,7 @@ function settings(environment: PromotionCommandOptions['environment'], command: 
         name,
       ) &&
         !secretFiles.some((allowed) => name === allowed)) ||
-      /^PG[A-Z_0-9]+$/u.test(name)
+      (/^PG[A-Z_0-9]+$/u.test(name) && !isPostgresImageMetadata(name, value))
     )
       throw new Error('invalid');
   }

@@ -205,7 +205,63 @@ async function scenario(mode: Mode, viaCli = false) {
     await bootstrap('prepare');
     const webhook = login('webhook');
     const backup = login('backup');
+    const archiveReader = login('archive_reader');
     const migrator = login('migrator');
+    const assertArchiveReader = async (catalogAvailable: boolean, businessAvailable: boolean) => {
+      expect(
+        (
+          await archiveReader.query<{ correct: boolean }>(
+            `select system_identifier::text=$1 and current_database()=$2 as correct from pg_catalog.pg_control_system()`,
+            [systemIdentifier, 'fcd_support_test'],
+          )
+        ).rows,
+      ).toEqual([{ correct: true }]);
+      for (const sql of [
+        'create table synthetic_archive_forbidden(id integer)',
+        'create temporary table synthetic_archive_forbidden(id integer)',
+        'create schema synthetic_archive_forbidden',
+        `set role "${prefix}_backup"`,
+        `set role "${prefix}_migrator"`,
+      ])
+        await expect(archiveReader.query(sql)).rejects.toMatchObject({ code: '42501' });
+      if (businessAvailable) {
+        await expect(
+          archiveReader.query('select count(*) from webhook_receipts'),
+        ).rejects.toMatchObject({ code: '42501' });
+        await expect(
+          archiveReader.query('select count(*) from pgmigrations'),
+        ).rejects.toMatchObject({ code: '42501' });
+      }
+      if (catalogAvailable) {
+        await expect(
+          archiveReader.query('select count(*) from operations_backups'),
+        ).resolves.toMatchObject({ rowCount: 1 });
+        await expect(
+          archiveReader.query('select count(*) from operations_backup_events'),
+        ).resolves.toMatchObject({ rowCount: 1 });
+        for (const sql of [
+          "insert into operations_backups(backup_ref) values('backup_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee')",
+          'update operations_backups set state=state where false',
+          'delete from operations_backups where false',
+          'truncate operations_backups',
+          'insert into operations_backup_events(backup_id) values(-1)',
+          'update operations_backup_events set state=state where false',
+          'delete from operations_backup_events where false',
+          'truncate operations_backup_events',
+          'select * from contacts',
+          'select * from privacy_suppressions',
+          'select * from admin_accounts',
+          'select * from operations_deployments',
+          'select last_value from contacts_id_seq',
+          "select nextval('contacts_id_seq')",
+          'select lock_deletion_checkpoint_source()',
+        ])
+          await expect(archiveReader.query(sql)).rejects.toMatchObject({ code: '42501' });
+      }
+    };
+    // Admission-only schemas lack catalog tables, but their archive login is
+    // already barred from existing business tables before migration.
+    await assertArchiveReader(mode === 'current', mode !== 'empty');
     expect(
       (
         await migrator.query(
@@ -331,6 +387,7 @@ async function scenario(mode: Mode, viaCli = false) {
       code: '42501',
     });
     await bootstrap('converge');
+    await assertArchiveReader(true, true);
     await webhook.query(
       'insert into webhook_receipts(payload_sha256,received_at,event_count) values($1,$2,1)',
       ['b'.repeat(64), new Date('2030-04-01T00:00:01.000Z')],

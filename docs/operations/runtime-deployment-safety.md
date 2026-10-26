@@ -4,6 +4,51 @@
 
 This is an intermediate Task 11 checkpoint, not a deployment or restore gate pass.
 
+### Approved split-job controller checkpoint
+
+The owner approved the split capability design and real test-server iteration on
+2026-10-26. Restore/promotion operator entry points now load the locked controllers
+and live proof ports. Separate target-only bootstrap/migration containers never
+join the source bridge; source-connected stream/reconciliation/promotion jobs
+receive no runtime password set or migrator credential. The archive reader has
+catalog-only SELECT and physical-identity access. A fresh promotion checkpoint
+reference is emitted only after the source export pool closes.
+
+Promotion couples two live stdio challenges to actual source, target and current
+job observations while its SQL source freeze is held. Source/target volume and
+image identity, protected selection/journal, both real internal bridges, allowed
+secret mounts, flags and resources must remain unchanged. A switching record
+precedes exact PostgreSQL replacement. Both volumes remain; there is no automatic
+old-volume fallback. Future bootstrap on a selected restored database uses its
+distinct target-owner URI. External execution remains disabled.
+
+The full code gate exited 0 with 1,668 passing tests and 367 platform skips across
+112 files (243.20 seconds for tests). The native operations gate exited 0 with
+1,100 units and 139 PostgreSQL cases plus one separate restore-only skip. Actual
+Docker rendering passes the split Compose validator. The final two-cluster
+split flow passed 171 units and 47 integrations (37.25 seconds for integration),
+including the inherited image-metadata regression. Cleanup reported zero
+temporary PostgreSQL schemas, generated roles, advisory locks and six scoped
+Docker resource families.
+
+The first aggregate attempts retained their failed evidence: one promotion fixture
+returned a failed create acknowledgement while also declaring every fresh
+postcondition successful, and the Linux host-port tests found two CRLF endings
+at the final shell boundary. The fixture now distinguishes real creation failure
+from a lost acknowledgement, and all ten native host-port cases pass after newline
+normalization. No production check or deadline was relaxed. A separate regression
+reproduced rejection of benign PG_MAJOR/PG_VERSION/PGDATA inherited from the pinned
+operations image; those bounded metadata fields are now accepted while libpq
+connection settings and credentials remain refused.
+
+Read-only SSH preflight is recorded in `phase-6-server-preflight.md`. The existing
+admission stack is healthy at its earlier revision, with no published host ports.
+Its PostgreSQL parent modes 1777/755 and host Node 24.16.0 require explicit
+deployment preparation. No server mutation or provider traffic has occurred.
+New GitHub Actions jobs are authored; their results are recorded only after
+execution. Full deployed-host/failure-matrix evidence and the whole-phase review
+remain open.
+
 ### Restore metadata, promotion protocol and live-socket prerequisites
 
 The next local prerequisite checkpoint adds a networkless strict target-metadata

@@ -23,6 +23,7 @@ import { exportDeletionCheckpoint } from '../../src/operations/deletion-checkpoi
 import { operationsEnvironment } from '../helpers/operations-fixtures.js';
 import { createEncryptedBackup, verifyEncryptedBackup } from '../../src/operations/backup.js';
 import { registerBackup } from '../../src/operations/backup-command.js';
+import { assertDatabaseIdentity } from '../../src/operations/database-identity.js';
 import { insertSyntheticAppliedCustomerEvent, syntheticPrivacyKeyring } from './policy-fixtures.js';
 import {
   createIsolatedTestDatabase,
@@ -241,6 +242,82 @@ test('backup is read-only for business data with only its required content-free 
   await expect(pool.query("select nextval('contacts_id_seq')")).rejects.toMatchObject({
     code: '42501',
   });
+});
+
+test('archive reader reads catalog metadata and actual source identity without export or mutation authority', async () => {
+  const pool = poolFor('archive_reader');
+  const identity = (
+    await database.pool.query<{ id: string; name: string }>(
+      'select system_identifier::text as id,current_database() as name from pg_catalog.pg_control_system()',
+    )
+  ).rows[0];
+  if (identity === undefined) throw new Error('synthetic_cluster_missing');
+  const client = await pool.connect();
+  try {
+    await expect(
+      assertDatabaseIdentity(client, {
+        systemIdentifier: identity.id,
+        databaseName: identity.name,
+      }),
+    ).resolves.toBeUndefined();
+  } finally {
+    client.release();
+  }
+  expect((await pool.query('select count(*)::int as count from operations_backups')).rows).toEqual([
+    { count: 1 },
+  ]);
+  expect(
+    (await pool.query('select count(*)::int as count from operations_backup_events')).rows,
+  ).toEqual([{ count: 1 }]);
+  for (const sql of [
+    'select * from contacts',
+    'select * from webhook_events',
+    'select * from admin_accounts',
+    'select * from privacy_suppressions',
+    'select * from pgmigrations',
+    'select * from operations_deployments',
+    "insert into operations_backups(backup_ref) values('backup_ffffffffffffffffffffffffffffffff')",
+    'update operations_backups set state=state where false',
+    'delete from operations_backups where false',
+    'truncate operations_backups',
+    'insert into operations_backup_events(backup_id) values(-1)',
+    'update operations_backup_events set state=state where false',
+    'delete from operations_backup_events where false',
+    'truncate operations_backup_events',
+    'select last_value from contacts_id_seq',
+    "select nextval('contacts_id_seq')",
+    'select lock_deletion_checkpoint_source()',
+    'select runtime_recovery_held()',
+    "select pg_read_file('PG_VERSION')",
+    `set role "${rolePrefix}_backup"`,
+    `set role "${rolePrefix}_migrator"`,
+    'create role synthetic_forbidden_archive_role',
+  ])
+    await expect(pool.query(sql)).rejects.toMatchObject({ code: '42501' });
+});
+
+test('archive reader convergence removes stale business, catalog mutation and function grants', async () => {
+  const name = `"${rolePrefix}_archive_reader"`;
+  await database.pool.query(`grant select on contacts to ${name};
+    grant update(state) on operations_backups to ${name};
+    grant execute on function lock_deletion_checkpoint_source() to ${name}`);
+  await configureRuntimeGrants(database.pool, {
+    schema: database.schema,
+    database: 'fcd_support_test',
+    rolePrefix,
+    passwordFiles,
+  });
+  const pool = poolFor('archive_reader');
+  await expect(pool.query('select * from contacts')).rejects.toMatchObject({ code: '42501' });
+  await expect(
+    pool.query('update operations_backups set state=state where false'),
+  ).rejects.toMatchObject({ code: '42501' });
+  await expect(pool.query('select lock_deletion_checkpoint_source()')).rejects.toMatchObject({
+    code: '42501',
+  });
+  expect((await pool.query('select count(*)::int as count from operations_backups')).rows).toEqual([
+    { count: 1 },
+  ]);
 });
 
 test('bootstrap refuses concurrent schema privilege changes without waiting or partial changes', async () => {

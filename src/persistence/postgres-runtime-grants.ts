@@ -13,6 +13,7 @@ export const runtimeDatabaseRoles = [
   'backup',
   'verify_backup',
   'checkpoint',
+  'archive_reader',
 ] as const;
 export type RuntimeDatabaseRole = (typeof runtimeDatabaseRoles)[number];
 export interface RuntimeGrantOptions {
@@ -387,8 +388,17 @@ export async function configureRuntimeGrants(
       await client.query(
         `grant usage on schema ${schemaSql} to ${quote(`${prefix}_${role}`)}; grant connect on database ${quote(database)} to ${quote(`${prefix}_${role}`)}`,
       );
-      await grant(role, 'select', ['pgmigrations', 'operations_deployments']);
+      if (role !== 'archive_reader')
+        await grant(role, 'select', ['pgmigrations', 'operations_deployments']);
     }
+    // Restoring an archive may inspect source catalog metadata and its actual
+    // physical identity. It never receives the exporter's business-table or
+    // sequence reads, catalog writes, migrator powers or checkpoint capability.
+    // Apply the same scope during preparation and post-migration convergence.
+    await grant('archive_reader', 'select', ['operations_backups', 'operations_backup_events']);
+    await client.query(
+      `grant execute on function pg_catalog.pg_control_system() to ${quote(`${prefix}_archive_reader`)}`,
+    );
     if (preparing) {
       // No application data privileges before migration/verification. Only the
       // explicit backup and separate verification principals may access their

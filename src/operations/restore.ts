@@ -96,7 +96,7 @@ export interface RestoreEvidence extends RestoreBinding {
   readonly batches: number;
 }
 
-type ReconciliationOptions = Omit<
+export type ReconciliationOptions = Omit<
   RestoreOptions,
   | 'targetConnectionString'
   | 'expectedTargetSystemIdentifier'
@@ -255,7 +255,7 @@ export async function verifyPromotion(options: PromotionOptions): Promise<{ stat
   }
 }
 
-async function reconcileRestoredTarget(
+export async function reconcileRestoredTarget(
   options: ReconciliationOptions,
   startedAt: Date,
   expectedSourceIdentifier?: string,

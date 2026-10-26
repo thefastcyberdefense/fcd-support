@@ -16,6 +16,11 @@ import {
 import { registerBackup } from '../../src/operations/backup-command.js';
 import { runForwardMigrations } from '../../src/operations/forward-migration.js';
 import { runRestoreCommand } from '../../src/operations/restore-main.js';
+import { runRestoreStreamCommand } from '../../src/operations/restore-stream-main.js';
+import { runRestoreReconcileCommand } from '../../src/operations/restore-reconcile-main.js';
+import { runRestoreMigrateCommand } from '../../src/operations/restore-migrate-main.js';
+import { assertDatabaseIdentity } from '../../src/operations/database-identity.js';
+import { readSecretFile } from '../../src/operations/secret-files.js';
 import { runPromotionCommand } from '../../src/operations/promotion-main.js';
 import {
   bindOperationConnectionString,
@@ -1251,9 +1256,9 @@ test.skipIf(!enabled)(
   },
 );
 
-test.skipIf(!enabled)(
-  'native restore command uses separate restricted capabilities and acknowledges only after deletion reconciliation and pool shutdown',
-  async () => {
+test.skipIf(!enabled).each(['combined', 'split'] as const)(
+  'native %s restore jobs reconcile deletions and close pools before acknowledgement and fresh promotion',
+  async (mode) => {
     const snapshot = await createRestoreSource();
     cleanup.snapshots.add(snapshot);
     const prefix = `fcd_test_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
@@ -1432,7 +1437,10 @@ test.skipIf(!enabled)(
       };
       for (const [file, value] of [
         [secretFiles.RESTORE_SOURCE_CHECKPOINT_DATABASE_URL_FILE, sourceUrl('checkpoint')],
-        [secretFiles.RESTORE_SOURCE_ARCHIVE_DATABASE_URL_FILE, sourceUrl('backup')],
+        [
+          secretFiles.RESTORE_SOURCE_ARCHIVE_DATABASE_URL_FILE,
+          sourceUrl(mode === 'split' ? 'archive_reader' : 'backup'),
+        ],
         [secretFiles.RESTORE_TARGET_OWNER_DATABASE_URL_FILE, ownerUri.toString()],
         [secretFiles.RESTORE_TARGET_MIGRATOR_DATABASE_URL_FILE, migratorUri.toString()],
         [
@@ -1449,68 +1457,238 @@ test.skipIf(!enabled)(
         await writeFile(file, value, { mode: 0o600 });
       const stdout: string[] = [];
       const stderr: string[] = [];
-      const status = await runRestoreCommand({
-        args: [
-          'restore',
-          restoreRef,
-          archive.backupRef,
-          checkpoint.checkpointRef,
-          Buffer.from(JSON.stringify(metadata)).toString('base64'),
-        ],
-        environment: {
-          NODE_ENV: 'production',
-          MODEL_EXECUTION_ENABLED: 'false',
-          OUTBOUND_EXECUTION_ENABLED: 'false',
-          N8N_EXECUTION_ENABLED: 'false',
-          OPS_OPERATION_REFERENCE: operationRef,
-          OPS_SOURCE_DATABASE_SYSTEM_IDENTIFIER: actualSource.id,
-          OPS_SOURCE_DATABASE_NAME: sourceName,
-          OPS_DATABASE_ROLE_PREFIX: prefix,
-          OPS_DATABASE_SCHEMA: snapshot.schema,
-          OPS_GIT_REVISION: metadata.gitRevision,
-          OPS_SCHEMA_REVISION: metadata.schemaRevision,
-          RESTORE_SOURCE_SERVICE_ALIAS: 'fcd-support-source-postgres',
-          RESTORE_TARGET_SERVICE_ALIAS: 'fcd-support-restore-postgres',
-          ...secretFiles,
+      const args = [
+        'restore',
+        restoreRef,
+        archive.backupRef,
+        checkpoint.checkpointRef,
+        Buffer.from(JSON.stringify(metadata)).toString('base64'),
+      ];
+      const commonEnvironment = {
+        ...(mode === 'split'
+          ? {
+              PG_MAJOR: '18',
+              PG_VERSION: '18.4-1.pgdg13+1',
+              PGDATA: '/var/lib/postgresql/18/docker',
+            }
+          : {}),
+        NODE_ENV: 'production',
+        MODEL_EXECUTION_ENABLED: 'false',
+        OUTBOUND_EXECUTION_ENABLED: 'false',
+        N8N_EXECUTION_ENABLED: 'false',
+        OPS_OPERATION_REFERENCE: operationRef,
+        OPS_SOURCE_DATABASE_SYSTEM_IDENTIFIER: actualSource.id,
+        OPS_SOURCE_DATABASE_NAME: sourceName,
+        OPS_DATABASE_ROLE_PREFIX: prefix,
+        OPS_DATABASE_SCHEMA: snapshot.schema,
+        OPS_GIT_REVISION: metadata.gitRevision,
+        OPS_SCHEMA_REVISION: metadata.schemaRevision,
+        RESTORE_SOURCE_SERVICE_ALIAS: 'fcd-support-source-postgres',
+        RESTORE_TARGET_SERVICE_ALIAS: 'fcd-support-restore-postgres',
+        OPS_MAX_CALL_MS: '10000',
+      };
+      const checkpointBounds = {
+        CHECKPOINT_MAX_AGE_MS: '60000',
+        CHECKPOINT_MAX_ROWS: '1000',
+        CHECKPOINT_MAX_PAYLOAD_BYTES: '1048576',
+        RESTORE_BATCH_LIMIT: '1',
+        RESTORE_MAX_BATCHES: '10',
+      };
+      const createPool = (configuration: pg.PoolConfig) => {
+        configurations.push(configuration);
+        const pool = new pg.Pool(configuration);
+        pools.push(pool);
+        return pool;
+      };
+      const write = (line: string) => {
+        expect(pools.every((pool) => pool.ended && pool.totalCount === 0)).toBe(true);
+        stdout.push(line);
+      };
+      const error = (line: string) => {
+        stderr.push(line);
+      };
+      let status: 0 | 1;
+      if (mode === 'combined') {
+        status = await runRestoreCommand({
+          args,
+          environment: {
+            ...commonEnvironment,
+            ...checkpointBounds,
+            ...secretFiles,
+            RECOVERY_MANIFEST_HMAC_FILE: manifestHmacFile,
+            BACKUP_AGE_IDENTITY_FILE: identityFile,
+            RESTORE_BOOTSTRAP_PASSWORD_DIRECTORY: directory,
+            BACKUP_ARCHIVE_DIRECTORY: archiveDirectory,
+            CHECKPOINT_ARCHIVE_DIRECTORY: archiveDirectory,
+            BACKUP_TMPFS_DIRECTORY: temporaryDirectory,
+          },
+          now: () => at,
+          createPool,
+          write,
+          error,
+        });
+      } else {
+        // These are actual separate jobs with separate environments and pools.
+        // The source-connected legs never accept bootstrap/migrator files; the
+        // target-only legs receive no source connection or checkpoint material.
+        const readOnlyFiles = (allowed: readonly string[]) => async (path: string) => {
+          if (!allowed.includes(path)) throw new Error('synthetic_stage_capability_invalid');
+          return readSecretFile(path);
+        };
+        const streamFiles = {
+          RESTORE_SOURCE_ARCHIVE_DATABASE_URL_FILE:
+            secretFiles.RESTORE_SOURCE_ARCHIVE_DATABASE_URL_FILE,
+          RESTORE_TARGET_OWNER_DATABASE_URL_FILE:
+            secretFiles.RESTORE_TARGET_OWNER_DATABASE_URL_FILE,
           RECOVERY_MANIFEST_HMAC_FILE: manifestHmacFile,
           BACKUP_AGE_IDENTITY_FILE: identityFile,
-          RESTORE_BOOTSTRAP_PASSWORD_DIRECTORY: directory,
-          BACKUP_ARCHIVE_DIRECTORY: archiveDirectory,
-          CHECKPOINT_ARCHIVE_DIRECTORY: archiveDirectory,
-          BACKUP_TMPFS_DIRECTORY: temporaryDirectory,
-          OPS_MAX_CALL_MS: '10000',
-          CHECKPOINT_MAX_AGE_MS: '60000',
-          CHECKPOINT_MAX_ROWS: '1000',
-          CHECKPOINT_MAX_PAYLOAD_BYTES: '1048576',
-          RESTORE_BATCH_LIMIT: '1',
-          RESTORE_MAX_BATCHES: '10',
-        },
-        now: () => at,
-        createPool: (configuration) => {
-          configurations.push(configuration);
-          const pool = new pg.Pool(configuration);
-          pools.push(pool);
-          return pool;
-        },
-        write: (line) => {
-          expect(pools).toHaveLength(4);
-          expect(pools.every((pool) => pool.ended && pool.totalCount === 0)).toBe(true);
-          stdout.push(line);
-        },
-        error: (line) => {
-          stderr.push(line);
-        },
-      });
+        };
+        expect(
+          await runRestoreStreamCommand({
+            args,
+            environment: {
+              ...commonEnvironment,
+              ...streamFiles,
+              BACKUP_ARCHIVE_DIRECTORY: archiveDirectory,
+              BACKUP_TMPFS_DIRECTORY: temporaryDirectory,
+            },
+            readSecret: readOnlyFiles(Object.values(streamFiles)),
+            createPool,
+            write,
+            error,
+          }),
+        ).toBe(0);
+        expect(pools).toHaveLength(2);
+        expect(
+          (
+            await target.query(
+              `select count(*)::int as count from "${snapshot.schema}".operations_restore_bindings`,
+            )
+          ).rows,
+        ).toEqual([{ count: 0 }]);
+        const targetOnlyUri = new URL(ownerUri);
+        targetOnlyUri.hostname = 'fcd-support-restore-postgres';
+        const bootstrap = async (phase: 'prepare' | 'converge') => {
+          const owner = createPool({
+            connectionString: targetOnlyUri.toString(),
+            max: 1,
+            application_name: operationApplicationName(operationRef),
+            options: `-c search_path=${snapshot.schema},public`,
+          });
+          try {
+            const client = await owner.connect();
+            try {
+              await assertDatabaseIdentity(client, {
+                systemIdentifier: targetSystemIdentifier,
+                databaseName: sourceName,
+              });
+            } finally {
+              client.release(true);
+            }
+            await configureRuntimeGrants(owner, {
+              database: sourceName,
+              schema: snapshot.schema,
+              rolePrefix: prefix,
+              passwordFiles,
+              phase,
+              timeoutMilliseconds: 10000,
+            });
+          } finally {
+            await owner.end();
+          }
+        };
+        await bootstrap('prepare');
+        expect(
+          await runRestoreMigrateCommand({
+            args: ['migrate', targetSystemIdentifier],
+            environment: {
+              NODE_ENV: 'production',
+              MODEL_EXECUTION_ENABLED: 'false',
+              OUTBOUND_EXECUTION_ENABLED: 'false',
+              N8N_EXECUTION_ENABLED: 'false',
+              OPS_OPERATION_REFERENCE: operationRef,
+              OPS_DATABASE_NAME: sourceName,
+              OPS_DATABASE_SCHEMA: snapshot.schema,
+              OPS_DATABASE_ROLE_PREFIX: prefix,
+              OPS_GIT_REVISION: metadata.gitRevision,
+              OPS_SCHEMA_REVISION: metadata.schemaRevision,
+              OPS_MAX_CALL_MS: '10000',
+              DATABASE_URL_FILE: secretFiles.RESTORE_TARGET_MIGRATOR_DATABASE_URL_FILE,
+            },
+            readSecret: readOnlyFiles([secretFiles.RESTORE_TARGET_MIGRATOR_DATABASE_URL_FILE]),
+            createPool,
+            write,
+            error,
+          }),
+        ).toBe(0);
+        expect(pools).toHaveLength(4);
+        await bootstrap('converge');
+        const reconcileFiles = {
+          RESTORE_SOURCE_CHECKPOINT_DATABASE_URL_FILE:
+            secretFiles.RESTORE_SOURCE_CHECKPOINT_DATABASE_URL_FILE,
+          RESTORE_TARGET_OWNER_DATABASE_URL_FILE:
+            secretFiles.RESTORE_TARGET_OWNER_DATABASE_URL_FILE,
+          PRIVACY_HMAC_KEYRING_FILE: secretFiles.PRIVACY_HMAC_KEYRING_FILE,
+          RECOVERY_MANIFEST_HMAC_FILE: manifestHmacFile,
+          BACKUP_AGE_IDENTITY_FILE: identityFile,
+        };
+        status = await runRestoreReconcileCommand({
+          args,
+          environment: {
+            ...commonEnvironment,
+            ...checkpointBounds,
+            ...reconcileFiles,
+            CHECKPOINT_ARCHIVE_DIRECTORY: archiveDirectory,
+          },
+          readSecret: readOnlyFiles([
+            ...Object.values(reconcileFiles),
+            join(archiveDirectory, checkpoint.checkpointRef, 'manifest.json'),
+          ]),
+          now: () => at,
+          createPool,
+          write,
+          error,
+        });
+      }
       expect({ status, stdout, stderr }).toEqual({
         status: 0,
-        stdout: ['{"status":"completed","processed":1,"reasonCode":"ok"}\n'],
+        stdout: Array<string>(mode === 'combined' ? 1 : 3).fill(
+          '{"status":"completed","processed":1,"reasonCode":"ok"}\n',
+        ),
         stderr: [],
       });
+      expect(pools).toHaveLength(mode === 'combined' ? 4 : 7);
       expect(
         configurations.map(
           (configuration) => new URL(configuration.connectionString ?? '').username,
         ),
-      ).toEqual([`${prefix}_checkpoint`, `${prefix}_backup`, 'postgres', `${prefix}_migrator`]);
+      ).toEqual(
+        mode === 'combined'
+          ? [`${prefix}_checkpoint`, `${prefix}_backup`, 'postgres', `${prefix}_migrator`]
+          : [
+              `${prefix}_archive_reader`,
+              'postgres',
+              'postgres',
+              `${prefix}_migrator`,
+              'postgres',
+              `${prefix}_checkpoint`,
+              'postgres',
+            ],
+      );
+      if (mode === 'split')
+        expect(
+          configurations.map(
+            (configuration) => new URL(configuration.connectionString ?? '').hostname,
+          ),
+        ).toEqual([
+          'fcd-support-source-postgres',
+          'fcd-support-restore-postgres',
+          'fcd-support-restore-postgres',
+          'fcd-support-restore-postgres',
+          'fcd-support-restore-postgres',
+          'fcd-support-source-postgres',
+          'fcd-support-restore-postgres',
+        ]);
       expect(
         configurations.every(
           (configuration) =>
@@ -1519,7 +1697,9 @@ test.skipIf(!enabled)(
       ).toBe(true);
       expect(
         configurations
-          .slice(0, 2)
+          .filter((_configuration, index) =>
+            mode === 'combined' ? index < 2 : index === 0 || index === 5,
+          )
           .every((configuration) =>
             configuration.options?.includes('default_transaction_read_only=on'),
           ),
@@ -1582,6 +1762,22 @@ test.skipIf(!enabled)(
           )
         ).rows,
       ).toEqual([{ source_matches: true, checkpoint_matches: true }]);
+      expect(
+        (
+          await target.query(
+            `select gate.status,gate.remaining_matches,
+              binding.source_epoch=imported.source_epoch as epoch_matches,
+              binding.source_sequence=imported.sequence as sequence_matches
+            from "${snapshot.schema}".operations_restore_bindings binding
+            join "${snapshot.schema}".restore_deletion_gates gate on gate.id=binding.final_gate_id
+            join "${snapshot.schema}".restore_checkpoint_imports imported on imported.restore_ref=binding.restore_ref
+            where binding.restore_ref=$1 and gate.action='finalize'`,
+            [restoreRef],
+          )
+        ).rows,
+      ).toEqual([
+        { status: 'passed', remaining_matches: 0, epoch_matches: true, sequence_matches: true },
+      ]);
       expect(
         (
           await target.query(

@@ -47,6 +47,7 @@ services:
       - bootstrap-backup-password
       - bootstrap-verify-backup-password
       - bootstrap-checkpoint-password
+      - bootstrap-archive-reader-password
       - bootstrap-migrator-password
     entrypoint: ['/usr/local/bin/container-entrypoint.sh', 'application']
     command: ['node', 'dist/operations/bootstrap-main.js']
@@ -303,6 +304,8 @@ secrets:
     file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/bootstrap/passwords/bootstrap-checkpoint-password
   bootstrap-migrator-password:
     file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/bootstrap/passwords/bootstrap-migrator-password
+  bootstrap-archive-reader-password:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/bootstrap/passwords/bootstrap-archive-reader-password
   migrate-database:
     file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/migrate/migrate-database
   backup-database:

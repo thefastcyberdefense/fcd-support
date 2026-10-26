@@ -1,6 +1,6 @@
 # Project Context
 
-Last reviewed: 2026-10-26 (Asia/Dhaka)
+Last reviewed: 2026-10-27 (Asia/Dhaka)
 
 ## Confirmed Decisions
 
@@ -25,14 +25,14 @@ Last reviewed: 2026-10-26 (Asia/Dhaka)
 
 ## Current Phase 6 Checkpoint
 
-Tasks 1–10 are complete. Task 11 remains in progress: deploy, verify,
-exact-schema retained rollback and explicit socket recovery entry points are
-connected, and the standalone restore command has passed a real two-cluster
-synthetic PostgreSQL flow with separate source checkpoint/archive credentials,
-target owner preparation, a restricted migrator, current deletion reconciliation,
-quarantine, recovery hold and pool shutdown before acknowledgement. This does
-not wire the public restore/promotion commands or authorize an application
-attachment to a restored volume.
+Tasks 1–10 are complete. Task 11 remains in progress. Deploy, verify,
+exact-schema rollback, socket recovery, isolated restore and promotion operator
+entry points now load their host controllers. Restore runs separate narrow
+stream, target-only grant preparation/migration/convergence and current deletion
+reconciliation jobs. The real two-cluster synthetic flow covers those drivers,
+quarantine, recovery hold, fresh promotion and pool shutdown. Complete deployed
+host/failure-matrix evidence and whole-phase review remain required; available
+commands and component passes do not establish a completed P6/P7 gate.
 
 The subsequent internal promotion driver requires two fresh, bounded,
 replay-resistant host stdio exchanges while the existing reconciliation library
@@ -49,14 +49,24 @@ Automatic approval review rejected the proposed combined Compose change that
 gave source-network access and all bootstrap passwords to a restore job. The
 patch was not applied. `docs/reviews/phase-6-restore-capability-boundary.md`
 recommends separate target-only bootstrap/migration jobs and narrow source/target
-reconciliation jobs. That explicit design decision is pending; the combined
-transport/controller drafts are excluded from active source and commits.
+reconciliation jobs. The owner explicitly approved that split-job design on
+2026-10-26 and directed completion through Phase 7, including testing and fixes
+on the existing local test server using test Pages/accounts. Prepare the concrete
+revision/commands/rollback before mutation and verify test-only data scope and
+Manifest privacy before traffic. Routine implementation decisions remain
+delegated; production assets remain protected. The combined-authority approach
+remains rejected, and its drafts are not an approved implementation.
 
 Latest prerequisite verification: `VITEST_MAX_WORKERS=4 npm run check` passed
-1,444 tests with 365 platform skips across 100 files. Native restore passed
-142 units across eight files and 46 PostgreSQL cases across two files; native
-live-socket preflight passed 21 cases. This does not replace the final failure
-matrix, whole-phase review or server-deployment verification.
+1,668 tests with 367 platform skips across 112 files. The complete native
+operations gate passed 1,100 units and 139 PostgreSQL cases, with one separate
+restore-only skip. The final split restore gate passed 171 units and 47
+PostgreSQL cases, including its inherited image-metadata extension.
+Native Linux checks exposed and verified a line-ending correction in the new
+host port. The pinned image's benign PostgreSQL version metadata is accepted;
+connection/credential overrides remain rejected. New Actions jobs add PostgreSQL
+and native operations/restore checks. No remote result is implied before those
+jobs run. This does not replace deployed-host verification or whole-phase review.
 
 Tasks 12–14 now have scheduler, health/dashboard and signed private notification
 components under aggregate validation. Operational limits are customizable;

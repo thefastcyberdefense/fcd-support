@@ -4,27 +4,44 @@
 source "$(dirname -- "${BASH_SOURCE[0]}")/operations-bootstrap.sh"
 source "$(dirname -- "${BASH_SOURCE[0]}")/operations-containment.sh"
 
+operations_startup_entry() {
+  operations_selection_read || return 1
+  [[ "${OPS_SELECTION[STATE_REVISION]}" == "${OPS_CONFIG[FCD_SUPPORT_REVISION]:-}" && "${OPS_SELECTION[STATE_VOLUME]}" == "${OPS_CONFIG[FCD_POSTGRES_VOLUME]:-}" ]] || return 1
+  case "${OPS_SELECTION[STATE_PHASE]}" in
+    quiescent) ;;
+    switching)
+      [[ "${OPS_SELECTION[STATE_WRITES_POSSIBLE]}" == no && "${OPS_SELECTION[STATE_RESTORE_REF]:-}" =~ ^restore_[a-f0-9]{32}$ &&
+        "${OPS_SELECTION[STATE_VOLUME_ORIGIN]:-}" =~ ^fcd-support-restore-[a-z0-9-]+$ &&
+        "${OPS_SELECTION[STATE_PREVIOUS_VOLUME]:-}" != none && -n "${OPS_SELECTION[STATE_PREVIOUS_VOLUME]:-}" &&
+        "${OPS_SELECTION[STATE_PREVIOUS_VOLUME]}" != "${OPS_SELECTION[STATE_VOLUME]}" &&
+        "${OPS_SELECTION[STATE_SCHEMA_REVISION]}" == "${OPS_CONFIG[FCD_SCHEMA_REVISION]}" ]] || return 1 ;;
+    *) return 1 ;;
+  esac
+}
+
 operations_startup_selection() {
   local phase="$1"
   operations_selection_read
   [[ "${OPS_SELECTION[STATE_REF]}" == "$OPS_STARTUP_REFERENCE" && "${OPS_SELECTION[STATE_PHASE]}" == "$phase" && "${OPS_SELECTION[STATE_VOLUME]}" == "${OPS_CONFIG[FCD_POSTGRES_VOLUME]}" && "${OPS_SELECTION[STATE_SYSTEM_IDENTIFIER]}" == "$OPS_STARTUP_IDENTIFIER" && "${OPS_SELECTION[STATE_REVISION]}" == "${OPS_CONFIG[FCD_SUPPORT_REVISION]}" && "${OPS_SELECTION[STATE_DATABASE_NAME]}" == "${OPS_CONFIG[FCD_POSTGRES_DB]}" && "${OPS_SELECTION[STATE_SCHEMA_NAME]}" == "${OPS_CONFIG[FCD_DATABASE_SCHEMA]}" && ! -e "$OPS_JOB_STATE_FILE" && ! -L "$OPS_JOB_STATE_FILE" ]] || return 1
   if [[ "$phase" == starting ]]; then
     [[ "${OPS_SELECTION[STATE_SCHEMA_REVISION]}" == "${OPS_CONFIG[FCD_SCHEMA_REVISION]}" && "${OPS_SELECTION[STATE_WRITES_POSSIBLE]}" == yes ]] || return 1
+  elif [[ "$phase" == switching ]]; then operations_startup_entry || return 1
   else [[ "${OPS_SELECTION[STATE_SCHEMA_REVISION]}" < "${OPS_CONFIG[FCD_SCHEMA_REVISION]}" || "${OPS_SELECTION[STATE_SCHEMA_REVISION]}" == "${OPS_CONFIG[FCD_SCHEMA_REVISION]}" ]] || return 1; fi
 }
 
 operations_startup_checked() {
   local application="$1" operations="$2" postgres="$3" field expected meta identifier
-  local OPS_ACTION=private-startup OPS_STARTUP_REFERENCE OPS_STARTUP_IDENTIFIER
+  local OPS_ACTION=private-startup OPS_STARTUP_REFERENCE OPS_STARTUP_IDENTIFIER OPS_STARTUP_PHASE
   [[ "$application" =~ ^sha256:[a-f0-9]{64}$ && "$operations" =~ ^sha256:[a-f0-9]{64}$ && "$postgres" =~ ^sha256:[a-f0-9]{64}$ ]] || return 1
   for field in FCD_RUNTIME_PROJECT FCD_SUPPORT_REVISION FCD_SCHEMA_REVISION FCD_POSTGRES_VOLUME FCD_POSTGRES_DB FCD_DATABASE_SCHEMA FCD_DATABASE_ROLE_PREFIX FCD_READY_TIMEOUT_SECONDS FCD_COMMAND_TIMEOUT_SECONDS FCD_STOP_GRACE_MS; do
     [[ -n "${OPS_CONFIG[$field]:-}" ]] && operations_config_field "$field" "${OPS_CONFIG[$field]}" || return 1
   done
   operations_job_state_root
   [[ ! -e "$OPS_JOB_STATE_FILE" && ! -L "$OPS_JOB_STATE_FILE" ]] || return 1
-  operations_selection_read
+  operations_startup_entry || return 1
   OPS_STARTUP_REFERENCE="${OPS_SELECTION[STATE_REF]}"; OPS_STARTUP_IDENTIFIER="${OPS_SELECTION[STATE_SYSTEM_IDENTIFIER]}"
-  operations_startup_selection quiescent || return 1
+  OPS_STARTUP_PHASE="${OPS_SELECTION[STATE_PHASE]}"
+  operations_startup_selection "$OPS_STARTUP_PHASE" || return 1
   operations_socket_root || return 1
   for field in FCD_SUPPORT_IMAGE FCD_OPERATIONS_IMAGE FCD_POSTGRES_IMAGE; do
     operations_config_field "$field" "${OPS_CONFIG[$field]:-}" || return 1
@@ -41,17 +58,17 @@ operations_startup_checked() {
   operations_inspect_bootstrap_database >/dev/null 2>&1 || return 1
   identifier="$(operations_read_database_identity 2>/dev/null)" || return 1
   [[ "$identifier" == "$OPS_STARTUP_IDENTIFIER" ]] || return 1
-  operations_startup_selection quiescent || return 1
+  operations_startup_selection "$OPS_STARTUP_PHASE" || return 1
   operations_upgrade_database >/dev/null 2>&1 || return 1
   [[ "${OPS_PRE_MIGRATION_BACKUP_REF:-}" =~ ^backup_[a-f0-9]{32}$ && "${OPS_DATABASE_SYSTEM_IDENTIFIER:-}" == "$OPS_STARTUP_IDENTIFIER" ]] || return 1
-  operations_startup_selection quiescent || return 1
+  operations_startup_selection "$OPS_STARTUP_PHASE" || return 1
   operations_inspect_bootstrap_database >/dev/null 2>&1 || return 1
   identifier="$(operations_read_database_identity 2>/dev/null)" || return 1
   [[ "$identifier" == "$OPS_STARTUP_IDENTIFIER" ]] || return 1
   # The metadata job independently checks actual schema/principal/cluster on
   # its owning connection before recording candidate startup evidence.
   operations_execute_job migrate deployment-started >/dev/null 2>&1 || return 1
-  operations_startup_selection quiescent || return 1
+  operations_startup_selection "$OPS_STARTUP_PHASE" || return 1
   operations_selection_starting "$OPS_STARTUP_REFERENCE" "${OPS_CONFIG[FCD_SUPPORT_REVISION]}" "${OPS_CONFIG[FCD_SCHEMA_REVISION]}"
   operations_startup_selection starting || return 1
   operations_socket_root || return 1
@@ -72,12 +89,10 @@ operations_start_private_runtime() {
   [[ "$1" =~ ^sha256:[a-f0-9]{64}$ && "$2" =~ ^sha256:[a-f0-9]{64}$ && "$3" =~ ^sha256:[a-f0-9]{64}$ ]] || operations_fail operations_startup_refused
   # An invalid entry must not convert an existing healthy deployment to an
   # uncertain one or trigger containment of actors this attempt never started.
-  (operations_selection_read
-    [[ "${OPS_SELECTION[STATE_PHASE]}" == quiescent && "${OPS_SELECTION[STATE_REVISION]}" == "${OPS_CONFIG[FCD_SUPPORT_REVISION]:-}" && "${OPS_SELECTION[STATE_VOLUME]}" == "${OPS_CONFIG[FCD_POSTGRES_VOLUME]:-}" ]]
-  ) >/dev/null 2>&1 || operations_fail operations_startup_refused
+  (operations_startup_entry) >/dev/null 2>&1 || operations_fail operations_startup_refused
   if (operations_startup_checked "$@") >/dev/null 2>&1; then return 0; fi
   if (operations_selection_read
-    [[ "${OPS_SELECTION[STATE_REVISION]}" == "${OPS_CONFIG[FCD_SUPPORT_REVISION]:-}" && ( "${OPS_SELECTION[STATE_PHASE]}" == quiescent || "${OPS_SELECTION[STATE_PHASE]}" == starting || "${OPS_SELECTION[STATE_PHASE]}" == ready ) ]] || exit 1
+    [[ "${OPS_SELECTION[STATE_REVISION]}" == "${OPS_CONFIG[FCD_SUPPORT_REVISION]:-}" && ( "${OPS_SELECTION[STATE_PHASE]}" == quiescent || "${OPS_SELECTION[STATE_PHASE]}" == switching || "${OPS_SELECTION[STATE_PHASE]}" == starting || "${OPS_SELECTION[STATE_PHASE]}" == ready ) ]] || exit 1
     operations_selection_uncertain "${OPS_SELECTION[STATE_REF]}"
   ) >/dev/null 2>&1; then
     # Stopping verified target actors is containment, even with an unresolved

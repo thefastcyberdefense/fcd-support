@@ -188,7 +188,15 @@ function checkResourceSettings(name: string, s: Service): void {
       ? 'webhook'
       : name === 'bootstrap'
         ? 'migrate'
-        : name.replace(/^fcd-support-/u, '').replaceAll('-', '_');
+        : [
+              'restore',
+              'restore-bootstrap',
+              'restore-migrate',
+              'restore-reconcile',
+              'promote',
+            ].includes(name)
+          ? 'restore'
+          : name.replace(/^fcd-support-/u, '').replaceAll('-', '_');
   const role = z.enum(runtimeRoles).parse(roleName);
   const environment = Object.fromEntries(
     Object.entries(s.environment).map(([key, value]) => [key, value ?? undefined]),
@@ -541,14 +549,70 @@ export function assertRestoreCompose(
   try {
     const config = composeSchema.parse(input);
     checkCommon(config, revision);
+    const passwords = [...runtimeDatabaseRoles, 'migrator'].map(
+      (role) => `bootstrap-${role.replaceAll('_', '-')}-password`,
+    );
+    const jobs: Readonly<Record<string, Contract & { readonly program: string }>> = {
+      restore: {
+        networks: ['restore_data', 'source_data'],
+        secrets: [
+          'restore-archive-database',
+          'restore-database',
+          'restore-identity',
+          'recovery-hmac',
+        ],
+        profile: 'isolated-restore',
+        program: 'restore-stream-main',
+      },
+      'restore-bootstrap': {
+        networks: ['restore_data'],
+        secrets: ['restore-database', ...passwords],
+        profile: 'restore-bootstrap',
+        program: 'bootstrap-main',
+      },
+      'restore-migrate': {
+        networks: ['restore_data'],
+        secrets: ['restore-migrator-database'],
+        profile: 'restore-migrate',
+        program: 'restore-migrate-main',
+      },
+      'restore-reconcile': {
+        networks: ['restore_data', 'source_data'],
+        secrets: [
+          'restore-checkpoint-database',
+          'restore-database',
+          'restore-keyring',
+          'restore-identity',
+          'recovery-hmac',
+        ],
+        profile: 'restore-reconcile',
+        program: 'restore-reconcile-main',
+      },
+      promote: {
+        networks: ['restore_data', 'source_data'],
+        secrets: [
+          'restore-checkpoint-database',
+          'restore-database',
+          'restore-keyring',
+          'restore-identity',
+          'recovery-hmac',
+        ],
+        profile: 'restore-promote',
+        program: 'promotion-main',
+      },
+    };
     if (
-      !same(Object.keys(config.services), ['postgres', 'restore']) ||
-      !same(Object.keys(config.networks), ['restore_data']) ||
-      config.networks.restore_data?.internal !== true ||
-      config.networks.restore_data.external === true
+      !same(Object.keys(config.services), ['postgres', ...Object.keys(jobs)]) ||
+      !same(Object.keys(config.networks), ['restore_data', 'source_data']) ||
+      config.networks.restore_data?.external !== true ||
+      config.networks.restore_data.internal === true ||
+      config.networks.source_data?.external !== true ||
+      config.networks.source_data.name === config.networks.restore_data.name ||
+      !same(Object.keys(config.volumes ?? {}), ['restore-data', 'backups']) ||
+      config.volumes?.backups?.external !== true
     )
       invalid();
-    const volume = config.volumes?.['restore-data']?.name;
+    const volume = config.volumes['restore-data']?.name;
     if (
       volume === undefined ||
       volume === runtimeVolume ||
@@ -560,23 +624,55 @@ export function assertRestoreCompose(
       { networks: ['restore_data'], secrets: ['restore-postgres-password'] },
       'no',
     );
-    checkService(
-      config.services.restore,
-      {
-        networks: ['restore_data'],
-        secrets: ['restore-database', 'restore-identity', 'recovery-hmac', 'restore-keyring'],
-        profile: 'isolated-restore',
-      },
-      'no',
-    );
+    const secretPaths = Object.values(config.secrets).map((secret) => secret.file);
+    if (new Set(secretPaths).size !== secretPaths.length) invalid();
+    for (const [name, job] of Object.entries(jobs)) {
+      const service = config.services[name];
+      checkService(service, job, 'no');
+      if (!service) invalid();
+      const targetOnly = name === 'restore-bootstrap' || name === 'restore-migrate';
+      if (
+        JSON.stringify(service.command) !==
+          JSON.stringify(['node', `dist/operations/${job.program}.js`]) ||
+        JSON.stringify(service.entrypoint) !==
+          JSON.stringify([
+            '/usr/local/bin/container-entrypoint.sh',
+            targetOnly ? 'application' : 'operations-readonly',
+          ]) ||
+        service.environment.NODE_ENV !== 'production' ||
+        ['MODEL_EXECUTION_ENABLED', 'OUTBOUND_EXECUTION_ENABLED', 'N8N_EXECUTION_ENABLED'].some(
+          (flag) => service.environment[flag] !== 'false',
+        ) ||
+        service.volumes.length !== (targetOnly ? 0 : 1)
+      )
+        invalid();
+      if (
+        !targetOnly &&
+        (service.volumes[0]?.read_only !== true ||
+          service.volumes[0].source !== 'backups' ||
+          service.volumes[0].target !== '/var/lib/fcd-support/backups')
+      )
+        invalid();
+      const expectedFiles: Record<string, string> = targetOnly
+        ? {
+            DATABASE_URL_FILE:
+              name === 'restore-bootstrap' ? 'restore-database' : 'restore-migrator-database',
+          }
+        : {
+            RESTORE_TARGET_OWNER_DATABASE_URL_FILE: 'restore-database',
+            BACKUP_AGE_IDENTITY_FILE: 'restore-identity',
+            RECOVERY_MANIFEST_HMAC_FILE: 'recovery-hmac',
+            ...(name === 'restore'
+              ? { RESTORE_SOURCE_ARCHIVE_DATABASE_URL_FILE: 'restore-archive-database' }
+              : {
+                  RESTORE_SOURCE_CHECKPOINT_DATABASE_URL_FILE: 'restore-checkpoint-database',
+                  PRIVACY_HMAC_KEYRING_FILE: 'restore-keyring',
+                }),
+          };
+      for (const [key, source] of Object.entries(expectedFiles))
+        if (service.environment[key] !== `/run/secrets/${source}`) invalid();
+    }
     for (const s of Object.values(config.services)) if (s.ports.length !== 0) invalid();
-    if (
-      config.services.restore?.volumes.length !== 1 ||
-      config.services.restore.volumes[0]?.read_only !== true ||
-      config.services.restore.volumes[0].source !== 'backups' ||
-      config.services.restore.volumes[0].target !== '/var/lib/fcd-support/backups'
-    )
-      invalid();
     if (
       config.services.postgres?.volumes.length !== 1 ||
       config.services.postgres.volumes[0]?.source !== 'restore-data' ||

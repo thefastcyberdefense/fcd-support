@@ -34,7 +34,7 @@ docker compose --env-file "$NATIVE_FIXTURE/fixture.env" --file infra/compose.ope
       for(const flag of ["MODEL_EXECUTION_ENABLED","OUTBOUND_EXECUTION_ENABLED","N8N_EXECUTION_ENABLED"])if(b.environment[flag]!=="false")throw 0;
       if(b.environment.OPS_DATABASE_NAME!=="fcd_support_test" || b.environment.OPS_DATABASE_SCHEMA!=="public" || b.environment.OPS_DATABASE_ROLE_PREFIX!=="fcd_support")throw 0;
       const expected=["bootstrap-database",...[
-        "webhook","admin","reply","outbound","notification","maintenance","health","backup","verify-backup","checkpoint","migrator"
+        "webhook","admin","reply","outbound","notification","maintenance","health","backup","verify-backup","checkpoint","archive-reader","migrator"
       ].map(role=>"bootstrap-"+role+"-password")].sort();
       if(JSON.stringify(b.secrets.map(s=>s.source).sort())!==JSON.stringify(expected))throw 0;
       for(const service of Object.entries(model.services))if(service[0]!=="bootstrap" && service[1].secrets.some(s=>expected.includes(s.source)))throw 0;
