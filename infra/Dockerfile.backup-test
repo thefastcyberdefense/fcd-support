@@ -7,8 +7,9 @@ RUN apt-get update \
     && apt-get install --yes --no-install-recommends systemd \
     && command -v systemd-analyze \
     && rm -rf /var/lib/apt/lists/*
-USER node
 WORKDIR /workspace
+RUN cp -a /app/dist ./dist
+USER node
 COPY --from=fcd-support-integration-test:local --chown=node:node /workspace/node_modules ./node_modules
 COPY --from=fcd-support-integration-test:local --chown=node:node /workspace/package.json ./package.json
 ENTRYPOINT ["node", "/workspace/node_modules/vitest/vitest.mjs"]

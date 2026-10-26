@@ -10,7 +10,7 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25
     steps:
       - name: Check out repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -23,5 +23,9 @@ jobs:
           node-version-file: .node-version
       - name: Install locked dependencies
         run: npm ci --ignore-scripts
-      - name: Run local validation gate
-        run: npm run check
+      - name: Run static validation and build
+        run: npm run validate:phase0 && npm run format:check && npm run lint && npm run typecheck && npm run build
+      - name: Check runtime dependency advisories
+        run: npm audit --omit=dev --audit-level=high
+      - name: Run unit tests with the pinned UID and memory-backed scratch
+        run: bash scripts/test-encrypted-backup.sh unit

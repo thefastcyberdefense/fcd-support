@@ -25,6 +25,17 @@ Last reviewed: 2026-10-27 (Asia/Dhaka)
 
 ## Current Phase 6 Checkpoint
 
+Fresh-runner CI exposed test-environment assumptions at `ae13cec`: CodeQL and
+ordinary PostgreSQL passed, while the unit/native jobs failed on UID/tmpfs and
+an unbuilt dependency image. The revised harness uses the pinned UID/toolchain,
+memory-backed scratch, explicit image builds and a networkless unit lane. A
+dedicated synthetic project suffix permits early server validation without
+touching the old admission database. Pinned dependency maintenance leaves both
+complete and runtime-only npm audits at zero advisories. Latest local code:
+1,671 passed/367 platform skips/113 files; Linux units: 1,714 passed/324 native-only
+skips/113 files. These results do not replace deployed-host validation or the
+whole-phase review.
+
 Tasks 1–10 are complete. Task 11 remains in progress. Deploy, verify,
 exact-schema rollback, socket recovery, isolated restore and promotion operator
 entry points now load their host controllers. Restore runs separate narrow

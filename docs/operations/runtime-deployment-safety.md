@@ -4,6 +4,35 @@
 
 This is an intermediate Task 11 checkpoint, not a deployment or restore gate pass.
 
+### Fresh-runner CI and dependency maintenance
+
+At `ae13cec`, CodeQL and the complete ordinary PostgreSQL Actions job passed.
+The unit job failed because the hosted runner UID and disk-backed scratch did
+not satisfy the actual Unix-socket/backup contracts. The native job failed
+because its runner image assumed a locally cached integration image. These are
+recorded failures, not passing remote gates.
+
+The unit workflow now uses the pinned non-root operations test image, UID 1000,
+memory-backed scratch and network `none`. Authored fake CLI execution is allowed
+only on that unit container's private scratch mount; deployed mounts retain
+`noexec`. The test image supplies its compiled CLI fixtures, and the harness
+builds its dependency image explicitly. Three harness regression cases cover
+standalone builds, a dedicated synthetic project and refusal of a non-test
+project before Docker access. A separate project suffix permits fresh synthetic
+server validation without attaching the existing admission database.
+
+Fastify, Zod, Vitest and affected locked transitive dependencies received pinned
+maintenance updates. Both the runtime-only and complete `npm audit` reports
+contained zero advisories after those updates. Package advisories were triaged
+as requiring reachability review; no exploitable application vulnerability or
+live exploit test is claimed. The Windows code gate passed 1,671 tests with 367
+platform skips across 113 files (210.30 seconds for tests).
+The complete Linux unit lane then passed 1,714 tests with 324 native-only skips
+across 113 files (65.58 seconds). The native operations/restore lanes own those
+additional capability-specific cases; no skip is presented as a pass.
+The updated two-cluster restore lane also exited 0: 171 units across 11 files
+and 47 PostgreSQL integrations across two files (25.34 seconds for integration).
+
 ### Approved split-job controller checkpoint
 
 The owner approved the split capability design and real test-server iteration on
@@ -43,11 +72,11 @@ connection settings and credentials remain refused.
 
 Read-only SSH preflight is recorded in `phase-6-server-preflight.md`. The existing
 admission stack is healthy at its earlier revision, with no published host ports.
-Its PostgreSQL parent modes 1777/755 and host Node 24.16.0 require explicit
-deployment preparation. No server mutation or provider traffic has occurred.
-New GitHub Actions jobs are authored; their results are recorded only after
-execution. Full deployed-host/failure-matrix evidence and the whole-phase review
-remain open.
+Its PostgreSQL parent modes 1777/755 require explicit deployment preparation.
+Host Node 24.16.0 is below the repository's host npm engine, but does not block
+Docker/Bash validation or deployment using the pinned container toolchain.
+No server mutation or provider traffic has occurred. Full deployed-host/failure-matrix
+evidence and the whole-phase review remain open.
 
 ### Restore metadata, promotion protocol and live-socket prerequisites
 
