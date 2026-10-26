@@ -160,6 +160,7 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
     const wrongIdentityFile = join(root, 'wrong-identity');
     const recipientFile = join(root, 'recipient');
     const manifestHmacFile = join(root, 'hmac');
+    let scheduledRole: string | undefined;
     try {
       await mkdir(archiveDirectory, { mode: 0o700 });
       await mkdir(temporaryDirectory, { mode: 0o700 });
@@ -280,6 +281,8 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
         runScheduledBackup(database.pool, { ...options, backupClass: 'daily' }),
       ]);
       expect(runs.map((run) => run.status).sort()).toEqual(['created', 'skipped']);
+      expect(runs[0].manifest?.backupRef).toMatch(/^backup_[a-f0-9]{32}$/u);
+      expect(runs[1].manifest?.backupRef).toBe(runs[0].manifest?.backupRef);
       const daily = await database.pool.query<{ count: string }>(
         "select count(*) from operations_backups where class='daily'",
       );
@@ -334,7 +337,7 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
           });
           return undefined;
         }
-        if (args[0] === 'pre-migration-backup') {
+        if (args[0] === 'pre-migration-backup' || args[0] === 'scheduled-backup') {
           expect(output.trim()).toMatch(/^backup_[a-f0-9]{32}$/u);
           return output.trim();
         }
@@ -385,12 +388,104 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
         await readFile(join(archiveDirectory, returnedRef, 'manifest.json'), 'utf8'),
       ) as { schemaRevision: string };
       expect(bootstrapManifest.schemaRevision).toBe('000000');
+      // The dump boundary intentionally refuses arbitrary URI startup options.
+      // Match deployment's role-bound namespace instead of passing the test
+      // helper's pool-only search_path option to the backup process.
+      const beforeInvalidConnection = await readdir(archiveDirectory);
+      await expect(
+        runScheduledBackup(database.pool, {
+          ...options,
+          connectionString: database.connectionString,
+          expectedDatabaseIdentity,
+          backupClass: 'daily',
+          now: new Date('2001-01-03T00:00:00.000Z'),
+        }),
+      ).rejects.toThrow('backup_schedule_failed');
+      expect(await readdir(archiveDirectory)).toEqual(beforeInvalidConnection);
+      const role = `fcd_test_backup_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+      if (!/^fcd_test_backup_[a-f0-9]{12}$/u.test(role))
+        throw new Error('synthetic_role_scope_invalid');
+      await database.pool.query(
+        `create role "${role}" login nosuperuser nocreatedb nocreaterole noinherit noreplication nobypassrls
+         password 'synthetic_scheduled_backup_fixture_only'`,
+      );
+      scheduledRole = role;
+      await database.pool.query(
+        `grant connect on database fcd_support_test to "${role}";
+         grant usage on schema "${database.schema}" to "${role}";
+         grant select on all tables in schema "${database.schema}" to "${role}";
+         grant select on all sequences in schema "${database.schema}" to "${role}";
+         grant insert on operations_backups,operations_backup_events to "${role}";
+         grant update(state) on operations_backups to "${role}";
+         grant usage on sequence operations_backups_id_seq,operations_backup_events_id_seq to "${role}";
+         alter role "${role}" in database fcd_support_test set search_path="${database.schema}"`,
+      );
+      const scheduledUrl = new URL(base);
+      scheduledUrl.username = role;
+      scheduledUrl.password = 'synthetic_scheduled_backup_fixture_only';
+      scheduledUrl.search = '';
+      const scopedPool = new pg.Pool({ connectionString: scheduledUrl.toString(), max: 1 });
+      try {
+        expect(
+          (
+            await scopedPool.query(
+              `select current_user=$1 as correct_role,current_schema()=$2 as correct_schema,
+               not rolsuper and not rolcreatedb and not rolcreaterole and not rolinherit as restricted
+               from pg_catalog.pg_roles where rolname=current_user`,
+              [role, database.schema],
+            )
+          ).rows,
+        ).toEqual([{ correct_role: true, correct_schema: true, restricted: true }]);
+      } finally {
+        await scopedPool.end();
+      }
+      await writeFile(databaseFile, scheduledUrl.toString(), { mode: 0o600 });
+      const scheduledEnvironment = {
+        ...commonEnvironment,
+        BACKUP_ENCRYPTION_RECIPIENT_FILE: recipientFile,
+      };
+      const scheduledRef = await cli(
+        ['scheduled-backup', 'daily', '2001-01-03T00:00:00.000Z'],
+        scheduledEnvironment,
+      );
+      expect(
+        await cli(['scheduled-backup', 'daily', '2001-01-03T12:00:00.000Z'], scheduledEnvironment),
+      ).toBe(scheduledRef);
+      expect(scheduledRef).toBeDefined();
+      if (scheduledRef === undefined) throw new Error('synthetic_scheduled_reference_missing');
+      await chmod(identityFile, 0o600);
+      await cli(['verify-backup', scheduledRef], {
+        ...commonEnvironment,
+        BACKUP_AGE_IDENTITY_FILE: identityFile,
+      });
+      expect(
+        (
+          await database.pool.query(`select count(*)::int as n from operations_backups
+        where class='daily' and created_at >= '2001-01-03' and created_at < '2001-01-04'`)
+        ).rows,
+      ).toEqual([{ n: 1 }]);
+      expect(
+        (
+          await database.pool.query('select state from operations_backups where backup_ref=$1', [
+            scheduledRef,
+          ])
+        ).rows,
+      ).toEqual([{ state: 'verified' }]);
     } finally {
       await chmod(identityFile, 0o600).catch(() => undefined);
       await chmod(wrongIdentityFile, 0o600).catch(() => undefined);
       await rm(archiveDirectory, { recursive: true, force: true });
       await rm(root, { recursive: true, force: true });
       await database.dispose();
+      if (scheduledRole !== undefined) {
+        const cleanup = new pg.Pool({ connectionString: base, max: 1 });
+        try {
+          await cleanup.query(`drop owned by "${scheduledRole}"`);
+          await cleanup.query(`drop role "${scheduledRole}"`);
+        } finally {
+          await cleanup.end();
+        }
+      }
     }
   },
 );

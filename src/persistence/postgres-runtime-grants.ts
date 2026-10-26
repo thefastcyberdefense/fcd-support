@@ -504,6 +504,12 @@ export async function configureRuntimeGrants(
       'select',
       tables.filter((name) => !adminTables.has(name)),
     );
+    await grant('maintenance', 'select', ['notification_delivery_sources']);
+    await write(
+      'maintenance',
+      ['notification_delivery_work'],
+      'insert,update(state,reason_code,lease_ref,worker_ref,lease_expires_at,next_attempt_at,updated_at)',
+    );
     await write('maintenance', [
       ...groups.identity,
       ...groups.events,
@@ -530,6 +536,7 @@ export async function configureRuntimeGrants(
       'webhook_receipts',
     ]);
     await health('health');
+    await grant('health', 'select(state,created_at)', ['outbound_intents']);
     await grant('health', 'select(id,state,created_at,updated_at)', [
       'runtime_processing_work',
       'notification_delivery_work',

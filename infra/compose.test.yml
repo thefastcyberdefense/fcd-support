@@ -14,7 +14,8 @@ services:
       retries: 20
       start_period: 10s
     networks:
-      - data
+      data:
+        aliases: [fcd-support-source-postgres]
     volumes:
       - postgres_test_data:/var/lib/postgresql
     restart: 'no'

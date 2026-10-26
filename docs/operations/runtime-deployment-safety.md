@@ -4,6 +4,40 @@
 
 This is an intermediate Task 11 checkpoint, not a deployment or restore gate pass.
 
+The 2026-10-26 integration work also adds a standalone restricted-capability
+restore command, revision-pinned scheduler primitives, private health/dashboard
+components and signed notification delivery. The actual synthetic restore-command
+case preserves unrelated rows, reapplies current deletion, quarantines inherited
+work, retains the recovery hold and acknowledges only after four managed pools
+close. Its metadata argument describes the independently verified target; it is
+not promotion authority. Public host restore/promotion/switch wiring remains
+unfinished. Notification deletion now creates terminal source markers and cancels
+pending/leased delivery in the erasure transaction while preserving attempt evidence
+and the business escalation state. Health and notification enablement still do not
+authorize external traffic. Scheduler/health/notification integration and aggregate
+regression evidence are being completed; P6-GATE remains blocked.
+
+The code gate passed with `VITEST_MAX_WORKERS=4 npm run check`: 1,382 passed,
+331 platform skips across 95 files. The full ordinary PostgreSQL run passed
+615 tests with 50 native-only skips across 56 files (128.20 seconds). A default-concurrency attempt hit the existing
+five-second Phase 0 fixture-copy timeout under concurrent local Docker work; its
+deadline was not increased. Native timer validation passed 63/63 using the real
+offline systemd analyzer. The test image alone supplies that analyzer and a small
+writable `/tmp`; the deployed operations image and host systemd remain unchanged.
+
+The native aggregate run passed 850 units across 37 files and 133 PostgreSQL
+cases with one native-restore-only skip, but initially failed the new scheduled
+backup CLI fixture. That fixture supplied a schema-startup URL option that the
+dump boundary correctly refuses. A restricted synthetic login with a default
+namespace and query-free URL corrected the fixture without relaxing production
+validation; its rerun passed all 43 backup units and all three real crypto/CLI
+cases, including same-slot reference replay and separate verification. Following
+host-health integration, focused native checks passed 17 host-collection and
+65 scheduler cases. The native two-cluster restore file passed all 26 cases,
+including the real restricted-capability command; a separate maintenance fixture
+ACL cleanup failure was corrected and its compiled control passed in the aggregate
+run. These are component/regression results, not a full deployed-runtime gate.
+
 Current command composition now connects `deploy-runtime.sh`, `verify-runtime.sh`,
 `rollback-runtime.sh` and `recover-admin-socket.sh` to the verified internal
 controllers. Restore/promotion entry points remain disabled pending their host

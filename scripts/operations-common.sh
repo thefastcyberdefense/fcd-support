@@ -47,6 +47,20 @@ operations_config_field() {
       [[ "$value" =~ ^[1-9][0-9]{0,4}$ ]] && (( 10#$value <= 65535 )) ;;
     FCD_COMMAND_TIMEOUT_SECONDS|FCD_READY_TIMEOUT_SECONDS)
       [[ "$value" =~ ^[1-9][0-9]{0,3}$ ]] && (( 10#$value <= 3600 )) ;;
+    FCD_BACKUP_CALENDAR|FCD_MAINTENANCE_CALENDAR|FCD_HEALTH_CALENDAR)
+      [[ ${#value} -ge 1 && ${#value} -le 128 && "$value" =~ ^[A-Za-z0-9*,:./\ +_~-]+$ && "$value" != -* ]] ;;
+    FCD_MAINTENANCE_SLOT_SECONDS|FCD_TIMER_TIMEOUT_SECONDS)
+      [[ "$value" =~ ^[1-9][0-9]{0,4}$ ]] && (( 10#$value <= 86400 )) ;;
+    FCD_TIMER_MEMORY_MIB)
+      [[ "$value" =~ ^[1-9][0-9]{0,7}$ ]] && (( 10#$value >= 32 && 10#$value <= 16777216 )) ;;
+    FCD_TIMER_TASKS_MAX)
+      [[ "$value" =~ ^[1-9][0-9]{0,7}$ ]] && (( 10#$value >= 16 && 10#$value <= 16777216 )) ;;
+    FCD_TIMER_CPUS)
+      [[ "$value" =~ ^[0-9]{1,3}(\.[0-9]{1,3})?$ && "$value" =~ [1-9] ]] ;;
+    FCD_TIMER_ACCURACY_SECONDS)
+      [[ "$value" =~ ^[1-9][0-9]{0,3}$ ]] && (( 10#$value <= 3600 )) ;;
+    FCD_TIMER_RANDOMIZED_DELAY_SECONDS)
+      [[ "$value" =~ ^(0|[1-9][0-9]{0,3})$ ]] && (( 10#$value <= 3600 )) ;;
     FCD_STOP_GRACE_MS|FCD_HEALTH_INTERVAL_MS|FCD_HEALTH_TIMEOUT_MS|FCD_HEALTH_START_MS|FCD_HEALTH_RETRIES)
       [[ "$value" =~ ^[1-9][0-9]{0,8}$ ]] && (( 10#$value <= 900000 )) ;;
     *)
@@ -138,65 +152,6 @@ operations_docker() {
   env -i "PATH=$PATH" LC_ALL=C timeout --signal=TERM \
     --kill-after="$(( (${OPS_CONFIG[FCD_STOP_GRACE_MS]} + 999) / 1000 ))s" \
     "${OPS_CONFIG[FCD_COMMAND_TIMEOUT_SECONDS]}s" docker "${endpoint[@]}" "$@" 2>/dev/null
-}
-
-operations_job() {
-  local service="$1" field; shift
-  local -a target=()
-  if [[ "$service" == migrate ]]; then
-    [[ "${OPS_DATABASE_SYSTEM_IDENTIFIER:-}" =~ ^[1-9][0-9]{0,19}$ ]] || return 1
-    for field in FCD_POSTGRES_DB FCD_DATABASE_SCHEMA FCD_DATABASE_ROLE_PREFIX FCD_SCHEMA_REVISION; do
-      [[ -n "${OPS_CONFIG[$field]:-}" ]] && operations_config_field "$field" "${OPS_CONFIG[$field]}" || return 1
-    done
-    target=(--env "OPS_DATABASE_SYSTEM_IDENTIFIER=$OPS_DATABASE_SYSTEM_IDENTIFIER"
-      --env "OPS_DATABASE_NAME=${OPS_CONFIG[FCD_POSTGRES_DB]}"
-      --env "OPS_DATABASE_SCHEMA=${OPS_CONFIG[FCD_DATABASE_SCHEMA]}"
-      --env "OPS_DATABASE_ROLE_PREFIX=${OPS_CONFIG[FCD_DATABASE_ROLE_PREFIX]}"
-      --env "OPS_SCHEMA_REVISION=${OPS_CONFIG[FCD_SCHEMA_REVISION]}")
-  fi
-  operations_compose operations --profile "operations-$service" run --rm --no-TTY --no-deps \
-    "${target[@]}" "$service" node dist/operations-main.js "$@"
-}
-
-operations_stop_applications() {
-  local seconds="$(( (${OPS_CONFIG[FCD_STOP_GRACE_MS]} + 999) / 1000 ))"
-  operations_compose runtime --profile '*' stop --timeout "$seconds" \
-    fcd-support-api fcd-support-admin fcd-support-reply fcd-support-outbound fcd-support-notification >/dev/null
-}
-
-operations_start_private() {
-  operations_compose runtime up --detach --wait --wait-timeout "${OPS_CONFIG[FCD_READY_TIMEOUT_SECONDS]}" \
-    --no-build --pull never fcd-support-api fcd-support-admin fcd-support-reply >/dev/null
-}
-
-operations_deploy() {
-  local backup timestamp
-  operations_stop_applications || operations_fail operations_drain_failed
-  operations_compose runtime up --detach --wait --wait-timeout "${OPS_CONFIG[FCD_READY_TIMEOUT_SECONDS]}" \
-    --no-build --pull never postgres >/dev/null || operations_fail operations_database_start_failed
-  timestamp="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
-  backup="$(operations_job backup pre-migration-backup "$timestamp")" || operations_fail operations_backup_failed
-  [[ "$backup" =~ ^backup_[a-f0-9]{32}$ ]] || operations_fail operations_backup_failed
-  operations_job verify-backup verify-backup "$backup" >/dev/null || operations_fail operations_backup_verification_failed
-  operations_job migrate migrate >/dev/null || operations_fail operations_migration_failed
-  # This second isolated verification adopts the pre-schema manifest only after
-  # the operations catalog exists. No restore identity reaches the migrator.
-  operations_job verify-backup verify-backup "$backup" >/dev/null || operations_fail operations_backup_registration_failed
-  operations_job migrate deployment-started >/dev/null || operations_fail operations_evidence_failed
-  if ! operations_start_private; then
-    operations_stop_applications || true
-    operations_job migrate deployment-failed >/dev/null || true
-    operations_fail operations_start_failed
-  fi
-  if ! operations_job migrate verify-runtime >/dev/null; then
-    operations_stop_applications || true
-    operations_job migrate deployment-failed >/dev/null || true
-    operations_fail operations_verification_failed
-  fi
-  operations_job migrate deployment-succeeded >/dev/null || {
-    operations_stop_applications || true
-    operations_fail operations_evidence_failed
-  }
 }
 
 operations_disjoint() {

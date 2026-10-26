@@ -1,6 +1,6 @@
 # Project Context
 
-Last reviewed: 2026-10-24 (Asia/Dhaka)
+Last reviewed: 2026-10-26 (Asia/Dhaka)
 
 ## Confirmed Decisions
 
@@ -22,6 +22,31 @@ Last reviewed: 2026-10-24 (Asia/Dhaka)
 - `REQUEST MY DATA`, `CORRECT MY DATA`, and all-linked-identity `STOP MARKETING` use deterministic P3-007 intake plus human review. Access collection is private, redacting, one-run, and review-expiring; correction has no production handler until a field owner is approved; marketing opt-out covers all four closed categories and re-opt-in changes only named categories at its effective time.
 - Manifest message-body recording must be disabled before customer/model traffic; restored backups remain isolated until all unexpired deletion tombstones are reapplied and verified.
 - Marketing requires explicit, category-specific opt-in. Blank means no promotional eligibility.
+
+## Current Phase 6 Checkpoint
+
+Tasks 1–10 are complete. Task 11 remains in progress: deploy, verify,
+exact-schema retained rollback and explicit socket recovery entry points are
+connected, and the standalone restore command has passed a real two-cluster
+synthetic PostgreSQL flow with separate source checkpoint/archive credentials,
+target owner preparation, a restricted migrator, current deletion reconciliation,
+quarantine, recovery hold and pool shutdown before acknowledgement. This does
+not wire the public restore/promotion commands or authorize an application
+attachment to a restored volume.
+
+Tasks 12–14 now have scheduler, health/dashboard and signed private notification
+components under aggregate validation. Operational limits are customizable;
+closed protocol bounds and authorization invariants remain enforced. Deletion
+cancels delivery inside its transaction, preserves delivery evidence and prevents
+later notification reconciliation from recreating deleted-subject work. n8n
+still owns no business state. Host health input integration and the remaining
+deployment/recovery/failure matrix are not a completed P6 gate.
+
+No Phase 6 server deployment or live Meta, Manifest, provider, n8n or Cloudflare
+action has occurred. The last recorded server revision remains
+`207a5e6357c1e1a7c75918793262d835574d898d`. The current checkpoint above supersedes
+the implementation availability described in older notes below; those notes
+retain their historical evidence and do not establish current readiness.
 
 ## Existing Local Infrastructure
 

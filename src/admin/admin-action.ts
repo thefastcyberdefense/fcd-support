@@ -18,6 +18,7 @@ const actionSchema = z.strictObject({
     'policy_approve',
     'policy_activate',
     'policy_retire',
+    'incident_acknowledge',
   ]),
   reference,
   priorVersionRef: reference.optional(),

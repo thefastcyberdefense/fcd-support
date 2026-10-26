@@ -1,0 +1,49 @@
+[Unit]
+Description=FCD Support revision-pinned private operation (%i)
+Documentation=file:@ROOT@/docs/operations/scheduled-operations.md
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+User=1000
+Group=1000
+WorkingDirectory=@ROOT@
+EnvironmentFile=@CONFIG@
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/bash @ROOT@/scripts/run-operation.sh %i @REVISION@ @CONFIG@
+TimeoutStartSec=@TIMEOUT_SECONDS@s
+TimeoutStopSec=60s
+KillMode=control-group
+Restart=no
+UMask=0077
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=fcd-support-operation-%i
+CPUQuota=@CPU_QUOTA@%
+MemoryMax=@MEMORY_MIB@M
+TasksMax=@TASKS_MAX@
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=@STATE_ROOT@
+ReadOnlyPaths=@ROOT@ @CONFIG@
+ProtectHome=read-only
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX
+
+# The dedicated operator intentionally controls the local Docker daemon.
+# Container security is enforced by the pinned Compose/job verifier. Neither
+# the daemon socket nor this host unit's authority is mounted into applications.

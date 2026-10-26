@@ -1,0 +1,12 @@
+[Unit]
+Description=FCD Support bounded current-slot maintenance
+
+[Timer]
+OnCalendar=@CALENDAR@
+Unit=fcd-support-operation@maintenance.service
+Persistent=true
+AccuracySec=@ACCURACY_SECONDS@s
+RandomizedDelaySec=@RANDOMIZED_DELAY_SECONDS@s
+
+[Install]
+WantedBy=timers.target

@@ -5,6 +5,7 @@ import type pg from 'pg';
 import { createReplayHmac } from '../policy/privacy-identity.js';
 import type { PrivacyHmacKeyring } from '../policy/policy-types.js';
 import { reconcileOutboundPrivacy } from './postgres-outbound-privacy.js';
+import { cancelDeletedSubjectNotifications } from './postgres-notification-privacy.js';
 
 export interface LockedDeletionIdentity {
   readonly channel: 'messenger' | 'whatsapp';
@@ -52,6 +53,7 @@ export async function eraseLockedIdentities(
     effectiveAt: erasedAt,
     reason: 'identity_deleted',
   });
+  await cancelDeletedSubjectNotifications(client, conversationIds, erasedAt);
   await client.query(
     `update support_reply_drafts
      set answer_text = null, state = 'erased', erased_at = $2

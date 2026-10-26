@@ -1,5 +1,13 @@
 ARG OPERATIONS_IMAGE
 FROM ${OPERATIONS_IMAGE}
+USER root
+# Offline unit/calendar verification belongs only to this synthetic test image.
+# No systemd manager is started and the deployed operations image is unchanged.
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends systemd \
+    && command -v systemd-analyze \
+    && rm -rf /var/lib/apt/lists/*
+USER node
 WORKDIR /workspace
 COPY --from=fcd-support-integration-test:local --chown=node:node /workspace/node_modules ./node_modules
 COPY --from=fcd-support-integration-test:local --chown=node:node /workspace/package.json ./package.json

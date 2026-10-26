@@ -1,0 +1,12 @@
+[Unit]
+Description=FCD Support current UTC daily/monthly backup slots
+
+[Timer]
+OnCalendar=@CALENDAR@
+Unit=fcd-support-operation@backup.service
+Persistent=true
+AccuracySec=@ACCURACY_SECONDS@s
+RandomizedDelaySec=@RANDOMIZED_DELAY_SECONDS@s
+
+[Install]
+WantedBy=timers.target

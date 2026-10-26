@@ -32,7 +32,8 @@ if(args.includes('compose')) {
   const files=args.flatMap((a,i)=>a==='--file'?[args[i+1]]:[]);
   const override=JSON.parse(fs.readFileSync(files.at(-1),'utf8'));
   const [service,s]=Object.entries(override.services)[0];
-  const c={id:'${cid}',image:s.image,service,project:args[args.indexOf('--project-name')+1],labels:s.labels,command:s.command,environment:s.environment,phase:'created',exit:0};
+  const c={id:'${cid}',image:s.image,service,project:args[args.indexOf('--project-name')+1],labels:s.labels,command:s.command,environment:s.environment,stdin_open:s.stdin_open??false,phase:'created',exit:0};
+  fs.writeFileSync(path.join(root,'created-contract'),JSON.stringify({command:c.command,stdin_open:c.stdin_open}));
   if(fault==='wrong-owner') c.labels['fcd-support.operation.parent']='fcd-support-foreign';
   if(fault==='wrong-command') c.command=['node','dist/operations-main.js','foreign'];
   if(fault==='wrong-image') c.image='sha256:${'e'.repeat(64)}';
@@ -62,6 +63,7 @@ if(args.includes('compose')) {
   }
 } else if(args.includes('start')) {
   trace('start'); const c=load(); c.phase='running'; save(c);
+  fs.writeFileSync(path.join(root,'start-contract'),JSON.stringify({args,input:args.includes('--interactive')?fs.readFileSync(0,'utf8'):''}));
   if(fault==='start-ack') process.exit(19);
   if(fault==='controller-killed') process.kill(Number(fs.readFileSync(path.join(root,'controller-pid'),'utf8')),'SIGKILL');
 } else if(args.includes('wait')) {
@@ -70,7 +72,7 @@ if(args.includes('compose')) {
   c.phase='exited'; c.exit=fault==='job-failed'?1:0; save(c); console.log(c.exit);
 } else if(args.includes('logs')) {
   trace('logs');
-  console.log(fault==='unsafe-output'?'synthetic_unexpected_diagnostic':'${ack}');
+  console.log(fault==='unsafe-output'?'synthetic_unexpected_diagnostic':fault==='database-down'?'{"status":"completed","processed":0,"reasonCode":"dependency_unavailable"}':fault==='not-due'?'{"status":"skipped","processed":0,"reasonCode":"not_due"}':'${ack}');
 } else if(args.includes('stop')) {
   trace('stop'); if(fault==='cannot-stop') process.exit(19);
   const c=load(); c.phase='exited'; save(c);
@@ -137,6 +139,81 @@ test.runIf(native)(
       expect(trace.at(-1)).toBe('discover');
       expect(await readdir(f.root)).not.toContain('active-job');
       expect((await readdir(f.root)).filter((n) => n.endsWith('.json'))).toEqual([]);
+    } finally {
+      await f.dispose();
+    }
+  },
+);
+
+test.runIf(native)(
+  'health uses its standalone entry and interactive stdin through the complete owned-job lifecycle',
+  async () => {
+    const f = await fixture('database-down');
+    try {
+      const input =
+        '{"outageGap":{"startedAt":"2030-01-01T00:00:00.000Z","lastObservedAt":"2030-01-01T00:05:00.000Z"}}';
+      const result = f.run(
+        `OPS_HEALTH_INPUT_JSON='${input}'\noperations_execute_job health health`,
+      );
+      expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
+        status: 0,
+        stdout: '{"status":"completed","processed":0,"reasonCode":"dependency_unavailable"}\n',
+        stderr: '',
+      });
+      expect(JSON.parse(await readFile(join(f.root, 'created-contract'), 'utf8'))).toEqual({
+        command: ['node', 'dist/operations/health-main.js', 'health'],
+        stdin_open: true,
+      });
+      expect(JSON.parse(await readFile(join(f.root, 'start-contract'), 'utf8'))).toEqual({
+        args: ['container', 'start', '--attach', '--interactive', cid],
+        input,
+      });
+      expect(await readdir(f.root)).not.toContain('active-job');
+      expect(await readdir(f.root)).not.toContain('container');
+    } finally {
+      await f.dispose();
+    }
+  },
+);
+
+test.runIf(native).each(['migrate', 'maintenance'])(
+  'dependency_unavailable from %s preserves uncertainty',
+  async (service) => {
+    const f = await fixture('database-down');
+    try {
+      const result = f.run(
+        `operations_execute_job ${service} ${service === 'migrate' ? 'migrate' : 'retention'}`,
+      );
+      expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
+        status: 1,
+        stdout: '',
+        stderr: 'operations_job_uncertain\n',
+      });
+      expect(await readFile(join(f.root, 'active-job'), 'utf8')).toContain('JOB_PHASE=uncertain\n');
+    } finally {
+      await f.dispose();
+    }
+  },
+);
+
+test.runIf(native)(
+  'already-completed maintenance slots accept only their fixed skipped acknowledgement',
+  async () => {
+    const f = await fixture('not-due');
+    try {
+      const result = f.run(
+        'operations_execute_job maintenance learning scheduled:learning:1900000000 2030-03-17T17:46:40.000Z',
+      );
+      expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
+        status: 0,
+        stdout: '{"status":"skipped","processed":0,"reasonCode":"not_due"}\n',
+        stderr: '',
+      });
+      expect(await readdir(f.root)).not.toContain('active-job');
+      expect(JSON.parse(await readFile(join(f.root, 'start-contract'), 'utf8'))).toEqual({
+        args: ['container', 'start', cid],
+        input: '',
+      });
     } finally {
       await f.dispose();
     }

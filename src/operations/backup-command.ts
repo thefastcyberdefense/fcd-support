@@ -12,6 +12,21 @@ import {
 
 export function parseBackupCommand(args: readonly string[]) {
   try {
+    if (args[0] === 'scheduled-backup') {
+      const [, backupClass, scheduledAt] = z
+        .tuple([
+          z.literal('scheduled-backup'),
+          z.enum(['daily', 'monthly']),
+          z.iso.datetime({ precision: 3 }),
+        ])
+        .parse(args);
+      return {
+        job: 'backup' as const,
+        backupClass,
+        scheduledAt: new Date(scheduledAt),
+        referenceOnly: true as const,
+      };
+    }
     if (args[0] === 'pre-migration-backup') {
       const [, scheduledAt] = z
         .tuple([z.literal('pre-migration-backup'), z.iso.datetime({ precision: 3 })])
@@ -157,9 +172,9 @@ export async function runScheduledBackup(
         options.archiveDirectory,
         options.manifestHmacFile,
       );
-      if (!catalog.some((manifest) => manifest.backupRef === entry.backup_ref))
-        throw new Error('invalid');
-      return { status: 'skipped' };
+      const manifest = catalog.find((value) => value.backupRef === entry.backup_ref);
+      if (manifest === undefined) throw new Error('invalid');
+      return { status: 'skipped', manifest };
     }
     // Recover a signed commit made immediately before a crash/catalog failure.
     await requireBackupDirectory(options.archiveDirectory);

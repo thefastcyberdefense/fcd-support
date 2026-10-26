@@ -507,6 +507,14 @@ test('notification login reconciles, claims and finishes real content-free escal
   )[0];
   expect(first).toBeDefined();
   if (first === undefined) throw new Error('synthetic_notification_missing');
+  expect(
+    await work.authorize({
+      workRef: first.workRef,
+      leaseRef: first.leaseRef,
+      evaluatedAt: at,
+      requiredLeaseMilliseconds: 100,
+    }),
+  ).toBe(true);
   await work.finish({
     workRef: first.workRef,
     leaseRef: first.leaseRef,

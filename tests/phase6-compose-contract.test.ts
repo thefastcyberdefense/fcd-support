@@ -1344,11 +1344,7 @@ scope="$(dirname "$0")"
 printf '%s\\n' docker >> "$scope/trace"
 if [[ " $* " == *" compose "* ]]; then
   if [[ " $* " == *" config "* ]]; then node "$scope/project.cjs" compose
-  else
-    [[ " $* " == *"OPS_DATABASE_SYSTEM_IDENTIFIER=1111111111111111111"* && " $* " == *"OPS_DATABASE_ROLE_PREFIX=fcd_support"* && " $* " == *"OPS_DATABASE_NAME=fcd_support_test"* ]] || exit 29
-    printf '%s\\n' sql >> "$scope/trace"
-    printf '{"status":"completed","processed":1,"reasonCode":"ok"}\\n'
-  fi
+  else exit 29; fi
 elif [[ " $* " == *" ps "* ]]; then node "$scope/project.cjs" ids "$@"
 elif [[ " $* " == *" image inspect "* ]]; then node "$scope/project.cjs" image "$@"
 elif [[ " $* " == *" volume inspect "* ]]; then node "$scope/project.cjs" volume "$@"
@@ -1425,6 +1421,13 @@ declare -A OPS_CONFIG=([FCD_RUNTIME_PROJECT]=fcd-support-runtime [FCD_SUPPORT_RE
 [FCD_POSTGRES_DB]=fcd_support_test [FCD_DATABASE_SCHEMA]=public [FCD_DATABASE_ROLE_PREFIX]=fcd_support [FCD_SCHEMA_REVISION]=000016
 [FCD_INGRESS_PEER_ID]=ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff [FCD_COMMAND_TIMEOUT_SECONDS]=10 [FCD_STOP_GRACE_MS]=30000 [FCD_HEALTH_TIMEOUT_MS]=1000
 [FCD_ADMIN_CPUS]=0.5 [FCD_ADMIN_MEMORY_MIB]=256 [FCD_ADMIN_PIDS]=64)
+# The collector consumes its controller's durable SQL-job port. Its journal
+# lifecycle has separate native tests; no legacy Compose run path is supplied.
+operations_job() {
+  [[ "$#" == 2 && "$1" == migrate && "$2" == verify-runtime && "$OPS_DATABASE_SYSTEM_IDENTIFIER" == 1111111111111111111 && "\${OPS_CONFIG[FCD_DATABASE_ROLE_PREFIX]}" == fcd_support && "\${OPS_CONFIG[FCD_POSTGRES_DB]}" == fcd_support_test ]] || return 1
+  printf '%s\\n' sql >> "$TASK_BIN/trace"
+  printf '{"status":"completed","processed":1,"reasonCode":"ok"}\\n'
+}
 if [[ "$TASK_SELECTED" == yes ]]; then
   OPS_CONFIG[FCD_STATE_ROOT]="$TASK_ROOT/state"
   OPS_CONFIG[FCD_POSTGRES_VOLUME]="$TASK_VOLUME"

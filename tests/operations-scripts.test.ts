@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
-import { existsSync } from 'node:fs';
-import { chmod, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { existsSync, readFileSync } from 'node:fs';
+import { chmod, mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { afterEach, expect, test } from 'vitest';
@@ -50,6 +50,30 @@ test('incomplete deployment installation refuses before Docker when the private 
 const native =
   process.platform === 'linux' &&
   process.env.RUN_ENCRYPTED_BACKUP_TESTS === 'synthetic-operations-toolchain-only';
+
+test('shared preflight exposes no legacy unjournalled deployment or job implementation', () => {
+  const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash';
+  const result = spawnSync(
+    bash,
+    [
+      '--noprofile',
+      '--norc',
+      '-c',
+      'source "$TASK_COMMON"; for handler in operations_deploy operations_job operations_stop_applications operations_start_private; do if declare -F "$handler" >/dev/null; then exit 19; fi; done',
+    ],
+    {
+      encoding: 'utf8',
+      timeout: 3000,
+      env: {
+        PATH: process.env.PATH,
+        SystemRoot: process.env.SystemRoot,
+        TASK_COMMON: resolve('scripts/operations-common.sh').replaceAll('\\', '/'),
+      },
+    },
+  );
+  expect(result.status, result.stderr).toBe(0);
+  expect(readFileSync('scripts/operations-common.sh', 'utf8')).not.toContain('run --rm');
+});
 test.each([
   { key: 'FCD_RUNTIME_PROJECT', value: 'fcd-support', valid: true },
   { key: 'FCD_RUNTIME_PROJECT', value: 'fcd-support-runtime', valid: true },
@@ -139,111 +163,47 @@ test.runIf(native).each([
   },
 );
 
-test.runIf(native).each(['verify-backup', 'migrate', 'verify-runtime', 'ok'] as const)(
-  'deployment orchestration stops at %s and never migrates before separate verification',
-  async (failure) => {
-    const root = await mkdtemp('/run/fcd-support/sequence-test-');
-    roots.push(root);
-    await chmod(root, 0o700);
-    // The operations tmpfs is intentionally noexec. Executable PATH doubles
-    // live only in this scoped, synthetic archive-volume directory.
-    const bin = await mkdtemp('/var/lib/fcd-support/backups/sequence-bin-');
-    roots.push(bin);
-    await chmod(bin, 0o700);
-    await writeFile(join(bin, 'failure'), failure, { mode: 0o600 });
-    await writeFile(
-      join(bin, 'docker'),
-      `#!/usr/bin/env bash
-set -eu
-scope="$(dirname "$0")"
-phase=''
-for argument in "$@"; do
-  case "$argument" in stop|pre-migration-backup|verify-backup|migrate|deployment-started|deployment-succeeded|deployment-failed|verify-runtime) phase="$argument";; esac
-done
-if [[ -z "$phase" ]]; then
-  if [[ " $* " == *" postgres "* ]]; then phase=postgres; else phase=start; fi
-fi
-printf '%s\\n' "$phase" >> "$scope/trace"
-[[ "$phase" != "$(<"$scope/failure")" ]] || exit 17
-[[ "$phase" != pre-migration-backup ]] || printf '%s\\n' backup_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-`,
-      { mode: 0o700 },
-    );
+test.each([
+  [
+    'deploy',
+    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --mode private-disabled /synthetic/absent.conf',
+  ],
+  ['verify', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa /synthetic/absent.conf'],
+  [
+    'rollback',
+    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --confirm-schema-compatible /synthetic/absent.conf',
+  ],
+  [
+    'recover-admin-socket',
+    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --confirm-admin-stopped /synthetic/absent.conf',
+  ],
+] as const)(
+  'a standalone preflight library refuses %s without the actual controller',
+  (action, args) => {
+    const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash';
     const result = spawnSync(
-      '/bin/bash',
+      bash,
       [
         '--noprofile',
         '--norc',
         '-c',
-        'source "$TASK_COMMON"; OPS_ROOT="$TASK_ROOT"; OPS_REVISION=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; OPS_DATABASE_SYSTEM_IDENTIFIER=1111111111111111111; declare -A OPS_CONFIG=([FCD_COMMAND_TIMEOUT_SECONDS]=10 [FCD_READY_TIMEOUT_SECONDS]=10 [FCD_STOP_GRACE_MS]=1000 [FCD_POSTGRES_DB]=fcd_support_test [FCD_DATABASE_SCHEMA]=public [FCD_DATABASE_ROLE_PREFIX]=fcd_test_order [FCD_SCHEMA_REVISION]=000016); operations_deploy',
+        `source "$TASK_COMMON"\noperations_load_config() { printf unsafe; }\noperations_docker() { printf unsafe; }\noperations_main ${action} ${args}`,
       ],
       {
-        cwd: root,
         encoding: 'utf8',
-        timeout: 5000,
+        timeout: 3000,
         env: {
-          PATH: bin + delimiter + (process.env.PATH ?? ''),
-          LANG: 'C',
-          TASK_ROOT: root,
-          TASK_COMMON: resolve('scripts/operations-common.sh'),
+          PATH: process.env.PATH,
+          SystemRoot: process.env.SystemRoot,
+          TASK_COMMON: resolve('scripts/operations-common.sh').replaceAll('\\', '/'),
         },
       },
     );
-    const trace = existsSync(join(bin, 'trace'))
-      ? readFile(join(bin, 'trace'), 'utf8')
-      : Promise.resolve('');
-    const phases = (await trace).trim().split('\n').filter(Boolean);
-    if (failure === 'verify-backup')
-      expect(phases).toEqual(['stop', 'postgres', 'pre-migration-backup', 'verify-backup']);
-    else if (failure === 'migrate')
-      expect(phases).toEqual([
-        'stop',
-        'postgres',
-        'pre-migration-backup',
-        'verify-backup',
-        'migrate',
-      ]);
-    else if (failure === 'verify-runtime')
-      expect(phases).toEqual([
-        'stop',
-        'postgres',
-        'pre-migration-backup',
-        'verify-backup',
-        'migrate',
-        'verify-backup',
-        'deployment-started',
-        'start',
-        'verify-runtime',
-        'stop',
-        'deployment-failed',
-      ]);
-    else
-      expect(phases).toEqual([
-        'stop',
-        'postgres',
-        'pre-migration-backup',
-        'verify-backup',
-        'migrate',
-        'verify-backup',
-        'deployment-started',
-        'start',
-        'verify-runtime',
-        'deployment-succeeded',
-      ]);
-    expect(result.status).toBe(failure === 'ok' ? 0 : 1);
-    expect(result.stderr.trim()).toBe(
-      failure === 'ok'
-        ? ''
-        : failure === 'verify-backup'
-          ? 'operations_backup_verification_failed'
-          : failure === 'migrate'
-            ? 'operations_migration_failed'
-            : 'operations_verification_failed',
-    );
+    expect(result.status).toBe(1);
     expect(result.stdout).toBe('');
+    expect(result.stderr).toBe('operations_action_unavailable\n');
   },
 );
-
 test.runIf(native).each([
   ['valid', ''],
   ['missing', 'operations_socket_root_invalid'],

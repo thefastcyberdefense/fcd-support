@@ -1,8 +1,10 @@
-export type NotificationType =
-  | 'operator_privacy_request'
-  | 'operator_marketing_opt_out'
-  | 'operator_support_escalation'
-  | 'operator_outbound_escalation';
+export const notificationTypes = [
+  'operator_privacy_request',
+  'operator_marketing_opt_out',
+  'operator_support_escalation',
+  'operator_outbound_escalation',
+] as const;
+export type NotificationType = (typeof notificationTypes)[number];
 export interface NotificationEnvelope {
   readonly schemaVersion: 1;
   readonly type: NotificationType;

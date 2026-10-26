@@ -30,6 +30,8 @@ import {
 } from './admin-html.js';
 import { AdminSecretBytes, AdminSecretText } from './admin-types.js';
 import { signAdminAction, verifyAdminAction, type AdminAction } from './admin-action.js';
+import { registerOperationsRoutes } from './operations-routes.js';
+import type { AdminOperationsPort } from './operations-types.js';
 
 const bodyLimitBytes = 32 * 1024;
 class AdminFormError extends Error {}
@@ -85,6 +87,7 @@ export interface AdminProposalFilter {
 }
 
 export interface BuildAdminAppOptions {
+  readonly operations?: AdminOperationsPort;
   readonly listLimit?: number;
   readonly actionKey?: AdminSecretBytes;
   readonly actionTtlMilliseconds?: number;
@@ -949,5 +952,19 @@ export function buildAdminApp(options: BuildAdminAppOptions): FastifyInstance {
     );
   });
 
+  if (options.operations !== undefined)
+    registerOperationsRoutes(app, {
+      operations: options.operations,
+      requireSession,
+      requireMutation,
+      issueAction,
+      readAction,
+      nonce: nonceSource,
+      html,
+      redirect,
+      invalidForm: () => {
+        throw new AdminFormError();
+      },
+    });
   return app;
 }

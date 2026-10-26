@@ -60,7 +60,49 @@ operations_job_override() {
   for key in OPS_DATABASE_SYSTEM_IDENTIFIER OPS_DATABASE_NAME OPS_DATABASE_SCHEMA OPS_DATABASE_ROLE_PREFIX OPS_SCHEMA_REVISION; do
     printf '%s"%s":"%s"' "$separator" "$key" "${OPS_JOB_TARGET[$key]}"; separator=,
   done
-  printf '}}}}\n'
+  printf '}'
+  # Only health reads a bounded, content-free host input. Keep every other
+  # operation's stdin closed so a lost pipe cannot hold it open indefinitely.
+  [[ "$OPS_JOB_SERVICE" != health ]] || printf ',"stdin_open":true'
+  printf '}}}\n'
+}
+
+operations_job_command() {
+  local service="$1" command_path argument; shift
+  command_path=dist/operations-main.js
+  case "$service" in
+    bootstrap) command_path=dist/operations/bootstrap-main.js ;;
+    health)
+      [[ "$#" == 1 && "$1" == health ]] || return 1
+      OPS_HEALTH_INPUT_JSON="${OPS_HEALTH_INPUT_JSON-'{}'}"
+      (( ${#OPS_HEALTH_INPUT_JSON} >= 1 && ${#OPS_HEALTH_INPUT_JSON} <= 16384 )) || return 1
+      command_path=dist/operations/health-main.js ;;
+  esac
+  OPS_JOB_COMMAND="$1"
+  OPS_JOB_COMMAND_JSON="[\"node\",\"$command_path\""
+  for argument in "$@"; do OPS_JOB_COMMAND_JSON+=",\"$argument\""; done
+  OPS_JOB_COMMAND_JSON+=']'
+}
+
+operations_job_start() {
+  if [[ "$OPS_JOB_SERVICE" == health ]]; then
+    printf '%s' "$OPS_HEALTH_INPUT_JSON" | operations_docker container start --attach --interactive "$OPS_JOB_CONTAINER" >/dev/null
+  else
+    operations_docker container start "$OPS_JOB_CONTAINER" >/dev/null
+  fi
+}
+
+operations_job_acknowledgement() {
+  local acknowledgement="$1"
+  case "$OPS_JOB_SERVICE/$OPS_JOB_COMMAND" in
+    backup/pre-migration-backup|backup/scheduled-backup)
+      [[ "$acknowledgement" =~ ^backup_[a-f0-9]{32}$ ]]; return ;;
+    health/health)
+      [[ "$acknowledgement" != '{"status":"completed","processed":0,"reasonCode":"dependency_unavailable"}' ]] || return 0 ;;
+    backup/backup|maintenance/retention|maintenance/deletion|maintenance/lease_recovery|maintenance/learning)
+      [[ "$acknowledgement" != '{"status":"skipped","processed":0,"reasonCode":"not_due"}' ]] || return 0 ;;
+  esac
+  [[ "$acknowledgement" =~ ^\{\"status\":\"completed\",\"processed\":(0|[1-9][0-9]{0,8}),\"reasonCode\":\"ok\"\}$ ]]
 }
 
 operations_job_create_stopped() {
@@ -78,12 +120,13 @@ operations_job_create_stopped() {
 }
 
 operations_execute_job() {
-  local service="${1:-}" argument command_path image_metadata token wait_result actual_exit acknowledgement hash
+  local service="${1:-}" argument image_metadata token wait_result actual_exit acknowledgement hash
   [[ "$#" -ge 2 && "$#" -le 14 && "$service" =~ ^(bootstrap|migrate|backup|verify-backup|checkpoint|health|maintenance)$ ]] || operations_fail operations_job_arguments_invalid
   shift
   for argument in "$@"; do
-    [[ "$argument" =~ ^[A-Za-z0-9_./:-]{1,256}$ ]] || operations_fail operations_job_arguments_invalid
+    [[ ${#argument} -ge 1 && ${#argument} -le 256 && "$argument" =~ ^[A-Za-z0-9_./:-]+$ ]] || operations_fail operations_job_arguments_invalid
   done
+  operations_job_command "$service" "$@" || operations_fail operations_job_arguments_invalid
   operations_job_state_root
   [[ ! -e "$OPS_JOB_STATE_FILE" && ! -L "$OPS_JOB_STATE_FILE" ]] || operations_fail operations_job_pending
   operations_config_field FCD_SUPPORT_REVISION "${OPS_CONFIG[FCD_SUPPORT_REVISION]:-}" || operations_fail operations_job_arguments_invalid
@@ -101,11 +144,6 @@ operations_execute_job() {
   [[ "$token" =~ ^[a-f0-9]{32}$ ]] || operations_fail operations_job_arguments_invalid
   OPS_JOB_REFERENCE="operation_$token"; OPS_JOB_PROJECT="fcd-support-operation-$token"; OPS_JOB_SERVICE="$service"
   OPS_JOB_CONTAINER=''; OPS_JOB_VERIFIED=false
-  command_path=dist/operations-main.js
-  [[ "$service" != bootstrap ]] || command_path=dist/operations/bootstrap-main.js
-  OPS_JOB_COMMAND_JSON="[\"node\",\"$command_path\""
-  for argument in "$@"; do OPS_JOB_COMMAND_JSON+=",\"$argument\""; done
-  OPS_JOB_COMMAND_JSON+=']'
   hash="$(printf '%s' "$OPS_JOB_COMMAND_JSON" | sha256sum)"; OPS_JOB_COMMAND_HASH="${hash%% *}"
   operations_job_state_begin "$OPS_JOB_REFERENCE" "$service" "$OPS_JOB_IMAGE" "$OPS_JOB_COMMAND_HASH"
   OPS_JOB_OVERRIDE="${OPS_CONFIG[FCD_STATE_ROOT]}/job-$token.json"
@@ -118,14 +156,14 @@ operations_execute_job() {
   operations_job_state_transition "$OPS_JOB_REFERENCE" created "$OPS_JOB_CONTAINER"
   # Record before start: a lost start acknowledgement is never replay-safe.
   operations_job_state_transition "$OPS_JOB_REFERENCE" started "$OPS_JOB_CONTAINER"
-  operations_docker container start "$OPS_JOB_CONTAINER" >/dev/null || operations_job_uncertain
+  operations_job_start || operations_job_uncertain
   wait_result="$(operations_docker container wait "$OPS_JOB_CONTAINER")" || operations_job_uncertain
   [[ "$wait_result" == 0 ]] || operations_job_uncertain
   operations_job_assert_container exited || operations_job_uncertain
   actual_exit="$(operations_docker container inspect --format '{{.State.Status}}/{{.State.ExitCode}}' "$OPS_JOB_CONTAINER")" || operations_job_uncertain
   [[ "$actual_exit" == exited/0 ]] || operations_job_uncertain
   acknowledgement="$(operations_docker container logs --tail 2 "$OPS_JOB_CONTAINER")" || operations_job_uncertain
-  if [[ ! "$acknowledgement" =~ ^backup_[a-f0-9]{32}$ && ! "$acknowledgement" =~ ^\{\"status\":\"completed\",\"processed\":[0-9]{1,9},\"reasonCode\":\"ok\"\}$ ]]; then operations_job_uncertain; fi
+  operations_job_acknowledgement "$acknowledgement" || operations_job_uncertain
   operations_job_remove_exited || operations_job_uncertain
   [[ -f "$OPS_JOB_OVERRIDE" && ! -L "$OPS_JOB_OVERRIDE" && "$(stat -c '%u:%g:%a:%h' -- "$OPS_JOB_OVERRIDE")" == 1000:1000:600:1 ]] || operations_job_uncertain
   rm -- "$OPS_JOB_OVERRIDE" || operations_fail operations_job_uncertain

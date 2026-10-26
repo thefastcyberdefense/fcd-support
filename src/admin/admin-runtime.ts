@@ -3,6 +3,7 @@ import pg from 'pg';
 import { noopSafeLogger, type SafeLogger } from '../logging.js';
 import { PostgresAdminIdentity } from '../persistence/postgres-admin-identity.js';
 import { PostgresAdminDashboard } from '../persistence/postgres-admin-dashboard.js';
+import { PostgresAdminOperations } from '../persistence/postgres-admin-operations.js';
 import { buildAdminApp } from './admin-app.js';
 import { loadAdminConfig } from './admin-config.js';
 import { AesGcmAdminSecretProtector } from './mfa.js';
@@ -15,6 +16,7 @@ export interface CreateAdminRuntimeOptions {
   readonly now?: () => Date;
   readonly poolFactory?: (configuration: pg.PoolConfig) => pg.Pool;
   readonly readSecret?: (path: string) => Promise<Uint8Array>;
+  readonly hostHealthSnapshot?: () => Promise<unknown>;
 }
 export async function createAdminRoleRuntime(
   options: CreateAdminRuntimeOptions,
@@ -58,6 +60,15 @@ export function createAdminRuntime(options: CreateAdminRuntimeOptions): AdminRun
     learningPolicy: config.learningPolicy,
   });
   const app = buildAdminApp({
+    operations: new PostgresAdminOperations(pool, identity, {
+      ...(options.now === undefined ? {} : { now: options.now }),
+      ...(options.hostHealthSnapshot === undefined
+        ? {}
+        : { hostSnapshot: options.hostHealthSnapshot }),
+      modelEnabled: options.environment.MODEL_EXECUTION_ENABLED === 'true',
+      notificationsEnabled: options.environment.N8N_EXECUTION_ENABLED === 'true',
+      outboundEnabled: options.environment.OUTBOUND_EXECUTION_ENABLED === 'true',
+    }),
     listLimit: config.listLimit,
     identity,
     dashboard,

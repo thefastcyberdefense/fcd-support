@@ -14,6 +14,15 @@ import {
 } from '../../src/operations/backup.js';
 import { registerBackup } from '../../src/operations/backup-command.js';
 import { runForwardMigrations } from '../../src/operations/forward-migration.js';
+import { runRestoreCommand } from '../../src/operations/restore-main.js';
+import {
+  bindOperationConnectionString,
+  operationApplicationName,
+} from '../../src/operations/operation-reference.js';
+import {
+  configureRuntimeGrants,
+  runtimeDatabaseRoles,
+} from '../../src/persistence/postgres-runtime-grants.js';
 import {
   restoreAndReconcile,
   restoreEncryptedBackup,
@@ -1122,4 +1131,486 @@ test.skipIf(!enabled)(
       await source.pool.query('drop table synthetic_restore_blob');
     }
   },
+);
+test.skipIf(!enabled)(
+  'restored objects pass through owner preparation and a restricted migrator before grant convergence',
+  async () => {
+    const fixture = await reconciliationFixture();
+    const prefix = `fcd_test_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const directory = await mkdtemp(join(root, 'role-'));
+    const files: Record<string, string> = {};
+    const phases: string[] = [];
+    for (const role of [...runtimeDatabaseRoles, 'migrator']) {
+      const file = join(directory, `${role}-password`);
+      await writeFile(file, `synthetic_${prefix}_${role}_password_only`, { mode: 0o600 });
+      files[role] = file;
+    }
+    await withTarget(async (input, owner) => {
+      const url = new URL(input.targetConnectionString);
+      url.username = `${prefix}_migrator`;
+      url.password = `synthetic_${prefix}_migrator_password_only`;
+      const migrator = new pg.Pool({ connectionString: url.toString(), max: 1 });
+      try {
+        await expect(
+          restoreAndReconcile({
+            ...reconciliationOptions(fixture, input, owner),
+            migration: {
+              pool: migrator,
+              roleName: `${prefix}_migrator`,
+              prepare: async () => {
+                phases.push('prepare');
+                await configureRuntimeGrants(owner, {
+                  database: url.pathname.slice(1),
+                  schema: fixture.snapshot.schema,
+                  rolePrefix: prefix,
+                  passwordFiles: files,
+                  phase: 'prepare',
+                  timeoutMilliseconds: 10000,
+                });
+              },
+              converge: async () => {
+                expect(
+                  (
+                    await migrator.query(
+                      'select not rolsuper as restricted from pg_roles where rolname=current_user',
+                    )
+                  ).rows,
+                ).toEqual([{ restricted: true }]);
+                phases.push('converge');
+                await configureRuntimeGrants(owner, {
+                  database: url.pathname.slice(1),
+                  schema: fixture.snapshot.schema,
+                  rolePrefix: prefix,
+                  passwordFiles: files,
+                  phase: 'converge',
+                  timeoutMilliseconds: 10000,
+                });
+              },
+            },
+          }),
+        ).resolves.toMatchObject({ status: 'deletion_verified' });
+        expect(phases).toEqual(['prepare', 'converge']);
+      } finally {
+        await migrator.end();
+      }
+    });
+    await rm(directory, { recursive: true, force: true });
+  },
+  20000,
+);
+test.skipIf(!enabled)(
+  'restore rejects a different physical source before target schema creation',
+  async () => {
+    await withTarget(async (input, pool) => {
+      await expect(
+        restoreEncryptedBackup({
+          ...input,
+          expectedSourceDatabaseIdentity: {
+            systemIdentifier: '1',
+            databaseName: new URL(source.connectionString).pathname.slice(1),
+          },
+        }),
+      ).rejects.toThrow(/^restore_source_invalid$/u);
+      expect(
+        (await pool.query('select to_regnamespace($1) is null as absent', [source.schema])).rows,
+      ).toEqual([{ absent: true }]);
+    });
+  },
+);
+
+test.skipIf(!enabled)(
+  'external restore preserves the managed operation name and bounded server timeouts',
+  async () => {
+    const reference = `operation_${randomUUID().replaceAll('-', '')}`;
+    let observed = 0;
+    await withTarget(async (input) => {
+      await expect(
+        restoreEncryptedBackup({
+          ...input,
+          targetConnectionString: bindOperationConnectionString(
+            input.targetConnectionString,
+            reference,
+          ),
+          processes: (file, args, options) => {
+            if (file === 'pg_restore' && args.includes('--dbname')) {
+              observed += 1;
+              expect(options.env.PGAPPNAME).toBe(operationApplicationName(reference));
+              expect(options.env.PGOPTIONS).toContain('-c statement_timeout=10000');
+              expect(options.env.PGOPTIONS).toMatch(
+                new RegExp(`application_name=${operationApplicationName(reference)}$`, 'u'),
+              );
+            }
+            return spawn(file, args, options);
+          },
+        }),
+      ).resolves.toMatchObject({ status: 'restored' });
+    });
+    expect(observed).toBe(1);
+  },
+);
+
+test.skipIf(!enabled)(
+  'native restore command uses separate restricted capabilities and acknowledges only after deletion reconciliation and pool shutdown',
+  async () => {
+    const snapshot = await createRestoreSource();
+    cleanup.snapshots.add(snapshot);
+    const prefix = `fcd_test_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const roles = [...runtimeDatabaseRoles, 'migrator'];
+    const directory = await mkdtemp(join(root, 'command-'));
+    await chmod(directory, 0o700);
+    const passwordFiles: Record<string, string> = {};
+    const sourceName = new URL(snapshot.connectionString).pathname.slice(1);
+    if (!/^fcd_support_restore_source_[a-f0-9]{32}$/u.test(sourceName))
+      throw new Error('synthetic_restore_command_scope_invalid');
+    const pools: pg.Pool[] = [];
+    const configurations: pg.PoolConfig[] = [];
+    const targetUrl = new URL(targetOwnerUrl);
+    targetUrl.pathname = sourceName;
+    let targetCreated = false;
+    let targetPostgresCreated = false;
+    let target: pg.Pool | undefined;
+    const password = (role: string) => `synthetic_${prefix}_${role}_password_only`;
+    const sourceUrl = (role: string) => {
+      const url = new URL(snapshot.connectionString);
+      url.search = '';
+      url.username = `${prefix}_${role}`;
+      url.password = password(role);
+      return url.toString();
+    };
+    try {
+      for (const role of roles) {
+        const file = join(directory, `bootstrap-${role.replaceAll('_', '-')}-password`);
+        await writeFile(file, password(role), { mode: 0o600 });
+        passwordFiles[role] = file;
+      }
+      // Both physical clusters use the same logical database/schema, just as a
+      // restored production database will. Every identifier is fixture-owned.
+      await configureRuntimeGrants(snapshot.pool, {
+        database: sourceName,
+        schema: snapshot.schema,
+        rolePrefix: prefix,
+        passwordFiles,
+        phase: 'converge',
+        timeoutMilliseconds: 10000,
+      });
+      const actualSource = (
+        await snapshot.pool.query<{ id: string; name: string }>(
+          'select system_identifier::text as id,current_database() as name from pg_catalog.pg_control_system()',
+        )
+      ).rows[0];
+      if (actualSource?.name !== sourceName)
+        throw new Error('synthetic_restore_command_source_invalid');
+      expect(actualSource.id === targetSystemIdentifier).toBe(false);
+      const at = new Date('2030-03-01T00:00:01.000Z');
+      const marker = randomUUID().replaceAll('-', '');
+      const deletedIdentity = {
+        channel: 'whatsapp' as const,
+        channelAccountId: `PHONE_TEST_command_${marker}`,
+        externalContactId: `CONTACT_TEST_command_deleted_${marker}`,
+      };
+      const deleted = await insertSyntheticAppliedCustomerEvent(snapshot.pool, {
+        fixtureKey: `restore_command_deleted_${marker}`,
+        identity: deletedIdentity,
+        occurredAt: new Date(at.getTime() - 1000),
+        messageText: 'Synthetic archived content erased by a newer checkpoint',
+      });
+      const preserved = await insertSyntheticAppliedCustomerEvent(snapshot.pool, {
+        fixtureKey: `restore_command_preserved_${marker}`,
+        identity: {
+          ...deletedIdentity,
+          externalContactId: `CONTACT_TEST_command_preserved_${marker}`,
+        },
+        occurredAt: new Date(at.getTime() - 1000),
+        messageText: 'Synthetic unrelated archived content retained after restore',
+      });
+      await snapshot.pool.query(
+        `insert into runtime_processing_work(work_ref,webhook_event_id,stage,state,created_at,updated_at)
+        values($1,$2,'decide','pending',$3,$3)`,
+        [`WORK_TEST_command_${marker}`, preserved.eventId, at],
+      );
+      const archive = await createEncryptedBackup({
+        connectionString: sourceUrl('backup'),
+        expectedDatabaseIdentity: { systemIdentifier: actualSource.id, databaseName: sourceName },
+        archiveDirectory,
+        temporaryDirectory,
+        recipientFile: join(root, 'recipient'),
+        manifestHmacFile,
+        gitRevision: 'a'.repeat(40),
+        schemaRevision: '000016',
+        backupClass: 'pre_migration',
+        now: new Date(at.getTime() - 1000),
+        timeoutMilliseconds: 10000,
+      });
+      await verifyEncryptedBackup({
+        archiveDirectory,
+        manifestHmacFile,
+        identityFile,
+        expectedManifest: archive,
+        timeoutMilliseconds: 10000,
+      });
+      await registerBackup(snapshot.pool, archive, 'verified');
+      const privacyKey = syntheticPrivacyKeyring.keys.get('TEST_v1');
+      if (privacyKey === undefined) throw new Error('synthetic_restore_key_missing');
+      await snapshot.pool.query(
+        `insert into privacy_suppressions(identity_hmac,channel,category,reason_code,effective_at,key_version)
+        values($1,'whatsapp','deletion_tombstone','customer_deletion',$2,'TEST_v1')`,
+        [createIdentityHmac(deletedIdentity, { key: privacyKey, version: 'TEST_v1' }), at],
+      );
+      const signingBytes = await readFile(manifestHmacFile);
+      let signingKey: AdminSecretBytes;
+      try {
+        signingKey = new AdminSecretBytes(signingBytes);
+      } finally {
+        signingBytes.fill(0);
+      }
+      const exporter = new pg.Pool({ connectionString: sourceUrl('checkpoint'), max: 1 });
+      const checkpoint = await (async () => {
+        try {
+          return await exportDeletionCheckpoint({
+            sourcePool: exporter,
+            expectedDatabaseIdentity: {
+              systemIdentifier: actualSource.id,
+              databaseName: sourceName,
+            },
+            recipientFile: join(root, 'recipient'),
+            signingKey,
+            archiveDirectory,
+            sourceRevision: 'a'.repeat(40),
+            schemaRevision: '000016',
+            now: at,
+            timeoutMilliseconds: 10000,
+            maximumRows: 1000,
+            maximumPayloadBytes: 1048576,
+          });
+        } finally {
+          await exporter.end();
+        }
+      })();
+      // The native cluster's initial owner is fcd_support_test. Provision the
+      // production CLI's fixed postgres owner only in this guarded test cluster.
+      const hasPostgres = (
+        await targetOwner.query<{ present: boolean }>(
+          "select exists(select 1 from pg_catalog.pg_roles where rolname='postgres') as present",
+        )
+      ).rows[0]?.present;
+      if (hasPostgres !== true) {
+        await targetOwner.query('create role postgres login superuser');
+        targetPostgresCreated = true;
+      }
+      await targetOwner.query(`create database "${sourceName}" template template0`);
+      targetCreated = true;
+      target = new pg.Pool({ connectionString: targetUrl.toString(), max: 1 });
+      const restoreRef = `restore_${randomUUID().replaceAll('-', '')}`;
+      const operationRef = `operation_${randomUUID().replaceAll('-', '')}`;
+      const metadata = {
+        projectName: 'fcd-support-restore-synthetic',
+        volumeName: 'fcd-support-restore-synthetic-data',
+        volumeCreatedAt: '2030-02-28T00:00:00.000Z',
+        networkId: 'a'.repeat(64),
+        postgresImageId: `sha256:${'b'.repeat(64)}`,
+        runtimeImageId: `sha256:${'c'.repeat(64)}`,
+        systemIdentifier: targetSystemIdentifier,
+        databaseName: sourceName,
+        schema: snapshot.schema,
+        gitRevision: 'd'.repeat(40),
+        schemaRevision: '000016',
+      };
+      const ownerUri = new URL(targetUrl);
+      ownerUri.username = 'postgres';
+      ownerUri.password = 'synthetic_restore_owner_password_only';
+      const migratorUri = new URL(targetUrl);
+      migratorUri.username = `${prefix}_migrator`;
+      migratorUri.password = password('migrator');
+      const secretFiles = {
+        RESTORE_SOURCE_CHECKPOINT_DATABASE_URL_FILE: join(directory, 'source-checkpoint'),
+        RESTORE_SOURCE_ARCHIVE_DATABASE_URL_FILE: join(directory, 'source-archive'),
+        RESTORE_TARGET_OWNER_DATABASE_URL_FILE: join(directory, 'target-owner'),
+        RESTORE_TARGET_MIGRATOR_DATABASE_URL_FILE: join(directory, 'target-migrator'),
+        PRIVACY_HMAC_KEYRING_FILE: join(directory, 'keyring'),
+      };
+      for (const [file, value] of [
+        [secretFiles.RESTORE_SOURCE_CHECKPOINT_DATABASE_URL_FILE, sourceUrl('checkpoint')],
+        [secretFiles.RESTORE_SOURCE_ARCHIVE_DATABASE_URL_FILE, sourceUrl('backup')],
+        [secretFiles.RESTORE_TARGET_OWNER_DATABASE_URL_FILE, ownerUri.toString()],
+        [secretFiles.RESTORE_TARGET_MIGRATOR_DATABASE_URL_FILE, migratorUri.toString()],
+        [
+          secretFiles.PRIVACY_HMAC_KEYRING_FILE,
+          JSON.stringify({
+            activeVersion: syntheticPrivacyKeyring.activeVersion,
+            keys: [...syntheticPrivacyKeyring.keys].map(([version, key]) => ({
+              version,
+              keyBase64url: key.toString('base64url'),
+            })),
+          }),
+        ],
+      ] as const)
+        await writeFile(file, value, { mode: 0o600 });
+      const stdout: string[] = [];
+      const stderr: string[] = [];
+      const status = await runRestoreCommand({
+        args: [
+          'restore',
+          restoreRef,
+          archive.backupRef,
+          checkpoint.checkpointRef,
+          Buffer.from(JSON.stringify(metadata)).toString('base64'),
+        ],
+        environment: {
+          NODE_ENV: 'production',
+          MODEL_EXECUTION_ENABLED: 'false',
+          OUTBOUND_EXECUTION_ENABLED: 'false',
+          N8N_EXECUTION_ENABLED: 'false',
+          OPS_OPERATION_REFERENCE: operationRef,
+          OPS_SOURCE_DATABASE_SYSTEM_IDENTIFIER: actualSource.id,
+          OPS_SOURCE_DATABASE_NAME: sourceName,
+          OPS_DATABASE_ROLE_PREFIX: prefix,
+          OPS_DATABASE_SCHEMA: snapshot.schema,
+          OPS_GIT_REVISION: metadata.gitRevision,
+          OPS_SCHEMA_REVISION: metadata.schemaRevision,
+          RESTORE_SOURCE_SERVICE_ALIAS: 'fcd-support-source-postgres',
+          RESTORE_TARGET_SERVICE_ALIAS: 'fcd-support-restore-postgres',
+          ...secretFiles,
+          RECOVERY_MANIFEST_HMAC_FILE: manifestHmacFile,
+          BACKUP_AGE_IDENTITY_FILE: identityFile,
+          RESTORE_BOOTSTRAP_PASSWORD_DIRECTORY: directory,
+          BACKUP_ARCHIVE_DIRECTORY: archiveDirectory,
+          CHECKPOINT_ARCHIVE_DIRECTORY: archiveDirectory,
+          BACKUP_TMPFS_DIRECTORY: temporaryDirectory,
+          OPS_MAX_CALL_MS: '10000',
+          CHECKPOINT_MAX_AGE_MS: '60000',
+          CHECKPOINT_MAX_ROWS: '1000',
+          CHECKPOINT_MAX_PAYLOAD_BYTES: '1048576',
+          RESTORE_BATCH_LIMIT: '1',
+          RESTORE_MAX_BATCHES: '10',
+        },
+        now: () => at,
+        createPool: (configuration) => {
+          configurations.push(configuration);
+          const pool = new pg.Pool(configuration);
+          pools.push(pool);
+          return pool;
+        },
+        write: (line) => {
+          expect(pools).toHaveLength(4);
+          expect(pools.every((pool) => pool.ended && pool.totalCount === 0)).toBe(true);
+          stdout.push(line);
+        },
+        error: (line) => {
+          stderr.push(line);
+        },
+      });
+      expect({ status, stdout, stderr }).toEqual({
+        status: 0,
+        stdout: ['{"status":"completed","processed":1,"reasonCode":"ok"}\n'],
+        stderr: [],
+      });
+      expect(
+        configurations.map(
+          (configuration) => new URL(configuration.connectionString ?? '').username,
+        ),
+      ).toEqual([`${prefix}_checkpoint`, `${prefix}_backup`, 'postgres', `${prefix}_migrator`]);
+      expect(
+        configurations.every(
+          (configuration) =>
+            configuration.application_name === operationApplicationName(operationRef),
+        ),
+      ).toBe(true);
+      expect(
+        configurations
+          .slice(0, 2)
+          .every((configuration) =>
+            configuration.options?.includes('default_transaction_read_only=on'),
+          ),
+      ).toBe(true);
+      expect(
+        (
+          await target.query(
+            `select count(*)::int as count from "${snapshot.schema}".webhook_receipts`,
+          )
+        ).rows,
+      ).toEqual([{ count: 2 }]);
+      expect(
+        (
+          await target.query(
+            `select message_text is null as erased from "${snapshot.schema}".webhook_events where id=$1`,
+            [deleted.eventId],
+          )
+        ).rows,
+      ).toEqual([{ erased: true }]);
+      expect(
+        (
+          await target.query(
+            `select message_text is not null as preserved from "${snapshot.schema}".webhook_events where id=$1`,
+            [preserved.eventId],
+          )
+        ).rows,
+      ).toEqual([{ preserved: true }]);
+      expect(
+        (
+          await snapshot.pool.query(
+            'select message_text is not null as preserved from webhook_events where id=$1',
+            [deleted.eventId],
+          )
+        ).rows,
+      ).toEqual([{ preserved: true }]);
+      expect(
+        (await target.query(`select state from "${snapshot.schema}".runtime_processing_work`)).rows,
+      ).toEqual([{ state: 'quarantined' }]);
+      expect(
+        (
+          await target.query(
+            `select count(*)::int as count from "${snapshot.schema}".runtime_restore_quarantine where restore_ref=$1 and source_kind='processing_work'`,
+            [restoreRef],
+          )
+        ).rows,
+      ).toEqual([{ count: 1 }]);
+      expect(
+        (
+          await target.query(
+            `select exists(select 1 from "${snapshot.schema}".runtime_recovery_holds hold where hold.restore_ref=$1 and not exists(select 1 from "${snapshot.schema}".runtime_recovery_reviews review where review.restore_ref=hold.restore_ref)) as held`,
+            [restoreRef],
+          )
+        ).rows,
+      ).toEqual([{ held: true }]);
+      expect(
+        (
+          await target.query(
+            `select source_system_identifier=$2 as source_matches,checkpoint_ref=$3 as checkpoint_matches from "${snapshot.schema}".operations_restore_bindings where restore_ref=$1`,
+            [restoreRef, actualSource.id, checkpoint.checkpointRef],
+          )
+        ).rows,
+      ).toEqual([{ source_matches: true, checkpoint_matches: true }]);
+      expect(
+        (
+          await target.query(
+            `select not rolsuper and not rolcreatedb and not rolcreaterole and not rolreplication and not rolbypassrls as restricted from pg_catalog.pg_roles where rolname=$1`,
+            [`${prefix}_migrator`],
+          )
+        ).rows,
+      ).toEqual([{ restricted: true }]);
+      for (const authority of [snapshot.pool, target])
+        expect(
+          (
+            await authority.query(
+              'select count(*)::int as count from pg_catalog.pg_stat_activity where application_name=$1',
+              [operationApplicationName(operationRef)],
+            )
+          ).rows,
+        ).toEqual([{ count: 0 }]);
+      expect(await readdir(temporaryDirectory)).toEqual([]);
+    } finally {
+      for (const pool of pools) if (!pool.ended) await pool.end();
+      await target?.end();
+      if (targetCreated) await targetOwner.query(`drop database "${sourceName}"`);
+      await snapshot.dispose();
+      cleanup.snapshots.delete(snapshot);
+      for (const role of roles) {
+        await source.pool.query(`drop role if exists "${prefix}_${role}"`);
+        await targetOwner.query(`drop role if exists "${prefix}_${role}"`);
+      }
+      if (targetPostgresCreated) await targetOwner.query('drop role postgres');
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+  40000,
 );

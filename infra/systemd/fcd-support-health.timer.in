@@ -1,0 +1,12 @@
+[Unit]
+Description=FCD Support current private health observation
+
+[Timer]
+OnCalendar=@CALENDAR@
+Unit=fcd-support-operation@health.service
+Persistent=false
+AccuracySec=@ACCURACY_SECONDS@s
+RandomizedDelaySec=@RANDOMIZED_DELAY_SECONDS@s
+
+[Install]
+WantedBy=timers.target

@@ -11,6 +11,12 @@ if [[ "$MODE" == checkpoint || "$MODE" == grants ]]; then
   INTEGRATION_FILES+=(tests/integration/postgres-deletion-checkpoint.test.ts)
 fi
 if [[ "$MODE" == grants ]]; then
+  UNIT_FILES+=(tests/systemd-contract.test.ts tests/operations-scheduled-job.test.ts tests/maintenance-pool.test.ts tests/restore-command.test.ts)
+  UNIT_FILES+=(tests/operations-health-host.test.ts)
+  UNIT_FILES+=(tests/health-collector.test.ts tests/health-main.test.ts tests/admin-operations.test.ts)
+  UNIT_FILES+=(tests/n8n-client.test.ts tests/notification-worker.test.ts tests/notification-runtime.test.ts)
+  INTEGRATION_FILES+=(tests/integration/postgres-health-role.test.ts tests/integration/postgres-admin-operations.test.ts)
+  INTEGRATION_FILES+=(tests/integration/postgres-notification-flow.test.ts tests/integration/postgres-notification-work.test.ts tests/integration/postgres-notification-privacy-grants.test.ts tests/integration/postgres-maintenance-pool.test.ts)
   UNIT_FILES+=(tests/operations-scripts.test.ts)
   UNIT_FILES+=(tests/restore-host.test.ts tests/restore-host-script.test.ts)
   UNIT_FILES+=(tests/admin-socket-recovery.test.ts)
@@ -44,12 +50,14 @@ if [[ "$MODE" == settlement ]]; then
   INTEGRATION_FILES=(tests/integration/postgres-operation-settlement.test.ts)
 fi
 if [[ "$MODE" == restore ]]; then
-  INTEGRATION_FILES=(tests/integration/postgres-isolated-restore.test.ts)
+  UNIT_FILES+=(tests/maintenance-pool.test.ts tests/restore-command.test.ts)
+  INTEGRATION_FILES=(tests/integration/postgres-isolated-restore.test.ts tests/integration/postgres-maintenance-pool.test.ts)
 fi
 if [[ "$MODE" == state ]]; then
-  UNIT_FILES=(tests/operations-job-state.test.ts tests/operations-job-lifecycle.test.ts tests/operations-scripts.test.ts tests/operations-bootstrap-script.test.ts tests/operations-deployment-state.test.ts tests/operations-drain-script.test.ts tests/operations-adoption-script.test.ts tests/operations-postgres-converge.test.ts tests/operations-compose-environment.test.ts tests/operations-startup-script.test.ts tests/operations-containment.test.ts tests/operations-orphan-containment.test.ts tests/operations-initial-intent.test.ts tests/operations-first-boot.test.ts)
+  UNIT_FILES=(tests/operations-job-state.test.ts tests/operations-job-lifecycle.test.ts tests/operations-scripts.test.ts tests/operations-bootstrap-script.test.ts tests/operations-deployment-state.test.ts tests/operations-drain-script.test.ts tests/operations-adoption-script.test.ts tests/operations-postgres-converge.test.ts tests/operations-compose-environment.test.ts tests/operations-startup-script.test.ts tests/operations-containment.test.ts tests/operations-orphan-containment.test.ts tests/operations-initial-intent.test.ts tests/operations-first-boot.test.ts tests/systemd-contract.test.ts tests/operations-scheduled-job.test.ts)
   INTEGRATION_FILES=()
   # Focused native filesystem iteration, restricted to the fixed state suite.
+  UNIT_FILES+=(tests/operations-health-host.test.ts)
   # The complete grants gate always runs its full unit/integration selection.
   if [[ "$#" == 2 ]]; then
     selected=''
@@ -107,7 +115,7 @@ if [[ "$MODE" == restore ]]; then
   docker network create --internal --label "fcd-support.backup-test=$SCOPE" "$RESTORE_NETWORK" >/dev/null
   docker volume create --label "fcd-support.backup-test=$SCOPE" "$RESTORE_VOLUME" >/dev/null
   docker run --detach --name "$SCOPE-postgres" --label "fcd-support.backup-test=$SCOPE" \
-    --network "$RESTORE_NETWORK" --network-alias restore-postgres --security-opt no-new-privileges \
+    --network "$RESTORE_NETWORK" --network-alias restore-postgres --network-alias fcd-support-restore-postgres --security-opt no-new-privileges \
     --cpus 1 --memory 1g --pids-limit 128 --mount "type=volume,src=$RESTORE_VOLUME,dst=/var/lib/postgresql" \
     --env POSTGRES_USER=fcd_support_test --env POSTGRES_DB=postgres --env POSTGRES_HOST_AUTH_METHOD=trust \
     --health-cmd 'pg_isready -U fcd_support_test -d postgres' --health-interval 1s --health-timeout 2s --health-retries 30 \
@@ -126,6 +134,7 @@ if [[ "$MODE" == restore && "$job" == integration ]]; then launch=(create); fi
 docker "${launch[@]}" --name "$SCOPE-$job" --label "fcd-support.backup-test=$SCOPE" --network "$network" --read-only --cap-drop ALL \
   --security-opt no-new-privileges --cpus 1 --memory 1g --pids-limit 128 \
   --tmpfs /run/fcd-support:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0700,size=64m \
+  --tmpfs /tmp:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0700,size=16m \
   --tmpfs /workspace/node_modules/.vite-temp:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0700,size=16m \
   --mount "type=volume,src=$VOLUME,dst=/var/lib/fcd-support/backups" \
   --mount "type=bind,src=$NATIVE_ROOT/src,dst=/workspace/src,readonly" \

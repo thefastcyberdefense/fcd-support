@@ -228,6 +228,57 @@ export class PostgresNotificationWork {
     });
   }
 
+  /** Recheck authoritative eligibility after claiming, immediately before a bounded send. */
+  public async authorize(input: {
+    readonly workRef: string;
+    readonly leaseRef: string;
+    readonly evaluatedAt: Date;
+    readonly requiredLeaseMilliseconds: number;
+  }): Promise<boolean> {
+    const command = parseWork(
+      z.strictObject({
+        workRef: workReference,
+        leaseRef: workReference,
+        evaluatedAt: workDate,
+        requiredLeaseMilliseconds: z.number().int().min(1).max(300000),
+      }),
+      input,
+    );
+    const through = new Date(command.evaluatedAt.getTime() + command.requiredLeaseMilliseconds);
+    return withBoundedTransaction(this.pool, async (client) => {
+      if (await recoveryHeld(client)) return false;
+      const quarantine = await quarantinePresent(client);
+      const result = await client.query<{ authorized: boolean }>(
+        `select true as authorized from notification_delivery_work work
+        join notification_delivery_sources source on source.source_kind=work.source_kind
+          and source.source_id=coalesce(work.privacy_notification_intent_id,work.support_escalation_id,work.outbound_escalation_id)
+        where work.work_ref=$1 and work.lease_ref=$2 and work.state='leased'
+          and work.lease_expires_at > $4 and work.retention_deadline > $4
+          and source.retention_deadline > $4 and source.occurred_at <= $3
+          and source.notification_type=work.notification_type
+          and source.occurred_at=work.occurred_at and work.attempt_count <= $5
+          ${
+            quarantine
+              ? `and not exists(select 1 from runtime_restore_quarantine q where
+            (q.source_kind='notification_work' and q.source_id=work.id)
+            or (q.source_id=source.source_id and q.source_kind=case source.source_kind
+              when 'privacy' then 'privacy_notification' when 'support' then 'support_escalation'
+              else 'outbound_escalation' end))`
+              : ''
+          }
+        for update of work`,
+        [
+          command.workRef,
+          command.leaseRef,
+          command.evaluatedAt,
+          through,
+          this.policy.maximumAttempts,
+        ],
+      );
+      return result.rows[0]?.authorized === true;
+    });
+  }
+
   public async expire(input: {
     readonly evaluatedAt: Date;
     readonly limit: number;

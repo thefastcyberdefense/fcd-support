@@ -4,6 +4,7 @@ import { z } from 'zod';
 
 import { createSafeLogger } from './logging.js';
 import { maintenanceJobs, runMaintenance } from './operations/maintenance.js';
+import { createMaintenancePool } from './operations/maintenance-pool.js';
 import { loadOperationsConfig } from './operations/operations-config.js';
 import { loadPrivacyKeyring } from './operations/privacy-keyring.js';
 import { databaseReadinessPorts } from './operations/role-runtime.js';
@@ -274,7 +275,13 @@ export async function runOperationsMain(): Promise<void> {
       return;
     }
     if (
-      ['backup', 'pre-migration-backup', 'verify-backup', 'prune-backups'].includes(args[0] ?? '')
+      [
+        'backup',
+        'scheduled-backup',
+        'pre-migration-backup',
+        'verify-backup',
+        'prune-backups',
+      ].includes(args[0] ?? '')
     ) {
       const command = parseBackupCommand(args);
       const role = command.job === 'verify-backup' ? 'verify_backup' : 'backup';
@@ -359,6 +366,7 @@ export async function runOperationsMain(): Promise<void> {
           processed = 1;
         } else {
           const result = await runScheduledBackup(pool, options);
+          createdReference = result.manifest?.backupRef;
           skipped = result.status === 'skipped';
           processed = skipped ? 0 : 1;
         }
@@ -446,15 +454,21 @@ export async function runOperationsMain(): Promise<void> {
       .string()
       .regex(/^\d{6}$/u)
       .parse(environment.OPS_SCHEMA_REVISION);
-    pool = new pg.Pool({
-      connectionString: environment.DATABASE_URL,
+    const databaseState = { failed: false };
+    pool = createMaintenancePool({
+      connectionString: z.string().min(1).parse(environment.DATABASE_URL),
+      expectedDatabaseIdentity: parseDatabaseIdentity({
+        systemIdentifier: environment.OPS_DATABASE_SYSTEM_IDENTIFIER,
+        databaseName: environment.OPS_DATABASE_NAME,
+      }),
+      schema: z.string().parse(environment.OPS_DATABASE_SCHEMA),
+      rolePrefix: z.string().parse(environment.OPS_DATABASE_ROLE_PREFIX),
+      operationReference: z.string().parse(environment.OPS_OPERATION_REFERENCE),
       max: config.batchSize,
-      connectionTimeoutMillis: config.maximumCallMilliseconds,
-      query_timeout: config.maximumCallMilliseconds,
-      statement_timeout: config.maximumCallMilliseconds,
-      idle_in_transaction_session_timeout: config.maximumCallMilliseconds,
+      timeoutMilliseconds: config.maximumCallMilliseconds,
     });
     pool.on('error', () => {
+      databaseState.failed = true;
       logger.error('database_pool_error');
     });
     const ready = await checkRuntimeReadiness(
@@ -482,6 +496,10 @@ export async function runOperationsMain(): Promise<void> {
       ...command,
       learningWindowMilliseconds,
     });
+    const completedPool = pool;
+    pool = undefined;
+    await completedPool.end();
+    if (databaseState.failed) throw new Error('operations_job_failed');
     process.stdout.write(`${JSON.stringify(result)}\n`);
     if (result.status === 'failed') process.exitCode = 1;
   } catch {

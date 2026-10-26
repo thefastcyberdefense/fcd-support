@@ -3,6 +3,7 @@ import { pathToFileURL } from 'node:url';
 import { createSafeLogger } from './logging.js';
 import { createReplyRuntime } from './operations/reply-runtime.js';
 import { createOutboundRuntime } from './operations/outbound-runtime.js';
+import { createNotificationRuntime } from './operations/notification-runtime.js';
 import { writeRuntimeHeartbeat } from './operations/role-runtime.js';
 import type { RuntimeLifecycle } from './operations/operations-types.js';
 
@@ -26,9 +27,18 @@ export async function runWorkerMain(): Promise<void> {
   const logger = createSafeLogger();
   try {
     const role = process.argv[2];
-    if (process.argv.length !== 3 || (role !== 'reply' && role !== 'outbound'))
+    if (
+      process.argv.length !== 3 ||
+      (role !== 'reply' && role !== 'outbound' && role !== 'notification')
+    )
       throw new Error('worker_role_invalid');
-    const runtime = await (role === 'reply' ? createReplyRuntime : createOutboundRuntime)({
+    const factory =
+      role === 'reply'
+        ? createReplyRuntime
+        : role === 'outbound'
+          ? createOutboundRuntime
+          : createNotificationRuntime;
+    const runtime = await factory({
       role,
       environment: process.env,
       logger,

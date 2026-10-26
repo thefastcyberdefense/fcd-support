@@ -23,6 +23,7 @@ import {
   type CheckpointManifest,
 } from './deletion-checkpoint.js';
 import { runForwardMigrations } from './forward-migration.js';
+import { assertDatabaseIdentity, type DatabaseIdentity } from './database-identity.js';
 import {
   archiveDatabaseConnection,
   readBackupManifest,
@@ -39,6 +40,7 @@ import {
  * attaches applications nor produces deletion/promotion readiness evidence. */
 export interface EncryptedRestoreOptions {
   readonly sourcePool: pg.Pool;
+  readonly expectedSourceDatabaseIdentity?: DatabaseIdentity;
   readonly targetConnectionString: string;
   readonly expectedTargetSystemIdentifier: string;
   readonly schema: string;
@@ -63,6 +65,15 @@ export interface EncryptedRestoreEvidence {
  * independently; these functions do not inspect Docker or attach applications. */
 export interface RestoreOptions extends EncryptedRestoreOptions {
   readonly targetPool: pg.Pool;
+  /** The production controller supplies these capabilities. Legacy internal
+   * fixtures may exercise only the SQL/stream primitive without role provision. */
+  readonly archiveSourcePool?: pg.Pool;
+  readonly migration?: {
+    readonly pool: pg.Pool;
+    readonly roleName: string;
+    readonly prepare: () => Promise<void>;
+    readonly converge: () => Promise<void>;
+  };
   readonly target: RestoreTargetIdentity;
   readonly restoreRef: string;
   readonly gitRevision: string;
@@ -174,10 +185,14 @@ export async function restoreAndReconcile(options: RestoreOptions): Promise<Rest
       evaluatedAt: startedAt,
       maximumAgeMilliseconds: options.maximumCheckpointAgeMilliseconds,
     });
-    const restored = await restoreEncryptedBackup(options);
+    const restored = await restoreEncryptedBackup({
+      ...options,
+      sourcePool: options.archiveSourcePool ?? options.sourcePool,
+    });
+    await options.migration?.prepare();
     // A caller-supplied pool is a distinct capability from the stream URI.
     // Bind the actual migration-owning connection BEFORE it can execute DDL.
-    await runForwardMigrations(options.targetPool, {
+    await runForwardMigrations(options.migration?.pool ?? options.targetPool, {
       schema: options.schema,
       expectedSchemaRevision: options.expectedSchemaRevision,
       timeoutMilliseconds: options.timeoutMilliseconds,
@@ -185,7 +200,9 @@ export async function restoreAndReconcile(options: RestoreOptions): Promise<Rest
         systemIdentifier: identity.systemIdentifier,
         databaseName: identity.databaseName,
       },
+      expectedMigratorRole: options.migration?.roleName,
     });
+    await options.migration?.converge();
     return await reconcileRestoredTarget(options, startedAt, restored.sourceSystemIdentifier);
   } catch {
     throw new Error('restore_reconciliation_failed');
@@ -566,6 +583,9 @@ export async function restoreEncryptedBackup(
     await source.query("select set_config('statement_timeout',$1,false)", [
       `${String(options.timeoutMilliseconds)}ms`,
     ]);
+    failure = 'restore_source_invalid';
+    if (options.expectedSourceDatabaseIdentity !== undefined)
+      await assertDatabaseIdentity(source, options.expectedSourceDatabaseIdentity);
     failure = 'restore_archive_invalid';
     const manifest = await cataloguedManifest(source, options);
     failure = 'restore_target_invalid';
@@ -644,8 +664,8 @@ export async function restoreEncryptedBackup(
             env: {
               ...connection.env,
               PGPASSFILE: passFile,
-              PGAPPNAME: 'fcd-support-isolated-restore',
-              PGOPTIONS: `-c statement_timeout=${String(options.timeoutMilliseconds)} -c lock_timeout=${String(options.timeoutMilliseconds)}`,
+              PGAPPNAME: connection.env.PGAPPNAME ?? 'fcd-support-isolated-restore',
+              PGOPTIONS: `-c statement_timeout=${String(options.timeoutMilliseconds)} -c lock_timeout=${String(options.timeoutMilliseconds)}${connection.env.PGOPTIONS === undefined ? '' : ` ${connection.env.PGOPTIONS}`}`,
             },
           },
         ],
