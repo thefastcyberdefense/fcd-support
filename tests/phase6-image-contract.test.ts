@@ -34,6 +34,12 @@ const toolchainSchema = z.strictObject({
 });
 
 describe('Phase 6 image contract', () => {
+  test('ordinary integration runner can read private UID-1000 source without root capabilities', () => {
+    const image = read('infra/Dockerfile.integration');
+    expect(image.includes('COPY --chown=node:node package.json package-lock.json ./')).toBe(true);
+    expect(image.includes('USER node')).toBe(true);
+  });
+
   test('records official immutable artifacts for the explicitly supported platform', () => {
     const result = toolchainSchema.safeParse(
       JSON.parse(read('infra/operations-toolchain.json') || '{}'),

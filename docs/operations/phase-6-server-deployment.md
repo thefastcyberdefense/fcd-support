@@ -107,6 +107,33 @@ Stage B record will describe its own application/restore failure boundaries.
 
 ## Execution evidence
 
-Stage A is prepared, not yet executed. Fresh CI results and actual server
-outcomes will be appended after execution. Full hardened runtime, socket/SSH,
-host restart and live test-asset acceptance remain open.
+Stage A started on 2026-10-27 (Asia/Dhaka). Read-only guards passed, the exact
+source was checked out cleanly and the networkless Linux unit lane passed
+1,714 tests with 324 native-only skips across 113 files (49.22 seconds for tests;
+162 seconds including first image builds). The first reporting wrapper stopped
+after that pass because ANSI colors preceded the summary text; stripping colors
+before matching fixed reporting without rerunning or changing passing tests.
+
+The ordinary PostgreSQL lane then failed before executing its cases: the
+capability-dropped root runner could not read new checkout files owned by UID
+1000 with mode `0600`. This is a real Ubuntu permission failure that the Windows
+host and world-readable GitHub checkout had not exposed. The proposed correction
+runs the integration image as `node` and gives it ownership of its copied lockfile
+and package metadata. A regression first failed with 11 passing cases, then all
+12 image-contract cases passed after that correction. No source permissions or
+runtime capability checks were widened. The corrected local code gate passed
+1,672 tests with 367 platform skips across 113 files (216.63 seconds). Its
+complete ordinary PostgreSQL run passed 619 with 52 separately covered native
+skips across 56 files (139.98 seconds).
+
+GitHub Actions at `4a6de6a21eb303185896ad04cff64fc76e2ad251` passed unit CI,
+CodeQL Advanced and both ordinary PostgreSQL/native operations jobs. Those
+passes predate the server-specific integration-runner ownership correction;
+the corrected revision receives its own subsequent run.
+
+The independent native lanes already execute as UID 1000 and are being checked
+against the same committed source while the ordinary-runner correction receives
+local validation. They do not depend on the failed ordinary lane. Their results,
+the exact corrected revision and the follow-up ordinary PostgreSQL action will
+be recorded separately. Full hardened runtime, socket/SSH, host restart and live
+test-asset acceptance remain open.

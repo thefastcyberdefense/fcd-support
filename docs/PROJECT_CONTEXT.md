@@ -25,6 +25,17 @@ Last reviewed: 2026-10-27 (Asia/Dhaka)
 
 ## Current Phase 6 Checkpoint
 
+Real server validation has begun with fresh synthetic resources at source
+`83978fc`. Its unit lane passed 1,714 tests/324 native-only skips. Ordinary
+PostgreSQL exposed a real Unix ownership mismatch: capability-dropped root
+could not read UID-1000 `0600` checkout files. The corrected integration image
+runs as node and owns its copied package metadata; it does not widen host file
+permissions. Local regression is 12/12; full corrected code is 1,672 passed/367
+skips/113 files and ordinary PostgreSQL is 619 passed/52 native-only skips/56
+files. Unit, CodeQL and PostgreSQL/native Actions passed at `4a6de6a` before that
+server-specific correction. Exact server progress and preserved-stack boundaries
+are recorded in `docs/operations/phase-6-server-deployment.md`.
+
 Fresh-runner CI exposed test-environment assumptions at `ae13cec`: CodeQL and
 ordinary PostgreSQL passed, while the unit/native jobs failed on UID/tmpfs and
 an unbuilt dependency image. The revised harness uses the pinned UID/toolchain,
@@ -87,9 +98,10 @@ later notification reconciliation from recreating deleted-subject work. n8n
 still owns no business state. Host health input integration and the remaining
 deployment/recovery/failure matrix are not a completed P6 gate.
 
-No Phase 6 server deployment or live Meta, Manifest, provider, n8n or Cloudflare
-action has occurred. The last recorded server revision remains
-`207a5e6357c1e1a7c75918793262d835574d898d`. The current checkpoint above supersedes
+No full Phase 6 runtime deployment or live Meta, Manifest, provider, n8n or
+Cloudflare action has occurred. The existing admission stack still executes
+`207a5e6357c1e1a7c75918793262d835574d898d`; only the source checkout and fresh
+synthetic validation stack have advanced. The current checkpoint above supersedes
 the implementation availability described in older notes below; those notes
 retain their historical evidence and do not establish current readiness.
 

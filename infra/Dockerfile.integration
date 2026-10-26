@@ -4,7 +4,8 @@ WORKDIR /workspace
 
 RUN npm install --global npm@11.16.0
 
-COPY package.json package-lock.json ./
+COPY --chown=node:node package.json package-lock.json ./
 RUN npm ci
 
+USER node
 CMD ["npm", "run", "test:integration"]
