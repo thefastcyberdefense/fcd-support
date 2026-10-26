@@ -105,6 +105,43 @@ the source checkout must be restored, require a clean worktree and check out
 the old application, down-migrate or select another database volume. A later
 Stage B record will describe its own application/restore failure boundaries.
 
+## Stage A ordinary-runner correction follow-up
+
+After the original native lanes finish and their fresh project passes cleanup,
+repeat only the affected ordinary PostgreSQL lane at exact revision
+`3f8783fdc588346aeab82260812329adb00bce2f`. Require the clean checkout still at
+`83978fc4ed3b5986c213b6ebaa056e1dc3f320c0`, zero original-project/harness resources,
+UID/GID `1000:1000`, at least 12 GiB free, and unchanged retained-container
+snapshots. Do not replace source while a bind-mounted test job is running.
+
+Use fresh project `fcd-support-test-p6-3f8783f`, its own internal data network
+and PostgreSQL volume, and new private logs at
+`/home/redwan/fcd-support-validation-3f8783f`. Refuse any pre-existing resource or
+log directory for that namespace. Apply the same initial/post-run snapshots,
+network/port checks, temporary-schema/role/lock counts and project-only cleanup
+as above. The exact commands after those guards are:
+
+```bash
+umask 077
+cd /home/redwan/apps/fcd-support
+FCD_TEST_LOG=/home/redwan/fcd-support-validation-3f8783f
+mkdir -m 0700 "$FCD_TEST_LOG"
+git fetch --no-tags origin main >"$FCD_TEST_LOG/git-fetch.log" 2>&1
+git cat-file -e '3f8783fdc588346aeab82260812329adb00bce2f^{commit}'
+git checkout --detach 3f8783fdc588346aeab82260812329adb00bce2f \
+  >"$FCD_TEST_LOG/git-checkout.log" 2>&1
+test "$(git rev-parse HEAD)" = 3f8783fdc588346aeab82260812329adb00bce2f
+test -z "$(git status --porcelain=v1 --untracked-files=all)"
+docker compose --file infra/compose.test.yml \
+  --project-name fcd-support-test-p6-3f8783f run --build --rm runner \
+  npm run test:integration >"$FCD_TEST_LOG/postgres.log" 2>&1
+```
+
+After verified ownership/member and database cleanup counts, use the exact same
+Compose file/project with `down --volumes`, then check zero remaining resources
+and unchanged retained containers. A failure preserves private evidence and
+stops this follow-up. The existing application rollback scope is unchanged.
+
 ## Execution evidence
 
 Stage A started on 2026-10-27 (Asia/Dhaka). Read-only guards passed, the exact
