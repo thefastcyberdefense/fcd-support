@@ -42,6 +42,7 @@ if [[ "$MODE" == grants ]]; then
   UNIT_FILES+=(tests/operations-initial-intent.test.ts)
   UNIT_FILES+=(tests/operations-first-boot.test.ts)
   UNIT_FILES+=(tests/operations-controller.test.ts)
+  UNIT_FILES+=(tests/operations-live-socket-preflight.test.ts)
   INTEGRATION_FILES+=(tests/integration/postgres-operation-settlement.test.ts)
   INTEGRATION_FILES+=(tests/integration/postgres-deployment-cli.test.ts tests/integration/postgres-forward-migration.test.ts)
 fi
@@ -51,6 +52,7 @@ if [[ "$MODE" == settlement ]]; then
 fi
 if [[ "$MODE" == restore ]]; then
   UNIT_FILES+=(tests/maintenance-pool.test.ts tests/restore-command.test.ts)
+  UNIT_FILES+=(tests/promotion-command.test.ts tests/promotion-handshake.test.ts tests/restore-metadata.test.ts tests/operations-restore-state.test.ts)
   INTEGRATION_FILES=(tests/integration/postgres-isolated-restore.test.ts tests/integration/postgres-maintenance-pool.test.ts)
 fi
 if [[ "$MODE" == state ]]; then
@@ -58,6 +60,8 @@ if [[ "$MODE" == state ]]; then
   INTEGRATION_FILES=()
   # Focused native filesystem iteration, restricted to the fixed state suite.
   UNIT_FILES+=(tests/operations-health-host.test.ts)
+  UNIT_FILES+=(tests/operations-restore-state.test.ts)
+  UNIT_FILES+=(tests/operations-live-socket-preflight.test.ts)
   # The complete grants gate always runs its full unit/integration selection.
   if [[ "$#" == 2 ]]; then
     selected=''

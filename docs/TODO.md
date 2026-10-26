@@ -1,5 +1,7 @@
 # Fast Cyber Defense Support Task Tracker
 
+- Phase 6 restore prerequisites and capability decision (2026-10-26 Asia/Dhaka): the internal promotion driver now requires two fresh host stdio challenges, current deletion reconciliation and pool shutdown before its closed acknowledgement. Strict networkless target-metadata conversion and protected restore intent/completion history are implemented; neither selects a restored volume. A managed READY source can retain its protected live admin socket until controlled drain, with lock/selection checks before Docker access. The code gate passed 1,444 tests with 365 platform skips across 100 files; native restore passed 142 units and 46 PostgreSQL cases, and native socket preflight passed 21 cases. Automatic approval review rejected the combined source-network/bootstrap-secret Compose patch; it was not applied. The recommended replacement is the split-job design in `docs/reviews/phase-6-restore-capability-boundary.md`, which requires an explicit owner decision. Tasks 11–16 are still open; no Phase 6 gate or deployment is claimed.
+
 - Phase 6 integration checkpoint (2026-10-26 Asia/Dhaka): Tasks 1–10 remain complete. Task 11 now also has a standalone restricted-capability restore command tested against two isolated synthetic PostgreSQL clusters. Timer/lifecycle, private health/dashboard and signed notification components for Tasks 12–14 are implemented and under aggregate validation. Verified deletion now cancels notification delivery transactionally without removing delivery evidence or changing escalation authority. The code gate passed 1,382 tests with 331 platform skips across 95 files using four test workers; the complete ordinary PostgreSQL run passed 615 with 50 separately exercised native-only skips across 56 files. This is not P6 completion: host restore/promotion/switch wiring, remaining recovery cases, the full failure matrix/gate and the concrete server handoff remain open. No server, production asset or live-provider action occurred.
 
 - Phase 6 Task 11 command composition (2026-10-25 Asia/Dhaka): first-boot orchestration now creates only a uniquely bound new volume/PG actor and publishes quiescent identity after fresh proofs. Deploy, verify, exact-schema retained rollback and explicit socket recovery entry points are connected to the verified primitives. Source data-directory checks precede application shutdown; source admission images/revision require protected explicit configuration. Restore/promotion, interrupted-job/state reconciliation, actual deployment validation and Tasks 12–16 remain open. Task 11/P6-004 remain IN PROGRESS and P6-GATE blocked; server unchanged.
@@ -153,15 +155,14 @@
 
 ## Phase 6 — Hardened Local Operations
 
-Task 11 checkpoint: durable job intent and exact owned-container cancellation
-are implemented internally. Unresolved execution blocks host preflight; public
-deployment wiring and the remaining Task 11 controls are still incomplete.
-Backup/checkpoint CLI source bindings and verified backup snapshots are also
-implemented. Database stage ordering is internal; controlled-outage/startup
-wiring and volume switching remain open. Protected selection/history and retained
-revision records now feed private Compose interpolation and current host
-verification. Controlled-outage/startup integration and rollback execution are
-still pending.
+Tasks 1–10 are complete. Task 11 has deploy/verify, controlled outage/startup,
+exact-schema rollback and socket-recovery command composition. Unresolved jobs
+still block normal host preflight. Restore/promotion SQL drivers, strict metadata
+and protected descriptive history are tested, but host restore/promotion and safe
+volume switching remain incomplete. Their network/credential division awaits
+the explicit split-job design decision linked above. Tasks 12–14 have implemented
+components under integration; Task 15 failure-matrix/gate review and Task 16
+concrete server handoff remain open.
 Validation is recorded in `docs/operations/runtime-deployment-safety.md`.
 
 | ID      | Task                                                                                        | Depends On            | Owner                 | Status      | Evidence / Completion Rule                                                                                                                                                                                                                                                                                                                                                                                                        | Approval Boundary                                                             |

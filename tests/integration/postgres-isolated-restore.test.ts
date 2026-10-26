@@ -3,6 +3,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
+import { PassThrough } from 'node:stream';
 import pg from 'pg';
 import { runner } from 'node-pg-migrate';
 import { afterAll, beforeAll, expect, test } from 'vitest';
@@ -15,6 +16,7 @@ import {
 import { registerBackup } from '../../src/operations/backup-command.js';
 import { runForwardMigrations } from '../../src/operations/forward-migration.js';
 import { runRestoreCommand } from '../../src/operations/restore-main.js';
+import { runPromotionCommand } from '../../src/operations/promotion-main.js';
 import {
   bindOperationConnectionString,
   operationApplicationName,
@@ -1598,6 +1600,182 @@ test.skipIf(!enabled)(
           ).rows,
         ).toEqual([{ count: 0 }]);
       expect(await readdir(temporaryDirectory)).toEqual([]);
+      const promotionAt = new Date(at.getTime() + 2000);
+      await snapshot.pool.query(
+        `insert into privacy_suppressions(identity_hmac,channel,category,reason_code,effective_at,key_version)
+        values($1,'whatsapp','deletion_tombstone','customer_deletion',$2,'TEST_v1')`,
+        [
+          createIdentityHmac(
+            { ...deletedIdentity, externalContactId: `CONTACT_TEST_command_preserved_${marker}` },
+            { key: privacyKey, version: 'TEST_v1' },
+          ),
+          promotionAt,
+        ],
+      );
+      const freshExporter = new pg.Pool({ connectionString: sourceUrl('checkpoint'), max: 1 });
+      const freshCheckpoint = await (async () => {
+        try {
+          return await exportDeletionCheckpoint({
+            sourcePool: freshExporter,
+            expectedDatabaseIdentity: {
+              systemIdentifier: actualSource.id,
+              databaseName: sourceName,
+            },
+            recipientFile: join(root, 'recipient'),
+            signingKey,
+            archiveDirectory,
+            sourceRevision: 'a'.repeat(40),
+            schemaRevision: '000016',
+            now: promotionAt,
+            timeoutMilliseconds: 10000,
+            maximumRows: 1000,
+            maximumPayloadBytes: 1048576,
+          });
+        } finally {
+          await freshExporter.end();
+        }
+      })();
+      const verificationRef = `restore_${randomUUID().replaceAll('-', '')}`;
+      const promotionOperationRef = `operation_${randomUUID().replaceAll('-', '')}`;
+      const promotionInput = new PassThrough();
+      const promotionPools: pg.Pool[] = [];
+      const requests: Record<string, unknown>[] = [];
+      const completion: string[] = [];
+      const promotionErrors: string[] = [];
+      const targetProbe = target;
+      const promotionStatus = await runPromotionCommand({
+        args: [
+          'promote',
+          restoreRef,
+          verificationRef,
+          archive.backupRef,
+          freshCheckpoint.checkpointRef,
+          Buffer.from(JSON.stringify(metadata)).toString('base64'),
+        ],
+        environment: {
+          NODE_ENV: 'production',
+          MODEL_EXECUTION_ENABLED: 'false',
+          OUTBOUND_EXECUTION_ENABLED: 'false',
+          N8N_EXECUTION_ENABLED: 'false',
+          OPS_OPERATION_REFERENCE: promotionOperationRef,
+          OPS_SOURCE_DATABASE_SYSTEM_IDENTIFIER: actualSource.id,
+          OPS_SOURCE_DATABASE_NAME: sourceName,
+          OPS_DATABASE_ROLE_PREFIX: prefix,
+          OPS_DATABASE_SCHEMA: snapshot.schema,
+          OPS_GIT_REVISION: metadata.gitRevision,
+          OPS_SCHEMA_REVISION: metadata.schemaRevision,
+          RESTORE_SOURCE_SERVICE_ALIAS: 'fcd-support-source-postgres',
+          RESTORE_TARGET_SERVICE_ALIAS: 'fcd-support-restore-postgres',
+          RESTORE_SOURCE_CHECKPOINT_DATABASE_URL_FILE:
+            secretFiles.RESTORE_SOURCE_CHECKPOINT_DATABASE_URL_FILE,
+          RESTORE_TARGET_OWNER_DATABASE_URL_FILE:
+            secretFiles.RESTORE_TARGET_OWNER_DATABASE_URL_FILE,
+          PRIVACY_HMAC_KEYRING_FILE: secretFiles.PRIVACY_HMAC_KEYRING_FILE,
+          RECOVERY_MANIFEST_HMAC_FILE: manifestHmacFile,
+          BACKUP_AGE_IDENTITY_FILE: identityFile,
+          CHECKPOINT_ARCHIVE_DIRECTORY: archiveDirectory,
+          OPS_MAX_CALL_MS: '10000',
+          PROMOTION_HOST_CHECK_TIMEOUT_MS: '5000',
+          CHECKPOINT_MAX_AGE_MS: '60000',
+          CHECKPOINT_MAX_ROWS: '1000',
+          CHECKPOINT_MAX_PAYLOAD_BYTES: '1048576',
+          RESTORE_BATCH_LIMIT: '1',
+          RESTORE_MAX_BATCHES: '10',
+        },
+        input: promotionInput,
+        now: () => promotionAt,
+        createPool: (configuration) => {
+          const native = new pg.Pool(configuration);
+          promotionPools.push(native);
+          pools.push(native);
+          return native;
+        },
+        write: async (line) => {
+          const request = JSON.parse(line) as Record<string, unknown>;
+          if (request.event !== 'promotion_host_check') {
+            expect(promotionPools).toHaveLength(2);
+            expect(promotionPools.every((native) => native.ended && native.totalCount === 0)).toBe(
+              true,
+            );
+            completion.push(line);
+            return;
+          }
+          expect(request.operationRef === promotionOperationRef).toBe(true);
+          expect(request.sequence).toBe(requests.length + 1);
+          expect(request.challenge).toMatch(/^[a-f0-9]{32}$/u);
+          requests.push(request);
+          // The synthetic controller independently samples both actual clusters
+          // after each request, then returns the exact challenge over queued stdio.
+          await new Promise<void>((done, reject) => {
+            queueMicrotask(() => {
+              void Promise.all([
+                snapshot.pool.query<{ id: string }>(
+                  'select system_identifier::text as id from pg_catalog.pg_control_system()',
+                ),
+                targetProbe.query<{ id: string }>(
+                  'select system_identifier::text as id from pg_catalog.pg_control_system()',
+                ),
+              ])
+                .then(([sourceSample, targetSample]) => {
+                  expect(sourceSample.rows[0]?.id === actualSource.id).toBe(true);
+                  expect(targetSample.rows[0]?.id === targetSystemIdentifier).toBe(true);
+                  promotionInput.write(
+                    Buffer.from(
+                      JSON.stringify({ ...request, event: 'promotion_host_verified' }) + '\n',
+                    ),
+                  );
+                  done();
+                })
+                .catch(() => {
+                  reject(new Error('synthetic_promotion_host_sample_failed'));
+                });
+            });
+          });
+        },
+        error: (line) => {
+          promotionErrors.push(line);
+        },
+      });
+      promotionInput.destroy();
+      expect({ status: promotionStatus, stdout: completion, stderr: promotionErrors }).toEqual({
+        status: 0,
+        stdout: ['{"status":"completed","processed":1,"reasonCode":"ok"}\n'],
+        stderr: [],
+      });
+      expect(requests).toHaveLength(2);
+      expect(new Set(requests.map((request) => request.challenge)).size).toBe(2);
+      expect(
+        (
+          await target.query(
+            `select count(*)::int as count from "${snapshot.schema}".webhook_events where message_text is null`,
+          )
+        ).rows,
+      ).toEqual([{ count: 2 }]);
+      expect(
+        (
+          await target.query(
+            `select count(*) filter(where restore_ref=$1 and checkpoint_ref=$3)::int as original,count(*) filter(where restore_ref=$2 and checkpoint_ref=$4)::int as fresh from "${snapshot.schema}".operations_restore_bindings`,
+            [restoreRef, verificationRef, checkpoint.checkpointRef, freshCheckpoint.checkpointRef],
+          )
+        ).rows,
+      ).toEqual([{ original: 1, fresh: 1 }]);
+      expect(
+        (
+          await target.query(
+            `select count(*)::int as count from "${snapshot.schema}".runtime_recovery_holds hold where hold.restore_ref in ($1,$2) and not exists(select 1 from "${snapshot.schema}".runtime_recovery_reviews review where review.restore_ref=hold.restore_ref)`,
+            [restoreRef, verificationRef],
+          )
+        ).rows,
+      ).toEqual([{ count: 2 }]);
+      for (const authority of [snapshot.pool, target])
+        expect(
+          (
+            await authority.query(
+              'select count(*)::int as count from pg_catalog.pg_stat_activity where application_name=$1',
+              [operationApplicationName(promotionOperationRef)],
+            )
+          ).rows,
+        ).toEqual([{ count: 0 }]);
     } finally {
       for (const pool of pools) if (!pool.ended) await pool.end();
       await target?.end();

@@ -174,15 +174,24 @@ operations_exact_revision() {
 }
 
 operations_socket_root() {
-  local socket="${OPS_CONFIG[FCD_ADMIN_SOCKET_ROOT]}" path
+  local socket="${OPS_CONFIG[FCD_ADMIN_SOCKET_ROOT]}" path before
   [[ "$(id -u):$(id -g)" == 1000:1000 && -r "$socket" && -w "$socket" && -x "$socket" ]] || operations_fail operations_socket_root_invalid
   operations_private_directory "$socket" || operations_fail operations_socket_root_invalid
   for path in "$OPS_ROOT" "${OPS_CONFIG[FCD_CONFIG_ROOT]}" "${OPS_CONFIG[FCD_SECRET_ROOT]}" "${OPS_CONFIG[FCD_STATE_ROOT]}"; do
     operations_disjoint "$path" "$socket" || operations_fail operations_socket_root_invalid
   done
-  case "$OPS_ACTION" in verify|recover-admin-socket) ;;
-    *) [[ ! -e "$socket/admin.sock" && ! -L "$socket/admin.sock" ]] || operations_fail operations_socket_present ;;
-  esac
+  case "$OPS_ACTION" in verify|recover-admin-socket) return 0 ;; esac
+  [[ -e "$socket/admin.sock" || -L "$socket/admin.sock" ]] || return 0
+  # A managed READY source reaches its independently verified controlled drain
+  # with the socket intact. This never authorizes removal or target startup.
+  [[ "$OPS_ACTION" =~ ^(deploy|rollback|restore|promote)$ && "${OPS_DEPLOYMENT_HAS_SELECTION:-no}" == yes && -S "$socket/admin.sock" && ! -L "$socket/admin.sock" ]] || operations_fail operations_socket_present
+  before="$(stat -c '%d:%i:%u:%g:%a:%h' -- "$socket/admin.sock")" || operations_fail operations_socket_present
+  [[ "$before" =~ ^[0-9]{1,20}:[0-9]{1,20}:1000:1000:600:1$ ]] || operations_fail operations_socket_present
+  declare -F operations_selection_read >/dev/null || operations_fail operations_socket_present
+  (operations_selection_read
+    [[ "${OPS_SELECTION[STATE_PHASE]}" == ready && "${OPS_SELECTION[STATE_PROJECT]}" == "${OPS_CONFIG[FCD_RUNTIME_PROJECT]}" && "${OPS_SELECTION[STATE_DATABASE_NAME]}" == "${OPS_CONFIG[FCD_POSTGRES_DB]}" && "${OPS_SELECTION[STATE_SCHEMA_NAME]}" == "${OPS_CONFIG[FCD_DATABASE_SCHEMA]}" && "${OPS_SELECTION[STATE_VOLUME]}" == "${OPS_CONFIG[FCD_POSTGRES_VOLUME]}" ]]
+  ) >/dev/null 2>&1 || operations_fail operations_socket_present
+  [[ -S "$socket/admin.sock" && ! -L "$socket/admin.sock" && "$(stat -c '%d:%i:%u:%g:%a:%h' -- "$socket/admin.sock")" == "$before" ]] || operations_fail operations_socket_present
 }
 
 operations_image_revisions() {
@@ -210,7 +219,6 @@ operations_preflight() {
   operations_disjoint "${OPS_CONFIG[FCD_CONFIG_ROOT]}" "${OPS_CONFIG[FCD_SECRET_ROOT]}" || operations_fail operations_config_invalid
   operations_disjoint "${OPS_CONFIG[FCD_CONFIG_ROOT]}" "${OPS_CONFIG[FCD_STATE_ROOT]}" || operations_fail operations_config_invalid
   operations_disjoint "${OPS_CONFIG[FCD_SECRET_ROOT]}" "${OPS_CONFIG[FCD_STATE_ROOT]}" || operations_fail operations_config_invalid
-  operations_socket_root
   operations_exact_revision
   lock="${OPS_CONFIG[FCD_STATE_ROOT]}/deployment.lock"
   [[ -f "$lock" && ! -L "$lock" && "$(stat -c '%u:%g:%a' -- "$lock")" == 1000:1000:600 ]] || operations_fail operations_lock_invalid
@@ -227,6 +235,7 @@ operations_preflight() {
   done
   OPS_DEPLOYMENT_HAS_SELECTION=yes
   if declare -F operations_preflight_selection >/dev/null; then operations_preflight_selection; fi
+  operations_socket_root
   unset OPS_DOCKER_ENDPOINT
   OPS_DOCKER_ENDPOINT="$(operations_docker context inspect --format '{{(index .Endpoints "docker").Host}}')" || operations_fail operations_daemon_invalid
   [[ "$OPS_DOCKER_ENDPOINT" == unix:///* ]] && operations_absolute_path "${OPS_DOCKER_ENDPOINT#unix://}" || operations_fail operations_daemon_invalid

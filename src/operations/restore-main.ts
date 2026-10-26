@@ -162,7 +162,7 @@ async function readBytes(
   return bytes;
 }
 
-async function connectionString(
+export async function connectionString(
   read: NonNullable<RestoreCommandOptions['readSecret']>,
   file: string,
   expected: {
@@ -202,7 +202,7 @@ async function connectionString(
   }
 }
 
-async function verifyPool(
+export async function verifyPool(
   pool: pg.Pool,
   expected: DatabaseIdentity,
   role: string,

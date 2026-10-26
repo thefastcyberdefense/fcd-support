@@ -34,6 +34,30 @@ quarantine, recovery hold and pool shutdown before acknowledgement. This does
 not wire the public restore/promotion commands or authorize an application
 attachment to a restored volume.
 
+The subsequent internal promotion driver requires two fresh, bounded,
+replay-resistant host stdio exchanges while the existing reconciliation library
+retains its source freeze. It checks source/target physical identities and the
+prior restore binding, applies current deletion evidence and closes both pools
+before acknowledging. Networkless metadata conversion and protected immutable
+restore intent/completion records are descriptive only; no target selection or
+application attachment follows from them. Managed READY deployments may retain
+their protected live Unix socket until the separately verified controlled drain;
+the exception requires the held deployment lock, current protected selection and
+stable socket identity, and performs no Docker or socket mutation.
+
+Automatic approval review rejected the proposed combined Compose change that
+gave source-network access and all bootstrap passwords to a restore job. The
+patch was not applied. `docs/reviews/phase-6-restore-capability-boundary.md`
+recommends separate target-only bootstrap/migration jobs and narrow source/target
+reconciliation jobs. That explicit design decision is pending; the combined
+transport/controller drafts are excluded from active source and commits.
+
+Latest prerequisite verification: `VITEST_MAX_WORKERS=4 npm run check` passed
+1,444 tests with 365 platform skips across 100 files. Native restore passed
+142 units across eight files and 46 PostgreSQL cases across two files; native
+live-socket preflight passed 21 cases. This does not replace the final failure
+matrix, whole-phase review or server-deployment verification.
+
 Tasks 12–14 now have scheduler, health/dashboard and signed private notification
 components under aggregate validation. Operational limits are customizable;
 closed protocol bounds and authorization invariants remain enforced. Deletion

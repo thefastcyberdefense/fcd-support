@@ -4,6 +4,53 @@
 
 This is an intermediate Task 11 checkpoint, not a deployment or restore gate pass.
 
+### Restore metadata, promotion protocol and live-socket prerequisites
+
+The next local prerequisite checkpoint adds a networkless strict target-metadata
+codec and protected literal restore intent/completion history. An intent binds
+source selection, physical identity, archive/checkpoint references, target scope,
+images and revision before mutation. Completion requires the same quiescent source
+and canonical target metadata, retains the immutable intent and refuses reused
+references/targets, partial files, unsafe links/modes and changed source history.
+Neither record is promotion authority or changes the selected volume.
+
+The internal promotion command accepts only source checkpoint and target owner
+database capabilities plus required deletion/checkpoint material. It refuses
+archive/bootstrap/migrator credentials, binds actual sessions to physical database
+identities and validates the previous restore binding. Two fresh canonical stdio
+challenges couple the existing source-freeze/reconciliation library to future host
+checks. Replayed, substituted, unsolicited, truncated, stalled or aborted exchanges
+refuse; final acknowledgement requires both checks and successful pool shutdown.
+The two-cluster native case exercises real post-archive deletion and both bindings;
+it does not establish a host volume switch or deployed-runtime promotion.
+
+Shared preflight now acquires the deployment lock and loads protected selection
+before testing the admin socket, still before its first Docker call. Only a
+matching managed READY deployment may retain a real UID/GID 1000, mode-0600,
+single-link Unix socket with stable device/inode identity until controlled drain.
+Initial admission and non-ready/unsafe evidence still refuse a present socket.
+This preflight never connects, unlinks, changes permissions or stops a process;
+the existing verify/recovery semantics remain unchanged.
+
+Verification exited 0: the full code gate passed 1,444 tests with 365 platform
+skips across 100 files (27.80 seconds for tests); native `restore` passed 142 unit
+tests across eight files and 46 PostgreSQL integrations across two files
+(28.38 seconds for integration). Native focused socket preflight passed all
+21 cases, including 14 real Linux filesystem/Unix-socket cases. These are authored
+synthetic local tests. The existing native host-preflight suite also passed all
+50 cases after the call-order change. No server, browser, Meta, Manifest, n8n or
+provider check is claimed.
+
+Automatic approval review rejected the combined Compose patch that attached
+restore/promotion to the source operations network and supplied all bootstrap
+password files. It was not applied. The safer split-job proposal at
+`docs/reviews/phase-6-restore-capability-boundary.md` separates target-only password
+bootstrap/migration from jobs with source reachability. Its explicit owner decision
+is pending; no production Compose/network/secret-mount change or server deployment
+has occurred. Public restore/promotion wiring remains disabled.
+
+### Earlier integration checkpoint
+
 The 2026-10-26 integration work also adds a standalone restricted-capability
 restore command, revision-pinned scheduler primitives, private health/dashboard
 components and signed notification delivery. The actual synthetic restore-command
