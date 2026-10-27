@@ -858,3 +858,33 @@ PostgreSQL cases/2 files (34.87 seconds). Sixteen path regressions and both
 closed-output rejection cases were observed failing first. Formatting, strict
 typing, lint, shell syntax and whitespace checks pass. New CI execution and a
 fresh exact-source host restore remain required; no uncertain job was replayed.
+
+### Split-settings deployment action
+
+Use full source `8ccb9a09bd0c264376ce76e36694659c7d47815b` from the clean server
+checkout at `5d35777e2e32f4f30d6c90fdec05507d43765cd2`. Fresh runtime/root is
+`fcd-support-host-test-p6-8ccb9a0` under `/home/redwan`; its exact target project
+and volume are `fcd-support-restore-host-test-p6-8ccb9a0` and the same name with
+`-data`. Preserve the entire `5d35777` source/target, restore intent and uncertain
+stream journal; no operation actor may be running before checkout changes.
+
+Reserve subnets by retiring only the older `91eb8f3` PostgreSQL/peer actors and
+eight bridges. Require its selection uncertain, writes impossible, schema
+`000000`, bootstrap journal uncertain with actor `pending`, and a successful
+operation-parent actor listing empty. Verify initial image IDs/revision, physical
+database identity, exact project/service/user/root/publication/volume metadata
+and peer label/no mounts. Apply the existing two-actor exact-ID stop/recheck/
+non-force-remove and eight empty-owned-bridge procedure. Preserve every volume,
+credential, immutable intent, selection, journal and used-volume record. This
+releases failed-fixture resources only; it does not reconcile or resume that job.
+
+Fingerprint every existing fixture-state root and original admission snapshot
+before/after. Fetch origin, check out the exact new source detached, require a
+clean tree and run all Docker canaries plus the full synthetic deployment runner
+with that revision and `--synthetic-only`, stdin closed. After successful private
+deploy/verify/HTTP/socket checks, repeat the recorded backup/replay, verified
+daily-reference selection, checkpoint export, public restore, successful public
+promotion and retained same-revision rollback matrix using only the new scope.
+Stop on any refusal, preserve both databases and uncertainty, and report only
+closed evidence. No previous job replay, production/admission adoption, provider
+call, global network-pool change or public route mutation is included.
