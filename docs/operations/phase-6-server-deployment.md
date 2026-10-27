@@ -405,3 +405,46 @@ actions, private flags, retained-stack checks and failure/rollback limits match
 the committed script and preceding records. On success retain its synthetic
 private runtime for the next tests; on failure preserve its uncertain state.
 No production/customer/provider/tunnel action is included.
+
+### Stage B same-revision diagnostic action
+
+At `50abeb8`, both actual Docker projections passed on the server, but the new
+controller attempt still refused before a PostgreSQL actor appeared. Preserve
+that third initialization record and all earlier fixtures. Read-only volume and
+Compose/dry-run checks passed; no existing initialization may be resumed to
+capture a better error.
+
+A separate fresh diagnostic namespace is authorized under the same repeated
+test-server scope: `fcd-support-host-test-p6-50abeb8-diag`, protected root
+`/home/redwan/fcd-support-host-test-p6-50abeb8-diag`. Require the clean checkout
+to remain exactly `50abeb8e94f4e5ca467178039353a1c657a13f73`, no active operation
+job, absent diagnostic resources, adequate capacity and unchanged old admission
+snapshots. Use the committed fixture generator with that namespace and revision.
+Reuse the three already verified `50abeb8` images by explicit inspected image
+IDs in the new protected configuration; do not rebuild or change any image.
+
+Provision only this fresh fixture's age identity/recipient, two PostgreSQL
+password ownerships, backup volume, internal ingress/ordinary-egress bridges and
+synthetic peer as in the committed drill. Keep all external execution false.
+Invoke the same public controller through its loaded repository functions:
+
+```bash
+source scripts/operations-common.sh
+source scripts/operations-controller.sh
+operations_main deploy 50abeb8e94f4e5ca467178039353a1c657a13f73 \
+  --mode private-disabled \
+  /home/redwan/fcd-support-host-test-p6-50abeb8-diag/config/operations.env
+```
+
+This still performs the public argument, exact source, protected configuration,
+flock, intent, image, volume and capability checks. It must not override a guard
+or publish a selection through a private helper. Enable Bash function-line tracing
+only: record source filename and line number to a private descriptor; never use
+`set -x`, `BASH_COMMAND`, expanded arguments, environments or secret values.
+Close stdin for deployment. This trace observes the real failing control path
+without modifying source on Ubuntu or changing failure semantics.
+
+On failure preserve the new state and diagnostics. On success run the public
+verify command and normal private checks before any readiness claim. Retained
+admission and all three prior intent fingerprints must remain unchanged. The
+same no-fallback/no-public-route/no-provider rollback limits apply.
