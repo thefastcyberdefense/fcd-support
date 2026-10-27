@@ -1,17 +1,27 @@
 #!/usr/bin/env bash
 # Real-host synthetic controller proof. Never loads the admission configuration.
 set -Eeuo pipefail
-[[ "$#" == 2 && "$1" =~ ^[a-f0-9]{40}$ && "$2" == --synthetic-only ]] || { printf 'synthetic_host_arguments_invalid\n' >&2; exit 1; }
+[[ "$#" == 2 && "$1" =~ ^[a-f0-9]{40}$ && ( "$2" == --synthetic-only || "$2" == --ephemeral-ci ) ]] || { printf 'synthetic_host_arguments_invalid\n' >&2; exit 1; }
 revision="$1"
+mode="$2"
+operator_home=/home/redwan
 project="fcd-support-host-test-p6-${revision:0:7}"
-restore_project="fcd-support-restore-host-test-p6-${revision:0:7}"
-fixture="/home/redwan/$project"
+if [[ "$mode" == --ephemeral-ci ]]; then
+  [[ "${GITHUB_ACTIONS:-}" == true ]] || { printf 'synthetic_host_ci_context_invalid\n' >&2; exit 1; }
+  operator_home=/home/fcd-support-ci
+  project="fcd-support-host-test-ci-${revision:0:7}"
+fi
+restore_project="${project/fcd-support-host-test-/fcd-support-restore-host-test-}"
+fixture="$operator_home/$project"
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 stage=preflight
 trap 'printf "synthetic_host_failed=%s\n" "$stage" >&2' ERR
-[[ "$(uname -s)" == Linux && "$(id -u):$(id -g)" == 1000:1000 && "$root" == /home/redwan/apps/fcd-support ]]
+[[ "$(uname -s)" == Linux && "$(id -u):$(id -g)" == 1000:1000 ]]
+if [[ "$mode" == --ephemeral-ci ]]; then
+  [[ "$root" == /home/fcd-support-ci/repository && -z "$(docker ps --all --quiet --no-trunc)" ]]
+else [[ "$root" == /home/redwan/apps/fcd-support ]]; fi
 [[ "$(git -C "$root" rev-parse HEAD)" == "$revision" && -z "$(git -C "$root" status --porcelain=v1 --untracked-files=all)" ]]
-[[ "$(realpath -e /home/redwan)" == /home/redwan && "$(stat -c '%u' /home/redwan)" == 1000 ]]
+[[ "$(realpath -e "$operator_home")" == "$operator_home" && "$(stat -c '%u' "$operator_home")" == 1000 ]]
 [[ ! -e "$fixture" && ! -L "$fixture" ]]
 [[ "$(df -Pk /var/lib/docker | awk 'NR==2 {print $4}')" -ge 12582912 ]]
 [[ -z "$(docker ps -aq --filter "label=com.docker.compose.project=$project")" ]]
@@ -19,9 +29,13 @@ trap 'printf "synthetic_host_failed=%s\n" "$stage" >&2' ERR
 for name in "$project-ingress" "$project-egress" "$restore_project-data"; do ! docker network inspect "$name" >/dev/null 2>&1; done
 for name in "$project-postgres" "$project-backups" "$restore_project-data"; do ! docker volume inspect "$name" >/dev/null 2>&1; done
 for role in application operations postgres; do ! docker image inspect "$project-$role:$revision" >/dev/null 2>&1; done
-snapshot() { docker container inspect --format '{{.Id}}/{{.State.StartedAt}}/{{.State.Running}}' fcd-support-fcd-support-api-1 fcd-support-postgres-1 fcd-support-cloudflared; }
+snapshot() {
+  if [[ "$mode" == --ephemeral-ci ]]; then
+    docker ps --all --quiet --no-trunc --filter label=com.docker.compose.project=fcd-support
+  else docker container inspect --format '{{.Id}}/{{.State.StartedAt}}/{{.State.Running}}' fcd-support-fcd-support-api-1 fcd-support-postgres-1 fcd-support-cloudflared; fi
+}
 before="$(snapshot)"
-[[ "$(printf '%s\n' "$before" | grep -c '/true$')" == 3 ]]
+if [[ "$mode" == --ephemeral-ci ]]; then [[ -z "$before" ]]; else [[ "$(printf '%s\n' "$before" | grep -c '/true$')" == 3 ]]; fi
 umask 077
 stage=fixture
 cd "$root"

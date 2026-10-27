@@ -18,6 +18,18 @@ target creation; healthy source actors and uncertain selection remain preserved.
 Actual Docker projection regression reproduces a doubled mount separator.
 Full restore/switch and the remaining interruption/recovery matrix are still open.
 
+The controller smoke harness now has a separate `--ephemeral-ci` mode for
+disposable GitHub runners. It requires the Actions context, a fixed protected
+UID/GID-1000 checkout/root and an initially empty daemon. The server mode retains
+its existing exact server path and admission-preservation checks. The workflow
+uses a pinned Node toolchain, copies credential-free source into that protected
+root, and exercises real deploy/verify/HTTP/socket behavior with only generated
+fixtures and disabled providers. No protected host logs or generated secrets are
+uploaded. Mode-context refusal failed first; eleven focused tests, formatting,
+lint and strict typecheck pass. A workflow definition alone is not execution
+evidence: record its actual result after push. The intentionally retained test
+stack exists only until the disposable runner is destroyed.
+
 The exact action records, revisions, failures and scoped cleanup are in
 `../operations/phase-6-server-deployment.md`. On the approved Ubuntu server,
 authored synthetic fixtures passed:

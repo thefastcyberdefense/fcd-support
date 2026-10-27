@@ -1,0 +1,42 @@
+name: Private runtime controller
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runtime-host-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  private-runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository without retained credentials
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up the pinned Node.js toolchain
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+      - name: Exercise the real private controller on this disposable runner
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          task_root=/home/fcd-support-ci
+          [[ ! -e "$task_root" && ! -L "$task_root" ]]
+          task_operator="$(getent passwd 1000 | cut -d: -f1)"
+          [[ -n "$task_operator" && "$(id -g "$task_operator")" == 1000 ]]
+          sudo usermod -aG docker "$task_operator"
+          sudo install -d -m 0700 -o 1000 -g 1000 "$task_root" "$task_root/repository"
+          [[ "$(sudo realpath -e "$task_root/repository")" == /home/fcd-support-ci/repository ]]
+          sudo cp -a -- "$GITHUB_WORKSPACE/." "$task_root/repository/"
+          sudo chown -R --no-dereference 1000:1000 "$task_root/repository"
+          sudo --user "$task_operator" --group '#1000' env PATH="$PATH" GITHUB_ACTIONS=true \
+            bash -c 'cd /home/fcd-support-ci/repository && exec bash scripts/test-synthetic-runtime-deployment.sh "$1" --ephemeral-ci' bash "$GITHUB_SHA"

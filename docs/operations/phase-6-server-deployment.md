@@ -818,3 +818,9 @@ The exact configured target is `fcd-support-restore-host-test-p6-5d35777`, volum
 `fcd-support-restore-host-test-p6-5d35777-data`. Preserve both source/target volumes
 and all uncertain state on failure; no automatic replay, pointer repair or
 fallback is included. Keep all providers disabled and all other assets unchanged.
+
+At `5d35777`, all five Linux Docker canaries and the entire fresh deployment
+runner passed, including public deploy/verify, private HTTP/socket checks and
+unchanged prior history/admission snapshots. Scheduled backup plus replay again
+passed with the same three signed archives. The corrected restore matrix is
+running separately; those earlier passes do not establish its outcome.

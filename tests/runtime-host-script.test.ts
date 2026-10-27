@@ -20,6 +20,17 @@ test.each(
   },
 );
 
+test('ephemeral host mode refuses outside an explicit GitHub Actions context', () => {
+  const result = spawnSync(
+    process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash',
+    ['scripts/test-synthetic-runtime-deployment.sh', 'a'.repeat(40), '--ephemeral-ci'],
+    { encoding: 'utf8', timeout: 5000, env: { ...process.env, GITHUB_ACTIONS: 'false' } },
+  );
+  expect(result.status).toBe(1);
+  expect(result.stdout).toBe('');
+  expect(result.stderr).toBe('synthetic_host_ci_context_invalid\n');
+});
+
 test('actual host HTTP probe exercises JSON signature rejection without admitting work', async () => {
   const source = await readFile('scripts/test-synthetic-runtime-deployment.sh', 'utf8');
   const probe = /docker exec "\$peer" node --input-type=module -e '([^']+)'/u.exec(source)?.[1];
