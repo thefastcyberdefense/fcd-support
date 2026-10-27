@@ -135,7 +135,7 @@ operations_runtime_selection_context() {
 operations_inspect_host() {
   local mode="$1" field model before after image validator_image result payload volume_identity selected_identifier selection_stamp binding=''
   local OPS_DATABASE_SYSTEM_IDENTIFIER=''
-  local -a arguments=()
+  local -a arguments=() diagnostics=()
   [[ "$#" == 1 && ( "$mode" == runtime || "$mode" == bootstrap ) ]] || operations_fail runtime_host_invalid
   operations_runtime_selection_context "$mode"
   volume_identity="$OPS_RUNTIME_VOLUME_IDENTITY"; selected_identifier="$OPS_RUNTIME_SELECTED_IDENTIFIER"; selection_stamp="$OPS_RUNTIME_SELECTION_STAMP"
@@ -170,8 +170,10 @@ operations_inspect_host() {
     payload="$(printf '{"compose":%s,"samples":{"before":%s,"after":%s,"probes":{"postgresSql":true,"apiHttp":true,"adminSocket":true,"adminNoTcp":true,"replyHeartbeat":true}}%s}' "$model" "$before" "$after" "$binding")"
     arguments=("${OPS_CONFIG[FCD_SUPPORT_REVISION]}" "${OPS_CONFIG[FCD_ADMIN_SOCKET_ROOT]}" "${OPS_CONFIG[FCD_CONFIG_ROOT]}" "${OPS_CONFIG[FCD_SECRET_ROOT]}" "$OPS_ROOT" "${OPS_CONFIG[FCD_INGRESS_PEER_ID]}")
   fi
+  if [[ "${FCD_RUNTIME_HOST_DIAGNOSTICS:-}" == closed-v1 ]]; then diagnostics=(--env FCD_RUNTIME_HOST_DIAGNOSTICS=closed-v1); fi
   result="$({ printf '%s' "$payload" | \
     operations_docker run --rm --interactive --pull never --network none --read-only --user 1000:1000 \
+      "${diagnostics[@]}" \
       --label "fcd-support.runtime-inspection=${OPS_CONFIG[FCD_RUNTIME_PROJECT]}" --cap-drop ALL --security-opt no-new-privileges \
       --cpus "${OPS_CONFIG[FCD_ADMIN_CPUS]}" --memory "${OPS_CONFIG[FCD_ADMIN_MEMORY_MIB]}m" --pids-limit "${OPS_CONFIG[FCD_ADMIN_PIDS]}" \
       --entrypoint node "$validator_image" dist/operations/runtime-host-main.js "${arguments[@]}"; } 2>/dev/null)" || operations_fail runtime_host_invalid

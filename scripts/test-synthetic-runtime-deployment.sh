@@ -70,10 +70,11 @@ stage=deploy
 if [[ "$mode" == --ephemeral-ci ]]; then
   cat >"$fixture/logs/trace-entry.bash" <<'TRACE'
 exec 3>"${FCD_SYNTHETIC_TRACE:?}"
+source "${FCD_SYNTHETIC_EVIDENCE_LIBRARY:?}"
 set -o functrace
-trap 'trace_status=$?; trace_source="${BASH_SOURCE[0]-stdin}"; printf "%s:%s:previous=%s\n" "${trace_source##*/}" "$LINENO" "$trace_status" >&3' DEBUG
+trap 'trace_status=$?; trace_source="${BASH_SOURCE[0]-stdin}"; printf "%s:%s:previous=%s\n" "${trace_source##*/}" "$LINENO" "$trace_status" >&3; synthetic_host_runtime_diagnostic "${result-}" >&3' DEBUG
 TRACE
-  BASH_ENV="$fixture/logs/trace-entry.bash" FCD_SYNTHETIC_TRACE="$fixture/logs/deploy-lines.log" \
+  BASH_ENV="$fixture/logs/trace-entry.bash" FCD_SYNTHETIC_TRACE="$fixture/logs/deploy-lines.log" FCD_SYNTHETIC_EVIDENCE_LIBRARY="$root/scripts/synthetic-host-evidence.sh" FCD_RUNTIME_HOST_DIAGNOSTICS=closed-v1 \
     bash scripts/deploy-runtime.sh "$revision" --mode private-disabled "$fixture/config/operations.env" >"$fixture/logs/deploy.log" 2>&1 </dev/null
 else
   bash scripts/deploy-runtime.sh "$revision" --mode private-disabled "$fixture/config/operations.env" >"$fixture/logs/deploy.log" 2>&1 </dev/null

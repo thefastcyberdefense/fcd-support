@@ -752,6 +752,49 @@ test('bootstrap host proof requires only the selected PostgreSQL on all six priv
   });
 });
 
+test('runtime host refusal identifies a fixed schema field without exposing its value or unknown keys', () => {
+  const f = bootstrapHostFixture();
+  const pg = f.samples.before.containers[0];
+  if (pg === undefined) throw new Error('synthetic_fixture_invalid');
+  const samples = structuredClone(f.samples) as unknown as {
+    before: { containers: Record<string, unknown>[] };
+  };
+  const container = samples.before.containers[0];
+  if (container === undefined) throw new Error('synthetic_fixture_invalid');
+  container.healthy = 'synthetic_private_value';
+  expect(() => inspectBootstrapDatabaseSamples(samples, f.compose, f.options)).toThrow(
+    /^runtime_host_invalid$/u,
+  );
+  try {
+    inspectBootstrapDatabaseSamples(samples, f.compose, f.options);
+    throw new Error('synthetic_refusal_missing');
+  } catch (error) {
+    expect(error).toMatchObject({ diagnosticCode: 'samples.healthy' });
+    expect(JSON.stringify(error)).not.toContain('synthetic_private_value');
+  }
+  container.healthy = true;
+  container.synthetic_private_key = 'synthetic_private_value';
+  try {
+    inspectBootstrapDatabaseSamples(samples, f.compose, f.options);
+    throw new Error('synthetic_refusal_missing');
+  } catch (error) {
+    expect(error).toMatchObject({ diagnosticCode: 'samples.containers' });
+    expect(JSON.stringify(error)).not.toContain('synthetic_private');
+  }
+});
+
+test('runtime host refusal identifies a fixed comparison stage without exposing actual metadata', () => {
+  const f = bootstrapHostFixture();
+  f.samples.before.volume.name = 'synthetic_wrong_volume';
+  try {
+    inspectBootstrapDatabaseSamples(f.samples, f.compose, f.options);
+    throw new Error('synthetic_refusal_missing');
+  } catch (error) {
+    expect(error).toMatchObject({ message: 'runtime_host_invalid', diagnosticCode: 'volume' });
+    expect(JSON.stringify(error)).not.toContain('synthetic_wrong_volume');
+  }
+});
+
 test.each(['runtime', 'bootstrap'] as const)(
   'protected volume binding permits a selected restored origin in %s mode only with its exact identity',
   (mode) => {
@@ -938,16 +981,17 @@ test.runIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS === 'synthetic-operations-tool
       stdout: '{"status":"verified"}\n',
       stderr: '',
     });
-    for (const [parameters, input] of [
-      [args.slice(1), body],
-      [args, '{'],
-      [args, 'x'.repeat(1048577)],
+    for (const [parameters, input, diagnostic] of [
+      [args.slice(1), body, 'arguments'],
+      [args, '{', 'input'],
+      [args, 'x'.repeat(1048577), 'input'],
       [
         args,
         JSON.stringify({
           compose: f.compose,
           samples: { ...f.samples, probes: { ...f.samples.probes, adminNoTcp: false } },
         }),
+        'samples.adminNoTcp',
       ],
     ] as const) {
       const refused = spawnSync(process.execPath, [entry, ...parameters], {
@@ -959,6 +1003,22 @@ test.runIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS === 'synthetic-operations-tool
       expect({ status: refused.status, stdout: refused.stdout, stderr: refused.stderr }).toEqual({
         status: 1,
         stdout: '',
+        stderr: 'runtime_host_invalid\n',
+      });
+      const diagnosed = spawnSync(process.execPath, [entry, ...parameters], {
+        input,
+        encoding: 'utf8',
+        timeout: 3000,
+        maxBuffer: 2048,
+        env: { ...process.env, FCD_RUNTIME_HOST_DIAGNOSTICS: 'closed-v1' },
+      });
+      expect({
+        status: diagnosed.status,
+        stdout: diagnosed.stdout,
+        stderr: diagnosed.stderr,
+      }).toEqual({
+        status: 1,
+        stdout: `runtime_host_diagnostic=${diagnostic}\n`,
         stderr: 'runtime_host_invalid\n',
       });
     }

@@ -25,6 +25,18 @@ jobs:
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version-file: .node-version
+      - name: Install the pinned Compose renderer
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          task_compose="$RUNNER_TEMP/fcd-support-compose-5.5.1"
+          [[ ! -e "$task_compose" && ! -L "$task_compose" ]]
+          curl --proto '=https' --tlsv1.2 --fail --show-error --silent --location \
+            --output "$task_compose" \
+            https://github.com/docker/compose/releases/download/v5.5.1/docker-compose-linux-x86_64
+          printf '%s  %s\n' db1889184726840f75c4f9c001048430d4f25b3be3cb084d3ddd762bc0aed576 "$task_compose" | sha256sum --check --status
+          sudo install -D -m 0755 -- "$task_compose" /usr/local/lib/docker/cli-plugins/docker-compose
+          [[ "$(docker compose version --short)" == 5.5.1 ]]
       - name: Exercise the real private controller on this disposable runner
         shell: bash
         run: |
@@ -33,6 +45,8 @@ jobs:
           [[ ! -e "$task_root" && ! -L "$task_root" ]]
           task_operator="$(getent passwd 1000 | cut -d: -f1)"
           [[ -n "$task_operator" && "$(id -g "$task_operator")" == 1000 ]]
+          sudo --set-home --user "$task_operator" --group '#1000' env -i PATH="$PATH" LC_ALL=C \
+            bash -c '[[ "$(docker compose version --short)" == 5.5.1 ]]'
           sudo usermod -aG docker "$task_operator"
           sudo install -d -m 0700 -o 1000 -g 1000 "$task_root" "$task_root/repository"
           [[ "$(sudo realpath -e "$task_root/repository")" == /home/fcd-support-ci/repository ]]

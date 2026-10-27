@@ -989,3 +989,38 @@ variant. Never resume the old target/intent, repair selection or replay an
 uncertain job. Preserve all volumes and immutable old intent fingerprints;
 compare every other fixture and admission snapshot afterwards. Any further
 restart, unexpected peer, pending job or identity change refuses execution.
+
+### Capacity proof and blocked intent recovery
+
+The isolated capacity canary confirmed Docker's exhausted-pool response. The
+one stopped synthetic peer and its two empty owned bridges were released;
+all state fingerprints, volumes and admission snapshots matched. The separate
+`r2` configuration was created with private permissions and the recorded
+600000-ms test bound. A new narrow checkpoint exported successfully.
+
+The public retry then refused before creating any new intent/resource. Read-only
+preflight verified retained images, source storage, target absence and rendered
+Compose; the remaining guard is deliberate: `restore_state_begin` refuses every
+unresolved historical intent, even when a different target/ref is requested.
+The old empty partial target therefore needs an explicit verified abandonment/
+reconciliation path before another attempt. No record was removed, rewritten or
+represented as completed. This is an implementation gap in Task 11 recovery;
+the earlier retry action does not authorize bypassing it.
+
+### Reproducible CI renderer and closed diagnostics
+
+An independent reproduction used both checksum-verified official renderers,
+the real runtime Compose file and compiled contract with a fresh synthetic
+fixture in a hardened networkless container. Compose 2.38.2 omitted explicit
+`bind.create_host_path:false` and failed; 5.5.1 retained it and passed. CI now
+pins 5.5.1 by SHA-256 and checks the version actually invoked under UID 1000
+and the controller's empty-environment convention. Runtime boundary predicates
+remain unchanged. The fixture/binaries/container were cleaned up.
+
+Opt-in networkless validator diagnostics now expose only fixed stages and known
+schema field names, with unchanged refusal status/default generic output. Parent
+review/focused checks passed 130 cases with 30 complementary native skips; the
+complete four-worker code gate passed 1730/368 platform skips/117 files in
+203.77 seconds. The compiled diagnostic CLI case passed separately. Arbitrary
+keys, values, errors and command text are not emitted. Actual new CI execution
+still determines the installed controller result; no CI pass is inferred here.

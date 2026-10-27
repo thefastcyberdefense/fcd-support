@@ -162,6 +162,73 @@ const commands = {
 const flags = ['MODEL_EXECUTION_ENABLED', 'OUTBOUND_EXECUTION_ENABLED', 'N8N_EXECUTION_ENABLED'];
 const credentialName =
   /(?:^|_)(?:SECRET|TOKEN|PASSWORD|API_KEY|ACCESS_KEY|PRIVATE_KEY|DATABASE_URL|SESSION_KEY|HMAC_KEY)(?:_|$)/u;
+type DiagnosticStage =
+  | 'revision'
+  | 'ingress'
+  | 'compose'
+  | 'paths'
+  | 'samples'
+  | 'volume_identity'
+  | 'topology'
+  | 'images'
+  | 'volume'
+  | 'network_set'
+  | 'network_labels'
+  | 'network_members'
+  | 'container_policy'
+  | 'container_networks'
+  | 'tmpfs'
+  | 'mounts'
+  | 'binds'
+  | 'protected_binds'
+  | 'socket_users'
+  | 'stability';
+// Never copy an unknown property name, Zod message, issue input or actual value.
+const diagnosticFields = new Set([
+  ...Object.keys(container.shape),
+  ...Object.keys(mount.shape),
+  ...Object.keys(snapshot.shape),
+  ...Object.keys(snapshot.shape.volume.shape),
+  ...Object.keys(image.shape),
+  'before',
+  'after',
+  'probes',
+  'postgresSql',
+  'apiHttp',
+  'adminSocket',
+  'adminNoTcp',
+  'replyHeartbeat',
+  'driver',
+  'scope',
+  'internal',
+  'logicalName',
+  'members',
+  'containerId',
+  'canonicalSource',
+  'device',
+  'inode',
+  'uid',
+  'gid',
+  'mode',
+  'rootDevice',
+  'rootInode',
+  'rootUid',
+  'rootGid',
+  'rootMode',
+]);
+export class RuntimeHostValidationError extends Error {
+  readonly diagnosticCode: string;
+  constructor(stage: DiagnosticStage, error: unknown) {
+    super('runtime_host_invalid');
+    const field =
+      error instanceof z.ZodError
+        ? error.issues[0]?.path.findLast(
+            (part): part is string => typeof part === 'string' && diagnosticFields.has(part),
+          )
+        : undefined;
+    this.diagnosticCode = stage + (field === undefined ? '' : `.${field}`);
+  }
+}
 function invalid(): never {
   throw new Error('runtime_host_invalid');
 }
@@ -214,11 +281,15 @@ function inspectHostSamples(
   options: Omit<RuntimeHostOptions, 'ingressPeerId'> & { readonly ingressPeerId?: string },
   bootstrap: boolean,
 ): { readonly status: 'verified' } {
+  let stage: DiagnosticStage = 'revision';
   try {
     revision.parse(options.revision);
+    stage = 'ingress';
     const ingressPeerId = bootstrap ? undefined : id.parse(options.ingressPeerId);
     const roles: readonly (typeof activeRoles)[number][] = bootstrap ? ['postgres'] : activeRoles;
+    stage = 'compose';
     const config = readPrivateRuntimeCompose(renderedCompose, options.revision, options.paths);
+    stage = 'paths';
     for (const p of Object.values(options.paths)) path.parse(p);
     const runtimeSamples = z.strictObject({
       before: snapshot,
@@ -231,9 +302,11 @@ function inspectHostSamples(
         replyHeartbeat: z.literal(true),
       }),
     });
+    stage = 'samples';
     const samples = (
       bootstrap ? z.strictObject({ before: snapshot, after: snapshot }) : runtimeSamples
     ).parse(input);
+    stage = 'volume_identity';
     const expectedVolume = config.volumes?.['postgres-data']?.name;
     if (expectedVolume === undefined) invalid();
     const selected =
@@ -255,6 +328,7 @@ function inspectHostSamples(
       } else if (selected.project !== null) invalid();
     }
     for (const actual of [samples.before, samples.after]) {
+      stage = 'topology';
       if (
         (bootstrap ? actual.socket !== null : actual.socket === null) ||
         !same(
@@ -264,6 +338,7 @@ function inspectHostSamples(
         new Set(actual.containers.map((c) => c.id)).size !== roles.length
       )
         invalid();
+      stage = 'images';
       for (const [role, img] of Object.entries(actual.images)) {
         if (
           img.revision !== options.revision ||
@@ -275,6 +350,7 @@ function inspectHostSamples(
       }
       const postgres = actual.containers.find((c) => c.service === 'postgres');
       const admin = actual.containers.find((c) => c.service === 'fcd-support-admin');
+      stage = 'volume';
       if (
         postgres === undefined ||
         (!bootstrap && admin === undefined) ||
@@ -288,6 +364,7 @@ function inspectHostSamples(
       const networkKeys = [
         ...new Set(roles.flatMap((role) => Object.keys(config.services[role]?.networks ?? {}))),
       ];
+      stage = 'network_set';
       if (
         !same(
           actual.networks.map((n) => n.name),
@@ -297,6 +374,7 @@ function inspectHostSamples(
       )
         invalid();
       for (const key of networkKeys) {
+        stage = 'network_labels';
         const net = actual.networks.find((n) => n.name === config.networks[key]?.name);
         if (
           net === undefined ||
@@ -310,9 +388,11 @@ function inspectHostSamples(
           if (ingressPeerId === undefined) invalid();
           members.push(ingressPeerId);
         }
+        stage = 'network_members';
         if (!same(net.members, members)) invalid();
       }
       for (const c of actual.containers) {
+        stage = 'container_policy';
         const expected = config.services[c.service];
         if (
           expected === undefined ||
@@ -356,6 +436,7 @@ function inspectHostSamples(
         const expectedNetworks = Object.keys(expected.networks).map(
           (key) => config.networks[key]?.name ?? '',
         );
+        stage = 'container_networks';
         if (
           !same(
             c.networks.map((n) => n.name),
@@ -365,6 +446,7 @@ function inspectHostSamples(
           c.networks.some((net) => actual.networks.find((n) => n.name === net.name)?.id !== net.id)
         )
           invalid();
+        stage = 'tmpfs';
         const expectedTmpfs = Object.fromEntries(
           expected.tmpfs.map((entry) => {
             const [p, v] = entry.split(':');
@@ -376,6 +458,7 @@ function inspectHostSamples(
           Object.entries(c.tmpfs).some(([p, v]) => tmpfsOptions(v) !== expectedTmpfs[p])
         )
           invalid();
+        stage = 'mounts';
         const expectedMounts: z.infer<typeof mount>[] = expected.secrets.map((secret) => {
           const source = config.secrets[secret.source]?.file;
           const directory =
@@ -422,6 +505,7 @@ function inspectHostSamples(
           )
         )
           invalid();
+        stage = 'binds';
         for (const m of c.mounts.filter((m) => m.type === 'bind')) {
           const binds = actual.hostBinds.filter(
             (b) => b.containerId === c.id && b.source === m.source,
@@ -429,6 +513,7 @@ function inspectHostSamples(
           if (binds.length !== 1 || binds[0]?.canonicalSource !== m.source) invalid();
         }
       }
+      stage = 'protected_binds';
       let socketUsers = 0;
       for (const bind of actual.hostBinds) {
         if (overlaps(bind.canonicalSource, actual.volume.mountpoint)) invalid();
@@ -443,12 +528,14 @@ function inspectHostSamples(
           socketUsers++;
         }
       }
+      stage = 'socket_users';
       if (!bootstrap && socketUsers !== 1) invalid();
     }
+    stage = 'stability';
     if (stable(samples.before) !== stable(samples.after)) invalid();
     return Object.freeze({ status: 'verified' });
-  } catch {
-    invalid();
+  } catch (error) {
+    throw new RuntimeHostValidationError(stage, error);
   }
 }
 

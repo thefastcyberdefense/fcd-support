@@ -2,6 +2,16 @@
 
 Last reviewed: 2026-10-27 (Asia/Dhaka)
 
+Current continuation: `8ccb9a0` private deploy/verify/routes/socket and backup/
+replay pass after a separately recorded server restart baseline. Restore reached
+quiescent source/empty partial target then refused exhausted network capacity.
+Capacity is confirmed and two unused bridges released. The next-target retry
+correctly refuses the unresolved prior intent; explicit empty-target abandonment/
+reconciliation remains a Task 11 blocker. CI's older renderer was reproduced
+omitting explicit bind safety metadata; the compatible renderer is now pinned
+with closed diagnostic evidence. Full code: 1730 passed/368 skips/117 files;
+actual new CI controller outcome and Phase 6 closure remain pending.
+
 Most recent continuation: `5d35777` passed fresh full deployment and backup/replay;
 actual source drain and isolated PostgreSQL target creation then passed. Stream
 refused a foreign checkpoint directory inherited from shared fixture settings.
