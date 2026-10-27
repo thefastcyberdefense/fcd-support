@@ -95,6 +95,28 @@ export async function writeRuntimeHostFixture(
     for (const role of resourceRoles.filter((role) => role !== 'migrate'))
       await put(`config/${role.replaceAll('_', '-')}.env`, '# Authored synthetic host fixture\n');
     await put('config/migrate.env', '# Authored synthetic host fixture\n');
+    const archive = { BACKUP_ARCHIVE_DIRECTORY: '/var/lib/fcd-support/backups' };
+    const temporary = { BACKUP_TMPFS_DIRECTORY: '/run/fcd-support' };
+    const checkpoint = {
+      CHECKPOINT_ARCHIVE_DIRECTORY: '/var/lib/fcd-support/backups',
+      CHECKPOINT_MAX_ROWS: '1000',
+      CHECKPOINT_MAX_PAYLOAD_BYTES: '1048576',
+    };
+    for (const [role, settings] of Object.entries({
+      backup: { ...archive, ...temporary },
+      'verify-backup': archive,
+      checkpoint,
+      restore: {
+        ...archive,
+        ...temporary,
+        ...checkpoint,
+        CHECKPOINT_MAX_AGE_MS: '60000',
+        RESTORE_BATCH_LIMIT: '10',
+        RESTORE_MAX_BATCHES: '100',
+        PROMOTION_HOST_CHECK_TIMEOUT_MS: '10000',
+      },
+    }))
+      await writeFile(join(root, `config/${role}.env`), serialize(settings), { mode: 0o600 });
     // Replace the initially empty reply role file without creating arbitrary paths.
     await writeFile(
       join(root, 'config/reply.env'),

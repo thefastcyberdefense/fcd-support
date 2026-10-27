@@ -642,3 +642,22 @@ Close stdin, keep logs private and compare all preserved history/legacy
 fingerprints afterwards. Retain the new private runtime only after public verify
 and private HTTP/socket checks pass; otherwise preserve uncertainty. No replay,
 job clearing, old-volume switch, provider or public route change is included.
+
+### Archive-path fixture correction
+
+The stopped-job fix drill at `1fe31b5` passed both Docker metadata probes and
+the actual Linux stopped-create helper. First bootstrap preparation completed;
+the pre-migration backup then failed and left a durable uncertain backup record.
+Selection remains uncertain, schema `000000`, application writes impossible,
+with no application actor. All prior history and original admission snapshots
+matched after the attempt. The released diagnostic scope had exactly two
+actors/eight bridges removed; its history and both volumes remain preserved.
+
+Read-only checks confirmed that the authored test configuration omitted
+`BACKUP_ARCHIVE_DIRECTORY`, `BACKUP_TMPFS_DIRECTORY` and checkpoint paths. The
+backup command requires these settings and refuses before execution without
+them. Four fixture regressions failed first; nine focused tests then passed
+after supplying paths under the existing archive volume and bounded tmpfs.
+Verification, checkpoint and split-restore settings are included. Production
+backup logic and capability boundaries are unchanged. The uncertain job is
+preserved; another fresh committed-source drill is required.

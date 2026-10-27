@@ -2,6 +2,13 @@
 
 Last reviewed: 2026-10-27 (Asia/Dhaka)
 
+Latest host checkpoint: `1fe31b5` passed actual stopped creation and initial
+bootstrap preparation. The pre-migration backup refused because the synthetic
+configuration omitted archive/tmpfs paths. Its uncertain job and all volume/
+history records remain preserved. Four fixture regressions failed first and
+nine focused tests now pass with the required bounded job settings. Full
+application startup, host restore/promotion and Phase 6 closure remain open.
+
 ## Confirmed Decisions
 
 - Build a dedicated customer-support application; OpenClaw and Hermes remain private/internal.

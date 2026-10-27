@@ -79,3 +79,32 @@ test('host fixture refuses a non-test project before creating files', async () =
     await rm(parent, { recursive: true, force: true });
   }
 });
+
+test.each(['backup', 'verify-backup', 'checkpoint', 'restore'])(
+  'host %s fixture supplies container archive paths and bounded job settings',
+  async (role) => {
+    const parent = await mkdtemp(join(tmpdir(), 'fcd-host-fixture-test-'));
+    const root = join(parent, 'fcd-support-host-test-synthetic');
+    try {
+      await writeRuntimeHostFixture(root, 'fcd-support-host-test-synthetic', 'b'.repeat(40));
+      const settings = environment(await readFile(join(root, `config/${role}.env`), 'utf8'));
+      if (role !== 'checkpoint')
+        expect(settings.BACKUP_ARCHIVE_DIRECTORY).toBe('/var/lib/fcd-support/backups');
+      if (role === 'backup' || role === 'restore')
+        expect(settings.BACKUP_TMPFS_DIRECTORY).toBe('/run/fcd-support');
+      if (role === 'checkpoint' || role === 'restore') {
+        expect(settings.CHECKPOINT_ARCHIVE_DIRECTORY).toBe('/var/lib/fcd-support/backups');
+        expect(settings.CHECKPOINT_MAX_ROWS).toBe('1000');
+        expect(settings.CHECKPOINT_MAX_PAYLOAD_BYTES).toBe('1048576');
+      }
+      if (role === 'restore') {
+        expect(settings.CHECKPOINT_MAX_AGE_MS).toBe('60000');
+        expect(settings.RESTORE_BATCH_LIMIT).toBe('10');
+        expect(settings.RESTORE_MAX_BATCHES).toBe('100');
+        expect(settings.PROMOTION_HOST_CHECK_TIMEOUT_MS).toBe('10000');
+      }
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
+  },
+);
