@@ -661,3 +661,35 @@ after supplying paths under the existing archive volume and bounded tmpfs.
 Verification, checkpoint and split-restore settings are included. Production
 backup logic and capability boundaries are unchanged. The uncertain job is
 preserved; another fresh committed-source drill is required.
+
+### Corrected fixture deployment action
+
+Deploy exact source `a6de43665215dfe68f7de2052c289d80a0c33b3f` from the clean
+server checkout at `1fe31b53547d30a16c8d6138e18456d3d6331908`. Use fresh scope
+`fcd-support-host-test-p6-a6de436` and root `/home/redwan/fcd-support-host-test-p6-a6de436`.
+Fingerprint every prior fixture state/history file and retained admission
+snapshot before and after. Require no source-mounted test or running operation.
+
+To reserve subnet capacity, retire only failed `fcd-support-host-test-p6-1fe31b5`
+PostgreSQL/peer actors and its eight bridges. Require its selection to remain
+uncertain with schema `000000` and writes impossible, the uncertain backup
+journal's actor to be absent from a successful full Docker actor listing, and
+no application/operation actor. Verify initial/current image IDs, physical
+database identity, project labels, numeric user, read-only root, exact named
+volume, no published port and peer mounts. Stop the two verified immutable IDs
+with 30-second grace and remove them without force or volume removal. Remove
+only empty exact owned bridge IDs with the documented names/internal flags.
+Preserve every volume, credential, intent, selection and job/used-volume record;
+never resolve or replay the uncertain backup. Preserve the older `91eb8f3` scope.
+
+Fetch origin, check out the exact new source detached, require a clean tree,
+and run the actual Docker probe followed by:
+
+```bash
+bash scripts/test-synthetic-runtime-deployment.sh \
+  a6de43665215dfe68f7de2052c289d80a0c33b3f --synthetic-only
+```
+
+Close stdin and keep diagnostics private. Retain a successful private runtime
+for the remaining matrix; otherwise retain its uncertainty. No provider, public
+route, production asset or original database changes are included.
