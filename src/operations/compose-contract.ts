@@ -28,6 +28,9 @@ const serviceSchema = z.object({
     disable: z.literal(false).optional(),
   }),
   networks: z.record(z.string(), z.unknown()),
+  depends_on: z.record(z.string(), z.unknown()).default({}),
+  links: z.never().optional(),
+  external_links: z.never().optional(),
   environment: z.record(z.string(), z.string().nullable()).default({}),
   secrets: z.array(z.object({ source: z.string(), target: z.string().optional() })).default([]),
   profiles: z.array(z.string()).default([]),
@@ -344,7 +347,8 @@ function checkService(s: Service | undefined, contract: Contract, restart: strin
       s.secrets.map((secret) => secret.source),
       contract.secrets,
     ) ||
-    s.restart !== restart
+    s.restart !== restart ||
+    (restart === 'no' && Object.keys(s.depends_on).length !== 0)
   )
     invalid();
   if (!same(s.profiles, contract.profile === undefined ? [] : [contract.profile])) invalid();

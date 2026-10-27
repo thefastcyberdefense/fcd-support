@@ -163,6 +163,20 @@ function fixture() {
     ),
   };
 }
+
+test.each(
+  Object.keys(specs).flatMap((name) =>
+    ['depends_on', 'links', 'external_links'].map((field) => ({ name, field })),
+  ),
+)('one-shot $name rejects implicit dependency field $field', ({ name, field }) => {
+  const value = fixture();
+  Object.assign(required(value.services[name]), {
+    [field]: field === 'depends_on' ? { postgres: { condition: 'service_healthy' } } : ['postgres'],
+  });
+  expect(() => {
+    assertRestoreCompose(value, revision, 'fcd-support-live-data');
+  }).toThrow('compose_contract_invalid');
+});
 test('accepts split restore jobs with target-only password bootstrap and narrow source-connected jobs', () => {
   expect(() => {
     assertRestoreCompose(fixture(), revision, 'fcd-support-live-data');

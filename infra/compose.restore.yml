@@ -86,9 +86,6 @@ services:
     networks: [restore_data, source_data]
     volumes:
       - backups:/var/lib/fcd-support/backups:ro
-    depends_on:
-      postgres:
-        condition: service_healthy
 
   restore-bootstrap:
     <<: *restore-job

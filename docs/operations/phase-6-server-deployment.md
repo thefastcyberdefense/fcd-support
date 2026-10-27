@@ -599,3 +599,12 @@ without force. Never start it. Verify zero canary actors and unchanged old
 admission/state fingerprints. Capture only a fixed acknowledgement; no backend,
 archive, credential, current job or network-pool mutation is involved. This
 canary proves CLI syntax/creation, not bootstrap SQL success or runtime readiness.
+
+The actual Linux canary passed with the intended empty environment/local endpoint,
+exactly one stopped hardened actor, zero canary actors after cleanup, and unchanged
+pending state/legacy fingerprints. The final code gate exited 0: 1,704 passed/
+368 platform skips/116 files (209.77 seconds). Native operations passed 1,119
+units/49 files (339.65 seconds) and 139 PostgreSQL cases/13 files with one separate
+restore-only skip (54.77 seconds). The extended helper probe is now in CI; its
+Windows host-only skip is explicit. New server deployment still needs its own
+fresh committed source and state; no job outcome was inferred from this canary.

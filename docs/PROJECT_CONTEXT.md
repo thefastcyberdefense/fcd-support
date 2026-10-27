@@ -25,6 +25,17 @@ Last reviewed: 2026-10-27 (Asia/Dhaka)
 
 ## Current Phase 6 Checkpoint
 
+The `91eb8f3` drill published quiescent initialization, then startup became
+uncertain at its first bootstrap job: unsupported `compose create --no-deps`
+left a pending job with no actor. Never replay or clear that record manually.
+The correction uses supported stopped-create flags and rejects implicit
+one-shot dependencies/links; target PostgreSQL creation remains a separate
+verified host step. Fifteen dependency regressions pass, the independent real
+Linux stopped-create canary passes without starting an actor or changing old
+state, full code passes 1,704/368 skips/116 files and native operations passes
+1,119 units +139 PostgreSQL/one separate restore-only skip. Another fresh exact
+source/namespace is required; application startup and P6/P7 remain unproven.
+
 Real-host diagnostics also exposed default Docker subnet exhaustion from retained
 failed test bridges. Explicit bounded disposition released four verified test
 actors and 17 owned networks, preserving all volumes/intents and the original

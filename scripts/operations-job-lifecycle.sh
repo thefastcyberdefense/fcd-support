@@ -191,7 +191,7 @@ operations_job_create_stopped() {
     docker "${endpoint[@]}" compose --project-directory "$OPS_ROOT" --env-file /dev/null \
       --file "$OPS_ROOT/infra/$file" --file "$OPS_JOB_OVERRIDE" \
       --project-name "$OPS_JOB_PROJECT" --profile "$profile" \
-      create --no-deps --no-build --pull never --no-recreate "$OPS_JOB_SERVICE" >/dev/null 2>&1
+      create --no-build --pull never --no-recreate "$OPS_JOB_SERVICE" >/dev/null 2>&1
 }
 
 operations_execute_job() {
