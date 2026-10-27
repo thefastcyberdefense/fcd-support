@@ -69,3 +69,8 @@ jobs:
               printf 'absent\n'
             fi
           done
+          task_project="fcd-support-host-test-ci-${GITHUB_SHA:0:7}"
+          task_postgres="$(docker ps -a -q --no-trunc --filter "label=com.docker.compose.project=$task_project" --filter label=com.docker.compose.service=postgres)"
+          if [[ "$task_postgres" =~ ^[a-f0-9]{64}$ ]]; then
+            docker container inspect --format 'synthetic_postgres_sysctls={{len .HostConfig.Sysctls}}/low_ports={{with index .HostConfig.Sysctls "net.ipv4.ip_unprivileged_port_start"}}{{if eq . "0"}}zero{{else if eq . "1024"}}restricted{{else}}other{{end}}{{else}}absent{{end}}/security_options={{len .HostConfig.SecurityOpt}}/mounts={{len .Mounts}}/networks={{len .NetworkSettings.Networks}}' "$task_postgres"
+          fi

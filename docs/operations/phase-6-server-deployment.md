@@ -918,3 +918,25 @@ creation and first public deploy/verify/HTTP/socket checks. No repository source
 is edited on Ubuntu. Any intent/job or partial provisioning present before the
 checks refuses completion; after a failure preserve evidence rather than repeat.
 Only after success proceed to the already approved new-scope restore matrix.
+
+### Observed server restart and new preservation baseline
+
+Read-only checks explain the interrupted build: server uptime shows a restart
+during this validation interval. All three admission container IDs and immutable
+images/revisions still match the old inventory; their start times changed
+together. The older `5d35777` source remains quiescent with its uncertain restore
+journal; its isolated target stopped under its `restart: no` policy. No target
+was promoted. This is observed interruption evidence, not a controlled restart
+acceptance pass. The old preservation snapshot must not be overwritten.
+
+Before completing the still-pre-intent `8ccb9a0` fixture, require exact admission
+IDs and running states to match the original snapshot, with only start-time
+changes. Verify the expected original revision and no publication changes.
+Create a separate owner-0600 snapshot at
+`/home/redwan/fcd-support-host-test-p6-8ccb9a0/logs/retained-post-restart.snapshot`.
+All subsequent completion/matrix checks compare to this new captured snapshot;
+preserve the original snapshot as historical evidence. Repeat all earlier
+pre-intent, resource, credential-presence and image/toolchain checks. Any further
+identity/start-time change stops execution again. This updates observed
+preservation evidence after an external restart and grants no journal replay,
+old-volume adoption, automatic target restart or production action.
