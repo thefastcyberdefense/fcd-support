@@ -38,12 +38,25 @@ An existing target must be a default local volume labelled for this exact intent
 an optional target bridge must also be owned, internal and empty. Foreign,
 substituted, ambiguous, unreadable or nonempty resources refuse recovery.
 
-A networkless non-root read-only probe mounts only the existing target volume
-read-only with copy-up disabled. It receives no secret, host directory, archive,
-backend connection or Docker socket. It lists no filenames and reads no file
-contents. Only an empty directory and stable root identity may produce its
+A networkless non-root read-only probe mounts only the existing target's exact
+data directory. A named-volume mount is unsafe here: Docker may create a new
+volume if the original disappears between inspection and container creation.
+The host must instead obtain the path from the inspected, labelled default
+local volume, verify that it is exactly the standard data directory under the
+canonical, root-owned Docker data root, and use a read-only bind without
+`bind-create-src`. Docker refuses an absent bind source. This one bind exposes
+the same target data directory and no other host directory, secret, archive,
+backend connection or Docker socket. The probe lists no filenames and reads no
+file contents. Only an empty directory and stable root identity may produce its
 closed proof. Repeat resource/selection checks around the probe and immediately
 before sealing. The caller keeps the lock throughout.
+
+The host check relies on the local Docker daemon and its root-controlled data
+directory as trusted infrastructure. Verify the Docker root and its ancestors
+are canonical and not writable by untrusted users, verify the target's exact
+driver/path/labels, and resolve every other container's bind source before
+rejecting overlaps. A failed or ambiguous bind inspection refuses recovery.
+This does not defend against a compromised root user or Docker daemon.
 
 ## Durable result
 

@@ -19,7 +19,8 @@ pinned Docker images, Vitest and native filesystem/Docker checks.
 
 - Preserve every intent, selected volume, target resource and unresolved job.
 - No business SQL, provider call, new public route or production asset change.
-- No secret, archive, host-directory or Docker-socket mount in the empty probe.
+- The probe's only bind is the exact inspected target data directory, read-only;
+  no secret, archive, other host directory or Docker-socket mount is permitted.
 - Default generic failures and closed metadata only; no filenames or contents.
 - Keep Task 11's original BASE and main execution ledger; no P6 completion claim.
 
@@ -79,6 +80,16 @@ cases pass on both Windows and Linux. The host command and Docker confinement
 still require implementation and verification. On the test server, the Docker
 volume mountpoint cannot be resolved by the unprivileged operator; the host
 proof must treat that as an unresolved boundary, never as a safe absence.
+
+Host inspection ruling: the daemon's canonical, protected Docker root and the
+default local volume's exact `volumes/<name>/_data` path establish the target
+location without operator access to Docker's private metadata directories.
+Every other bind must resolve successfully and remain disjoint. Docker daemon
+and root-controlled storage are trusted; unknown roots, paths or binds refuse.
+The exact target data directory is the probe's sole read-only bind. A real local
+Docker check proved a missing named volume is implicitly created, while a
+missing bind source is refused at container creation; both synthetic scopes
+were cleaned. This avoids implicit recreation if the target disappears.
 
 ## C: Real server recovery evidence
 
