@@ -22,5 +22,5 @@ synthetic_host_report_failure() {
           printf '%s\n' "$line" ;;
       esac
     fi
-  done < <(head -c 8388608 -- "$file" 2>/dev/null) | tail -n 12 >&2
+  done < <(head -c 8388608 -- "$file" 2>/dev/null) | tail -n 64 >&2
 }
