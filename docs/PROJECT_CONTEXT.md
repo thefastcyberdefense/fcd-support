@@ -2,12 +2,15 @@
 
 Last reviewed: 2026-10-27 (Asia/Dhaka)
 
-Latest host checkpoint: `1fe31b5` passed actual stopped creation and initial
-bootstrap preparation. The pre-migration backup refused because the synthetic
-configuration omitted archive/tmpfs paths. Its uncertain job and all volume/
-history records remain preserved. Four fixture regressions failed first and
-nine focused tests now pass with the required bounded job settings. Full
-application startup, host restore/promotion and Phase 6 closure remain open.
+Latest host checkpoint: `a6de436` reached private READY at schema `000016` with
+all four healthy actors, public verify, private rejection routes, protected Unix
+login and an actual SSH forward/authentication gate. Scheduled daily/monthly
+backup and replay preserved three signed archives. Restore refused during drain
+before any actor stop or target creation; source selection is now uncertain,
+with its healthy actors retained. A real Docker probe reproduces the doubled
+separator in the drain mount check; correction validation is underway. Earlier
+fixtures/jobs/history and the original admission stack remain preserved. Host
+restore/promotion, rollback, recovery matrix and Phase 6 closure remain open.
 
 ## Confirmed Decisions
 

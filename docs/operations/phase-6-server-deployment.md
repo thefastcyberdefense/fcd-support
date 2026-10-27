@@ -743,3 +743,41 @@ pending job, repair selection or switch back manually. Keep protected logs and
 compare original admission plus all other fixture-state fingerprints afterwards.
 These actions affect only fresh authored synthetic storage and private runtime;
 they do not authorize provider traffic, original admission adoption or P6 closure.
+
+### Installed checks and source-drain defect
+
+The corrected actual peer requests passed 403/404/401. Public verify passed again
+with unchanged protected state, Unix login 200 and socket `1000:1000:600`.
+Actual SSH forwarding on client `127.0.0.1:13004` passed login 200 and the
+unauthenticated operations redirect 303 to `/login`. The owned SSH process was
+terminated and the port was confirmed closed. No SSH policy or server port changed.
+
+Both scheduled daily/monthly backups and replay passed. Networkless metadata
+inspection verified signatures and an unchanged three-archive reference set
+(pre-migration/daily/monthly). Current checkpoint export passed. Restore wrote
+its immutable intent, then source drain refused before stopping an actor or
+creating target resources. Source selection became uncertain at schema `000016`;
+all four source actors remain healthy, no operation journal is pending, and the
+original admission plus every other fixture-state fingerprint matched.
+
+Read-only diagnosis under the deployment lock verified the actor guards and
+located the failure at the drain's PostgreSQL mount projection. `%s/%s` placed
+an extra slash before an already absolute destination, while its expected value
+contained one slash. The earlier newline concern came from diagnostic quoting;
+it is not established as a production defect. A real never-started Docker actor
+with a fresh labelled volume reproduced the failing exact production template.
+Space-separated `println` metadata now passes the same actual-Docker check and
+keeps exact volume/destination/write-mode matching. Probe actor and volume are
+removed by checked ownership without force; no runtime boundary is weakened.
+
+The same exact-format Docker regression also failed for admission adoption,
+which shared the separator mistake; both projections now pass. Native fake
+responses were corrected to match actual space-separated metadata. The initial
+focused drain run exposed its shared adoption path (27 pass/one failure), then
+the complete native gate passed 1,119 units/49 files (319.24 seconds) and 139
+PostgreSQL cases/13 files with one separately covered restore-only skip (52.87
+seconds). Full code passed 1,709/368 platform skips/116 files (212.16 seconds).
+All four actual Docker metadata checks pass locally; Linux stopped creation
+remains explicitly skipped on Windows. The corrected narrow mount predicate
+also passed read-only against the existing synthetic Ubuntu PostgreSQL actor.
+This proves metadata rendering, not a successful public drain/restore.

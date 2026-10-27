@@ -61,7 +61,7 @@ case " $* " in
   *' container inspect '*)
     if [[ " $* " == *'.Mounts'* ]]; then
       volume=fcd-support-original; [[ "$fault" != wrong-volume ]] || volume=fcd-support-foreign
-      printf '%s/var/lib/postgresql/true\\n' "$volume"
+      printf '%s /var/lib/postgresql true\\n' "$volume"
     else
       project=fcd-support; image='${postgresImage}'; user=postgres; paused=false; revision=none; started=2030-04-01T00:00:00Z
       [[ "$fault" != wrong-project ]] || project=fcd-support-foreign

@@ -57,7 +57,7 @@ operations_drain_boundaries() {
   [[ "$volume" == "${OPS_SELECTION[STATE_VOLUME]}/${OPS_SELECTION[STATE_VOLUME_CREATED_AT]}/local/local/default/${OPS_SELECTION[STATE_VOLUME_ORIGIN]}/${OPS_SELECTION[STATE_VOLUME_LOGICAL]}" ]] || return 1
   database_root="$(operations_docker volume inspect --format '{{.Mountpoint}}' "${OPS_CONFIG[FCD_POSTGRES_VOLUME]}")" || return 1
   operations_absolute_path "$database_root" && operations_disjoint "$database_root" "$root" || return 1
-  [[ "$(operations_docker container inspect --format '{{range .Mounts}}{{if eq .Type "volume"}}{{printf "%s/%s/%t\n" .Name .Destination .RW}}{{end}}{{end}}' "$postgres")" == "${OPS_CONFIG[FCD_POSTGRES_VOLUME]}/var/lib/postgresql/true" ]] || return 1
+  [[ "$(operations_docker container inspect --format '{{range .Mounts}}{{if eq .Type "volume"}}{{println .Name .Destination .RW}}{{end}}{{end}}' "$postgres")" == "${OPS_CONFIG[FCD_POSTGRES_VOLUME]} /var/lib/postgresql true" ]] || return 1
   for id in "${!OPS_DRAIN_EXPECTED[@]}"; do
     [[ "$id" != "$postgres" ]] || continue
     [[ -z "$(operations_docker container inspect --format '{{range .Mounts}}{{if eq .Type "volume"}}{{println .Name}}{{end}}{{end}}' "$id")" ]] || return 1

@@ -7,6 +7,17 @@ Keep component, deployed-host and live-service results separate.
 
 ## Executed real-server checkpoint
 
+At exact deployed source `a6de436`, the full private controller reached READY
+on schema `000016` with healthy PostgreSQL/API/admin/reply actors. Public verify,
+HTTP 403/404/401, Unix `/login` 200 and socket `1000:1000:600` passed. A real SSH
+client-loopback-to-server-Unix forward passed login 200 and unauthenticated
+operations redirect 303; the owned forward then closed. Daily/monthly scheduled
+backup plus replay kept exactly three signed archives. A current checkpoint
+export completed. Restore refused during source drain, before actor stop or
+target creation; healthy source actors and uncertain selection remain preserved.
+Actual Docker projection regression reproduces a doubled mount separator.
+Full restore/switch and the remaining interruption/recovery matrix are still open.
+
 The exact action records, revisions, failures and scoped cleanup are in
 `../operations/phase-6-server-deployment.md`. On the approved Ubuntu server,
 authored synthetic fixtures passed:

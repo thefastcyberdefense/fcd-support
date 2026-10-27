@@ -29,14 +29,14 @@ operations_adoption_checked() {
   tail="${before#"$prefix"}"
   [[ "$tail" =~ ^(postgres|999|999:999)/[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,9})?Z$ ]] || return 1
   local volume_format='{{.Name}}/{{.CreatedAt}}/{{.Driver}}/{{.Scope}}/{{if .Options}}custom{{else}}default{{end}}/{{with index .Labels "com.docker.compose.project"}}{{.}}{{else}}none{{end}}/{{with index .Labels "com.docker.compose.volume"}}{{.}}{{else}}none{{end}}'
-  local mount_format='{{range .Mounts}}{{if eq .Type "volume"}}{{printf "%s/%s/%t\n" .Name .Destination .RW}}{{end}}{{end}}'
+  local mount_format='{{range .Mounts}}{{if eq .Type "volume"}}{{println .Name .Destination .RW}}{{end}}{{end}}'
   volume="$(operations_docker volume inspect --format "$volume_format" "${OPS_CONFIG[FCD_POSTGRES_VOLUME]}")" || return 1
   created="${volume#"${OPS_CONFIG[FCD_POSTGRES_VOLUME]}/"}"
   created="${created%"/local/local/default/${OPS_CONFIG[FCD_RUNTIME_PROJECT]}/postgres-data"}"
   operations_deployment_field STATE_VOLUME_CREATED_AT "$created" || return 1
   [[ "$volume" == "${OPS_CONFIG[FCD_POSTGRES_VOLUME]}/$created/local/local/default/${OPS_CONFIG[FCD_RUNTIME_PROJECT]}/postgres-data" ]] || return 1
   mount="$(operations_docker container inspect --format "$mount_format" "$postgres")" || return 1
-  [[ "$mount" == "${OPS_CONFIG[FCD_POSTGRES_VOLUME]}/var/lib/postgresql/true" ]] || return 1
+  [[ "$mount" == "${OPS_CONFIG[FCD_POSTGRES_VOLUME]} /var/lib/postgresql true" ]] || return 1
   identifier="$(operations_read_database_control_identifier "$postgres")" || return 1
   [[ "$(operations_docker container inspect --format "$OPERATIONS_DRAIN_ACTOR_FORMAT" "$postgres")" == "$before" && "$(operations_docker ps --all --quiet --no-trunc --filter "label=com.docker.compose.project=${OPS_CONFIG[FCD_RUNTIME_PROJECT]}" --filter label=com.docker.compose.service=postgres)" == "$postgres" ]] || return 1
   [[ "$(operations_docker volume inspect --format "$volume_format" "${OPS_CONFIG[FCD_POSTGRES_VOLUME]}")" == "$volume" && "$(operations_docker container inspect --format "$mount_format" "$postgres")" == "$mount" ]] || return 1

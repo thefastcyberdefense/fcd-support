@@ -135,7 +135,7 @@ if(args.includes('image')) {
   else if(format.includes('Entrypoint'))output(JSON.stringify([fault==='wrong-entrypoint'&&a.service==='fcd-support-api'?'foreign-entrypoint':a.service==='postgres'?'postgres-entrypoint':'application-entrypoint']));
   else if(format.includes('.NetworkSettings.Networks'))output('${sourceMode}'==='admission'?'fcd-support-data':['webhook','admin','reply','outbound','notification','operations'].map(k=>'fcd-support-'+k+'-data').join('\\n'));
   else if(format.includes('.HostConfig.PortBindings'))output('0/false');
-  else if(format.includes('.Mounts')&&format.includes('.Name'))output(a.service==='postgres'?(fault==='wrong-volume'?'fcd-support-foreign':'fcd-support-original')+'/var/lib/postgresql/true':fault==='application-volume'&&a.service==='fcd-support-api'?'fcd-support-foreign/data/true':'');
+  else if(format.includes('.Mounts')&&format.includes('.Name'))output(a.service==='postgres'?(fault==='wrong-volume'?'fcd-support-foreign':'fcd-support-original')+' /var/lib/postgresql true':fault==='application-volume'&&a.service==='fcd-support-api'?'fcd-support-foreign /data true':'');
   else if(format.includes('.Mounts')&&format.includes('.Destination'))output(a.service==='fcd-support-admin'&&fault!=='wrong-admin-mount'?'valid':'invalid');
   else if(format.includes('.Mounts'))output(a.service==='fcd-support-admin'?root+'/socket':'');
   else output([a.id,a.project,a.service,a.revision,a.image,a.status,a.running,a.paused,a.restarting,a.dead,a.user,a.startedAt].join('/'));

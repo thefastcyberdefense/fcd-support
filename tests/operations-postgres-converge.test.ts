@@ -92,7 +92,7 @@ case " $* " in
       if [[ '${sourceMode}' == admission && "$phase" != target ]]; then printf 'fcd-support-data\\n'
       else printf 'fcd-support-%s-data\\n' webhook admin reply outbound notification operations; fi
     elif [[ " $* " == *'.HostConfig.PortBindings'* ]]; then printf '0/false\\n'
-    elif [[ " $* " == *'.Mounts'* && " $* " == *'.Name'* ]]; then printf 'fcd-support-original/var/lib/postgresql/true\\n'
+    elif [[ " $* " == *'.Mounts'* && " $* " == *'.Name'* ]]; then printf 'fcd-support-original /var/lib/postgresql true\\n'
     elif [[ " $* " == *'.Mounts'* ]]; then :
     else
       status=running; running=true; [[ "$phase" != source-stopped ]] || { status=exited; running=false; }
