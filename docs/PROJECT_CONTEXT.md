@@ -10,7 +10,11 @@ correctly refuses the unresolved prior intent; explicit empty-target abandonment
 reconciliation remains a Task 11 blocker. CI's older renderer was reproduced
 omitting explicit bind safety metadata; the compatible renderer is now pinned
 with closed diagnostic evidence. Full code: 1730 passed/368 skips/117 files;
-actual new CI controller outcome and Phase 6 closure remain pending.
+actual private-controller CI passed at `d879895` (Actions run `40533246495`).
+Phase 6 closure remains pending. The Task 11 empty-target recovery addendum
+records a private, verified abandonment path that preserves the old intent,
+volume and target reservation. It cannot clear uncertain SQL jobs or authorize
+promotion. Codex selected it under the owner's existing implementation delegation.
 
 Most recent continuation: `5d35777` passed fresh full deployment and backup/replay;
 actual source drain and isolated PostgreSQL target creation then passed. Stream
