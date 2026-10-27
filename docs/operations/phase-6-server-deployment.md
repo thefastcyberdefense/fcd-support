@@ -535,3 +535,29 @@ Final combined `npm run check` exited 0: 1,689 passed/368 platform skips across
 31-case passing filesystem gate; its skip in the Windows run is explicit.
 All three Actions workflows passed at `b941cf5` before this final parser/fixture
 checkpoint. These results still do not establish a completed host deployment.
+
+### Stage B protected-record fix action
+
+Deploy exact source `91eb8f3697179b732e406675e82b6251101f7c92` in fresh namespace
+`fcd-support-host-test-p6-91eb8f3`, protected root
+`/home/redwan/fcd-support-host-test-p6-91eb8f3`. Start from the clean server
+checkout at `50abeb8e94f4e5ca467178039353a1c657a13f73`; require no active
+operation and unchanged legacy snapshots. Fingerprint all four prior initial
+intents and the diagnostic used-volume history; preserve them and every volume.
+The new namespace, target restore namespace and all its resources must be absent.
+
+Fetch origin, verify the exact commit, check it out detached and verify a clean
+tree. Re-run the actual Docker projection probe, then:
+
+```bash
+bash scripts/test-synthetic-runtime-deployment.sh \
+  91eb8f3697179b732e406675e82b6251101f7c92 --synthetic-only
+```
+
+Close stdin; keep all diagnostics protected. The script enforces fresh storage,
+flags, numeric ownership, pinned images, capacity and actual public deploy/verify/
+HTTP/socket checks. The corrected fresh restore names use the required prefix.
+Retain a successful private synthetic runtime for the next matrix; retain state
+on failure. No previous intent is resumed, no missing pointer is reconstructed,
+and no existing database, provider or public admission route changes. Compare
+all preserved fingerprints and original admission snapshots afterwards.
