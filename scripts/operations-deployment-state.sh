@@ -109,7 +109,7 @@ operations_deployment_record_read() {
   declare -gA OPS_DEPLOYMENT_RECORD=()
   while IFS= read -r line || [[ -n "$line" ]]; do
     ((count+=1)); ((count<=16)) || operations_deployment_state_invalid
-    [[ "$line" =~ ^([A-Z_]+)=([A-Za-z0-9_./:-]+)$ ]] || operations_deployment_state_invalid
+    [[ "$line" =~ ^([A-Z_]+)=([A-Za-z0-9_./:+=-]+)$ ]] || operations_deployment_state_invalid
     key="${BASH_REMATCH[1]}"; value="${BASH_REMATCH[2]}"
     [[ -z "${OPS_DEPLOYMENT_RECORD[$key]+present}" ]] && operations_deployment_field "$key" "$value" || operations_deployment_state_invalid
     OPS_DEPLOYMENT_RECORD["$key"]="$value"

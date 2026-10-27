@@ -25,6 +25,17 @@ Last reviewed: 2026-10-27 (Asia/Dhaka)
 
 ## Current Phase 6 Checkpoint
 
+Real-host diagnostics also exposed default Docker subnet exhaustion from retained
+failed test bridges. Explicit bounded disposition released four verified test
+actors and 17 owned networks, preserving all volumes/intents and the original
+admission stack. The diagnostic scope then started healthy PostgreSQL and reached
+history publication, where its general record parser rejected the timestamp's
+`+`. Native regression was 1 RED/30 passing, then all 31 passing after the parser
+correction; per-field validation remains strict. A history record exists without
+a published selection, so that scope must remain preserved and cannot be
+implicitly resumed. New fixture restore names now meet the production identity
+schema. Final combined checks and another exact-source fresh drill are next.
+
 Final projection correction is locally verified: code 1,689 passed/367 platform
 skips/116 files; native operations 1,103 units +139 PostgreSQL cases/one separate
 restore-only skip; two real Docker projections pass with zero remaining fixture

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { expect, test } from 'vitest';
 import { loadOperationsConfig } from '../src/operations/operations-config.js';
 import { loadReplySettings } from '../src/operations/reply-config.js';
+import { restoreTargetIdentitySchema } from '../src/persistence/postgres-restore-evidence.js';
 import { writeRuntimeHostFixture } from './helpers/runtime-host-fixture.js';
 
 function environment(text: string) {
@@ -44,6 +45,20 @@ test('fresh host fixture supplies valid disabled runtime policy and distinct dat
     expect(reader.username === 'fcd_synthetic_archive_reader').toBe(true);
     expect(reader.hostname === 'fcd-support-source-postgres').toBe(true);
     expect(target.hostname === 'fcd-support-restore-postgres').toBe(true);
+    const settings = environment(await readFile(join(root, 'config/operations.env'), 'utf8'));
+    expect(
+      restoreTargetIdentitySchema.safeParse({
+        projectName: settings.FCD_RESTORE_PROJECT,
+        volumeName: settings.FCD_RESTORE_VOLUME,
+        volumeCreatedAt: '2030-04-01T06:00:00+06:00',
+        networkId: 'a'.repeat(64),
+        postgresImageId: `sha256:${'b'.repeat(64)}`,
+        runtimeImageId: `sha256:${'c'.repeat(64)}`,
+        systemIdentifier: '7300000000000000001',
+        databaseName: 'fcd_support_test',
+        schema: 'public',
+      }).success,
+    ).toBe(true);
     await expect(
       writeRuntimeHostFixture(root, 'fcd-support-host-test-synthetic', 'b'.repeat(40)),
     ).rejects.toThrow('synthetic_host_fixture_invalid');

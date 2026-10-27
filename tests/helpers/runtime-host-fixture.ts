@@ -172,13 +172,17 @@ export async function writeRuntimeHostFixture(
     // Real age keys are generated later by the pinned offline operations image.
     await mkdir(join(root, 'secrets/verify-backup'), { recursive: true, mode: 0o700 });
     await put('state/deployment.lock', '');
+    const restoreProject = project.replace(
+      'fcd-support-host-test-',
+      'fcd-support-restore-host-test-',
+    );
     const settings: Record<string, string> = {
       FCD_SUPPORT_REVISION: revision,
       FCD_SCHEMA_REVISION: '000016',
       FCD_RUNTIME_PROJECT: project,
-      FCD_RESTORE_PROJECT: `${project}-restore`,
+      FCD_RESTORE_PROJECT: restoreProject,
       FCD_POSTGRES_VOLUME: `${project}-postgres`,
-      FCD_RESTORE_VOLUME: `${project}-restored`,
+      FCD_RESTORE_VOLUME: `${restoreProject}-data`,
       FCD_BACKUP_VOLUME: `${project}-backups`,
       FCD_SUPPORT_IMAGE: `${project}-application:${revision}`,
       FCD_OPERATIONS_IMAGE: `${project}-operations:${revision}`,

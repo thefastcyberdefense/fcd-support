@@ -69,6 +69,26 @@ function refused(result: ReturnType<typeof spawnSync>) {
 }
 
 test.runIf(native)(
+  'protected selection and volume history round-trip explicit timezone offsets',
+  async () => {
+    for (const timestamp of ['2030-04-01T06:00:00+06:00', '2030-03-31T20:30:00-03:30']) {
+      const f = await fixture();
+      try {
+        success(
+          f.run(`${create.replace('2030-04-01T00:00:00Z', timestamp)}; operations_selection_read`),
+        );
+        expect(
+          (await readFile(f.file, 'utf8')).includes(`STATE_VOLUME_CREATED_AT=${timestamp}\n`),
+        ).toBe(true);
+        success(f.run(`operations_selection_read; ${start}; operations_selection_read`));
+      } finally {
+        await f.dispose();
+      }
+    }
+  },
+);
+
+test.runIf(native)(
   'selection records a protected quiescent pointer and cannot be initialized twice',
   async () => {
     const f = await fixture();

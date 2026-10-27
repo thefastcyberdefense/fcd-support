@@ -454,8 +454,8 @@ same no-fallback/no-public-route/no-provider rollback limits apply.
 The fresh diagnostic fixture stopped during network provisioning with Docker's
 `all predefined address pools have been fully subnetted`. It had not entered
 the controller, created an initialization intent or started PostgreSQL. This
-also explains why the preceding namespace could render successfully yet create
-no PostgreSQL actor. Retaining every failed scope's bridges exhausted the host's
+is consistent with the preceding successful render/no-actor outcome; that
+original suppressed Compose error was not captured. Retaining every failed scope's bridges exhausted the host's
 default pool. No daemon address pool, host route or foreign network will change.
 
 Release only ephemeral actors/networks for these exact test scopes:
@@ -497,3 +497,41 @@ tracing described above. This is first initialization, not resumption of an
 interrupted intent. Reuse its existing protected test credentials and backup
 volume. Run public verify/private HTTP/socket checks on success and retain
 uncertain state on failure. No provider or public admission change is included.
+
+### Observed disposition and protected-record regression
+
+The bounded disposition completed: four verified test actors and 17 owned test
+bridges were removed. Every test volume and initialization record remained;
+original admission snapshots matched. No prune, daemon configuration change,
+foreign resource or volume removal occurred.
+
+After completing the diagnostic scope's provisioning, its first public
+controller call started healthy PostgreSQL, passed host sampling/physical-ID
+checks and reached volume-history publication. Private source-line tracing
+then identified a separate parser boundary: the record's general literal
+alphabet rejected `+`, although the per-field timestamp validator accepted
+`+06:00`. A used-volume history record was created, but no authoritative
+selection was published and no application started. Preserve that intent,
+history and volume; do not reconstruct its missing pointer manually.
+
+A new native filesystem round-trip first failed with 30 other cases passing.
+After admitting the timestamp alphabet through the general parser, all 31
+protected-record cases passed (25.73 seconds), including positive/negative
+offset preservation across selection/history reads and a starting transition.
+Every value still passes its closed per-field validator; no shell evaluation,
+normalization, permission or history check was removed.
+
+The synthetic fixture's future restore project/volume names also failed their
+production target-identity schema. Those fresh names now use the required
+`fcd-support-restore-*` prefix; a regression failed first, then all five fixture/
+argument checks passed. The helper-only code gate passed 1,689/367 platform
+skips and its Linux unit lane passed 1,732/324 native-only skips before the new
+protected-record case was added. These are preparation checks, not an executed
+host restore or final Phase 6 pass. Final combined verification and the next
+exact fresh source/namespace follow separately.
+
+Final combined `npm run check` exited 0: 1,689 passed/368 platform skips across
+116 files (203.87 seconds). The added native record case is covered by the
+31-case passing filesystem gate; its skip in the Windows run is explicit.
+All three Actions workflows passed at `b941cf5` before this final parser/fixture
+checkpoint. These results still do not establish a completed host deployment.
