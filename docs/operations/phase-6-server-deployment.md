@@ -888,3 +888,33 @@ promotion and retained same-revision rollback matrix using only the new scope.
 Stop on any refusal, preserve both databases and uncertainty, and report only
 closed evidence. No previous job replay, production/admission adoption, provider
 call, global network-pool change or public route mutation is included.
+
+### Interrupted pre-intent build completion
+
+The `8ccb9a0` operator connection ended during image preparation. Read-only
+checks found complete application/operations tags for that exact revision,
+no corresponding live build client, no runtime actor and only the original
+deployment lock in the fresh state root. No initialization intent or PostgreSQL
+authority exists there. Do not rerun the fresh-root constructor or infer a
+deployment pass from the two image tags.
+
+Complete only this previously authored root on the same clean exact checkout
+`8ccb9a09bd0c264376ce76e36694659c7d47815b`: require the state directory to contain
+only its owner-0600 lock; all source/target/backup volumes, ingress/egress/target
+networks and peer/operation/runtime actors must still be absent. Require the
+verification identity/recipient to be absent and both fresh PostgreSQL password
+files still owned `1000:1000:600`. Fingerprint all other fixture state and original
+admission IDs/start-times/states before and after.
+
+Verify actual application/operations IDs, revision, platform and non-root user.
+Validate Node/npm/pg_dump/pg_restore/age versions in a hardened networkless
+operations-image probe with no mount, secret or backend connection. Build only
+the missing PostgreSQL tag from the pinned Dockerfile/full revision, bounded
+by 600 seconds with 30-second termination grace; validate its immutable metadata.
+Then execute the unchanged, committed runner body from `stage=keys` onward
+with the same root/project/revision/server mode and retained snapshot. This
+performs only the already recorded key/password provisioning, isolated resource
+creation and first public deploy/verify/HTTP/socket checks. No repository source
+is edited on Ubuntu. Any intent/job or partial provisioning present before the
+checks refuses completion; after a failure preserve evidence rather than repeat.
+Only after success proceed to the already approved new-scope restore matrix.
