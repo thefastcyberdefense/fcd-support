@@ -29,3 +29,5 @@ jobs:
         run: npm audit --omit=dev --audit-level=high
       - name: Run unit tests with the pinned UID and memory-backed scratch
         run: bash scripts/test-encrypted-backup.sh unit
+      - name: Verify actual Docker metadata projections
+        run: bash scripts/test-docker-projections.sh

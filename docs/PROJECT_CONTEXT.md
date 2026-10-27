@@ -25,6 +25,20 @@ Last reviewed: 2026-10-27 (Asia/Dhaka)
 
 ## Current Phase 6 Checkpoint
 
+Final projection correction is locally verified: code 1,689 passed/367 platform
+skips/116 files; native operations 1,103 units +139 PostgreSQL cases/one separate
+restore-only skip; two real Docker projections pass with zero remaining fixture
+containers. Fresh committed server drill and remaining phase closure follow.
+
+The follow-up controller at `eed4695` passed timezone/volume checks and started
+a healthy fresh PostgreSQL actor, then refused during bootstrap snapshot
+collection. Read-only diagnosis found Docker omits optional bind-mount `Name`
+and no-health-check `State.Health` keys. Safe optional-map projections now pass
+two real Docker probes plus 132 focused cases/30 native-only skips, without
+changing runtime health/mount/identity requirements. Full final checks and a
+fresh committed-namespace drill follow. Prior intents and the old admission
+stack remain unchanged; no applications started in the failed new namespace.
+
 The first complete controller drill at `e0565d0` failed safely before runtime
 PostgreSQL/application startup: actual Docker volume metadata uses `+06:00`,
 while prior validators admitted only `Z`. Its protected intent and fresh resources

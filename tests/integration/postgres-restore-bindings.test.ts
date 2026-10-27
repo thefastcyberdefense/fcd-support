@@ -104,7 +104,7 @@ test('binding retains exact offset timestamp text and refuses an equivalent-time
   input.target.volumeCreatedAt = '2030-02-28T06:00:00+06:00';
   const store = new PostgresRestoreEvidence(database.pool);
   await store.seal(input);
-  expect((await store.load(input.restoreRef))?.target.volumeCreatedAt).toBe(
+  expect((await store.load(input.restoreRef)).target.volumeCreatedAt).toBe(
     input.target.volumeCreatedAt,
   );
   await expect(

@@ -342,3 +342,41 @@ names derive from that new namespace. The exact script actions and failure/
 rollback boundaries are unchanged. Retain successful synthetic runtime for
 the next matrix; retain uncertain state on failure. No public admission,
 provider, SSH or existing database mutation is included.
+
+### Stage B second host result and projection correction
+
+At `eed4695`, the timezone-aware controller created and started its fresh
+PostgreSQL actor successfully; that actor was healthy. Bootstrap snapshot
+collection then refused before selection publication or application startup.
+The previous interrupted intent hash/inode/ownership/size and all retained
+admission IDs/start-times/running states remained unchanged.
+
+Read-only staged diagnosis verified the protected intent/volume, rendered
+Compose, all six internal database bridges and the host-wide bind-source
+checks (26 actors, nine bind paths; zero invalid or unresolved paths). Direct
+execution of the narrow Docker projection exposed the actual error: bind
+mounts omit the optional `Name` key. A separate never-started synthetic actor
+also reproduced an omitted `State.Health` key. No full inspect/environment,
+secret content or business row was displayed.
+
+Runtime/promotion and restore projections now use explicit optional-map access
+for those two fields. Validators still require healthy running runtime actors,
+exact mounts and resource/identity boundaries. A new real Docker probe creates
+only a never-started, networkless, capability-dropped actor with one read-only
+public package-metadata bind, checks both JSON projections and removes the
+exact verified created actor. Both projection checks passed after observed
+template failures; 132 focused cases passed with 30 native-only skips. The probe
+is added to ordinary CI so fake Docker transports cannot hide this omission.
+
+CI at `0c7fcfb` separately caught an unnecessary optional chain in the newly
+added PostgreSQL binding assertion. It is removed; the new full gates cover
+the final test source as well as the projection correction. Further server
+execution still requires a new committed source and fresh namespace. Both
+prior interrupted states remain preserved; no readiness or P6 pass is claimed.
+
+Final projection-correction gates exited 0: full code 1,689 passed/367 platform
+skips/116 files (228.66 seconds); native operations 1,103 units/49 files (368.95
+seconds), then 139 PostgreSQL cases/13 files with one separately covered
+restore-only skip (54.05 seconds). Both real Docker projections passed and zero
+projection fixture containers remained. The independent restore/binding evidence
+above remains applicable; no SQL/runtime semantic changed in this correction.
