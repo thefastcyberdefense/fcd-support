@@ -608,3 +608,37 @@ units/49 files (339.65 seconds) and 139 PostgreSQL cases/13 files with one separ
 restore-only skip (54.77 seconds). The extended helper probe is now in CI; its
 Windows host-only skip is explicit. New server deployment still needs its own
 fresh committed source and state; no job outcome was inferred from this canary.
+
+### Stopped-job fix deployment action
+
+Use exact source `1fe31b53547d30a16c8d6138e18456d3d6331908`, starting from the
+clean server checkout at `91eb8f3697179b732e406675e82b6251101f7c92`. Preserve the
+entire pending/uncertain `91eb8f3` project and its journal; verify no operation
+actor is running and no source-mounted test is active before changing checkout.
+Fingerprint all existing fixture history/journals and the legacy baseline.
+
+First release only the now-failed, unselected
+`fcd-support-host-test-p6-50abeb8-diag` actors/networks to reserve subnet capacity.
+Require no selection, active job or pending metadata replacement there; validate
+its initial and used-volume records, current PostgreSQL physical identity,
+exact image/user/volume/port metadata and its one synthetic peer. Apply the same
+bounded stop/exact-ID non-force removal and empty-owned-bridge checks above.
+Preserve all history, credentials and volumes, including its used-volume record.
+The `91eb8f3` pending project is excluded from this disposition.
+
+Fetch origin, verify the exact new commit, check out detached and require a clean
+tree. Run the committed Linux Docker probe, including actual stopped-job helper
+creation/cleanup, then execute:
+
+```bash
+bash scripts/test-synthetic-runtime-deployment.sh \
+  1fe31b53547d30a16c8d6138e18456d3d6331908 --synthetic-only
+```
+
+Fresh namespace/root is `fcd-support-host-test-p6-1fe31b5` under `/home/redwan`.
+Require no pre-existing resource in that namespace; the committed script checks
+disk, separate roots/credentials, images, flags, mounts and actual deployment.
+Close stdin, keep logs private and compare all preserved history/legacy
+fingerprints afterwards. Retain the new private runtime only after public verify
+and private HTTP/socket checks pass; otherwise preserve uncertainty. No replay,
+job clearing, old-volume switch, provider or public route change is included.
