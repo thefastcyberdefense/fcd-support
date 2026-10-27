@@ -380,3 +380,28 @@ seconds), then 139 PostgreSQL cases/13 files with one separately covered
 restore-only skip (54.05 seconds). Both real Docker projections passed and zero
 projection fixture containers remained. The independent restore/binding evidence
 above remains applicable; no SQL/runtime semantic changed in this correction.
+
+### Stage B projection-fix follow-up action
+
+Use exact source `50abeb8e94f4e5ca467178039353a1c657a13f73`, starting from the
+clean server checkout at `eed46956666558c867e8abab74208913318aa65a`. Require no
+active job in either prior fixture, unchanged original admission snapshots and
+the usual fresh-namespace/capacity guards. Fingerprint and preserve both prior
+initialization records; neither is resumed, selected, stopped or repaired.
+
+Fetch origin, verify that exact commit, check it out detached and require a
+clean tree. Execute, with closed stdin and protected diagnostics:
+
+```bash
+bash scripts/test-docker-projections.sh
+bash scripts/test-synthetic-runtime-deployment.sh \
+  50abeb8e94f4e5ca467178039353a1c657a13f73 --synthetic-only
+```
+
+The first command creates/removes only its never-started networkless labelled
+probe. The second uses fresh namespace `fcd-support-host-test-p6-50abeb8` and
+protected root `/home/redwan/fcd-support-host-test-p6-50abeb8`. All other exact
+actions, private flags, retained-stack checks and failure/rollback limits match
+the committed script and preceding records. On success retain its synthetic
+private runtime for the next tests; on failure preserve its uncertain state.
+No production/customer/provider/tunnel action is included.
