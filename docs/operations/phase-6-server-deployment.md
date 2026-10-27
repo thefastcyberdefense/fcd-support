@@ -235,3 +235,50 @@ lane: 1,720 passed/324 native-only skips/115 files (72.58 seconds). These establ
 preparation/guard coverage only. The new drill has not yet established a full
 host deployment pass. Its exact committed source, action and rollback scope
 must be appended before execution.
+
+### Stage B exact authorized action
+
+Execute source `e0565d00167a376c49dfb130cbc602152508aa5a` from a clean server
+checkout initially at `3f8783fdc588346aeab82260812329adb00bce2f`. Require both
+Stage A projects and all temporary harness resources to be absent, the old
+three-container snapshot to match the completed Stage A record, and at least
+12 GiB free. Refuse any pre-existing Stage B resource or directory.
+
+The exact namespace is `fcd-support-host-test-p6-e0565d0`, with protected root
+`/home/redwan/fcd-support-host-test-p6-e0565d0`. The application/operations/
+PostgreSQL image tags use that namespace plus the full source revision. The
+controller creates its own fresh PostgreSQL volume; the drill creates only
+its matching backup volume, internal ingress and ordinary-egress bridges, and
+synthetic peer. Password-owner helpers affect only the two newly generated
+PostgreSQL password files. No existing file ownership changes.
+
+After the guards above, execute via the existing trusted SSH connection:
+
+```bash
+umask 077
+cd /home/redwan/apps/fcd-support
+git fetch --no-tags origin main
+git cat-file -e 'e0565d00167a376c49dfb130cbc602152508aa5a^{commit}'
+git checkout --detach e0565d00167a376c49dfb130cbc602152508aa5a
+test -z "$(git status --porcelain=v1 --untracked-files=all)"
+bash scripts/test-synthetic-runtime-deployment.sh \
+  e0565d00167a376c49dfb130cbc602152508aa5a --synthetic-only
+```
+
+Git/build/operation diagnostics are redirected to private logs. Close stdin
+for the invoked drill and its Docker commands when passing operator commands
+over SSH. Report only the drill's fixed acknowledgements and closed failure
+phase. The script itself is the committed, reviewable exact action list.
+
+On success, keep the new synthetic private runtime/state for the subsequent
+restore and interruption tests. On failure, preserve its exact state, volumes,
+actors and private logs; diagnose before any retry or cleanup. Do not edit an
+intent/journal, reuse first-boot storage, restart an uncertain app or fall back
+to the old database. A clean source checkout may be returned detached to
+`3f8783f` only after proving no bind-mounted job is running. Existing admission
+containers remain at their original image/volume; no old-stack rollback action
+or public route change is required by this isolated drill.
+
+This execution does not install timers, enable providers, seed real customers,
+reconfigure SSH or replace the public admission path. Those remaining actions
+require their own exact records within the already authorized test-server work.
