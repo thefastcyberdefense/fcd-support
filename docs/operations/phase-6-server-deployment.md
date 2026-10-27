@@ -316,3 +316,29 @@ an equivalent-time replacement. Retained admission IDs/start-times/running state
 were rechecked after the failed drill and still matched the Stage A baseline.
 All Actions workflows at `20bf5e3` passed before the timezone correction; the
 new source requires its own fresh run and separate host execution evidence.
+
+### Stage B timezone-fix follow-up action
+
+Repeat the committed drill only in fresh namespace
+`fcd-support-host-test-p6-eed4695`, from exact source
+`eed46956666558c867e8abab74208913318aa65a`. The server must initially remain
+clean at `e0565d00167a376c49dfb130cbc602152508aa5a`, with no active operation
+job. Preserve the entire prior `e0565d0` fixture, labelled volume, images and peer;
+do not reuse or alter its interrupted initialization record. Require the retained
+admission snapshot to match, the new namespace to be absent and the same disk,
+ownership and private-only guards as the original drill.
+
+After those checks, fetch origin, verify the exact commit, check it out detached,
+verify a clean tree and execute:
+
+```bash
+bash scripts/test-synthetic-runtime-deployment.sh \
+  eed46956666558c867e8abab74208913318aa65a --synthetic-only
+```
+
+Close stdin and keep diagnostics private as above. New protected root is
+`/home/redwan/fcd-support-host-test-p6-eed4695`; all service/image/network/volume
+names derive from that new namespace. The exact script actions and failure/
+rollback boundaries are unchanged. Retain successful synthetic runtime for
+the next matrix; retain uncertain state on failure. No public admission,
+provider, SSH or existing database mutation is included.
