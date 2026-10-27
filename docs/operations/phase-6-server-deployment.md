@@ -1024,3 +1024,42 @@ complete four-worker code gate passed 1730/368 platform skips/117 files in
 203.77 seconds. The compiled diagnostic CLI case passed separately. Arbitrary
 keys, values, errors and command text are not emitted. Actual new CI execution
 still determines the installed controller result; no CI pass is inferred here.
+
+### Pinned empty-target close-out action
+
+The following authorized synthetic-server action uses exact application source
+`9ffc37048de38520e7ed9c7d735af1664c6a42d2`. It does not authorize a provider,
+Meta, tunnel, production-number or customer-traffic operation. Before mutation,
+require the clean server checkout at `8ccb9a09bd0c264376ce76e36694659c7d47815b`,
+the recorded post-restart admission snapshot, unchanged older fixture state,
+the quiescent `fcd-support-host-test-p6-8ccb9a0` source, its retained image
+bundle and physical identifier, and no pending or orphaned job/actor. Stop if
+any fingerprint, container start time, ownership, local daemon or Git state
+differs.
+
+Preserve the original intent `restore_f0c280a16d21b3d84bbf71fd930cbbe4` and
+its labelled target volume `fcd-support-restore-host-test-p6-8ccb9a0-data`.
+Require the target to exist with its exact project/reference labels, have no
+users or target actor, and have no target network. Never delete or replace it.
+Check the old source application image has no declared volumes and retain all
+older images, files, state records, test projects and admission actors.
+
+Fetch the committed source and detach the clean test checkout at the exact
+revision. Build separate, explicitly labelled synthetic application, operations
+and PostgreSQL images under new tags for this revision; do not replace any old
+tag. Create a new owner-only host-configuration variant with the same original
+runtime/config/secret/state/socket roots, source/backup/target identities and
+disabled provider settings. Change only the source revision and the three
+candidate image references. Keep the original role environment and configuration
+files unchanged; the variant host file may be outside the original config root.
+
+Run `abandon-empty-restore.sh` once with that exact reference, revision and
+variant. The command may create and remove only its own networkless read-only
+probe containers; it may write only the new `.abandoned` terminal record. It
+must leave the original intent, source selection/volume/actor, target volume,
+all older state and admission snapshot unchanged. Record only closed results,
+never raw file content or credentials. On any refusal, timeout, restart,
+unexpected record or changed fingerprint, stop and preserve all evidence; do
+not delete the target, edit the journal, retry blindly or switch storage. The
+distinct fresh-target restore requires its own separately recorded action after
+this close-out is verified.
