@@ -448,3 +448,52 @@ On failure preserve the new state and diagnostics. On success run the public
 verify command and normal private checks before any readiness claim. Retained
 admission and all three prior intent fingerprints must remain unchanged. The
 same no-fallback/no-public-route/no-provider rollback limits apply.
+
+### Address-pool exhaustion and exact test-resource disposition
+
+The fresh diagnostic fixture stopped during network provisioning with Docker's
+`all predefined address pools have been fully subnetted`. It had not entered
+the controller, created an initialization intent or started PostgreSQL. This
+also explains why the preceding namespace could render successfully yet create
+no PostgreSQL actor. Retaining every failed scope's bridges exhausted the host's
+default pool. No daemon address pool, host route or foreign network will change.
+
+Release only ephemeral actors/networks for these exact test scopes:
+
+```text
+fcd-support-host-test-p6-e0565d0
+fcd-support-host-test-p6-eed4695
+fcd-support-host-test-p6-50abeb8
+fcd-support-host-test-p6-50abeb8-diag
+```
+
+Before mutation, require a clean `50abeb8` checkout, matching legacy snapshots,
+no selected deployment or active/temporary job in any scope, and the original
+three initial-intent fingerprints. The diagnostic scope must have no initial
+intent and no PostgreSQL actor/volume. Save private minimized actor/network
+metadata. Verify each actor's exact immutable ID, project/service labels, image
+ID/revision, non-root identity, volume attachment and zero host ports. Allowed
+actors are only the synthetic ingress peers and the fresh `eed4695` PostgreSQL
+actor; refuse any application or unexpected actor.
+
+Stop only those freshly verified IDs with bounded grace, verify stopped state
+and unchanged identity, then remove by immutable ID without force or volume
+removal. Release only each scope's exact labelled bridge IDs after every member
+has gone and ownership/name/driver/scope/internal-mode checks still match. A
+changed/foreign participant or ambiguous result stops cleanup. Never use prune,
+loose prefix deletion, daemon reconfiguration or a source-volume switch.
+
+Keep every volume, generated credential/key, private log and initialization
+record. Record actor/network disposal as explicit failed-fixture disposition;
+these initializations remain ineligible for implicit resume. Verify unchanged
+legacy snapshots and intent fingerprints afterwards, and report only counts.
+
+After that disposition, complete only the already generated diagnostic scope's
+fixture provisioning: require its protected configuration/key presence, no
+initial intent/selection/job and no PostgreSQL volume; recreate its two exact
+bridges and synthetic peer, record that new peer ID in its configuration, and
+make its first public controller call with the same source and private line
+tracing described above. This is first initialization, not resumption of an
+interrupted intent. Reuse its existing protected test credentials and backup
+volume. Run public verify/private HTTP/socket checks on success and retain
+uncertain state on failure. No provider or public admission change is included.
