@@ -120,9 +120,9 @@ terminal record so a newly appearing operation actor also refuses.
 
 ## C: Real server recovery evidence
 
-- [ ] Commit the exact revision, candidate-image/config preparation, empty-target
+- [x] Commit the exact revision, candidate-image/config preparation, empty-target
       action and preserved-resource rollback boundaries before server mutation.
-- [ ] Execute only after current inventory matches; record closed proof and
+- [x] Execute only after current inventory matches; record closed proof and
       unchanged original intent/volume/source/admission fingerprints.
 - [ ] Retry a distinct fresh target with current checkpoint, then validate full
       restore/promotion/retained rollback when possible. Preserve every refusal.

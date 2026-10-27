@@ -9,8 +9,11 @@ without declared volumes. Local Docker checks demonstrated confinement and the
 absence of implicit bind-source creation. Final focused checks passed 33 native
 host and 69 state cases; full code passed 1,756 tests/423 platform skips.
 Three potentially orphaned anonymous test volumes remain preserved
-because their ownership cannot be proved. All four Actions workflows passed at
-`5b139cc`. No new server mutation or Phase 6 gate pass is claimed.
+because their ownership cannot be proved. Exact source `9ffc370` then passed
+the synthetic server close-out and an independent read-only check: original
+intent, target volume, quiescent source and admission snapshot are preserved.
+Four Actions workflows passed on its documentation-only successor. Restore,
+promotion and Phase 6 gate evidence remain open.
 Other existing networkless host validators still select the volume-declaring
 operations image; their actual mounts and cleanup need a separate audit before
 the Phase 6 gate.

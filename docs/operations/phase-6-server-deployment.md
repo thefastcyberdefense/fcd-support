@@ -1063,3 +1063,19 @@ unexpected record or changed fingerprint, stop and preserve all evidence; do
 not delete the target, edit the journal, retry blindly or switch storage. The
 distinct fresh-target restore requires its own separately recorded action after
 this close-out is verified.
+
+### Empty-target close-out result
+
+On 2026-10-27 (Asia/Dhaka), all four Actions workflows passed for the
+documentation-only successor of `9ffc370`. The read-only preflight passed, then
+the exact source, three separate candidate images and protected configuration
+variant were prepared on the synthetic server. The public private close-out
+returned `restore_abandoned=true`; its terminal record is owner-only and
+content-free. A separate read-only check confirmed the original intent and
+labelled target volume remain, the source is quiescent with no pending job,
+and the original admission snapshot is unchanged. Other fixture fingerprints
+also matched. No provider, Meta, tunnel or customer-traffic call occurred.
+
+This closes only that empty interrupted intent. No restored database, promotion,
+rollback or P6 gate pass is claimed. The separate operations-image inherited
+volume issue must be resolved before the next full restore/promotion drill.
