@@ -561,3 +561,41 @@ Retain a successful private synthetic runtime for the next matrix; retain state
 on failure. No previous intent is resumed, no missing pointer is reconstructed,
 and no existing database, provider or public admission route changes. Compare
 all preserved fingerprints and original admission snapshots afterwards.
+
+### One-shot creation CLI regression probe
+
+At `91eb8f3`, initialization published quiescent state successfully. The first
+bootstrap job then remained `pending/uncertain` with no job container, and startup
+marked the deployment uncertain with schema `000000` and no possible application
+writes. Do not clear, replay or resume that job. The real Compose CLI rejects
+`create --no-deps`; this option exists on other subcommands but not `create`.
+
+The correction removes the unsupported option and rejects implicit one-shot
+dependencies/links. Isolated restore jobs no longer inherit `depends_on`:
+their PostgreSQL actor is already separately created and verified by the locked
+host controller. Fifteen dependency/link regressions failed first, then passed.
+The real Docker probe is extended to exercise the actual Linux stopped-job
+creation helper; Windows reports that host-only portion as skipped explicitly.
+
+Before committing the final helper change, run an independent actual Linux CLI
+canary on the same approved server: project
+`fcd-support-create-cli-synthetic-91eb8f3`, service `bootstrap`, profile
+`operations-bootstrap`. Require a clean checkout still at `91eb8f3`, no existing
+canary actor and unchanged legacy/state fingerprints. Feed one authored Compose
+service over stdin, using the pinned Node digest, user `1000:1000`, read-only
+root, all capabilities dropped, no-new-privileges, network `none`, 0.25 CPU,
+128 MiB and 32 PIDs, with no volume, secret or host port. Invoke under the same
+empty environment and explicit local Unix Docker endpoint with:
+
+```text
+compose --env-file /dev/null --file - --project-name
+fcd-support-create-cli-synthetic-91eb8f3 --profile operations-bootstrap
+create --no-build --pull never --no-recreate bootstrap
+```
+
+Verify exactly one labelled actor in `created/false` state with the specified
+image/user/mount/network/resource boundaries, then remove that immutable ID
+without force. Never start it. Verify zero canary actors and unchanged old
+admission/state fingerprints. Capture only a fixed acknowledgement; no backend,
+archive, credential, current job or network-pool mutation is involved. This
+canary proves CLI syntax/creation, not bootstrap SQL success or runtime readiness.
