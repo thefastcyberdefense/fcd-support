@@ -97,19 +97,20 @@ export async function writeRuntimeHostFixture(
     await put('config/migrate.env', '# Authored synthetic host fixture\n');
     const archive = { BACKUP_ARCHIVE_DIRECTORY: '/var/lib/fcd-support/backups' };
     const temporary = { BACKUP_TMPFS_DIRECTORY: '/run/fcd-support' };
-    const checkpoint = {
-      CHECKPOINT_ARCHIVE_DIRECTORY: '/var/lib/fcd-support/backups',
+    const checkpointBounds = {
       CHECKPOINT_MAX_ROWS: '1000',
       CHECKPOINT_MAX_PAYLOAD_BYTES: '1048576',
+    };
+    const checkpoint = {
+      CHECKPOINT_ARCHIVE_DIRECTORY: '/var/lib/fcd-support/backups',
+      ...checkpointBounds,
     };
     for (const [role, settings] of Object.entries({
       backup: { ...archive, ...temporary },
       'verify-backup': archive,
       checkpoint,
       restore: {
-        ...archive,
-        ...temporary,
-        ...checkpoint,
+        ...checkpointBounds,
         CHECKPOINT_MAX_AGE_MS: '60000',
         RESTORE_BATCH_LIMIT: '10',
         RESTORE_MAX_BATCHES: '100',

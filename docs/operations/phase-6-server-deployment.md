@@ -824,3 +824,37 @@ runner passed, including public deploy/verify, private HTTP/socket checks and
 unchanged prior history/admission snapshots. Scheduled backup plus replay again
 passed with the same three signed archives. The corrected restore matrix is
 running separately; those earlier passes do not establish its outcome.
+
+### Split directory-environment correction
+
+At `5d35777`, actual source drain completed: all application actors stopped and
+were removed, source state became quiescent and a healthy isolated target
+PostgreSQL actor was created. The first stream job then failed and was contained;
+its uncertain journal, restore intent and both databases remain preserved. No
+application was attached to the target, and promotion/rollback were not attempted.
+Earlier fixture fingerprints and original admission snapshots matched.
+
+The shared authored `restore.env` supplied all three archive/tmpfs/checkpoint
+paths. Stream explicitly rejects the checkpoint directory, and reconciliation
+explicitly rejects stream directories. Sixteen regressions failed (15 per-role
+Compose path mutations plus the fixture); role-specific Compose directory
+settings now keep those guards intact. Shared restore policy retains numeric
+bounds only. The rendered contract requires each intended path and rejects
+foreign paths, including on target-only bootstrap/migration jobs.
+
+The first disposable full-controller Actions run reached deployment but failed;
+it is not a pass. Its previous diagnostics reported only the broad stage, and
+sudo retained an inaccessible runner HOME. The workflow now selects the operator
+HOME explicitly. A test-only diagnostic helper filters only fixed closed codes
+and bounded known-source/line/status entries; it never forwards arbitrary logs,
+arguments, command text, environment or secrets. Two rejection tests failed first
+and now pass. The CI-only Bash trace remains in protected fixture logs, with no
+raw artifact upload. The next workflow result must establish the actual cause
+and outcome; the HOME correction alone is not asserted as the deployment fix.
+
+Correction gates exited 0: full code 1,727 passed/368 platform skips/117 files
+(213.93 seconds), native restore 202 units/11 files (38.52 seconds) plus 47
+PostgreSQL cases/2 files (34.87 seconds). Sixteen path regressions and both
+closed-output rejection cases were observed failing first. Formatting, strict
+typing, lint, shell syntax and whitespace checks pass. New CI execution and a
+fresh exact-source host restore remain required; no uncertain job was replayed.

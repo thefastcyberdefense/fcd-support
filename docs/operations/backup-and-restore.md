@@ -43,6 +43,15 @@ Restore capabilities are split:
 3. Reconcile the current signed deletion checkpoint using narrow source
    checkpoint access, target owner and all active privacy-key versions.
 
+The resolved Compose environment supplies archive/tmpfs paths only to stream,
+and the checkpoint path only to reconciliation/promotion. Target-only jobs
+receive none of these paths. Keep the shared `restore.env` limited to non-secret
+numeric policy settings such as checkpoint age/row/byte bounds, restore batch
+bounds and promotion timeout. Never put the three directory variables in this
+shared file or `common.env`: each split executable rejects a foreign directory
+setting, and the Compose contract rejects it before drain. Paths correspond to
+the existing mounted archive volume and tmpfs; policy limits stay configurable.
+
 Imported outbound work remains quarantined and restored conversations retain a
 recovery hold. Apply every unexpired tombstone, including deletions after the
 archive. Historical restore evidence is descriptive and does not select storage,

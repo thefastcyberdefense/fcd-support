@@ -88,16 +88,22 @@ test.each(['backup', 'verify-backup', 'checkpoint', 'restore'])(
     try {
       await writeRuntimeHostFixture(root, 'fcd-support-host-test-synthetic', 'b'.repeat(40));
       const settings = environment(await readFile(join(root, `config/${role}.env`), 'utf8'));
-      if (role !== 'checkpoint')
+      if (role !== 'checkpoint' && role !== 'restore')
         expect(settings.BACKUP_ARCHIVE_DIRECTORY).toBe('/var/lib/fcd-support/backups');
-      if (role === 'backup' || role === 'restore')
-        expect(settings.BACKUP_TMPFS_DIRECTORY).toBe('/run/fcd-support');
+      if (role === 'backup') expect(settings.BACKUP_TMPFS_DIRECTORY).toBe('/run/fcd-support');
       if (role === 'checkpoint' || role === 'restore') {
-        expect(settings.CHECKPOINT_ARCHIVE_DIRECTORY).toBe('/var/lib/fcd-support/backups');
+        if (role === 'checkpoint')
+          expect(settings.CHECKPOINT_ARCHIVE_DIRECTORY).toBe('/var/lib/fcd-support/backups');
         expect(settings.CHECKPOINT_MAX_ROWS).toBe('1000');
         expect(settings.CHECKPOINT_MAX_PAYLOAD_BYTES).toBe('1048576');
       }
       if (role === 'restore') {
+        for (const key of [
+          'BACKUP_ARCHIVE_DIRECTORY',
+          'BACKUP_TMPFS_DIRECTORY',
+          'CHECKPOINT_ARCHIVE_DIRECTORY',
+        ])
+          expect(settings[key]).toBeUndefined();
         expect(settings.CHECKPOINT_MAX_AGE_MS).toBe('60000');
         expect(settings.RESTORE_BATCH_LIMIT).toBe('10');
         expect(settings.RESTORE_MAX_BATCHES).toBe('100');

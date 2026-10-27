@@ -74,6 +74,8 @@ services:
       RESTORE_TARGET_OWNER_DATABASE_URL_FILE: /run/secrets/restore-database
       BACKUP_AGE_IDENTITY_FILE: /run/secrets/restore-identity
       RECOVERY_MANIFEST_HMAC_FILE: /run/secrets/recovery-hmac
+      BACKUP_ARCHIVE_DIRECTORY: /var/lib/fcd-support/backups
+      BACKUP_TMPFS_DIRECTORY: /run/fcd-support
     secrets: [restore-archive-database, restore-database, restore-identity, recovery-hmac]
     entrypoint: ['/usr/local/bin/container-entrypoint.sh', 'operations-readonly']
     command: ['node', 'dist/operations/restore-stream-main.js']
@@ -156,6 +158,7 @@ services:
       PRIVACY_HMAC_KEYRING_FILE: /run/secrets/restore-keyring
       BACKUP_AGE_IDENTITY_FILE: /run/secrets/restore-identity
       RECOVERY_MANIFEST_HMAC_FILE: /run/secrets/recovery-hmac
+      CHECKPOINT_ARCHIVE_DIRECTORY: /var/lib/fcd-support/backups
     command: ['node', 'dist/operations/restore-reconcile-main.js']
     secrets:
       [

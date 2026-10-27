@@ -38,5 +38,5 @@ jobs:
           [[ "$(sudo realpath -e "$task_root/repository")" == /home/fcd-support-ci/repository ]]
           sudo cp -a -- "$GITHUB_WORKSPACE/." "$task_root/repository/"
           sudo chown -R --no-dereference 1000:1000 "$task_root/repository"
-          sudo --user "$task_operator" --group '#1000' env PATH="$PATH" GITHUB_ACTIONS=true \
+          sudo --set-home --user "$task_operator" --group '#1000' env PATH="$PATH" GITHUB_ACTIONS=true \
             bash -c 'cd /home/fcd-support-ci/repository && exec bash scripts/test-synthetic-runtime-deployment.sh "$1" --ephemeral-ci' bash "$GITHUB_SHA"

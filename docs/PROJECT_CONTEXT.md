@@ -2,6 +2,14 @@
 
 Last reviewed: 2026-10-27 (Asia/Dhaka)
 
+Most recent continuation: `5d35777` passed fresh full deployment and backup/replay;
+actual source drain and isolated PostgreSQL target creation then passed. Stream
+refused a foreign checkpoint directory inherited from shared fixture settings.
+Source is quiescent, target remains isolated, and the uncertain job plus both
+databases are preserved. Role-specific Compose paths and a stricter rendered
+contract are under validation. Disposable controller CI also exposed an unresolved
+deployment failure; the next run adds closed code/source-line diagnostics.
+
 Latest host checkpoint: `a6de436` reached private READY at schema `000016` with
 all four healthy actors, public verify, private rejection routes, protected Unix
 login and an actual SSH forward/authentication gate. Scheduled daily/monthly

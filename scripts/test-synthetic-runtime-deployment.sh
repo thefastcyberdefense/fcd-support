@@ -14,8 +14,9 @@ fi
 restore_project="${project/fcd-support-host-test-/fcd-support-restore-host-test-}"
 fixture="$operator_home/$project"
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+source "$root/scripts/synthetic-host-evidence.sh"
 stage=preflight
-trap 'printf "synthetic_host_failed=%s\n" "$stage" >&2' ERR
+trap 'synthetic_host_report_failure "$stage" "$fixture/logs/$stage.log" "$fixture/logs/deploy-lines.log"' ERR
 [[ "$(uname -s)" == Linux && "$(id -u):$(id -g)" == 1000:1000 ]]
 if [[ "$mode" == --ephemeral-ci ]]; then
   [[ "$root" == /home/fcd-support-ci/repository && -z "$(docker ps --all --quiet --no-trunc)" ]]
@@ -66,7 +67,17 @@ peer="$(docker run --detach --name "$project-ingress-peer" --label "fcd-support.
 docker network connect "$project-egress" "$peer" </dev/null
 printf 'FCD_INGRESS_PEER_ID=%s\n' "$peer" >>"$fixture/config/operations.env"
 stage=deploy
-bash scripts/deploy-runtime.sh "$revision" --mode private-disabled "$fixture/config/operations.env" >"$fixture/logs/deploy.log" 2>&1 </dev/null
+if [[ "$mode" == --ephemeral-ci ]]; then
+  cat >"$fixture/logs/trace-entry.bash" <<'TRACE'
+exec 3>"${FCD_SYNTHETIC_TRACE:?}"
+set -o functrace
+trap 'trace_status=$?; trace_source="${BASH_SOURCE[0]-stdin}"; printf "%s:%s:previous=%s\n" "${trace_source##*/}" "$LINENO" "$trace_status" >&3' DEBUG
+TRACE
+  BASH_ENV="$fixture/logs/trace-entry.bash" FCD_SYNTHETIC_TRACE="$fixture/logs/deploy-lines.log" \
+    bash scripts/deploy-runtime.sh "$revision" --mode private-disabled "$fixture/config/operations.env" >"$fixture/logs/deploy.log" 2>&1 </dev/null
+else
+  bash scripts/deploy-runtime.sh "$revision" --mode private-disabled "$fixture/config/operations.env" >"$fixture/logs/deploy.log" 2>&1 </dev/null
+fi
 stage=verify
 bash scripts/verify-runtime.sh "$revision" "$fixture/config/operations.env" >"$fixture/logs/verify.log" 2>&1 </dev/null
 stage=private-http

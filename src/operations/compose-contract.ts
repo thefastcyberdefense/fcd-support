@@ -635,6 +635,20 @@ export function assertRestoreCompose(
       checkService(service, job, 'no');
       if (!service) invalid();
       const targetOnly = name === 'restore-bootstrap' || name === 'restore-migrate';
+      const directories: Readonly<Record<string, string>> = targetOnly
+        ? {}
+        : name === 'restore'
+          ? {
+              BACKUP_ARCHIVE_DIRECTORY: '/var/lib/fcd-support/backups',
+              BACKUP_TMPFS_DIRECTORY: '/run/fcd-support',
+            }
+          : { CHECKPOINT_ARCHIVE_DIRECTORY: '/var/lib/fcd-support/backups' };
+      for (const key of [
+        'BACKUP_ARCHIVE_DIRECTORY',
+        'BACKUP_TMPFS_DIRECTORY',
+        'CHECKPOINT_ARCHIVE_DIRECTORY',
+      ])
+        if (service.environment[key] !== directories[key]) invalid();
       if (
         JSON.stringify(service.command) !==
           JSON.stringify(['node', `dist/operations/${job.program}.js`]) ||

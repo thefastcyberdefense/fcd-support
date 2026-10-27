@@ -129,10 +129,14 @@ function fixture() {
       value.environment.RECOVERY_MANIFEST_HMAC_FILE = '/run/secrets/recovery-hmac';
       value.environment.RESTORE_TARGET_OWNER_DATABASE_URL_FILE = '/run/secrets/restore-database';
     }
-    if (name === 'restore')
+    if (name === 'restore') {
+      value.environment.BACKUP_ARCHIVE_DIRECTORY = '/var/lib/fcd-support/backups';
+      value.environment.BACKUP_TMPFS_DIRECTORY = '/run/fcd-support';
       value.environment.RESTORE_SOURCE_ARCHIVE_DATABASE_URL_FILE =
         '/run/secrets/restore-archive-database';
+    }
     if (name === 'restore-reconcile' || name === 'promote') {
+      value.environment.CHECKPOINT_ARCHIVE_DIRECTORY = '/var/lib/fcd-support/backups';
       value.environment.RESTORE_SOURCE_CHECKPOINT_DATABASE_URL_FILE =
         '/run/secrets/restore-checkpoint-database';
       value.environment.PRIVACY_HMAC_KEYRING_FILE = '/run/secrets/restore-keyring';
@@ -162,6 +166,27 @@ function fixture() {
       ].map((name) => [name, { file: `/protected/synthetic/${name}` }]),
     ),
   };
+}
+
+for (const name of Object.keys(specs)) {
+  for (const key of [
+    'BACKUP_ARCHIVE_DIRECTORY',
+    'BACKUP_TMPFS_DIRECTORY',
+    'CHECKPOINT_ARCHIVE_DIRECTORY',
+  ]) {
+    test(`split restore refuses missing or foreign ${key} on ${name}`, () => {
+      const input = fixture();
+      const value = required(input.services[name]);
+      if (key in value.environment)
+        value.environment = Object.fromEntries(
+          Object.entries(value.environment).filter(([name]) => name !== key),
+        );
+      else value.environment[key] = '/var/lib/fcd-support/backups';
+      expect(() => {
+        assertRestoreCompose(input, revision, 'fcd-support-original');
+      }).toThrow();
+    });
+  }
 }
 
 test.each(
