@@ -781,3 +781,40 @@ All four actual Docker metadata checks pass locally; Linux stopped creation
 remains explicitly skipped on Windows. The corrected narrow mount predicate
 also passed read-only against the existing synthetic Ubuntu PostgreSQL actor.
 This proves metadata rendering, not a successful public drain/restore.
+
+### Corrected mount deployment and restore action
+
+Deploy exact source `5d35777e2e32f4f30d6c90fdec05507d43765cd2` from the clean
+server checkout at `a6de43665215dfe68f7de2052c289d80a0c33b3f`. New fresh scope
+is `fcd-support-host-test-p6-5d35777`, protected root
+`/home/redwan/fcd-support-host-test-p6-5d35777`. Fingerprint all seven existing
+fixture-state roots, including `a6de436`'s restore intent/uncertain selection,
+and retain the original admission snapshot throughout.
+
+First retire only `a6de436`'s five synthetic actors (reply/admin/API/PostgreSQL/
+peer) and eight bridges to reserve subnet capacity. Require selection uncertain
+at `000016`, no active/pending operation and no restore-target actor/volume.
+Verify all five exact immutable IDs, retained image IDs/revision, users, read-only
+roots, commands, no publication, peer label/no mounts, PostgreSQL volume and
+physical identity before any stop. Stop reply, admin, API, PostgreSQL and peer
+with 30-second grace; recheck unchanged identities and stopped state, then remove
+those IDs without force or volumes. Remove only the eight exact owned empty
+bridge IDs with their expected driver/internal/project metadata. Preserve all
+credentials, volumes, selections, restore intents, journals and history, including
+the older pending `91eb8f3` scope. This is failed-fixture disposition, not a
+successful controller drain or reconciliation of its uncertainty.
+
+Fetch origin, check out the new exact source detached and require a clean tree.
+Run `scripts/test-docker-projections.sh` (four metadata checks and Linux stopped
+creation), then the full synthetic deployment runner with that full revision
+and `--synthetic-only`, stdin closed. Require successful deploy/verify/private
+HTTP/socket postconditions and unchanged preserved fingerprints/admission.
+
+Only after success, repeat the previously recorded scheduled backup/replay,
+signed daily-reference selection, current checkpoint export under public verify/
+lock, public isolated restore, successful public promotion and same-revision
+retained rollback matrix using the new full revision, namespace and config.
+The exact configured target is `fcd-support-restore-host-test-p6-5d35777`, volume
+`fcd-support-restore-host-test-p6-5d35777-data`. Preserve both source/target volumes
+and all uncertain state on failure; no automatic replay, pointer repair or
+fallback is included. Keep all providers disabled and all other assets unchanged.
