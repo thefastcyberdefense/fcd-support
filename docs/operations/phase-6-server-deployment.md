@@ -940,3 +940,52 @@ pre-intent, resource, credential-presence and image/toolchain checks. Any furthe
 identity/start-time change stops execution again. This updates observed
 preservation evidence after an external restart and grants no journal replay,
 old-volume adoption, automatic target restart or production action.
+
+### Partial-target preservation and fresh retry action
+
+Post-restart completion passed toolchain/deploy/verify/private HTTP/socket
+checks at `8ccb9a0`. Backup/replay again verified the same three signed archives.
+The next restore drained source and completed its source-only upgrade, created
+the target volume, then refused before target network/actor creation. Source is
+quiescent, no job is pending, and the partial target/intent are preserved. A
+read-only inventory found 30 bridge networks; address-pool exhaustion is the
+working diagnosis until the bounded probe below confirms it.
+
+Continue only from clean exact source `8ccb9a09bd0c264376ce76e36694659c7d47815b`
+and the captured post-restart admission baseline. Preserve all older state and
+the current partial target volume/intent. First attempt one fresh internal
+bridge canary named `fcd-support-subnet-check-8ccb9a0`, with a dedicated capacity
+probe label, no actor or route. Capture Docker stderr privately and recognize
+only the known exhausted-pool message. If it unexpectedly succeeds, verify its
+immutable ID/label/internal bridge/zero-member postcondition, remove only that
+ID without force, and stop to reassess rather than assume the diagnosis.
+
+After confirmed exhaustion, release only the stopped synthetic
+`fcd-support-host-test-p6-5d35777-ingress-peer` and its now-empty ingress/egress
+bridges. Verify its exact ID, retained `5d35777` application image, revision,
+node/read-only/no-capability/no-port/no-mount boundary, synthetic label and
+stopped state. Remove that ID without force. Remove only the two empty exact
+owned bridge IDs with internal flags true/false respectively. Preserve the
+`5d35777` PostgreSQL actors, both data volumes, all six source data bridges,
+target bridge, uncertain job and intent. No global prune/address-pool change.
+
+Create a new owner-only configuration variant at
+`/home/redwan/fcd-support-host-test-p6-8ccb9a0/config-restore-r2`, initially absent.
+Copy only the known regular owner-0600 non-secret role settings; keep original
+configuration untouched. Its literal host file preserves runtime project,
+source/backup/state/socket/secret roots, revision, images and all provider flags.
+Only its config-root reference and fresh restore project/volume change to
+`fcd-support-restore-host-test-p6-8ccb9a0-r2` and that name with `-data`.
+Set the variant's synthetic checkpoint maximum age to 600000 ms to budget the
+measured multistep host drill; other numeric bounds remain unchanged. This is
+an explicit test setting, not a production default or bypass of freshness.
+
+Under normal protected config/image/deployment-lock and quiescent-bootstrap
+host/physical-identity checks, export a new checkpoint with the existing narrow
+checkpoint job. Use the already verified current daily backup reference.
+Run the public restore into the absent fresh `r2` target, then only on success
+public promotion, verification and retained same-revision rollback with this
+variant. Never resume the old target/intent, repair selection or replay an
+uncertain job. Preserve all volumes and immutable old intent fingerprints;
+compare every other fixture and admission snapshot afterwards. Any further
+restart, unexpected peer, pending job or identity change refuses execution.
