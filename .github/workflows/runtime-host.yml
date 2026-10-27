@@ -40,3 +40,18 @@ jobs:
           sudo chown -R --no-dereference 1000:1000 "$task_root/repository"
           sudo --set-home --user "$task_operator" --group '#1000' env PATH="$PATH" GITHUB_ACTIONS=true \
             bash -c 'cd /home/fcd-support-ci/repository && exec bash scripts/test-synthetic-runtime-deployment.sh "$1" --ephemeral-ci' bash "$GITHUB_SHA"
+      - name: Report only fixture-state ownership after a failed smoke test
+        if: failure()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$GITHUB_SHA" =~ ^[a-f0-9]{40}$ ]]
+          task_state="/home/fcd-support-ci/fcd-support-host-test-ci-${GITHUB_SHA:0:7}/state"
+          for task_name in initial-deployment.record deployment-state active-job; do
+            printf 'synthetic_state_%s=' "$task_name"
+            if sudo test -f "$task_state/$task_name"; then
+              sudo stat -c '%u:%g:%a:%h' -- "$task_state/$task_name"
+            else
+              printf 'absent\n'
+            fi
+          done
