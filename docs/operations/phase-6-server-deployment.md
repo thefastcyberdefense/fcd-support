@@ -174,3 +174,64 @@ local validation. They do not depend on the failed ordinary lane. Their results,
 the exact corrected revision and the follow-up ordinary PostgreSQL action will
 be recorded separately. Full hardened runtime, socket/SSH, host restart and live
 test-asset acceptance remain open.
+
+### Completed Stage A evidence
+
+The real server native lanes at `83978fc` passed:
+
+| Lane | Actual result | Test duration |
+| --- | --- | --- |
+| Unit | 1,714 passed, 324 native-only skips, 113 files | 49.22 s |
+| Native operations units | 1,100 passed, 49 files | 297.25 s |
+| Native operations PostgreSQL | 139 passed, one restore-only skip, 13 files | 50.64 s |
+| Restore units | 171 passed, 11 files | 26.70 s |
+| Two-cluster restore PostgreSQL | 47 passed, two files | 56.87 s |
+
+The corrected ordinary PostgreSQL lane at `3f8783f` then passed 619 tests with
+52 native-only skips across 56 files (126.91 seconds; 146 seconds including
+build/startup). The complementary native lanes above cover those capabilities.
+Each completed stage was checked against actual exit status; reporting did not
+convert a skipped or failed case into a pass.
+
+Both project cleanups passed with zero temporary schemas, non-builtin fixture
+roles and advisory locks, followed by zero containers/networks/volumes for the
+exact project. The three retained admission containers had identical IDs,
+start-times and running state before/after. Their images, storage, configuration
+and public tunnel were not replaced. No live provider call occurred.
+
+The SSH command wrapper also required explicit closed stdin for Compose exec:
+without it, an exec could consume the remaining piped operator script and omit
+post-checks. Cleanup was rerun separately with `--interactive=false` and
+`</dev/null`; only the subsequent observed counts and final acknowledgements
+establish successful cleanup.
+
+All three GitHub Actions workflows passed again at
+`99c930654f332b42b387896bfc4f4868003be3c6`, including the corrected integration
+image. The server checkout remains clean at the exact tested `3f8783f` source.
+Stage A validates synthetic jobs on Ubuntu/Docker; full runtime/controller,
+SSH dashboard, interruption matrix and live test-asset gates remain open.
+
+## Stage B preparation
+
+`scripts/test-synthetic-runtime-deployment.sh` prepares the next actual
+controller drill. Its fixture generator creates only a fresh
+`fcd-support-host-test-*` namespace, independent protected configuration/state/
+socket roots, newly generated test-only credentials and distinct source/target
+owner credentials. Its networkless key-generation helper receives only the
+fresh key directory; each PostgreSQL ownership helper receives one fresh secret
+file and only `CHOWN`, without any source directory, database volume or other
+credential. Private runtime flags remain false.
+
+The planned drill builds all three pinned images, creates a synthetic ingress
+peer with a separate ordinary-egress bridge, invokes the actual deploy/verify
+commands and checks private HTTP/socket behavior. It preserves the three old
+admission containers and retains its explicitly synthetic private runtime for
+the following restore/interruption matrix. No public route, tunnel, test asset,
+existing database or provider configuration is part of it.
+
+Five new fixture/argument checks pass after observed failures. Complete code
+gate: 1,677 passed/367 platform skips/115 files (199.55 seconds); Linux unit
+lane: 1,720 passed/324 native-only skips/115 files (72.58 seconds). These establish
+preparation/guard coverage only. The new drill has not yet established a full
+host deployment pass. Its exact committed source, action and rollback scope
+must be appended before execution.

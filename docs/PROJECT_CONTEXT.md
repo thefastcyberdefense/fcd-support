@@ -25,6 +25,17 @@ Last reviewed: 2026-10-27 (Asia/Dhaka)
 
 ## Current Phase 6 Checkpoint
 
+Stage A real-server synthetic validation is complete: unit 1,714 passed/324
+native-only skips; native operations 1,100 units +139 PostgreSQL/one restore-only
+skip; restore 171 units +47 PostgreSQL; corrected ordinary PostgreSQL 619
+passed/52 native-only skips. Both isolated projects cleaned up at zero temporary
+schemas, fixture roles, advisory locks and project Docker resources. Retained
+admission container IDs/start-times/running states matched. All three Actions
+workflows passed at `99c9306`. The source checkout is clean at `3f8783f`, while
+the retained application still executes `207a5e6`. Full private runtime/controller
+deployment and the remaining failure matrix/review are next; no P6/P7 gate or
+live-provider validation is claimed.
+
 Real server validation has begun with fresh synthetic resources at source
 `83978fc`. Its unit lane passed 1,714 tests/324 native-only skips. Ordinary
 PostgreSQL exposed a real Unix ownership mismatch: capability-dropped root
