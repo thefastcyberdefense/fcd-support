@@ -50,6 +50,21 @@ and all uncertain evidence after a failure. Never edit a journal or selection
 file to make a refusal disappear. Interrupted operation recovery still requires
 its complete validation evidence; this guide grants no manual bypass.
 
+For an interrupted restore whose original labelled target volume still exists
+and is demonstrably empty, the private close-out is:
+
+```bash
+bash scripts/abandon-empty-restore.sh RESTORE_REF FULL_REVISION CONFIG_PATH
+```
+
+It preserves the intent and target, permanently reserves the target names and
+records a content-free proof. It refuses missing or nonempty targets, pending
+jobs, changed source identity, ambiguous Docker state and foreign binds. It
+cannot settle an uncertain SQL job, authorize promotion or select storage. A
+new restore still needs a different target and every normal restore gate. This
+command has local synthetic evidence; server-specific proof is recorded
+separately before it can be considered validated there.
+
 ## Private dashboard and socket recovery
 
 Admin listens only on the owned mode-`0600` Unix socket under its independently

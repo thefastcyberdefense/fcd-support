@@ -61,14 +61,22 @@ Files: `src/operations/empty-restore-target.ts`,
 `scripts/operations-common.sh`, corresponding focused tests and native harness
 selection.
 
-- [ ] Add RED empty/nonempty/symlink/identity-race/privacy tests and public
+- [x] Add RED empty/nonempty/symlink/identity-race/privacy tests and public
       argument/preflight tests. Require zero content reads and no backend mounts.
-- [ ] Implement the bounded root-identity proof and closed Linux UID-1000 CLI.
-- [ ] Add the explicit action/parser/handler and host checks from the spec.
+- [x] Implement the bounded root-identity proof and closed Linux UID-1000 CLI.
+- [x] Add the explicit action/parser/handler and host checks from the spec.
       Permit no pending job, used target, foreign actor/bind or unsafe history.
-- [ ] Verify fresh and repeated resource/physical/selection facts before the
+- [x] Verify fresh and repeated resource/physical/selection facts before the
       terminal record; default output only `restore_abandoned=true` on success.
-- [ ] Run code/native/Docker regression checks; self-review and commit/push.
+- [x] Run code/native/Docker regression checks; self-review and commit/push.
+
+Final local component evidence: 33 native host cases (75.01 seconds), 69
+native restore-state cases (51.11 seconds), and the real Docker confinement,
+nonempty-target, missing-bind and synthetic-cleanup checks passed. The full code
+gate passed 1,756 tests with 423 platform skips across 122 files (202.10 seconds).
+The earlier broader native gate passed 1,180 units and 139 PostgreSQL cases
+with one restore-only skip before the final stricter checks. The real server
+close-out and Task 11 completion remain open.
 
 Probe checkpoint: the filesystem-only helper and fixed-argument UID-1000 CLI
 pass 15 native Linux cases, including empty/nonempty roots, symlinks, a root
@@ -90,6 +98,25 @@ The exact target data directory is the probe's sole read-only bind. A real local
 Docker check proved a missing named volume is implicitly created, while a
 missing bind source is refused at container creation; both synthetic scopes
 were cleaned. This avoids implicit recreation if the target disappears.
+
+Image ruling: the operations image inherits a declared PostgreSQL volume;
+actual Docker inspection found an extra anonymous mount. The private probe
+must use the immutable application image and explicitly reject any declared
+image volume. The earlier three failed fixture actors were removed, but their
+possible anonymous volumes are preserved because ownership cannot be proved
+after those actors were removed. No server volume was involved. Future fixture
+cleanup removes anonymous volumes only while attached to an identified actor.
+
+Absent-target ruling: a missing target is not proof of a never-used target.
+Completed jobs are removed from the active journal, so absence cannot rule out
+prior use and later removal. The command must refuse absent targets until a
+separate durable history can prove their lifecycle. The current server target
+still exists and can be checked for emptiness.
+
+Orphan ruling: an operation override left without an active journal or any
+stopped/running operation actor for the source project is ambiguous evidence.
+Both block abandonment. Resource listings are repeated immediately before the
+terminal record so a newly appearing operation actor also refuses.
 
 ## C: Real server recovery evidence
 

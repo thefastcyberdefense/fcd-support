@@ -84,7 +84,7 @@ test.each([
   ['RESTORE_VERIFIER_REVISION', 'latest', false],
   ['RESTORE_VERIFIER_IMAGE', ops, true],
   ['RESTORE_VERIFIER_IMAGE', 'synthetic:latest', false],
-  ['RESTORE_EMPTY_VOLUME_CREATED_AT', 'absent', true],
+  ['RESTORE_EMPTY_VOLUME_CREATED_AT', 'absent', false],
   ['RESTORE_EMPTY_VOLUME_CREATED_AT', target.volumeCreatedAt, true],
   ['RESTORE_EMPTY_VOLUME_CREATED_AT', '2030-01-01T06:00:00+06:00', true],
   ['RESTORE_EMPTY_VOLUME_CREATED_AT', 'unknown', false],
@@ -118,7 +118,7 @@ async function fixture() {
         `
 source "$TASK_COMMON"
 source "$TASK_LIBRARY"
-declare -A OPS_CONFIG=([FCD_STATE_ROOT]="$TASK_ROOT" [FCD_RUNTIME_PROJECT]=fcd-support [FCD_COMMAND_TIMEOUT_SECONDS]=5 [FCD_POSTGRES_DB]=fcd_support_test [FCD_DATABASE_SCHEMA]=public [FCD_SUPPORT_REVISION]=${revision} [FCD_OPERATIONS_IMAGE]=${ops} [FCD_SCHEMA_REVISION]=000016)
+declare -A OPS_CONFIG=([FCD_STATE_ROOT]="$TASK_ROOT" [FCD_RUNTIME_PROJECT]=fcd-support [FCD_COMMAND_TIMEOUT_SECONDS]=5 [FCD_POSTGRES_DB]=fcd_support_test [FCD_DATABASE_SCHEMA]=public [FCD_SUPPORT_REVISION]=${revision} [FCD_SUPPORT_IMAGE]=${app} [FCD_OPERATIONS_IMAGE]=${ops} [FCD_SCHEMA_REVISION]=000016)
 ${locked ? 'exec {OPS_LOCK_DESCRIPTOR}<>"$TASK_ROOT/deployment.lock"; flock --nonblock "$OPS_LOCK_DESCRIPTOR";' : ''}
 operations_restore_metadata_decode() { "$TASK_NODE" "$TASK_METADATA" decode-fields "$1"; }
 ${body}
@@ -161,10 +161,35 @@ function refused(result: ReturnType<typeof spawnSync>) {
   });
 }
 
-const abandon = `restore_state_abandon ${ref} ${revision} ${ops} ${target.volumeCreatedAt} ${'f'.repeat(64)}`;
+const abandon = `restore_state_abandon ${ref} ${revision} ${app} ${target.volumeCreatedAt} ${'f'.repeat(64)}`;
 const freshBegin = begin
   .replace(ref, `restore_${'9'.repeat(32)}`)
   .replaceAll('restore-synthetic', 'restore-other');
+
+test.runIf(native)(
+  'abandonment binds the candidate application image as its verifier',
+  async () => {
+    const f = await fixture();
+    try {
+      success(f.run(`${create}; ${begin}`));
+      success(f.run(abandon.replace(ops, app)));
+      expect(await readFile(f.abandoned, 'utf8')).toContain(`RESTORE_VERIFIER_IMAGE=${app}\n`);
+    } finally {
+      await f.dispose();
+    }
+  },
+);
+
+test.runIf(native)('abandonment refuses the operations image as verifier', async () => {
+  const f = await fixture();
+  try {
+    success(f.run(`${create}; ${begin}`));
+    refused(f.run(abandon.replace(app, ops)));
+    await expect(stat(f.abandoned)).rejects.toMatchObject({ code: 'ENOENT' });
+  } finally {
+    await f.dispose();
+  }
+});
 
 test.runIf(native)(
   'verified abandonment preserves intent and pointer, reserves target and cannot complete',

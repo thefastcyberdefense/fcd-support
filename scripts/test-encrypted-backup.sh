@@ -15,6 +15,8 @@ if [[ "$MODE" == checkpoint || "$MODE" == grants ]]; then
 fi
 if [[ "$MODE" == grants ]]; then
   UNIT_FILES+=(tests/empty-restore-target.test.ts)
+  UNIT_FILES+=(tests/operations-empty-restore.test.ts)
+  UNIT_FILES+=(tests/empty-restore-absence.test.ts tests/empty-restore-source-image.test.ts tests/empty-restore-orphan.test.ts)
   UNIT_FILES+=(tests/systemd-contract.test.ts tests/operations-scheduled-job.test.ts tests/maintenance-pool.test.ts tests/restore-command.test.ts)
   UNIT_FILES+=(tests/operations-health-host.test.ts)
   UNIT_FILES+=(tests/health-collector.test.ts tests/health-main.test.ts tests/admin-operations.test.ts)
@@ -73,6 +75,8 @@ if [[ "$MODE" == state ]]; then
   UNIT_FILES+=(tests/operations-health-host.test.ts)
   UNIT_FILES+=(tests/operations-restore-state.test.ts)
   UNIT_FILES+=(tests/empty-restore-target.test.ts)
+  UNIT_FILES+=(tests/operations-empty-restore.test.ts)
+  UNIT_FILES+=(tests/empty-restore-absence.test.ts tests/empty-restore-source-image.test.ts tests/empty-restore-orphan.test.ts)
   UNIT_FILES+=(tests/operations-live-socket-preflight.test.ts)
   UNIT_FILES+=(tests/operations-restore-controller.test.ts tests/operations-promotion-controller.test.ts)
   # The complete grants gate always runs its full unit/integration selection.
@@ -92,6 +96,7 @@ REVISION="$(git -C "$NATIVE_ROOT" rev-parse HEAD)"
 [[ "$REVISION" =~ ^[a-f0-9]{40}$ ]] || exit 1
 SCOPE="fcd-support-backup-test-$$-$RANDOM"
 OPS="$SCOPE-operations:$REVISION"
+APP="$SCOPE-application:$REVISION"
 RUNNER="$SCOPE-runner:$REVISION"
 VOLUME="$SCOPE-backups"
 RESTORE_NETWORK="$SCOPE-restore"
@@ -99,7 +104,7 @@ RESTORE_VOLUME="$SCOPE-postgres"
 cleanup() {
   for container in "$SCOPE-unit" "$SCOPE-integration" "$SCOPE-postgres"; do
     if [[ "$(docker inspect --format '{{index .Config.Labels "fcd-support.backup-test"}}' "$container" 2>/dev/null || true)" == "$SCOPE" ]]; then
-      docker rm --force "$container" >/dev/null 2>&1 || true
+      docker rm --force --volumes "$container" >/dev/null 2>&1 || true
     fi
   done
   if [[ "$(docker volume inspect --format '{{index .Labels "fcd-support.backup-test"}}' "$VOLUME" 2>/dev/null || true)" == "$SCOPE" ]]; then
@@ -111,7 +116,7 @@ cleanup() {
   if [[ "$(docker network inspect --format '{{index .Labels "fcd-support.backup-test"}}' "$RESTORE_NETWORK" 2>/dev/null || true)" == "$SCOPE" ]]; then
     docker network rm "$RESTORE_NETWORK" >/dev/null 2>&1 || true
   fi
-  for image in "$RUNNER" "$OPS"; do
+  for image in "$RUNNER" "$OPS" "$APP"; do
     if [[ "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image" 2>/dev/null || true)" == "$REVISION" ]]; then
       docker image rm "$image" >/dev/null 2>&1 || true
     fi
@@ -194,4 +199,9 @@ fi
 }
 run_tests unit run "${UNIT_FILES[@]}"
 if (( ${#INTEGRATION_FILES[@]} > 0 )); then run_tests integration run --config vitest.integration.config.ts "${INTEGRATION_FILES[@]}"; fi
+if [[ "$MODE" == grants || ( "$MODE" == state && ( "$#" == 1 || "${2:-}" == tests/operations-empty-restore.test.ts || "${2:-}" == tests/empty-restore-target.test.ts ) ) ]]; then
+  docker build --platform linux/amd64 --build-arg "VCS_REF=$REVISION" --file "$NATIVE_ROOT/Dockerfile" --tag "$APP" "$NATIVE_ROOT" >/dev/null 2>&1 || { echo empty_target_application_build_failed >&2; exit 1; }
+  bash "$ROOT/scripts/test-empty-target-docker.sh" "$APP" "$REVISION"
+  bash "$ROOT/scripts/test-synthetic-cleanup.sh" "$OPS" "$REVISION"
+fi
 if [[ "$MODE" == state ]]; then echo operations_state_local=true; elif [[ "$MODE" == unit ]]; then echo operations_unit_local=true; else echo encrypted_backup_local=true; fi

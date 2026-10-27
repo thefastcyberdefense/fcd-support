@@ -2,6 +2,19 @@
 
 Last reviewed: 2026-10-27 (Asia/Dhaka)
 
+Latest recovery work: the private empty-target command now requires an existing
+labelled volume and rejects absent targets, unresolved jobs and ambiguous host
+resources. Its read-only target and source validators use application images
+without declared volumes. Local Docker checks demonstrated confinement and the
+absence of implicit bind-source creation. Final focused checks passed 33 native
+host and 69 state cases; full code passed 1,756 tests/423 platform skips.
+Three potentially orphaned anonymous test volumes remain preserved
+because their ownership cannot be proved. All four Actions workflows passed at
+`5b139cc`. No new server mutation or Phase 6 gate pass is claimed.
+Other existing networkless host validators still select the volume-declaring
+operations image; their actual mounts and cleanup need a separate audit before
+the Phase 6 gate.
+
 Current continuation: `8ccb9a0` private deploy/verify/routes/socket and backup/
 replay pass after a separately recorded server restart baseline. Restore reached
 quiescent source/empty partial target then refused exhausted network capacity.

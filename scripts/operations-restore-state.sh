@@ -27,7 +27,7 @@ restore_state_field() {
     RESTORE_ABANDON_REASON) [[ "$2" == empty_target_verified ]] ;;
     RESTORE_VERIFIER_REVISION) [[ "$2" =~ ^[a-f0-9]{40}$ ]] ;;
     RESTORE_VERIFIER_IMAGE) [[ "$2" =~ ^sha256:[a-f0-9]{64}$ ]] ;;
-    RESTORE_EMPTY_VOLUME_CREATED_AT) [[ "$2" == absent ]] || operations_deployment_field STATE_VOLUME_CREATED_AT "$2" ;;
+    RESTORE_EMPTY_VOLUME_CREATED_AT) operations_deployment_field STATE_VOLUME_CREATED_AT "$2" ;;
     RESTORE_EMPTY_PROOF_SHA) [[ "$2" =~ ^[a-f0-9]{64}$ ]] ;;
     *) return 1 ;;
   esac
@@ -192,7 +192,7 @@ restore_state_abandon() {
     restore_state_field RESTORE_VERIFIER_REVISION "$2" && restore_state_field RESTORE_VERIFIER_IMAGE "$3" &&
     restore_state_field RESTORE_EMPTY_VOLUME_CREATED_AT "$4" && restore_state_field RESTORE_EMPTY_PROOF_SHA "$5" || restore_state_invalid
   local reference="$1" verifier="$2" image="$3" created="$4" proof="$5" record completed intent intent_id intent_hash source_id source_hash body next_id
-  [[ "$verifier" == "${OPS_CONFIG[FCD_SUPPORT_REVISION]:-}" && "$image" == "${OPS_CONFIG[FCD_OPERATIONS_IMAGE]:-}" ]] || restore_state_invalid
+  [[ "$verifier" == "${OPS_CONFIG[FCD_SUPPORT_REVISION]:-}" && "$image" == "${OPS_CONFIG[FCD_SUPPORT_IMAGE]:-}" ]] || restore_state_invalid
   restore_state_root
   restore_state_pair "$reference"
   [[ "${OPS_RESTORE_STATE[RESTORE_PHASE]}" == intent ]] || restore_state_invalid

@@ -119,6 +119,9 @@ operations_parse_arguments() {
     promote)
       [[ "$#" == 3 && "$1" =~ ^restore_[a-f0-9]{32}$ ]] || operations_fail operations_arguments_invalid
       OPS_RESTORE_REF="$1"; OPS_REVISION="$2"; OPS_CONFIG_FILE="$3" ;;
+    abandon-empty-restore)
+      [[ "$#" == 3 && "$1" =~ ^restore_[a-f0-9]{32}$ ]] || operations_fail operations_arguments_invalid
+      OPS_RESTORE_REF="$1"; OPS_REVISION="$2"; OPS_CONFIG_FILE="$3" ;;
     recover-admin-socket) [[ "$#" == 3 && "$2" == --confirm-admin-stopped ]] || operations_fail operations_arguments_invalid; OPS_REVISION="$1"; OPS_CONFIG_FILE="$3" ;;
     *) operations_fail operations_arguments_invalid ;;
   esac
@@ -261,6 +264,7 @@ operations_require_handlers() {
     rollback) handlers=(operations_rollback operations_verify) ;;
     restore) handlers=(operations_restore) ;;
     promote) handlers=(operations_promote operations_verify) ;;
+    abandon-empty-restore) handlers=(operations_abandon_empty_restore) ;;
     recover-admin-socket) handlers=(operations_recover_socket) ;;
     *) operations_fail operations_arguments_invalid ;;
   esac
@@ -284,6 +288,7 @@ operations_main() {
     rollback) operations_rollback ;;
     restore) operations_restore ;;
     promote) operations_promote ;;
+    abandon-empty-restore) operations_abandon_empty_restore ;;
     recover-admin-socket) operations_recover_socket ;;
   esac
 }

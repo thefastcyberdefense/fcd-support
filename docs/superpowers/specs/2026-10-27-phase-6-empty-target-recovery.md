@@ -20,8 +20,8 @@ seal a separate terminal record, and permanently reserve its target names.
 ## Boundary
 
 Provide a private `abandon-empty-restore.sh RESTORE_REF FULL_REVISION CONFIG_PATH`
-command. It does not execute business SQL, remove a volume/network/container,
-change selected storage, start a database or make an application ready. It
+command. It does not execute business SQL, remove a target volume, network or
+target container, change selected storage, start a database or make an application ready. It
 cannot clear an uncertain job. Backend settlement and recovery of a nonempty
 target remain separate unfinished work.
 
@@ -30,13 +30,19 @@ flock, immutable original intent, a quiescent source with unchanged selection
 and physical identity, and no active/pending job or metadata transition. The
 intent must name the same source and configured target, which must never have
 been selected or recorded as used. Independent retained source images identify
-the actual source even when recovery code is a later revision.
+the actual source even when recovery code is a later revision. Orphaned job
+override files and stopped or running operation actors block the close-out.
 
 Require successful current Docker listings proving no target or operation actor,
-no target-volume user and no overlapping host bind. An absent target is allowed.
-An existing target must be a default local volume labelled for this exact intent;
-an optional target bridge must also be owned, internal and empty. Foreign,
+no target-volume user and no overlapping host bind. The target must still exist
+as a default local volume labelled for this exact intent; an optional target
+bridge must also be owned, internal and empty. Foreign,
 substituted, ambiguous, unreadable or nonempty resources refuse recovery.
+
+An absent target is not sufficient evidence of emptiness: completed jobs are
+cleared from the active journal, so an absent volume could previously have
+been used and removed. Absent-target reconciliation needs separate durable
+history and is outside this command.
 
 A networkless non-root read-only probe mounts only the existing target's exact
 data directory. A named-volume mount is unsafe here: Docker may create a new
@@ -58,12 +64,18 @@ driver/path/labels, and resolve every other container's bind source before
 rejecting overlaps. A failed or ambiguous bind inspection refuses recovery.
 This does not defend against a compromised root user or Docker daemon.
 
+Use the current immutable application image as the probe verifier and the
+retained source application image for source metadata validation; refuse
+either image if it declares volumes. The operations image inherits a PostgreSQL
+image volume declaration; Docker silently adds an anonymous volume to a new
+container, which violates these validators' mount boundaries.
+
 ## Durable result
 
 Keep `.intent` unchanged. Publish an exclusive fsynced `.abandoned` record
 through a deterministic `.next`, binding the original fields plus the fixed
-reason, current verifier revision/image, target-volume creation stamp (or
-absence), and a content-free proof digest. Refuse conflicting completed and
+reason, current verifier revision/image, target-volume creation stamp, and a
+content-free proof digest. Refuse conflicting completed and
 abandoned records, unsafe file ownership/mode, changed source/intent, partial
 publication, replay or target reuse. An abandoned attempt can never satisfy
 promotion's completed-restore requirement.
