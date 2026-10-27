@@ -693,3 +693,53 @@ bash scripts/test-synthetic-runtime-deployment.sh \
 Close stdin and keep diagnostics private. Retain a successful private runtime
 for the remaining matrix; otherwise retain its uncertainty. No provider, public
 route, production asset or original database changes are included.
+
+### First private READY runtime and follow-up matrix
+
+Exact deployed source `a6de436` completed encrypted pre-migration backup and
+verification, forward migrations to `000016`, grant convergence, deployment
+metadata, all four healthy actors and the public verify command. Protected
+selection is READY. Admin `/login` returns 200 through a socket owned
+`1000:1000`, mode `0600`. All earlier history and admission snapshots matched.
+
+The final test-runner HTTP check failed because its unsigned POST used fetch's
+default text content type, correctly rejected as an invalid body. An execution
+test runs that exact authored probe against the real Fastify app: one RED/three
+passing, then 33 passing focused fixture/script/admission cases after declaring
+`application/json`. No production admission rule changed. Do not redeploy or
+reinitialize the healthy runtime merely to correct this test-only probe.
+
+Continue on the clean server checkout at full source
+`a6de43665215dfe68f7de2052c289d80a0c33b3f`, same synthetic scope/config/root.
+Run the corrected three HTTP requests from its exact synthetic peer, expecting
+403/404/401 with no signature and no accepted work. Recheck public verify,
+socket mode and no active job. Temporarily open an SSH local forward only on
+client `127.0.0.1:13004` to that exact remote Unix socket, with host-key checking,
+batch authentication and ExitOnForwardFailure. Require the client port to be
+unused first; check login 200 and authenticated operations redirect through the
+forward, then terminate only the newly created SSH process and verify port closure.
+Do not change SSH daemon settings, publish Docker ports or disclose credentials.
+
+After those checks, execute the existing `run-operation.sh backup` for the same
+full revision/config. Verify one current daily and monthly slot with signed
+archives and run it again to prove replay does not create another archive.
+Use a hardened networkless metadata reader mounting only that test archive
+volume read-only and its recovery HMAC file read-only to select the verified
+daily backup reference, bound to this exact revision/schema. Never print an
+archive, key, message or arbitrary manifest. Under the existing checked
+configuration, public verify and deployment lock, invoke the committed
+checkpoint job `export-checkpoint-reference`; capture only its closed reference.
+
+Then call the public `restore-runtime.sh BACKUP_REF CHECKPOINT_REF FULL_REVISION
+CONFIG_PATH` into the still-absent exact configured restore scope/volume, followed
+only on success by `promote-restore.sh RESTORE_REF FULL_REVISION CONFIG_PATH`.
+The existing controllers own drain, backup, current checkpoint, split capability
+jobs, deletion/fence validation, two fresh host challenges, switching and startup.
+Verify READY on the selected distinct restored physical cluster and retain both
+volumes. Finally test the existing retained exact-schema rollback command using
+the same retained full revision and verify its public postcondition. Keep all
+provider flags false and preserve uncertainty on any refusal; never replay a
+pending job, repair selection or switch back manually. Keep protected logs and
+compare original admission plus all other fixture-state fingerprints afterwards.
+These actions affect only fresh authored synthetic storage and private runtime;
+they do not authorize provider traffic, original admission adoption or P6 closure.

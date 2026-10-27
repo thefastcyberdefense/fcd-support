@@ -56,7 +56,7 @@ bash scripts/deploy-runtime.sh "$revision" --mode private-disabled "$fixture/con
 stage=verify
 bash scripts/verify-runtime.sh "$revision" "$fixture/config/operations.env" >"$fixture/logs/verify.log" 2>&1 </dev/null
 stage=private-http
-docker exec "$peer" node --input-type=module -e 'const u="http://fcd-support-api:3003";if((await fetch(u+"/webhooks/meta",{signal:AbortSignal.timeout(3000)})).status!==403||(await fetch(u+"/health",{signal:AbortSignal.timeout(3000)})).status!==404||(await fetch(u+"/webhooks/meta",{method:"POST",body:"{}",signal:AbortSignal.timeout(3000)})).status!==401)process.exit(1)' >"$fixture/logs/http.log" 2>&1 </dev/null
+docker exec "$peer" node --input-type=module -e 'const u="http://fcd-support-api:3003";if((await fetch(u+"/webhooks/meta",{signal:AbortSignal.timeout(3000)})).status!==403||(await fetch(u+"/health",{signal:AbortSignal.timeout(3000)})).status!==404||(await fetch(u+"/webhooks/meta",{method:"POST",headers:{"content-type":"application/json"},body:"{}",signal:AbortSignal.timeout(3000)})).status!==401)process.exit(1)' >"$fixture/logs/http.log" 2>&1 </dev/null
 [[ "$(curl --silent --show-error --max-time 5 --unix-socket "$fixture/socket/admin.sock" --output /dev/null --write-out '%{http_code}' http://localhost/login)" == 200 ]]
 [[ "$(stat -c '%u:%g:%a' "$fixture/socket/admin.sock")" == 1000:1000:600 ]]
 [[ ! -e "$fixture/state/active-job" && ! -L "$fixture/state/active-job" ]]
