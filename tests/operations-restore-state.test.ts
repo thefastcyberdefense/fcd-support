@@ -60,6 +60,7 @@ function shell(body: string, extra: Record<string, string> = {}) {
 test.each([
   ['RESTORE_VERSION', '1', true],
   ['RESTORE_PHASE', 'intent', true],
+  ['RESTORE_PHASE', 'abandoned', true],
   ['RESTORE_PHASE', 'ready', false],
   ['RESTORE_REF', ref, true],
   ['RESTORE_REF', '../synthetic', false],
@@ -77,6 +78,18 @@ test.each([
   ['RESTORE_APP_IMAGE', 'synthetic:latest', false],
   ['RESTORE_TARGET_METADATA', 'QUJDRA==', true],
   ['RESTORE_TARGET_METADATA', 'QUJDRA_', false],
+  ['RESTORE_ABANDON_REASON', 'empty_target_verified', true],
+  ['RESTORE_ABANDON_REASON', 'operator_override', false],
+  ['RESTORE_VERIFIER_REVISION', revision, true],
+  ['RESTORE_VERIFIER_REVISION', 'latest', false],
+  ['RESTORE_VERIFIER_IMAGE', ops, true],
+  ['RESTORE_VERIFIER_IMAGE', 'synthetic:latest', false],
+  ['RESTORE_EMPTY_VOLUME_CREATED_AT', 'absent', true],
+  ['RESTORE_EMPTY_VOLUME_CREATED_AT', target.volumeCreatedAt, true],
+  ['RESTORE_EMPTY_VOLUME_CREATED_AT', '2030-01-01T06:00:00+06:00', true],
+  ['RESTORE_EMPTY_VOLUME_CREATED_AT', 'unknown', false],
+  ['RESTORE_EMPTY_PROOF_SHA', 'f'.repeat(64), true],
+  ['RESTORE_EMPTY_PROOF_SHA', 'f'.repeat(63), false],
   ['SYNTHETIC_UNKNOWN', '1', false],
 ] as const)(
   'closed restore record field %s rejects unsafe or foreign values',
@@ -105,7 +118,7 @@ async function fixture() {
         `
 source "$TASK_COMMON"
 source "$TASK_LIBRARY"
-declare -A OPS_CONFIG=([FCD_STATE_ROOT]="$TASK_ROOT" [FCD_RUNTIME_PROJECT]=fcd-support [FCD_COMMAND_TIMEOUT_SECONDS]=5 [FCD_POSTGRES_DB]=fcd_support_test [FCD_DATABASE_SCHEMA]=public [FCD_SUPPORT_REVISION]=${revision} [FCD_SCHEMA_REVISION]=000016)
+declare -A OPS_CONFIG=([FCD_STATE_ROOT]="$TASK_ROOT" [FCD_RUNTIME_PROJECT]=fcd-support [FCD_COMMAND_TIMEOUT_SECONDS]=5 [FCD_POSTGRES_DB]=fcd_support_test [FCD_DATABASE_SCHEMA]=public [FCD_SUPPORT_REVISION]=${revision} [FCD_OPERATIONS_IMAGE]=${ops} [FCD_SCHEMA_REVISION]=000016)
 ${locked ? 'exec {OPS_LOCK_DESCRIPTOR}<>"$TASK_ROOT/deployment.lock"; flock --nonblock "$OPS_LOCK_DESCRIPTOR";' : ''}
 operations_restore_metadata_decode() { "$TASK_NODE" "$TASK_METADATA" decode-fields "$1"; }
 ${body}
@@ -129,6 +142,7 @@ ${body}
     run,
     intent: join(root, `restore-${'a'.repeat(32)}.intent`),
     record: join(root, `restore-${'a'.repeat(32)}.record`),
+    abandoned: join(root, `restore-${'a'.repeat(32)}.abandoned`),
     dispose: () => rm(root, { recursive: true, force: true }),
   };
 }
@@ -146,6 +160,143 @@ function refused(result: ReturnType<typeof spawnSync>) {
     stderr: 'operations_restore_state_invalid\n',
   });
 }
+
+const abandon = `restore_state_abandon ${ref} ${revision} ${ops} ${target.volumeCreatedAt} ${'f'.repeat(64)}`;
+const freshBegin = begin
+  .replace(ref, `restore_${'9'.repeat(32)}`)
+  .replaceAll('restore-synthetic', 'restore-other');
+
+test.runIf(native)(
+  'verified abandonment preserves intent and pointer, reserves target and cannot complete',
+  async () => {
+    const f = await fixture();
+    try {
+      success(
+        f.run(
+          `${create}; operations_selection_starting ${sourceRef} ${revision} 000016; operations_selection_ready ${sourceRef}; ${begin}`,
+        ),
+      );
+      refused(f.run(abandon)); // Source must be quiescent.
+      success(f.run(`operations_selection_quiesce ${sourceRef}`));
+      const intent = await readFile(f.intent, 'utf8');
+      const pointer = await readFile(join(f.root, 'deployment-state'), 'utf8');
+      // Recovery code may be newer; the immutable intent retains its old revision.
+      const newer = '7'.repeat(40);
+      success(
+        f.run(`OPS_CONFIG[FCD_SUPPORT_REVISION]=${newer}; ${abandon.replace(revision, newer)}`),
+      );
+      const record = await readFile(f.abandoned, 'utf8');
+      expect(record).toContain('RESTORE_PHASE=abandoned\n');
+      expect(record).toContain(`RESTORE_REVISION=${revision}\n`);
+      expect(record).toContain(`RESTORE_VERIFIER_REVISION=${newer}\n`);
+      expect((await stat(f.abandoned)).mode & 0o777).toBe(0o600);
+      expect((await stat(f.abandoned)).nlink).toBe(1);
+      success(
+        f.run(
+          `restore_state_read ${ref}; [[ "$` +
+            '{OPS_RESTORE_STATE[RESTORE_PHASE]}" == abandoned ]]',
+        ),
+      );
+      refused(f.run(abandon));
+      refused(f.run(`restore_state_complete ${ref} '${token()}'`));
+      refused(f.run(begin));
+      refused(f.run(freshBegin.replace('restore-other-data', 'restore-synthetic-data')));
+      refused(f.run(freshBegin.replace('restore-other ', 'restore-synthetic ')));
+      success(f.run(freshBegin));
+      expect(await readFile(f.intent, 'utf8')).toBe(intent);
+      expect(await readFile(join(f.root, 'deployment-state'), 'utf8')).toBe(pointer);
+      expect(await readFile(f.abandoned, 'utf8')).toBe(record);
+      await expect(stat(f.record)).rejects.toMatchObject({ code: 'ENOENT' });
+    } finally {
+      await f.dispose();
+    }
+  },
+  20000,
+);
+
+test
+  .runIf(native)
+  .each([
+    'conflict',
+    'next',
+    'intent-next',
+    'broad',
+    'hardlink',
+    'symlink',
+    'source-mismatch',
+    'original-mismatch',
+    'extra',
+    'missing',
+    'nul',
+  ])('abandoned history rejects %s before a fresh intent', async (fault) => {
+  const f = await fixture();
+  try {
+    success(f.run(`${create}; ${begin}; ${abandon}`));
+    const original = await readFile(f.abandoned, 'utf8');
+    if (fault === 'conflict') {
+      const intent = await readFile(f.intent, 'utf8');
+      await writeFile(
+        f.record,
+        intent.replace('RESTORE_PHASE=intent', 'RESTORE_PHASE=completed') +
+          `RESTORE_TARGET_METADATA=${token()}\n`,
+        { mode: 0o600 },
+      );
+    }
+    if (fault === 'next' || fault === 'intent-next')
+      await writeFile(
+        (fault === 'next' ? f.abandoned : f.intent) + '.next',
+        'synthetic_pending\n',
+        { mode: 0o600 },
+      );
+    if (fault === 'broad') await chmod(f.abandoned, 0o644);
+    if (fault === 'hardlink') await link(f.abandoned, join(f.root, 'synthetic-alias'));
+    if (fault === 'symlink') {
+      await writeFile(join(f.root, 'synthetic-other'), original, { mode: 0o600 });
+      await rm(f.abandoned);
+      await symlink(join(f.root, 'synthetic-other'), f.abandoned);
+    }
+    if (fault === 'source-mismatch')
+      await writeFile(f.abandoned, original.replace(sourceId, '7300000000000000002'));
+    if (fault === 'original-mismatch')
+      await writeFile(f.abandoned, original.replace(revision, '8'.repeat(40)));
+    if (fault === 'extra')
+      await writeFile(f.abandoned, original + 'RESTORE_TARGET_METADATA=QUJDRA==\n');
+    if (fault === 'missing')
+      await writeFile(
+        f.abandoned,
+        original.replace(`RESTORE_EMPTY_PROOF_SHA=${'f'.repeat(64)}\n`, ''),
+      );
+    if (fault === 'nul') await writeFile(f.abandoned, original + '\0');
+    const actual = await readFile(f.abandoned, 'utf8');
+    refused(f.run(freshBegin));
+    expect(await readFile(f.abandoned, 'utf8')).toBe(actual);
+    await expect(stat(join(f.root, `restore-${'9'.repeat(32)}.intent`))).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+  } finally {
+    await f.dispose();
+  }
+});
+
+test.runIf(native).each(['intent', 'source'])(
+  'abandonment checks %s identity after preparing its record and preserves partial evidence',
+  async (fault) => {
+    const f = await fixture();
+    try {
+      success(f.run(`${create}; ${begin}`));
+      const changed = fault === 'intent' ? f.intent : join(f.root, 'deployment-state');
+      refused(
+        f.run(
+          `eval "$(declare -f restore_state_emit | sed '1s/restore_state_emit/restore_state_original_emit/')"; restore_state_emit() { restore_state_original_emit "$@"; printf '%s\\n' SYNTHETIC_CHANGED=yes >> '${changed}'; }; ${abandon}`,
+        ),
+      );
+      await expect(stat(f.abandoned)).rejects.toMatchObject({ code: 'ENOENT' });
+      expect((await stat(f.abandoned + '.next')).mode & 0o777).toBe(0o600);
+    } finally {
+      await f.dispose();
+    }
+  },
+);
 
 test.runIf(native)(
   'intent precedes changes, survives completion and never changes the source pointer',

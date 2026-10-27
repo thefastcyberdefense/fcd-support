@@ -36,13 +36,21 @@ pinned Docker images, Vitest and native filesystem/Docker checks.
 Files: `scripts/operations-restore-state.sh`,
 `tests/operations-restore-state.test.ts`.
 
-- [ ] Add RED cases for closed abandonment fields, terminal pairing/conflicts,
+- [x] Add RED cases for closed abandonment fields, terminal pairing/conflicts,
       unchanged intent/source, target reservation and blocked promotion.
-- [ ] Run focused unit/native filesystem cases and observe intended failures.
-- [ ] Implement `restore_state_abandon` with exclusive atomic publication and
+- [x] Run focused unit/native filesystem cases and observe intended failures.
+- [x] Implement `restore_state_abandon` with exclusive atomic publication and
       bounded fields; accept completed/abandoned history only for distinct new
       target names. Preserve all original refusal cases.
-- [ ] Run affected checks, review diff and commit/push the completed component.
+- [x] Run affected checks, review diff and commit/push the completed component.
+
+Component A evidence: 8 portable RED cases, then 33 passing/34 native skips;
+native RED confirmed the missing abandonment function, then all 67 cases passed
+(42.14 seconds). The complete code gate passed 1,743 tests/382 platform skips
+across 117 files (200.73 seconds), including format, lint, types and build.
+An unnecessary test-string escape was corrected after the first lint refusal.
+This is an internal state primitive; the public command and host proof are not
+yet available and no server state was changed by this component.
 
 ## B: Empty proof and locked private command
 
