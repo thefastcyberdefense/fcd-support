@@ -14,6 +14,7 @@ if [[ "$MODE" == checkpoint || "$MODE" == grants ]]; then
   INTEGRATION_FILES+=(tests/integration/postgres-deletion-checkpoint.test.ts)
 fi
 if [[ "$MODE" == grants ]]; then
+  UNIT_FILES+=(tests/empty-restore-target.test.ts)
   UNIT_FILES+=(tests/systemd-contract.test.ts tests/operations-scheduled-job.test.ts tests/maintenance-pool.test.ts tests/restore-command.test.ts)
   UNIT_FILES+=(tests/operations-health-host.test.ts)
   UNIT_FILES+=(tests/health-collector.test.ts tests/health-main.test.ts tests/admin-operations.test.ts)
@@ -59,6 +60,7 @@ if [[ "$MODE" == settlement ]]; then
   INTEGRATION_FILES=(tests/integration/postgres-operation-settlement.test.ts)
 fi
 if [[ "$MODE" == restore ]]; then
+  UNIT_FILES+=(tests/empty-restore-target.test.ts)
   UNIT_FILES+=(tests/maintenance-pool.test.ts tests/restore-command.test.ts)
   UNIT_FILES+=(tests/promotion-command.test.ts tests/promotion-handshake.test.ts tests/restore-metadata.test.ts tests/operations-restore-state.test.ts)
   UNIT_FILES+=(tests/restore-split-command.test.ts tests/restore-migrate-command.test.ts tests/restore-compose-split.test.ts)
@@ -70,6 +72,7 @@ if [[ "$MODE" == state ]]; then
   # Focused native filesystem iteration, restricted to the fixed state suite.
   UNIT_FILES+=(tests/operations-health-host.test.ts)
   UNIT_FILES+=(tests/operations-restore-state.test.ts)
+  UNIT_FILES+=(tests/empty-restore-target.test.ts)
   UNIT_FILES+=(tests/operations-live-socket-preflight.test.ts)
   UNIT_FILES+=(tests/operations-restore-controller.test.ts tests/operations-promotion-controller.test.ts)
   # The complete grants gate always runs its full unit/integration selection.

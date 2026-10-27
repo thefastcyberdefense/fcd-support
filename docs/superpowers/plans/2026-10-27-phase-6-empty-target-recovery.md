@@ -69,6 +69,17 @@ selection.
       terminal record; default output only `restore_abandoned=true` on success.
 - [ ] Run code/native/Docker regression checks; self-review and commit/push.
 
+Probe checkpoint: the filesystem-only helper and fixed-argument UID-1000 CLI
+pass 15 native Linux cases, including empty/nonempty roots, symlinks, a root
+replacement and no content reads. The portable suite passes five cases with
+ten Linux-only skips. The complete code gate passed 1,748 tests/392 platform
+skips across 118 files (201.69 seconds). The independent CI trace test now
+closes child stdin, matching the real deployment invocation; its three focused
+cases pass on both Windows and Linux. The host command and Docker confinement
+still require implementation and verification. On the test server, the Docker
+volume mountpoint cannot be resolved by the unprivileged operator; the host
+proof must treat that as an unresolved boundary, never as a safe absence.
+
 ## C: Real server recovery evidence
 
 - [ ] Commit the exact revision, candidate-image/config preparation, empty-target

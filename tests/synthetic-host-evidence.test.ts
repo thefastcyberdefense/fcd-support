@@ -81,6 +81,7 @@ synthetic_host_report_failure deploy "$TASK_LOG" "$FCD_SYNTHETIC_TRACE"
       {
         encoding: 'utf8',
         timeout: 5000,
+        stdio: ['ignore', 'pipe', 'pipe'],
         env: {
           ...process.env,
           BASH_ENV: init.replaceAll('\\', '/'),
