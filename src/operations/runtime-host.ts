@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { dockerVolumeTimestampSchema } from '../docker-volume-timestamp.js';
 import { readPrivateRuntimeCompose, type RuntimeComposePaths } from './compose-contract.js';
 
 const id = z.string().regex(/^[a-f0-9]{64}$/u);
@@ -112,7 +113,7 @@ const snapshot = z.strictObject({
       .refine((v) => v === null || Object.keys(v).length === 0),
     project: z.union([name, z.literal('')]).nullable(),
     logicalName: z.enum(['postgres-data', 'restore-data', '']).nullable(),
-    createdAt: z.iso.datetime(),
+    createdAt: dockerVolumeTimestampSchema,
     mountpoint: path,
     users: z.array(id).length(1),
   }),
@@ -150,7 +151,7 @@ export const runtimeVolumeIdentitySchema = z.strictObject({
   name,
   project: name.nullable(),
   logicalName: z.enum(['postgres-data', 'restore-data']).nullable(),
-  createdAt: z.iso.datetime(),
+  createdAt: dockerVolumeTimestampSchema,
 });
 const commands = {
   postgres: ['postgres'],

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { expect, test } from 'vitest';
 import { inspectPromotionHostSamples } from '../src/operations/promotion-host.js';
 
-function fixture() {
+function fixture(createdAt = '2030-01-01T00:00:00Z') {
   const revision = 'a'.repeat(40);
   const sourceRevision = 'b'.repeat(40);
   const runtime = 'fcd-support-synthetic';
@@ -18,7 +18,6 @@ function fixture() {
   const sourceVolume = 'fcd-support-synthetic-source';
   const targetVolume = 'fcd-support-synthetic-target';
   const backupVolume = 'fcd-support-synthetic-backups';
-  const createdAt = '2030-01-01T00:00:00Z';
   const secretRoot = '/synthetic/secrets';
   const sourceSystem = '7300000000000000001';
   const targetSystem = '7300000000000000002';
@@ -55,7 +54,7 @@ function fixture() {
     restarting: false,
     dead: false,
     healthy: true,
-    startedAt: createdAt,
+    startedAt: '2030-01-01T00:00:00Z',
     restartCount: 0,
     readOnlyRootfs: true,
     privileged: false,
@@ -302,6 +301,13 @@ function inspect(f: ReturnType<typeof fixture>) {
 test('accepts only the exact live narrow promotion job on both private bridges and retains canonical target identity', () => {
   const f = fixture();
   expect(inspect(f)).toEqual(f.options.expectedHost);
+});
+
+test('promotion binds explicit volume timezone offsets without normalizing their identity', () => {
+  const f = fixture('2030-01-01T06:00:00+06:00');
+  expect(inspect(f)).toEqual(f.options.expectedHost);
+  f.snapshot.target.volume.createdAt = '2030-01-01T00:00:00Z';
+  expect(() => inspect(f)).toThrow('promotion_host_invalid');
 });
 test.each([
   [

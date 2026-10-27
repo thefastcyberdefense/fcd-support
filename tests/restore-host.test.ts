@@ -105,6 +105,14 @@ test('derives a content-free host identity from isolated actual Docker projectio
   expect(inspectRestoreHostSnapshot(f.snapshot, f.options)).toEqual(f.target);
 });
 
+test('preserves a Docker volume timestamp with an explicit host timezone offset', () => {
+  const f = fixture();
+  f.snapshot.volume.createdAt = '2030-03-01T06:00:00+06:00';
+  expect(inspectRestoreHostSnapshot(f.snapshot, f.options).volumeCreatedAt).toBe(
+    f.snapshot.volume.createdAt,
+  );
+});
+
 test('requires two matching independently collected samples before returning host identity', () => {
   const f = fixture();
   expect(

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import { dockerVolumeTimestampSchema } from '../docker-volume-timestamp.js';
 import {
   inspectRestoreHostSamples,
   restoreHostIdentitySchema,
@@ -61,7 +62,7 @@ const volume = z.strictObject({
     .refine((v) => Object.keys(v ?? {}).length === 0),
   project: name.nullable(),
   logicalName: z.enum(['postgres-data', 'restore-data']).nullable(),
-  createdAt: z.iso.datetime(),
+  createdAt: dockerVolumeTimestampSchema,
   mountpoint: path,
   users: z.array(id).length(1),
 });
@@ -147,7 +148,7 @@ export const promotionHostOptionsSchema = z.strictObject({
   sourceVolumeIdentity: z.strictObject({
     project: name.nullable(),
     logicalName: z.enum(['postgres-data', 'restore-data']).nullable(),
-    createdAt: z.iso.datetime(),
+    createdAt: dockerVolumeTimestampSchema,
   }),
   limits: z.strictObject({
     postgres: limits,

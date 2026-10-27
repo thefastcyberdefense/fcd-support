@@ -28,6 +28,13 @@ const args = [
   '000016',
 ];
 
+test('canonical restore metadata preserves an explicit Docker timezone offset', () => {
+  const offsetHost = { ...host, volumeCreatedAt: '2030-01-01T06:00:00+06:00' };
+  expect(
+    transformRestoreMetadata(['decode-host', transformRestoreMetadata(args, offsetHost)]),
+  ).toBe(JSON.stringify(offsetHost));
+});
+
 test('encodes strict host identity into the existing canonical restore command metadata', () => {
   const actual = transformRestoreMetadata(args, { ...host });
   expect(actual).toBe(encoded);

@@ -99,6 +99,19 @@ test('persists immutable target and checkpoint binding joined to real gate, impo
   ).rejects.toMatchObject({ code: '55000' });
 });
 
+test('binding retains exact offset timestamp text and refuses an equivalent-time replacement', async () => {
+  const input = await fixture();
+  input.target.volumeCreatedAt = '2030-02-28T06:00:00+06:00';
+  const store = new PostgresRestoreEvidence(database.pool);
+  await store.seal(input);
+  expect((await store.load(input.restoreRef))?.target.volumeCreatedAt).toBe(
+    input.target.volumeCreatedAt,
+  );
+  await expect(
+    store.seal({ ...input, target: { ...input.target, volumeCreatedAt: '2030-02-28T00:00:00Z' } }),
+  ).rejects.toThrow('restore_binding_invalid');
+});
+
 test('refuses a substituted actual PostgreSQL target even when the old gate passed', async () => {
   const input = await fixture();
   await expect(

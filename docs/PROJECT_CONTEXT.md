@@ -25,6 +25,16 @@ Last reviewed: 2026-10-27 (Asia/Dhaka)
 
 ## Current Phase 6 Checkpoint
 
+The first complete controller drill at `e0565d0` failed safely before runtime
+PostgreSQL/application startup: actual Docker volume metadata uses `+06:00`,
+while prior validators admitted only `Z`. Its protected intent and fresh resources
+remain preserved. Bounded Docker-volume timestamp offset support now passes
+1,689 code tests/367 skips/116 files, native restore 172 units +47 PostgreSQL
+cases and 28 binding cases. Exact text remains identity-bound; equivalent-time
+replacement is refused. The old admission snapshots still match. A new exact
+revision and fresh namespace are required for the next host drill; no implicit
+interrupted-intent reuse, full host pass or P6/P7 completion is claimed.
+
 Stage A real-server synthetic validation is complete: unit 1,714 passed/324
 native-only skips; native operations 1,100 units +139 PostgreSQL/one restore-only
 skip; restore 171 units +47 PostgreSQL; corrected ordinary PostgreSQL 619

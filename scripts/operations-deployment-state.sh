@@ -42,7 +42,7 @@ operations_deployment_field() {
     STATE_VOLUME|USED_VOLUME|INITIAL_VOLUME) operations_config_field FCD_POSTGRES_VOLUME "$2" ;;
     STATE_VOLUME_ORIGIN|USED_ORIGIN) [[ "$2" == none ]] || operations_config_field FCD_RUNTIME_PROJECT "$2" ;;
     STATE_VOLUME_LOGICAL|USED_LOGICAL) [[ "$2" =~ ^(postgres-data|restore-data|none)$ ]] ;;
-    STATE_VOLUME_CREATED_AT|USED_CREATED_AT) [[ "$2" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,9})?Z$ ]] ;;
+    STATE_VOLUME_CREATED_AT|USED_CREATED_AT) [[ "$2" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,9})?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$ ]] ;;
     STATE_SYSTEM_IDENTIFIER|USED_SYSTEM_IDENTIFIER)
       [[ "$2" =~ ^[1-9][0-9]{0,19}$ ]] && { (( ${#2} < 20 )) || [[ "$2" < 18446744073709551615 || "$2" == 18446744073709551615 ]]; } ;;
     STATE_DATABASE_NAME|USED_DATABASE_NAME|BUNDLE_DATABASE_NAME|INITIAL_DATABASE_NAME) [[ "$2" == "${OPS_CONFIG[FCD_POSTGRES_DB]}" ]] ;;

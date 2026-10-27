@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type pg from 'pg';
+import { dockerVolumeTimestampSchema } from '../docker-volume-timestamp.js';
 import { withBoundedTransaction, type TransactionSource } from './postgres-transaction.js';
 
 const restoreRefSchema = z.string().regex(/^restore_[a-f0-9]{32}$/u);
@@ -18,7 +19,7 @@ const keyVersionsSchema = z
 export const restoreTargetIdentitySchema = z.strictObject({
   projectName: z.string().regex(/^fcd-support-restore-[a-z0-9][a-z0-9-]{0,63}$/u),
   volumeName: z.string().regex(/^fcd-support-restore-[a-z0-9][a-z0-9_-]{0,127}$/u),
-  volumeCreatedAt: z.iso.datetime(),
+  volumeCreatedAt: dockerVolumeTimestampSchema,
   networkId: z.string().regex(/^[a-f0-9]{64}$/u),
   postgresImageId: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
   runtimeImageId: z.string().regex(/^sha256:[a-f0-9]{64}$/u),

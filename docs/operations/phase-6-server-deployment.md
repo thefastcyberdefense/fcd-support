@@ -282,3 +282,37 @@ or public route change is required by this isolated drill.
 This execution does not install timers, enable providers, seed real customers,
 reconfigure SSH or replace the public admission path. Those remaining actions
 require their own exact records within the already authorized test-server work.
+
+### Stage B first host result and timezone correction
+
+The drill reached deployment at exact source `e0565d0` and failed closed with
+`operations_deployment_refused`. The controller had recorded first-boot intent
+and created its labelled volume, but no runtime PostgreSQL or application actor
+had started. The synthetic ingress peer, images, protected fixture and intent
+were preserved. No intent, journal, permission guard or old stack was repaired
+to force a retry.
+
+The actual Docker volume timestamp carried offset `+06:00`; the shell and
+TypeScript validators accepted only UTC `Z`. Local/GitHub Docker engines had
+returned `Z`, so their earlier gates had not exercised this real-host format.
+The correction accepts bounded RFC3339 offsets and at most nine fractional
+digits only for Docker volume creation metadata. Container start times and
+application-issued timestamps keep their existing contracts. Exact timestamp
+text remains part of the identity/hash comparison: equal instants written
+differently cannot silently substitute for a bound volume identity.
+
+Authored offset regressions first produced seven failures, then 228 passing
+focused cases with 30 native-only skips across five files. The initial promotion
+fixture also reused volume time as container start time; those independently
+observed fields now have separate authored values. Full code/restore/SQL evidence
+and the next exact fresh-namespace action follow after validation. The interrupted
+`e0565d0` intent is not eligible for implicit first-boot resumption.
+
+The corrected full code gate exited 0 with 1,689 tests/367 platform skips across
+116 files (211.47 seconds). Native restore passed 172 units plus 47 PostgreSQL
+cases (26.85 seconds for integration). The focused real PostgreSQL binding suite
+passed 28 cases (3.40 seconds), including offset-text persistence and refusal of
+an equivalent-time replacement. Retained admission IDs/start-times/running state
+were rechecked after the failed drill and still matched the Stage A baseline.
+All Actions workflows at `20bf5e3` passed before the timezone correction; the
+new source requires its own fresh run and separate host execution evidence.

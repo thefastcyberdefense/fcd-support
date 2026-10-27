@@ -651,6 +651,15 @@ test('runtime host proof compares actual resources with the separately validated
   });
 });
 
+test('runtime host proof retains a matching explicit volume timezone offset', () => {
+  const f = runtimeHostFixture();
+  f.samples.before.volume.createdAt = '2030-04-01T06:00:00+06:00';
+  f.samples.after.volume.createdAt = f.samples.before.volume.createdAt;
+  expect(inspectRuntimeHostSamples(f.samples, f.compose, f.options)).toEqual({
+    status: 'verified',
+  });
+});
+
 test.each(['postgres', 'applications'] as const)(
   'immutable %s image references retain revision-label and actual-image binding',
   (role) => {

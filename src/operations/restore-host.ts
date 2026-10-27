@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { dockerVolumeTimestampSchema } from '../docker-volume-timestamp.js';
 
 const id = z.string().regex(/^[a-f0-9]{64}$/u);
 const imageId = z.string().regex(/^sha256:[a-f0-9]{64}$/u);
@@ -37,7 +38,7 @@ const snapshotSchema = z.strictObject({
   volume: localVolume.extend({
     project,
     logicalName: z.literal('restore-data'),
-    createdAt: z.iso.datetime(),
+    createdAt: dockerVolumeTimestampSchema,
   }),
   liveVolume: localVolume,
   network: z.strictObject({
@@ -91,7 +92,7 @@ const snapshotSchema = z.strictObject({
 export const restoreHostIdentitySchema = z.strictObject({
   projectName: project,
   volumeName,
-  volumeCreatedAt: z.iso.datetime(),
+  volumeCreatedAt: dockerVolumeTimestampSchema,
   networkId: id,
   postgresImageId: imageId,
   runtimeImageId: imageId,
