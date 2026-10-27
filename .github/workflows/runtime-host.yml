@@ -36,6 +36,20 @@ jobs:
           sudo usermod -aG docker "$task_operator"
           sudo install -d -m 0700 -o 1000 -g 1000 "$task_root" "$task_root/repository"
           [[ "$(sudo realpath -e "$task_root/repository")" == /home/fcd-support-ci/repository ]]
+          if [[ -n "$(sudo getfacl --skip-base --omit-header --absolute-names --numeric "$task_root")" ]]; then
+            printf 'fresh_ci_root_extended_acl_present=true\n'
+          fi
+          sudo setfacl --remove-all --remove-default -- "$task_root" "$task_root/repository"
+          [[ "$(sudo stat -c '%u:%g:%a' "$task_root")" == 1000:1000:700 ]]
+          sudo --set-home --user "$task_operator" --group '#1000' bash -c '
+            set -Eeuo pipefail
+            umask 077
+            test_file=/home/fcd-support-ci/private-mode-probe
+            printf synthetic | dd "of=$test_file" conv=excl,fsync oflag=nofollow status=none
+            [[ "$(stat -c "%u:%g:%a:%h" "$test_file")" == 1000:1000:600:1 ]]
+            rm -- "$test_file"
+            printf "fresh_ci_private_record_mode=600\n"
+          '
           sudo cp -a -- "$GITHUB_WORKSPACE/." "$task_root/repository/"
           sudo chown -R --no-dereference 1000:1000 "$task_root/repository"
           sudo --set-home --user "$task_operator" --group '#1000' env PATH="$PATH" GITHUB_ACTIONS=true \

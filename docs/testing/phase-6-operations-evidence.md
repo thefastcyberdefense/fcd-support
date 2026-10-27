@@ -30,6 +30,13 @@ lint and strict typecheck pass. A workflow definition alone is not execution
 evidence: record its actual result after push. The intentionally retained test
 stack exists only until the disposable runner is destroyed.
 
+The first disposable smoke runs safely refused the initial metadata record;
+bounded evidence showed UID/GID `1000:1000` but mode `0664` instead of `0600`.
+Provisioning now examines/removes inherited ACLs only on the newly created CI
+root and proves a fresh exclusive/fsynced record has mode `0600` before starting
+the controller. Runtime file checks are unchanged. The new workflow result must
+confirm this environmental diagnosis; prior failed runs are retained as failures.
+
 The exact action records, revisions, failures and scoped cleanup are in
 `../operations/phase-6-server-deployment.md`. On the approved Ubuntu server,
 authored synthetic fixtures passed:
