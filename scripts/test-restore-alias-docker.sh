@@ -5,9 +5,10 @@ export MSYS_NO_PATHCONV=1
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NATIVE_ROOT="$ROOT"
 if command -v cygpath >/dev/null 2>&1; then NATIVE_ROOT="$(cygpath -m "$ROOT")"; fi
+[[ "$#" == 1 ]] || { echo restore_alias_test_arguments_invalid >&2; exit 1; }
+IMAGE="$1"
 SCOPE="fcd-support-alias-proof-$$-$RANDOM"
 SOURCE_NETWORK="$SCOPE-operations-data"; TARGET_PROJECT="$SCOPE-restore"; TARGET_NETWORK="$TARGET_PROJECT-data"
-IMAGE='node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d'
 cleanup() {
   local ids id network
   ids="$(docker ps --all --quiet --no-trunc --filter "label=fcd-support.alias-proof=$SCOPE")" || return 1

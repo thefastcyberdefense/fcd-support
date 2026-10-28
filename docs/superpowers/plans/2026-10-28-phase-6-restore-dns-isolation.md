@@ -16,3 +16,6 @@ Execute inline with systematic debugging and test-first development.
       native controller suite passed 59 tests.
 - [ ] Record exact evidence, commit and push. Preserve all interrupted server
       state; design any reconciliation or separate server action independently.
+      The first GitHub restore job exposed an unavailable Node base-image tag;
+      the test now uses the already-built operations image. A simulation hiding
+      that base passed all 250 restore tests and 47 PostgreSQL cases. Re-run CI.

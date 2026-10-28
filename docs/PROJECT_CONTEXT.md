@@ -2,6 +2,13 @@
 
 Last reviewed: 2026-10-28 (Asia/Dhaka)
 
+GitHub follow-up: the `5cb2ba5` PostgreSQL/native workflow failed in its
+restore step because the DNS test referenced a Node base image unavailable in
+the runner's image store. The test now uses the harness-built operations image.
+A local simulation hiding the Node base passed its DNS proof, 250 native restore
+tests and 47 PostgreSQL tests, with the synthetic project removed. Fresh GitHub
+verification is pending.
+
 Restore DNS correction: runtime PostgreSQL now advertises only the source alias;
 Compose validation and live source/target checks reject conflicting aliases.
 The real Docker DNS proof and both rendered Compose contracts pass. Full code
