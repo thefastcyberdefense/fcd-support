@@ -1138,3 +1138,22 @@ drift or unexpected state, stop and preserve the evidence; do not replay a job,
 delete a volume, repair a selection or retry blindly. This authorizes only the
 described synthetic server drill. It does not authorize live Meta, model,
 provider, n8n or tunnel calls, production assets, or customer traffic.
+
+### Candidate restore result
+
+On 2026-10-28 (Asia/Dhaka), the recorded preflight, candidate image and
+configuration checks, and fresh synthetic checkpoint passed. The public restore
+converged the synthetic source to the candidate revision and created the
+isolated `r2` volume, network and healthy PostgreSQL actor. Its first stream
+job then ended in a closed refusal with an `uncertain` durable job record. The
+recorded job container was no longer present; Docker retained no matching exit
+events. The target database had zero application tables in a read-only count,
+which does not establish that the uncertain job had no side effects.
+
+The source remains quiescent and healthy; the isolated target remains healthy.
+The new restore intent, uncertain job, override, target volume and network are
+preserved. The prior empty-target intent, abandonment record and target volume
+remain, and the admission snapshot is unchanged. No promotion or rollback was
+attempted. Do not replay the job, clear its journal, remove the target or infer
+a successful restore. Root-cause diagnosis and any supported reconciliation
+require separate evidence and a separately recorded action.

@@ -2,6 +2,15 @@
 
 Last reviewed: 2026-10-28 (Asia/Dhaka)
 
+Latest synthetic server result: exact candidate `538d1d0` passed preflight,
+image checks and checkpoint export, then created the isolated `r2` target. Its
+first restore-stream job became uncertain; source and target PostgreSQL remain
+healthy, the source is quiescent, and the job journal, restore intent and
+target resources are preserved. The target has zero application tables, but
+that count does not prove the job had no effects. The previous abandonment and
+admission baseline remain unchanged. No promotion or rollback was attempted.
+Diagnosis and supported reconciliation remain open.
+
 Current image correction: the operations image now copies its pinned built
 filesystem into a metadata-reset release stage and restores its previous
 runtime settings without the inherited PostgreSQL volume. Actual Docker checks
@@ -12,8 +21,8 @@ passed 1,188 tests and 139 PostgreSQL tests with one restore-only skip; the
 separate restore gate passed 246 tests and 47 PostgreSQL tests. Both synthetic
 projects cleaned up. A read-only server check confirmed the quiescent source,
 unused fresh target, preserved abandoned history and unchanged admission baseline.
-All four GitHub Actions workflows passed at `538d1d0`; the separately recorded
-restore/promotion retry remains pending.
+All four GitHub Actions workflows passed at `538d1d0`; its separately recorded
+restore retry stopped with the uncertain stream job described above.
 
 Latest recovery work: the private empty-target command now requires an existing
 labelled volume and rejects absent targets, unresolved jobs and ambiguous host
