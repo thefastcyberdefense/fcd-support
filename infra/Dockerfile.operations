@@ -55,3 +55,29 @@ RUN ldd /usr/local/bin/node > /tmp/node-libraries \
 USER node
 ENTRYPOINT ["/usr/local/bin/container-entrypoint.sh", "operations"]
 CMD ["node", "dist/operations-main.js"]
+
+# PostgreSQL's image declares a data volume, which Docker would otherwise
+# create for every operations container. Preserve the built filesystem while
+# resetting inherited image metadata so operations use only explicit mounts.
+FROM scratch AS release
+COPY --from=operations / /
+
+ARG VCS_REF
+LABEL org.opencontainers.image.revision="$VCS_REF"
+LABEL org.opencontainers.image.source="https://github.com/thefastcyberdefense/fcd-support"
+LABEL fcd-support.operation-reference="1"
+LABEL fcd-support.operation-settlement="1"
+ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/lib/postgresql/18/bin \
+    GOSU_VERSION=1.19 \
+    LANG=en_US.utf8 \
+    PG_MAJOR=18 \
+    PG_VERSION=18.4-1.pgdg13+1 \
+    PGDATA=/var/lib/postgresql/18/docker \
+    NODE_ENV=production \
+    TMPDIR=/run/fcd-support
+WORKDIR /app
+USER node
+EXPOSE 5432
+STOPSIGNAL SIGINT
+ENTRYPOINT ["/usr/local/bin/container-entrypoint.sh", "operations"]
+CMD ["node", "dist/operations-main.js"]

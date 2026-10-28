@@ -20,7 +20,9 @@ cleanup_fixture() {
 }
 trap 'result=$?; cleanup_fixture || result=1; exit "$result"' EXIT
 [[ -z "$(docker ps --all --quiet --filter "name=^/$actor$")" ]]
-id="$(docker create --pull never --name "$actor" --label "fcd-support.backup-test=$SCOPE" --network none --read-only "$fixture_image" --version)"
+[[ "$(docker image inspect --format '{{if .Config.Volumes}}yes{{else}}no{{end}}' "$fixture_image")" == no ]]
+id="$(docker create --pull never --name "$actor" --label "fcd-support.backup-test=$SCOPE" --network none --read-only \
+  --mount type=volume,dst=/var/lib/postgresql "$fixture_image" --version)"
 [[ "$id" =~ ^[a-f0-9]{64}$ ]]
 anonymous="$(docker inspect --format '{{range .Mounts}}{{if and (eq .Type "volume") (eq .Destination "/var/lib/postgresql")}}{{.Name}}{{end}}{{end}}' "$id")"
 [[ "$anonymous" =~ ^[a-f0-9]{64}$ && "$(docker ps --all --quiet --no-trunc --filter "volume=$anonymous")" == "$id" ]]

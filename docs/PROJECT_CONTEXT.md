@@ -1,6 +1,18 @@
 # Project Context
 
-Last reviewed: 2026-10-27 (Asia/Dhaka)
+Last reviewed: 2026-10-28 (Asia/Dhaka)
+
+Current image correction: the operations image now copies its pinned built
+filesystem into a metadata-reset release stage and restores its previous
+runtime settings without the inherited PostgreSQL volume. Actual Docker checks
+passed for zero validator mounts, exactly one explicit job mount, matching image
+metadata, non-root toolchain execution and anonymous-fixture cleanup. Full code
+passed 1,756 tests/423 platform skips across 122 files. Isolated native gates
+passed 1,188 tests and 139 PostgreSQL tests with one restore-only skip; the
+separate restore gate passed 246 tests and 47 PostgreSQL tests. Both synthetic
+projects cleaned up. A read-only server check confirmed the quiescent source,
+unused fresh target, preserved abandoned history and unchanged admission baseline.
+CI and a separately recorded restore/promotion retry remain pending.
 
 Latest recovery work: the private empty-target command now requires an existing
 labelled volume and rejects absent targets, unresolved jobs and ambiguous host
@@ -14,16 +26,16 @@ the synthetic server close-out and an independent read-only check: original
 intent, target volume, quiescent source and admission snapshot are preserved.
 Four Actions workflows passed on its documentation-only successor. Restore,
 promotion and Phase 6 gate evidence remain open.
-Other existing networkless host validators still select the volume-declaring
-operations image; their actual mounts and cleanup need a separate audit before
-the Phase 6 gate.
+The inherited-volume issue affecting other validators and promotion jobs is
+corrected locally; its exact committed revision still needs CI and server proof.
 
-Current continuation: `8ccb9a0` private deploy/verify/routes/socket and backup/
+Earlier recovery checkpoint: `8ccb9a0` private deploy/verify/routes/socket and backup/
 replay pass after a separately recorded server restart baseline. Restore reached
 quiescent source/empty partial target then refused exhausted network capacity.
-Capacity is confirmed and two unused bridges released. The next-target retry
-correctly refuses the unresolved prior intent; explicit empty-target abandonment/
-reconciliation remains a Task 11 blocker. CI's older renderer was reproduced
+Capacity was confirmed and two unused bridges released. The next-target retry
+correctly refused the then-unresolved prior intent; that empty intent has since
+been closed through the verified abandonment action described above. CI's older
+renderer was reproduced
 omitting explicit bind safety metadata; the compatible renderer is now pinned
 with closed diagnostic evidence. Full code: 1730 passed/368 skips/117 files;
 actual private-controller CI passed at `d879895` (Actions run `40533246495`).

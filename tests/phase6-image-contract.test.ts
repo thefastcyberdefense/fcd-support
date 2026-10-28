@@ -61,7 +61,12 @@ describe('Phase 6 image contract', () => {
     ]) {
       const bases = [...read(file).matchAll(/^FROM (\S+)/gmu)].map((match) => match[1]);
       expect(bases.length).toBeGreaterThan(0);
-      for (const base of bases) expect(Object.values(images)).toContain(base);
+      for (const [index, base] of bases.entries()) {
+        if (base === 'scratch') {
+          expect(file).toBe('infra/Dockerfile.operations');
+          expect(index).toBe(bases.length - 1);
+        } else expect(Object.values(images)).toContain(base);
+      }
     }
   });
 

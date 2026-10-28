@@ -21,6 +21,17 @@ docker() {
     build/*) printf '%s\\n' "build:$*" >>"$TASK_TRACE"; return 0 ;;
     compose/*) printf '%s\\n' "compose:$*" >>"$TASK_TRACE"; return 0 ;;
     volume/create) return 0 ;;
+    volume/ls|ps/*|rm/*) return 0 ;;
+    image/inspect) printf no; return 0 ;;
+    create/*)
+      printf '%s\\n' "create:$*" >>"$TASK_TRACE"
+      if [[ "$*" == *-validator* ]]; then printf '%s' '${'a'.repeat(64)}'; else printf '%s' '${'b'.repeat(64)}'; fi
+      return 0 ;;
+    inspect/*)
+      if [[ "$*" == *'{{len .Mounts}}'* ]]; then
+        if [[ "$*" == *'${'a'.repeat(64)}'* ]]; then printf 0; else printf 1; fi
+      else printf 'volume/%s/false' "$volume"; fi
+      return 0 ;;
     network/inspect)
       if [[ "$*" == *'.Internal'* ]]; then printf true; elif [[ "$*" == *'com.docker.compose.project'* ]]; then printf '%s' "$FCD_SYNTHETIC_TEST_PROJECT"; fi; return 0 ;;
     run/*) printf '%s\\n' "run:$*" >>"$TASK_TRACE"; return 0 ;;
@@ -57,6 +68,8 @@ bash "$TASK_SCRIPT" "$TASK_MODE"
         expect(trace.indexOf('Dockerfile.integration')).toBeLessThan(
           trace.indexOf('Dockerfile.backup-test'),
         );
+        expect(trace).toContain('-validator');
+        expect(trace).toContain('-job');
         if (mode === 'unit') {
           expect(trace).not.toContain('compose:');
           expect(trace).toContain('--network none');
