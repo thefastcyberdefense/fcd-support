@@ -18,10 +18,11 @@ changing the explicit mounts or trusted image/job bindings.
 - [x] Extend image-contract validation to permit only this explicit scratch
       release stage and to inspect actual image and container mounts. Verify
       Node, npm, age, pg_dump, pg_restore and non-root execution.
-- [ ] Run affected local, native PostgreSQL/restore and complete code gates;
+- [x] Run affected local, native PostgreSQL/restore and complete code gates;
       record exact evidence. Local gates pass: code 1,756/423 skipped;
       native 1,188 plus PostgreSQL 139/one restore-only skip; separate restore
-      246 plus PostgreSQL 47. Commit and push, then inspect GitHub Actions.
-- [ ] Record a separate exact server action before preparing a new candidate
+      246 plus PostgreSQL 47. All four GitHub Actions workflows passed at
+      `538d1d0`.
+- [x] Record a separate exact server action before preparing a new candidate
       revision or retrying the distinct restore target. Preserve all existing
       target volumes, intents, uncertain jobs and admission services.

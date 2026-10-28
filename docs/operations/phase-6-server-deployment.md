@@ -1079,3 +1079,62 @@ also matched. No provider, Meta, tunnel or customer-traffic call occurred.
 This closes only that empty interrupted intent. No restored database, promotion,
 rollback or P6 gate pass is claimed. The separate operations-image inherited
 volume issue must be resolved before the next full restore/promotion drill.
+
+### Exact candidate restore and promotion action
+
+Use only synthetic source `538d1d06b36800cd1fefc778c42f6a248b3ba2b8`, after
+its four GitHub Actions workflows pass. The server checkout must still be clean
+at `9ffc37048de38520e7ed9c7d735af1664c6a42d2`; the existing post-restart
+admission snapshot and older fixture-state fingerprints must match their
+pre-action samples. Require a healthy quiescent PostgreSQL source, no active
+or uncertain job, and the preserved original intent and `.abandoned` record.
+The old target `fcd-support-restore-host-test-p6-8ccb9a0-data` must retain its
+exact reference label and have no users. The distinct target project
+`fcd-support-restore-host-test-p6-8ccb9a0-r2`, its `-data` volume and its
+`-data` network must all be absent. Stop on any mismatch.
+
+Actions passed for that exact revision: private runtime `40623783649`,
+CodeQL `40623783659`, CI `40623783646`, and PostgreSQL/native operations
+`40623783739`.
+
+The read-only disk sample found 19 GiB free on Docker's filesystem, while the
+three retained candidate-predecessor images totalled 451 MiB and the synthetic
+source data occupied 69 MiB. Resample immediately before mutation; require free
+space greater than twice the combined image sizes and source-data size. Stop if
+the sample is unavailable or fails this test.
+
+Fetch synchronized `main` and check out only the exact candidate. Build
+separate application, operations and PostgreSQL image tags under the existing
+synthetic project's name, each labelled with the candidate revision and test
+project. Verify their immutable IDs, architecture and revisions; verify the
+operations image has no declared volume and can execute Node as UID 1000 in a
+read-only, networkless, capability-dropped container. Leave existing tags and
+all retained images untouched.
+
+Create the initially absent, owner-only configuration variant
+`/home/redwan/fcd-support-host-test-p6-8ccb9a0/config-restore-image-538d1d0`.
+Copy only the previously verified non-secret role settings from
+`config-restore-r2`, preserving their contents and permissions. Change only the
+configuration-root, candidate revision and three image references in its
+operations file. Keep the distinct `r2` target, the synthetic 600000-ms
+checkpoint-age setting, and disabled model, outbound and n8n execution. Keep
+all existing configuration and secret files unchanged.
+
+Under the normal deployment lock and protected configuration checks, verify
+the retained source image and physical database identity. Inspect its quiescent
+host projection using the retained application image's validator with the
+retained source revision and images; first verify that validator image has no
+declared volumes. Keep the candidate image and revision for the actual jobs.
+Export one fresh synthetic checkpoint and use the existing verified backup
+reference. Then run the public `restore-runtime.sh` once into the absent `r2`
+target. Only after success run `promote-restore.sh`, `verify-runtime.sh`, the
+same-revision `rollback-runtime.sh --confirm-schema-compatible`, and verify
+again. Confirm the restored cluster has a different physical identity, both
+database volumes remain, the restored selection stays ready, and no job remains.
+
+Recheck the old intent, abandonment record, old target metadata, other fixture
+fingerprints and admission snapshot at each boundary. On refusal, interruption,
+drift or unexpected state, stop and preserve the evidence; do not replay a job,
+delete a volume, repair a selection or retry blindly. This authorizes only the
+described synthetic server drill. It does not authorize live Meta, model,
+provider, n8n or tunnel calls, production assets, or customer traffic.

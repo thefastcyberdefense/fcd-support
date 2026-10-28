@@ -12,7 +12,8 @@ passed 1,188 tests and 139 PostgreSQL tests with one restore-only skip; the
 separate restore gate passed 246 tests and 47 PostgreSQL tests. Both synthetic
 projects cleaned up. A read-only server check confirmed the quiescent source,
 unused fresh target, preserved abandoned history and unchanged admission baseline.
-CI and a separately recorded restore/promotion retry remain pending.
+All four GitHub Actions workflows passed at `538d1d0`; the separately recorded
+restore/promotion retry remains pending.
 
 Latest recovery work: the private empty-target command now requires an existing
 labelled volume and rejects absent targets, unresolved jobs and ambiguous host
@@ -27,7 +28,7 @@ intent, target volume, quiescent source and admission snapshot are preserved.
 Four Actions workflows passed on its documentation-only successor. Restore,
 promotion and Phase 6 gate evidence remain open.
 The inherited-volume issue affecting other validators and promotion jobs is
-corrected locally; its exact committed revision still needs CI and server proof.
+corrected and passed CI; its exact committed revision still needs server proof.
 
 Earlier recovery checkpoint: `8ccb9a0` private deploy/verify/routes/socket and backup/
 replay pass after a separately recorded server restart baseline. Restore reached
