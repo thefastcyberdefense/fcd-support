@@ -2,6 +2,14 @@
 
 Last reviewed: 2026-10-28 (Asia/Dhaka)
 
+The fresh `b0ba255` synthetic host passed the recorded backup/replay action:
+three signed archives verified and retained identical authenticated metadata and
+identities after replay. An empty, exact-ID default-pool capacity canary passed
+and was removed. Independent checks found the source READY with no active job,
+the new restore target absent, private evidence files, the older uncertain job
+preserved and the admission baseline unchanged. Fresh restore/promotion and the
+Phase 6 failure matrix remain open.
+
 Exact source `b0ba255` passed its recorded fresh synthetic deployment on the
 local server after all four GitHub workflows passed. Eight precreated bridges,
 deployment, runtime verification and private HTTP checks passed. An independent

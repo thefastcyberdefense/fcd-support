@@ -1272,3 +1272,17 @@ This action performs no restore, promotion, rollback, provider call or public
 exposure. A successful capacity sample is not a reservation; the subsequent
 fresh restore/promotion drill requires a separate committed action and another
 target-absence check. Do not clear or replay the older uncertain job.
+
+### Fresh synthetic backup replay result
+
+On 2026-10-28 (Asia/Dhaka), the recorded action completed both scheduled backup
+runs. A non-root, networkless reader verified three signed archives; their
+authenticated metadata and identities were identical after replay. The single
+internal default-pool capacity probe was created, verified empty and removed by
+its exact ID. The old synthetic state and resource fingerprints, current source
+actor identities and admission baseline matched throughout.
+
+Independent read-only checks confirmed private backup evidence files, READY
+source without an active job, absence of the capacity probe and fresh restore
+target, the preserved older uncertain job and unchanged admission baseline.
+No restore, promotion, rollback, provider traffic or customer traffic occurred.
