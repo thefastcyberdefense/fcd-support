@@ -2,12 +2,26 @@
 
 Last reviewed: 2026-10-28 (Asia/Dhaka)
 
+Current synthetic network-capacity work adds a guarded precreated-bridge mode
+for an independent server fixture. Real Docker proved Compose adoption and
+rejection of occupied, extra and replaced bridges. Existing resource names or
+unavailable inventory cause an explicit refusal. Full code passed 1,800 tests
+with 423 platform skips over 124 files. Before the final CI-mode and collision
+checks, the isolated grants lane passed 1,197 native tests and 139 PostgreSQL
+tests/one restore-only skip;
+the real Docker network proof was repeated afterwards and its test tag removed.
+The server checkout, disk capacity and proposed network block passed read-only
+checks. Both previous synthetic databases are healthy, their uncertain restore
+record is preserved, and the admission baseline matches. Exact-revision GitHub
+checks and a separately recorded server action remain pending; Phase 6 is not
+complete.
+
 GitHub follow-up: the `5cb2ba5` PostgreSQL/native workflow failed in its
 restore step because the DNS test referenced a Node base image unavailable in
 the runner's image store. The test now uses the harness-built operations image.
 A local simulation hiding the Node base passed its DNS proof, 250 native restore
-tests and 47 PostgreSQL tests, with the synthetic project removed. Fresh GitHub
-verification is pending.
+tests and 47 PostgreSQL tests, with the synthetic project removed. All four
+GitHub workflows passed at `78ab101`.
 
 Restore DNS correction: runtime PostgreSQL now advertises only the source alias;
 Compose validation and live source/target checks reject conflicting aliases.

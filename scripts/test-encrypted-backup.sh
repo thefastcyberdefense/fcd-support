@@ -134,6 +134,7 @@ done
 fi
 docker build --platform linux/amd64 --build-arg "VCS_REF=$REVISION" --file "$NATIVE_ROOT/infra/Dockerfile.operations" --tag "$OPS" "$NATIVE_ROOT" >/dev/null 2>&1 || { echo backup_operations_build_failed >&2; exit 1; }
 bash "$ROOT/scripts/test-operations-image-mounts.sh" "$OPS"
+if [[ "$MODE" == grants ]]; then bash "$ROOT/scripts/test-synthetic-host-networks-docker.sh" "$OPS"; fi
 if [[ "$MODE" == restore ]]; then bash "$ROOT/scripts/test-restore-alias-docker.sh" "$OPS"; fi
 docker build --platform linux/amd64 --file "$NATIVE_ROOT/infra/Dockerfile.integration" --tag fcd-support-integration-test:local "$NATIVE_ROOT" >/dev/null 2>&1 || { echo backup_dependencies_build_failed >&2; exit 1; }
 docker build --platform linux/amd64 --build-arg "OPERATIONS_IMAGE=$OPS" --file "$NATIVE_ROOT/infra/Dockerfile.backup-test" --tag "$RUNNER" "$NATIVE_ROOT" >/dev/null 2>&1 || { echo backup_runner_build_failed >&2; exit 1; }

@@ -16,6 +16,10 @@ jobs:
   private-runtime:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        network_mode: [fresh, precreated]
     steps:
       - name: Check out repository without retained credentials
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -39,6 +43,8 @@ jobs:
           [[ "$(docker compose version --short)" == 5.5.1 ]]
       - name: Exercise the real private controller on this disposable runner
         shell: bash
+        env:
+          TASK_NETWORK_MODE: ${{ matrix.network_mode }}
         run: |
           set -Eeuo pipefail
           task_root=/home/fcd-support-ci
@@ -66,8 +72,39 @@ jobs:
           '
           sudo cp -a -- "$GITHUB_WORKSPACE/." "$task_root/repository/"
           sudo chown -R --no-dereference 1000:1000 "$task_root/repository"
-          sudo --set-home --user "$task_operator" --group '#1000' env PATH="$PATH" GITHUB_ACTIONS=true \
-            bash -c 'cd /home/fcd-support-ci/repository && exec bash scripts/test-synthetic-runtime-deployment.sh "$1" --ephemeral-ci' bash "$GITHUB_SHA"
+          sudo --set-home --user "$task_operator" --group '#1000' env PATH="$PATH" GITHUB_ACTIONS=true TASK_NETWORK_MODE="$TASK_NETWORK_MODE" \
+            bash -c '
+              set -Eeuo pipefail
+              [[ "$1" =~ ^[a-f0-9]{40}$ ]]
+              cd /home/fcd-support-ci/repository
+              case "$TASK_NETWORK_MODE" in
+                fresh) mode=--ephemeral-ci ;;
+                precreated)
+                  project="fcd-support-host-test-ci-${1:0:7}"
+                  synthetic_networks="$(docker network ls --quiet --filter "label=fcd-support.synthetic-host-test=$project")"
+                  project_networks="$(docker network ls --quiet --filter "label=com.docker.compose.project=$project")"
+                  [[ -z "$synthetic_networks" && -z "$project_networks" ]]
+                  for role in webhook admin reply outbound notification operations; do
+                    if docker network inspect "$project-$role-data" >/dev/null 2>&1; then exit 1; fi
+                  done
+                  for role in ingress egress; do
+                    if docker network inspect "$project-$role" >/dev/null 2>&1; then exit 1; fi
+                  done
+                  for role in webhook admin reply outbound notification operations; do
+                    docker network create --driver bridge --internal \
+                      --label "fcd-support.synthetic-host-test=$project" \
+                      --label "com.docker.compose.project=$project" \
+                      --label "com.docker.compose.network=${role}_data" "$project-$role-data" >/dev/null
+                  done
+                  docker network create --driver bridge --internal \
+                    --label "fcd-support.synthetic-host-test=$project" "$project-ingress" >/dev/null
+                  docker network create --driver bridge \
+                    --label "fcd-support.synthetic-host-test=$project" "$project-egress" >/dev/null
+                  mode=--ephemeral-ci-precreated ;;
+                *) exit 1 ;;
+              esac
+              exec bash scripts/test-synthetic-runtime-deployment.sh "$1" "$mode"
+            ' bash "$GITHUB_SHA"
       - name: Report only fixture-state ownership after a failed smoke test
         if: failure()
         shell: bash
