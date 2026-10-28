@@ -48,6 +48,22 @@ test('accepts Compose null defaults while retaining explicit application command
   }).not.toThrow();
 });
 
+test.each([
+  { aliases: [] },
+  { aliases: ['fcd-support-restore-postgres'] },
+  { aliases: ['fcd-support-source-postgres', 'fcd-support-restore-postgres'] },
+  { aliases: ['fcd-support-source-postgres', 'fcd-support-source-postgres'] },
+])(
+  'runtime database hostname aliases reject missing or conflicting source names %#',
+  ({ aliases }) => {
+    const input = fixture();
+    input.services.postgres.networks.operations_data = { aliases };
+    expect(() => {
+      assertRuntimeCompose(input, revision, false, paths);
+    }).toThrow('compose_contract_invalid');
+  },
+);
+
 function service(role: string, networks: readonly string[], secrets: readonly string[]) {
   const limits = Object.fromEntries(
     [
@@ -164,6 +180,7 @@ function fixture() {
       profiles: ['notification-execution'],
     },
   };
+  services.postgres.networks.operations_data = { aliases: ['fcd-support-source-postgres'] };
   const networkNames = [
     'webhook_data',
     'admin_data',

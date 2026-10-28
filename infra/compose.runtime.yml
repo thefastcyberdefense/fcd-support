@@ -45,7 +45,7 @@ services:
       outbound_data: {}
       notification_data: {}
       operations_data:
-        aliases: [fcd-support-source-postgres, fcd-support-restore-postgres]
+        aliases: [fcd-support-source-postgres]
 
   fcd-support-api:
     <<: *security

@@ -1157,3 +1157,12 @@ remain, and the admission snapshot is unchanged. No promotion or rollback was
 attempted. Do not replay the job, clear its journal, remove the target or infer
 a successful restore. Root-cause diagnosis and any supported reconciliation
 require separate evidence and a separately recorded action.
+
+Read-only follow-up found that the source PostgreSQL container advertised the
+target hostname on its operations network and logged a PostgreSQL superuser
+authentication failure after target startup. The archive-reader role, catalog
+grants and selected verified-backup state were present. A separate local Docker
+reproduction showed that this alias collision can route the target hostname to
+the source; after separating aliases, each name resolved only to its own
+synthetic database. The removed server job's exact DNS answer remains unknown.
+No server job, journal or resource was changed by these checks.

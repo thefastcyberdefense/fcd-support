@@ -2,6 +2,16 @@
 
 Last reviewed: 2026-10-28 (Asia/Dhaka)
 
+Restore DNS correction: runtime PostgreSQL now advertises only the source alias;
+Compose validation and live source/target checks reject conflicting aliases.
+The real Docker DNS proof and both rendered Compose contracts pass. Full code
+passed 1,771 tests/423 platform skips across 123 files; the native grants gate
+passed 1,196 tests and 139 PostgreSQL tests/one restore-only skip. The separate
+restore gate passed 250 tests and 47 PostgreSQL tests; the final native
+controller suite passed 59 tests. Synthetic test resources were removed. The
+existing server job and target remain unresolved and preserved; no server retry
+or reconciliation has been performed for this correction.
+
 Latest synthetic server result: exact candidate `538d1d0` passed preflight,
 image checks and checkpoint export, then created the isolated `r2` target. Its
 first restore-stream job became uncertain; source and target PostgreSQL remain

@@ -24,9 +24,15 @@ operations_restore_target_absent() {
 }
 
 operations_restore_source_alias() {
-  local id="$1" value
-  value="$(operations_docker container inspect --format "{{with index .NetworkSettings.Networks \"${OPS_CONFIG[FCD_RUNTIME_PROJECT]}-operations-data\"}}{{range .Aliases}}{{if eq . \"fcd-support-source-postgres\"}}yes{{end}}{{end}}{{end}}" "$id")" || return 1
-  [[ "$value" == yes ]]
+  local id="$1" aliases
+  aliases="$(operations_docker container inspect --format "{{with index .NetworkSettings.Networks \"${OPS_CONFIG[FCD_RUNTIME_PROJECT]}-operations-data\"}}{{range .Aliases}}{{if eq . \"fcd-support-source-postgres\"}}source{{end}}{{if eq . \"fcd-support-restore-postgres\"}}target{{end}}{{end}}{{end}}" "$id")" || return 1
+  [[ "$aliases" == source ]]
+}
+
+operations_restore_target_alias() {
+  local id="$1" aliases
+  aliases="$(operations_docker container inspect --format "{{with index .NetworkSettings.Networks \"${OPS_CONFIG[FCD_RESTORE_PROJECT]}-data\"}}{{range .Aliases}}{{if eq . \"fcd-support-source-postgres\"}}source{{end}}{{if eq . \"fcd-support-restore-postgres\"}}target{{end}}{{end}}{{end}}" "$id")" || return 1
+  [[ "$aliases" == target ]]
 }
 
 operations_restore_source_quiescent() {
@@ -82,6 +88,7 @@ operations_restore_target_postgres() {
     "$(operations_docker ps --all --quiet --no-trunc --filter "volume=${OPS_CONFIG[FCD_RESTORE_VOLUME]}")" == "$id" &&
     "$(operations_docker container inspect --format '{{index .Config.Labels "fcd-support.restore.ref"}}' "$id")" == "$OPS_RESTORE_REFERENCE" ]] || return 1
   operations_restore_volume && operations_restore_network 1 || return 1
+  operations_restore_target_alias "$id" || return 1
   OPS_RESTORE_TARGET_POSTGRES="$id"
 }
 

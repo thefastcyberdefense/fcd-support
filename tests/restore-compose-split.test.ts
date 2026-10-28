@@ -104,6 +104,7 @@ function service(networks: string[], secrets: string[]) {
 function fixture() {
   const services: Record<string, ReturnType<typeof service>> = {};
   const pg = service(['restore_data'], ['restore-postgres-password']);
+  pg.networks.restore_data = { aliases: ['fcd-support-restore-postgres'] };
   pg.user = 'postgres';
   pg.tmpfs = [
     '/var/run/postgresql:rw,noexec,nosuid,nodev,uid=999,gid=999,mode=0770,size=16m',
@@ -167,6 +168,22 @@ function fixture() {
     ),
   };
 }
+
+test.each([
+  { aliases: [] },
+  { aliases: ['fcd-support-source-postgres'] },
+  { aliases: ['fcd-support-restore-postgres', 'fcd-support-source-postgres'] },
+  { aliases: ['fcd-support-restore-postgres', 'fcd-support-restore-postgres'] },
+])(
+  'restore database hostname aliases reject missing or conflicting target names %#',
+  ({ aliases }) => {
+    const input = fixture();
+    required(input.services.postgres).networks.restore_data = { aliases };
+    expect(() => {
+      assertRestoreCompose(input, revision, 'fcd-support-live-data');
+    }).toThrow('compose_contract_invalid');
+  },
+);
 
 for (const name of Object.keys(specs)) {
   for (const key of [

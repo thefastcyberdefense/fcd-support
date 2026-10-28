@@ -163,6 +163,10 @@ function same(actual: readonly string[], expected: readonly string[]): boolean {
     actual.every((value) => expected.includes(value))
   );
 }
+function checkDatabaseAlias(network: unknown, expected: string): void {
+  const value = z.object({ aliases: z.array(z.string()) }).parse(network);
+  if (!same(value.aliases, [expected])) invalid();
+}
 const secretEnvironmentName =
   /^(?:DATABASE_URL|META_(?:APP_SECRET|VERIFY_TOKEN|PAGE_ACCESS_TOKEN|WHATSAPP_ACCESS_TOKEN|MESSENGER_PAGE_ID|WHATSAPP_PHONE_NUMBER_ID|WHATSAPP_BUSINESS_ACCOUNT_ID)|MANIFEST_API_KEY|N8N_ESCALATION_WEBHOOK_SECRET|ADMIN_SESSION_HMAC_KEY|ADMIN_MFA_ENCRYPTION_KEY|PRIVACY_HMAC_KEYRING|RECOVERY_MANIFEST_HMAC|BACKUP_(?:AGE_IDENTITY|ENCRYPTION_RECIPIENT|ENCRYPTION_PASSWORD)|POSTGRES_PASSWORD|CLOUDFLARE_TUNNEL_TOKEN)$/u;
 function durationMilliseconds(value: string): number {
@@ -426,6 +430,10 @@ export function assertRuntimeCompose(
       checkService(config.services[name], contract, 'unless-stopped');
       const volumes = config.services[name]?.volumes;
       if (name === 'postgres') {
+        checkDatabaseAlias(
+          config.services[name]?.networks.operations_data,
+          'fcd-support-source-postgres',
+        );
         if (
           volumes?.length !== 1 ||
           volumes[0]?.source !== 'postgres-data' ||
@@ -627,6 +635,10 @@ export function assertRestoreCompose(
       config.services.postgres,
       { networks: ['restore_data'], secrets: ['restore-postgres-password'] },
       'no',
+    );
+    checkDatabaseAlias(
+      config.services.postgres?.networks.restore_data,
+      'fcd-support-restore-postgres',
     );
     const secretPaths = Object.values(config.secrets).map((secret) => secret.file);
     if (new Set(secretPaths).size !== secretPaths.length) invalid();

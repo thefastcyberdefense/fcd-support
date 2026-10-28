@@ -58,6 +58,7 @@ async function fixture(
   await writeFile(join(root, 'phase'), phase);
   await writeFile(join(root, 'revision'), current ? revision : oldRevision);
   if (current) await writeFile(join(root, 'alias'), 'yes');
+  if (fault === 'source-alias-collision') await writeFile(join(root, 'collision'), 'yes');
   const body = `
 source "$TASK_COMMON"
 source "$TASK_LIBRARY"
@@ -91,7 +92,7 @@ operations_retained_read() {
 operations_controller_source_storage() { trace "storage:$1"; [[ "$TASK_FAULT" != storage ]]; }
 operations_selection_draining() { trace draining; printf draining > "$TASK_ROOT/phase"; }
 operations_drain_owned_applications() { trace drain; [[ "$TASK_FAULT" != drain ]] || return 1; printf quiescent > "$TASK_ROOT/phase"; }
-operations_converge_postgres() { trace converge; test -s "$TASK_INTENT_FILE" || return 1; [[ "$TASK_FAULT" != converge ]] || return 1; printf ${revision} > "$TASK_ROOT/revision"; touch "$TASK_ROOT/alias"; }
+operations_converge_postgres() { trace converge; test -s "$TASK_INTENT_FILE" || return 1; [[ "$TASK_FAULT" != converge ]] || return 1; printf ${revision} > "$TASK_ROOT/revision"; touch "$TASK_ROOT/alias"; rm -f "$TASK_ROOT/collision"; }
 operations_upgrade_database() { trace source-upgrade; [[ "$OPS_DATABASE_SYSTEM_IDENTIFIER" == ${sourceSystem} && ! -e "$TASK_ROOT/network" && ! -e "$TASK_ROOT/postgres" && "$TASK_FAULT" != source-upgrade ]] || return 1; touch "$TASK_ROOT/source-ready"; }
 operations_runtime_id() { printf '%s\\n' ${sourceId}; }
 operations_drain_boundaries() { trace boundaries; [[ "$TASK_FAULT" != source-boundaries ]]; }
@@ -156,7 +157,9 @@ operations_docker() {
   'volume inspect') test -e "$TASK_ROOT/volume" || return 1; [[ "$TASK_FAULT" != volume-ref ]] || ref=restore_${'f'.repeat(32)}; if [[ "$TASK_FAULT" == volume-after ]] && after_job; then created=2030-04-02T00:00:00Z; fi; printf '%s/%s/local/local/default/%s/restore-data/%s' '${volume}' "$created" '${project}' "$ref" ;;
   'network inspect') test -e "$TASK_ROOT/network" || return 1; [[ "$TASK_FAULT" != network-ref ]] || ref=restore_${'f'.repeat(32)}; [[ ! -e "$TASK_ROOT/postgres" ]] || count=1; printf '%s/%s/%s/bridge/true/%s/restore_data/%s/%s' '${networkId}' '${project}-data' "$created" '${project}' "$ref" "$count" ;;
   'container inspect')
-   if [[ "$*" == *'fcd-support-source-postgres'* ]]; then [[ ! -e "$TASK_ROOT/alias" ]] || printf yes;
+   if [[ "$*" == *'fcd-support-source-postgres'* && "$*" == *'fcd-support-restore-postgres'* ]]; then if [[ "$last" == ${targetId} ]]; then printf target; elif [[ -e "$TASK_ROOT/alias" ]]; then printf source; [[ ! -e "$TASK_ROOT/collision" ]] || printf target; fi;
+   elif [[ "$*" == *'fcd-support-source-postgres'* ]]; then [[ "$last" == ${targetId} || ! -e "$TASK_ROOT/alias" ]] || printf yes;
+   elif [[ "$*" == *'fcd-support-restore-postgres'* ]]; then [[ "$last" != ${targetId} ]] || printf yes;
    elif [[ "$*" == *'fcd-support.restore.ref'* ]]; then [[ "$TASK_FAULT" != actor-ref ]] || ref=restore_${'f'.repeat(32)}; printf '%s' "$ref";
    else printf '%s' synthetic_actor_metadata; fi ;;
   *) trace unexpected-docker; return 19 ;;
@@ -298,6 +301,17 @@ test.each([
     await f.dispose();
   }
 });
+
+test('a conflicting source alias is removed by convergence before target creation', async () => {
+  const f = await fixture('source-alias-collision', 'quiescent', true);
+  try {
+    expect(f.result.status, f.result.stderr).toBe(0);
+    expect(f.trace).toContain('converge');
+    expect(f.trace.indexOf('converge')).toBeLessThan(f.trace.indexOf('create-volume'));
+  } finally {
+    await f.dispose();
+  }
+}, 30000);
 
 test.each(['draining', 'database-changing', 'uncertain', 'starting', 'switching'])(
   'restore refuses source %s without changing it',
