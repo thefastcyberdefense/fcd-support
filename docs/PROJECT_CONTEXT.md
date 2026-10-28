@@ -7,8 +7,11 @@ Docker projections passed before a stopped-job creation failure about 16.1
 seconds later. The fixture's 15-second timeout is a likely, unconfirmed cause;
 the synthetic test now allows 60 seconds and distinguishes timeout from other
 failures without changing runtime configuration. Four local Docker projections
-passed, while stopped-job creation is Linux-only. The original CI rerun, native
-workflow and new exact-revision checks remain pending.
+passed, while stopped-job creation is Linux-only. The original CI rerun passed;
+its native run was superseded. All four workflows passed at `b0ba255`, including
+both private deployment variants, 1,197 native tests, 139 PostgreSQL tests with
+one restore-only skip, 250 restore tests and 47 two-cluster PostgreSQL tests.
+The separate complete PostgreSQL job passed 620 tests with 52 skips.
 
 Current synthetic network-capacity work adds a guarded precreated-bridge mode
 for an independent server fixture. Real Docker proved Compose adoption and
@@ -20,9 +23,8 @@ tests/one restore-only skip;
 the real Docker network proof was repeated afterwards and its test tag removed.
 The server checkout, disk capacity and proposed network block passed read-only
 checks. Both previous synthetic databases are healthy, their uncertain restore
-record is preserved, and the admission baseline matches. Exact-revision GitHub
-checks and a separately recorded server action remain pending; Phase 6 is not
-complete.
+record is preserved, and the admission baseline matches. A separately recorded
+synthetic-server deployment remains; Phase 6 is not complete.
 
 GitHub follow-up: the `5cb2ba5` PostgreSQL/native workflow failed in its
 restore step because the DNS test referenced a Node base image unavailable in

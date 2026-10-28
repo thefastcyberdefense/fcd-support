@@ -1166,3 +1166,58 @@ reproduction showed that this alias collision can route the target hostname to
 the source; after separating aliases, each name resolved only to its own
 synthetic database. The removed server job's exact DNS answer remains unknown.
 No server job, journal or resource was changed by these checks.
+
+### Fresh synthetic deployment with precreated bridges
+
+Run this action only after all four GitHub workflows pass for exact source
+`b0ba255016100a733887fe0e61f8f5065b1a1e86` and this action is committed and
+pushed. On `redwan@192.168.10.40`, require UID/GID 1000, a clean server checkout
+at `538d1d06b36800cd1fefc778c42f6a248b3ba2b8`, Docker root
+`/var/lib/docker`, and at least 12 GiB free on its filesystem. Recheck the saved
+admission snapshot and require that no existing container bind mount overlaps
+the checkout. The old `8ccb9a0`
+source and `r2` target must both be healthy, and the restore job, its override,
+the prior intent and abandonment record must remain present. Sample the old
+state records, source and target identities, target volume/network identities,
+and admission snapshot; require them to match again before and after the new
+deployment. Stop on any mismatch or unavailable evidence.
+
+The candidate passed private runtime `40722695090`, CodeQL `40722695201`, CI
+`40722695139`, and PostgreSQL/native operations `40722695059`. The latter
+included 1,197 native tests, 139 PostgreSQL tests with one restore-only skip,
+250 restore tests, and 47 two-cluster PostgreSQL tests. Its separate complete
+PostgreSQL job passed 620 tests with 52 skips.
+
+The only new source project is `fcd-support-host-test-p6-b0ba255`, under
+`/home/redwan/fcd-support-host-test-p6-b0ba255`; its restore project is
+`fcd-support-restore-host-test-p6-b0ba255`. Require the fixture path, project
+containers, target network and volume, source volumes, candidate image tags,
+and all eight named bridges to be absent. Fetch synchronized `main` and check
+out the exact source above in the existing server checkout. Do not change any
+existing project, journal, image, volume, container or network.
+
+Create eight dedicated bridge networks in order from `198.18.240.0/24` through
+`198.18.247.0/24`. The first six are internal networks named for the project and
+`webhook-data`, `admin-data`, `reply-data`, `outbound-data`, `notification-data`
+and `operations-data`; label each with the exact synthetic project, Compose
+project and corresponding underscore-form Compose network name. The seventh
+is the internal project ingress bridge; the eighth is its non-internal egress
+bridge. Both carry the exact synthetic project label. Before the first creation,
+check the whole `198.18.240.0/20` test block against Docker IPAM, non-default
+host IPv4 routes and host IPv4 interface networks. Immediately before each
+creation, repeat that check for the particular `/24`. Stop on overlap, drift,
+unavailable metadata or an existing name. Do not change Docker's default pool.
+
+Validate all eight bridges with the committed precreated-network guard, then run
+`scripts/test-synthetic-runtime-deployment.sh` once at the exact revision with
+`--synthetic-precreated`. It creates only private synthetic credentials and
+resources, deploys in `private-disabled` mode, and checks the private HTTP and
+Unix-socket paths. Preserve logs privately and report only closed pass/fail
+markers. Compare the old state and admission snapshots again. A refusal,
+interruption or mismatch stops the action: retain all new and old resources and
+evidence, do not retry, prune, clear a journal or infer a restore outcome.
+
+This action does not perform a restore, promotion or rollback, contact Meta,
+Manifest, n8n or another provider, expose a tunnel, or touch production assets
+or customer traffic. A fresh restore/promotion drill needs a separate recorded
+action after the new deployment is verified.
