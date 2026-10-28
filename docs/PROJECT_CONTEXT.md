@@ -10,6 +10,11 @@ target resources are preserved. The target has zero application tables, but
 that count does not prove the job had no effects. The previous abandonment and
 admission baseline remain unchanged. No promotion or rollback was attempted.
 Diagnosis and supported reconciliation remain open.
+Read-only diagnostics found the source advertising the target alias and an
+authentication failure after target startup. A separate local Docker test
+confirmed that this alias collision can resolve the target name to the source;
+the exact DNS result of the removed job remains unknown. The Task 11 correction
+and its preservation boundary are recorded in the restore DNS isolation spec.
 
 Current image correction: the operations image now copies its pinned built
 filesystem into a metadata-reset release stage and restores its previous
