@@ -1221,3 +1221,18 @@ This action does not perform a restore, promotion or rollback, contact Meta,
 Manifest, n8n or another provider, expose a tunnel, or touch production assets
 or customer traffic. A fresh restore/promotion drill needs a separate recorded
 action after the new deployment is verified.
+
+### Precreated-bridge deployment result
+
+On 2026-10-28 (Asia/Dhaka), the recorded action created and validated the
+eight dedicated bridges, then deployed exact source `b0ba255` in the new
+private-disabled synthetic project. Deployment, runtime verification and the
+private HTTP checks passed. The old synthetic state records, database actor and
+target resource fingerprints, and admission baseline matched before and after.
+
+An independent read-only check found the exact clean server checkout, READY
+state with no active job, four healthy runtime actors, the protected admin Unix
+socket and login response, and the expected private HTTP responses 403, 404 and
+401. The previous restore job remains uncertain and the admission baseline is
+unchanged. No restore, promotion, rollback, live provider, Meta, n8n or customer
+traffic was attempted. Phase 6 and its restore/failure-matrix gate remain open.

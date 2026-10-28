@@ -2,6 +2,15 @@
 
 Last reviewed: 2026-10-28 (Asia/Dhaka)
 
+Exact source `b0ba255` passed its recorded fresh synthetic deployment on the
+local server after all four GitHub workflows passed. Eight precreated bridges,
+deployment, runtime verification and private HTTP checks passed. An independent
+check confirmed four healthy actors, READY state without an active job, a
+protected admin socket/login, and private HTTP responses 403/404/401. The old
+uncertain restore state, target fingerprints and admission baseline remained
+unchanged. No restore, promotion, rollback, live provider or customer traffic
+occurred. Fresh host restore/promotion and the Phase 6 failure matrix remain open.
+
 At `1446888`, both private-runtime CI variants and CodeQL passed. General CI's
 Docker projections passed before a stopped-job creation failure about 16.1
 seconds later. The fixture's 15-second timeout is a likely, unconfirmed cause;
@@ -23,8 +32,8 @@ tests/one restore-only skip;
 the real Docker network proof was repeated afterwards and its test tag removed.
 The server checkout, disk capacity and proposed network block passed read-only
 checks. Both previous synthetic databases are healthy, their uncertain restore
-record is preserved, and the admission baseline matches. A separately recorded
-synthetic-server deployment remains; Phase 6 is not complete.
+record is preserved, and the admission baseline matches. The separately recorded
+synthetic-server deployment now passes; Phase 6 is not complete.
 
 GitHub follow-up: the `5cb2ba5` PostgreSQL/native workflow failed in its
 restore step because the DNS test referenced a Node base image unavailable in
