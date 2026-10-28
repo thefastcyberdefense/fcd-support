@@ -1236,3 +1236,39 @@ socket and login response, and the expected private HTTP responses 403, 404 and
 401. The previous restore job remains uncertain and the admission baseline is
 unchanged. No restore, promotion, rollback, live provider, Meta, n8n or customer
 traffic was attempted. Phase 6 and its restore/failure-matrix gate remain open.
+
+### Fresh synthetic backup replay and capacity action
+
+Using only clean server source `b0ba255016100a733887fe0e61f8f5065b1a1e86`
+and project `fcd-support-host-test-p6-b0ba255`, run this action after its record
+is committed and pushed. Require the new runtime to be READY, its four expected
+actors healthy, its admin socket private, and no active job. Check the retained
+admission snapshot and the earlier `8ccb9a0` uncertain restore, target and
+healthy database actors. Sample their protected state and resource identities;
+require those samples and the new runtime actor identities to match again after
+each stage. Reject missing, changed, ambiguous or unavailable evidence.
+
+Run the existing private backup scheduler once with the new project's protected
+configuration, then inspect the resulting archives with the committed signed
+manifest reader in a non-root, networkless, read-only container. Mount only the
+new project's backup volume and its recovery HMAC file read-only; never display
+their contents. Require one signed pre-migration, daily and monthly archive;
+the daily and monthly archives must match the exact source and schema. Run the
+same scheduler again within the same UTC day and month and verify the same
+signed archive identities and metadata, proving replay. Keep diagnostics in new
+private files, reverify READY and no active job, and print only fixed results.
+The exact metadata-reader logic passed a local synthetic replay simulation and
+rejected a modified archive. The server container mounts remain to be tested.
+
+Then make one internal default-pool capacity probe named
+`fcd-support-subnet-check-b0ba255` with a dedicated synthetic label. Require the
+name absent first. If creation succeeds, verify the exact returned network ID,
+label, bridge driver, internal flag and zero participants; remove only that ID
+without force and verify its absence. A failed or ambiguous creation, changed
+state, unexpected participant or failed removal stops the action and preserves
+the evidence. Do not alter any other network or Docker's global address pool.
+
+This action performs no restore, promotion, rollback, provider call or public
+exposure. A successful capacity sample is not a reservation; the subsequent
+fresh restore/promotion drill requires a separate committed action and another
+target-absence check. Do not clear or replay the older uncertain job.
