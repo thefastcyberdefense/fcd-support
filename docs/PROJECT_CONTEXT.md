@@ -2,6 +2,14 @@
 
 Last reviewed: 2026-10-28 (Asia/Dhaka)
 
+At `1446888`, both private-runtime CI variants and CodeQL passed. General CI's
+Docker projections passed before a stopped-job creation failure about 16.1
+seconds later. The fixture's 15-second timeout is a likely, unconfirmed cause;
+the synthetic test now allows 60 seconds and distinguishes timeout from other
+failures without changing runtime configuration. Four local Docker projections
+passed, while stopped-job creation is Linux-only. The original CI rerun, native
+workflow and new exact-revision checks remain pending.
+
 Current synthetic network-capacity work adds a guarded precreated-bridge mode
 for an independent server fixture. Real Docker proved Compose adoption and
 rejection of occupied, extra and replaced bridges. Existing resource names or

@@ -98,8 +98,13 @@ OPS_JOB_PROJECT="$scope-job"
 OPS_JOB_SERVICE=bootstrap
 OPS_DOCKER_ENDPOINT="$(docker context inspect --format '{{(index .Endpoints "docker").Host}}')"
 [[ "$OPS_DOCKER_ENDPOINT" == unix:///* ]]
-declare -A OPS_CONFIG=([FCD_COMMAND_TIMEOUT_SECONDS]=15 [FCD_STOP_GRACE_MS]=1000)
-operations_job_create_stopped || { printf 'docker_job_create_failed\n' >&2; exit 1; }
+declare -A OPS_CONFIG=([FCD_COMMAND_TIMEOUT_SECONDS]=60 [FCD_STOP_GRACE_MS]=1000)
+operations_job_create_stopped || {
+  status=$?
+  if [[ "$status" == 124 ]]; then printf 'docker_job_create_timed_out\n' >&2
+  else printf 'docker_job_create_failed\n' >&2; fi
+  exit 1
+}
 actor="$(docker ps --all --quiet --no-trunc --filter "label=com.docker.compose.project=$OPS_JOB_PROJECT")"
 [[ "$actor" =~ ^[a-f0-9]{64}$ && "$(docker container inspect --format '{{.State.Status}}/{{.State.Running}}/{{.Config.User}}/{{.HostConfig.ReadonlyRootfs}}/{{.HostConfig.Privileged}}/{{len .HostConfig.PortBindings}}/{{.HostConfig.NetworkMode}}' "$actor")" == created/false/1000:1000/true/false/0/none ]]
 printf 'docker_single_job_create_passed=true\n'
