@@ -1286,3 +1286,55 @@ Independent read-only checks confirmed private backup evidence files, READY
 source without an active job, absence of the capacity probe and fresh restore
 target, the preserved older uncertain job and unchanged admission baseline.
 No restore, promotion, rollback, provider traffic or customer traffic occurred.
+
+### Fresh synthetic restore, promotion and rollback action
+
+Use only clean source `b0ba255016100a733887fe0e61f8f5065b1a1e86` and the READY
+synthetic project `fcd-support-host-test-p6-b0ba255`, after this action is
+committed and pushed. Recheck the admission baseline, old `8ccb9a0` uncertain
+job and target, four healthy new source actors, protected socket, no active job,
+and absence of the new target project, volume and network. Require the new
+project's model, outbound and n8n execution flags to remain false. Sample old
+state and resource identities and require them unchanged throughout. Inspect
+only content-free preservation metadata; do not replay, resolve or reuse the
+old restore target or job.
+
+Select the new project's current daily backup only after a networkless,
+read-only metadata reader verifies all three signed archives and ciphertext
+digests. Separately use the existing narrowly scoped archive-reader role on the
+private operations network to verify the selected daily reference has a
+verified catalog entry for the exact revision and schema. Do not print archive
+contents, connection strings, keys or reference values.
+The exact reader logic passed a local signed synthetic archive test and refused
+tampering; a separate synthetic catalog test accepted verified state and
+refused unverified state. The live private catalog connection remains to be
+tested by this action.
+
+The authored test fixture has a 60000-ms checkpoint-age limit. To accommodate
+the measured multistep host drill, change only its restore-only setting to
+600000 ms. Under the new project's deployment lock, require the exact original
+settings and private file ownership, verify no existing container bind-mounts
+that file or a parent, and exercise the exact update on an owned private
+synthetic copy. Verify and remove only that simulation's two exact files and
+directory, then preserve an owner-only original copy before the atomic update.
+All other settings and the application's configurable limits stay unchanged.
+On failure or interruption preserve the original copy and resulting state; do not
+automatically reverse or retry an uncertain operation.
+
+Under the normal checked configuration, live verification and deployment lock,
+export one fresh synthetic checkpoint with the committed checkpoint job. Perform
+one newly created, internal, labelled default-pool capacity probe, verify it is
+empty and remove its exact ID; then immediately recheck target absence. The
+capacity check is a sample, not a reservation. Run the public restore command
+once with the signed daily backup and fresh checkpoint. On success only, run
+promotion, public verification, the retained same-revision schema-compatible
+rollback command and verification again. Require the selected restored physical
+database identity to differ from the source and preserve both volumes. Recheck
+the old state and admission baseline at every boundary. A failure, lost
+acknowledgement, mismatch or uncertain job stops the drill; retain all state and
+resources without replay, manual selection repair or automatic cleanup.
+
+This is a private synthetic test only. It does not contact Meta, Manifest, n8n
+or another provider, expose a tunnel, use customer traffic or change production
+assets. Passing this drill alone does not complete the Phase 6 failure matrix or
+gate.
