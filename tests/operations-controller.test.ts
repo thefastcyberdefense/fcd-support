@@ -20,12 +20,22 @@ test.each([
   'verify-refused',
   'rollback',
   'rollback-incompatible',
+  'rollback-uncertain',
+  'rollback-draining',
+  'rollback-quiescent',
+  'rollback-switching',
 ])('public controller sequences %s through the verified private primitives', async (kind) => {
   const root = await mkdtemp(join(tmpdir(), 'fcd-controller-test-'));
   const slash = root.replaceAll('\\', '/');
   await writeFile(
     join(root, 'phase'),
-    kind === 'quiescent' ? 'quiescent' : kind === 'uncertain' ? 'uncertain' : 'ready',
+    kind.startsWith('rollback-') && kind !== 'rollback-incompatible'
+      ? kind.slice('rollback-'.length)
+      : kind === 'quiescent'
+        ? 'quiescent'
+        : kind === 'uncertain'
+          ? 'uncertain'
+          : 'ready',
   );
   try {
     const script = `
@@ -74,6 +84,10 @@ ${kind.startsWith('verify') ? 'operations_verify' : kind.startsWith('rollback') 
       'startup-refused',
       'verify-refused',
       'rollback-incompatible',
+      'rollback-uncertain',
+      'rollback-draining',
+      'rollback-quiescent',
+      'rollback-switching',
     ].includes(kind);
     expect(result.status, result.stderr).toBe(refused ? 1 : 0);
     const trace = (await readFile(join(root, 'trace'), 'utf8').catch(() => ''))
@@ -87,6 +101,17 @@ ${kind.startsWith('verify') ? 'operations_verify' : kind.startsWith('rollback') 
       expect(trace).toEqual(['storage', 'adopt', 'drain', 'postgres', 'startup']);
     if (kind === 'quiescent') expect(trace).toEqual(['startup']);
     if (kind === 'uncertain') expect(trace).toEqual([]);
+    if (
+      [
+        'rollback-uncertain',
+        'rollback-draining',
+        'rollback-quiescent',
+        'rollback-switching',
+      ].includes(kind)
+    ) {
+      expect(trace).toEqual([]);
+      expect(await readFile(join(root, 'phase'), 'utf8')).toBe(kind.slice('rollback-'.length));
+    }
     if (kind === 'storage-refused') expect(trace).toEqual(['retained', 'storage']);
     if (kind.startsWith('verify')) expect(trace).toEqual(['verify']);
     if (kind === 'rollback-incompatible') expect(trace).toEqual(['retained']);

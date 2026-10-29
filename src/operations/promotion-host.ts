@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import { canonicalPromotionMounts } from './promotion-mounts.js';
 import { dockerVolumeTimestampSchema } from '../docker-volume-timestamp.js';
 import {
   inspectRestoreHostSamples,
@@ -159,6 +160,7 @@ export const promotionHostOptionsSchema = z.strictObject({
 const snapshot = z.strictObject({
   source: z.strictObject({
     postgres: container,
+    terminal: container,
     image,
     networks: z.array(network).length(6),
     volume,
@@ -168,6 +170,7 @@ const snapshot = z.strictObject({
   }),
   target: z.strictObject({
     postgres: container,
+    terminal: container,
     image,
     network,
     volume,
@@ -247,18 +250,50 @@ function invalid(): never {
 function same(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && new Set(a).size === a.length && a.every((v) => b.includes(v));
 }
-function stable(value: unknown): string {
-  if (Array.isArray(value)) return '[' + value.map(stable).sort().join(',') + ']';
-  if (value !== null && typeof value === 'object')
-    return (
-      '{' +
-      Object.entries(value)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([k, v]) => JSON.stringify(k) + ':' + stable(v))
-        .join(',') +
-      '}'
-    );
-  return JSON.stringify(value);
+function canonicalContainer(c: Container): Container {
+  return {
+    ...c,
+    mounts: canonicalPromotionMounts(c.mounts),
+  };
+}
+function canonicalSnapshot(s: z.infer<typeof snapshot>) {
+  return {
+    ...s,
+    source: {
+      ...s.source,
+      postgres: canonicalContainer(s.source.postgres),
+      terminal: canonicalContainer(s.source.terminal),
+    },
+    target: {
+      ...s.target,
+      postgres: canonicalContainer(s.target.postgres),
+      terminal: canonicalContainer(s.target.terminal),
+    },
+    job: canonicalContainer(s.job),
+    // Docker returns bind mounts in arbitrary order. Retain every record and
+    // duplicate: different destinations may project the same source here.
+    hostBinds: [...s.hostBinds].sort((a, b) =>
+      deterministicJson(a).localeCompare(deterministicJson(b)),
+    ),
+  };
+}
+function deterministicJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return '[' + value.map(deterministicJson).join(',') + ']';
+  }
+  return (
+    '{' +
+    Object.keys(value as Record<string, unknown>)
+      .sort()
+      .map(
+        (k) => JSON.stringify(k) + ':' + deterministicJson((value as Record<string, unknown>)[k]),
+      )
+      .join(',') +
+    '}'
+  );
 }
 function overlaps(a: string, b: string): boolean {
   return a === b || a.startsWith(b + '/') || b.startsWith(a + '/');
@@ -302,8 +337,10 @@ function mounts(
   expected: z.infer<typeof mount>[],
   expectedTmpfs: Record<string, string>,
 ) {
+  const cMounts = canonicalPromotionMounts(c.mounts.filter((m) => m.type !== 'tmpfs'));
+  const expMounts = canonicalPromotionMounts(expected);
   if (
-    stable(c.mounts.filter((m) => m.type !== 'tmpfs')) !== stable(expected) ||
+    deterministicJson(cMounts) !== deterministicJson(expMounts) ||
     !same(Object.keys(c.tmpfs), Object.keys(expectedTmpfs)) ||
     Object.entries(c.tmpfs).some(([p, v]) => tmpfs(v) !== tmpfs(expectedTmpfs[p] ?? '')) ||
     c.mounts.some(
@@ -537,7 +574,19 @@ function check(s: z.infer<typeof snapshot>, o: Options) {
     },
   );
   postgres(source.postgres, source.volume, o, false);
+  postgres(source.terminal, source.volume, o, false);
+  if (
+    deterministicJson(canonicalContainer(source.postgres)) !==
+    deterministicJson(canonicalContainer(source.terminal))
+  )
+    invalid();
   postgres(target.postgres, target.volume, o, true);
+  postgres(target.terminal, target.volume, o, true);
+  if (
+    deterministicJson(canonicalContainer(target.postgres)) !==
+    deterministicJson(canonicalContainer(target.terminal))
+  )
+    invalid();
   if (
     overlaps(source.volume.mountpoint, target.volume.mountpoint) ||
     [source.volume.mountpoint, target.volume.mountpoint].some((root) =>
@@ -611,7 +660,11 @@ export function inspectPromotionHostSamples(
     const samples = z.strictObject({ before: snapshot, after: snapshot }).parse(input);
     const before = check(samples.before, o);
     const after = check(samples.after, o);
-    if (stable(samples.before) !== stable(samples.after)) invalid();
+    if (
+      deterministicJson(canonicalSnapshot(samples.before)) !==
+      deterministicJson(canonicalSnapshot(samples.after))
+    )
+      invalid();
     return inspectRestoreHostSamples(
       { before, after },
       {

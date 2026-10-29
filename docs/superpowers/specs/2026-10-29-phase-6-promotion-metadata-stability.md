@@ -39,3 +39,10 @@ The correction adds no resolver or readiness bypass. Existing uncertain scopes
 remain untouched. Validate focused/native tests and the full applicable gates,
 commit/push and require exact-source CI before any separately recorded fresh
 server drill. Phase 6 remains open.
+
+Review correction: the host-wide bind inventory is also an unordered mount-derived
+collection. Compare every complete record while preserving multiplicity; two
+mount destinations can legitimately project identical source records. Commands,
+entrypoints and execution flags remain ordered. The actual Docker projection
+probe uses the compiled production canonicalizer, not a test-only copy. These
+corrections preserve the existing observation and authority boundaries.

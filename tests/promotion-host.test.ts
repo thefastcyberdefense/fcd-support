@@ -224,6 +224,7 @@ function fixture(createdAt = '2030-01-01T00:00:00Z') {
   const snapshot = {
     source: {
       postgres: source,
+      terminal: structuredClone(source),
       image: image(sourceImage, sourceRevision, 'postgres'),
       networks,
       volume: { ...localVolume(sourceVolume, runtime, 'postgres-data'), users: [sourceId] },
@@ -233,6 +234,7 @@ function fixture(createdAt = '2030-01-01T00:00:00Z') {
     },
     target: {
       postgres: target,
+      terminal: structuredClone(target),
       image: image(pgImage, revision, 'postgres'),
       network: targetNetwork,
       volume: { ...localVolume(targetVolume, project, 'restore-data'), users: [targetId] },
@@ -605,5 +607,160 @@ test('binds archive mounts to their actual local volume rather than a Docker roo
   expect(inspect(f)).toEqual(f.options.expectedHost);
   f.snapshot.archiveVolume.mountpoint = f.snapshot.source.volume.mountpoint;
   archive.source = f.snapshot.archiveVolume.mountpoint;
+  expect(() => inspect(f)).toThrow(/^promotion_host_invalid$/u);
+});
+
+test('accepts reordered host bind inventory without losing record multiplicity', () => {
+  const f = fixture();
+  f.snapshot.hostBinds.push(
+    {
+      containerId: f.snapshot.job.id,
+      source: '/synthetic/secrets/restore/restore-keyring',
+      canonicalSource: '/synthetic/secrets/restore/restore-keyring',
+    },
+    {
+      containerId: f.snapshot.job.id,
+      source: '/synthetic/secrets/restore/restore-database',
+      canonicalSource: '/synthetic/secrets/restore/restore-database',
+    },
+  );
+  // Distinct destinations may yield identical projected bind sources.
+  const repeated = f.snapshot.hostBinds[1];
+  if (repeated === undefined) throw new Error('fixture_bind_missing');
+  f.snapshot.hostBinds.push(structuredClone(repeated));
+  const after = structuredClone(f.snapshot);
+  after.hostBinds.reverse();
+  expect(inspectPromotionHostSamples({ before: f.snapshot, after }, f.options)).toEqual(
+    f.options.expectedHost,
+  );
+  const extra = after.hostBinds[0];
+  if (extra === undefined) throw new Error('fixture_bind_missing');
+  after.hostBinds.push(structuredClone(extra));
+  expect(() => inspectPromotionHostSamples({ before: f.snapshot, after }, f.options)).toThrow(
+    /^promotion_host_invalid$/u,
+  );
+});
+
+test('accepts deterministic mount-order permutations within a snapshot and between snapshots', () => {
+  const f = fixture();
+  // Permutation within snapshot: initial postgres vs terminal
+  f.snapshot.target.terminal.mounts.reverse();
+  f.snapshot.source.terminal.mounts.reverse();
+  const after = structuredClone(f.snapshot);
+  // Permutation between snapshots: before vs after
+  after.target.postgres.mounts.reverse();
+  after.source.postgres.mounts.reverse();
+  after.job.mounts.reverse();
+  expect(inspectPromotionHostSamples({ before: f.snapshot, after }, f.options)).toEqual(
+    f.options.expectedHost,
+  );
+});
+
+test.each([
+  [
+    'changed mount source within sample',
+    (f: ReturnType<typeof fixture>) => {
+      const m = f.snapshot.target.terminal.mounts[0];
+      if (m) m.source = '/synthetic/other';
+    },
+  ],
+  [
+    'changed mount destination within sample',
+    (f: ReturnType<typeof fixture>) => {
+      const m = f.snapshot.target.terminal.mounts[0];
+      if (m) m.destination = '/var/lib/other';
+    },
+  ],
+  [
+    'changed mount type within sample',
+    (f: ReturnType<typeof fixture>) => {
+      const m = f.snapshot.target.terminal.mounts[0];
+      if (m) m.type = 'bind';
+    },
+  ],
+  [
+    'changed mount name within sample',
+    (f: ReturnType<typeof fixture>) => {
+      const m = f.snapshot.target.terminal.mounts[0];
+      if (m) m.name = 'other-volume';
+    },
+  ],
+  [
+    'changed mount readWrite within sample',
+    (f: ReturnType<typeof fixture>) => {
+      const m = f.snapshot.target.terminal.mounts[0];
+      if (m) m.readWrite = !m.readWrite;
+    },
+  ],
+  [
+    'changed mount propagation within sample',
+    (f: ReturnType<typeof fixture>) => {
+      const m = f.snapshot.target.terminal.mounts[1];
+      if (m) m.propagation = '';
+    },
+  ],
+  [
+    'extra mount within sample',
+    (f: ReturnType<typeof fixture>) => {
+      f.snapshot.target.terminal.mounts.push({
+        type: 'bind',
+        name: '',
+        source: '/synthetic/secrets/restore/restore-keyring',
+        destination: '/run/secrets/restore-keyring',
+        readWrite: false,
+        propagation: 'rprivate',
+      });
+    },
+  ],
+  [
+    'missing mount within sample',
+    (f: ReturnType<typeof fixture>) => {
+      f.snapshot.target.terminal.mounts.pop();
+    },
+  ],
+  [
+    'duplicate mount within initial sample',
+    (f: ReturnType<typeof fixture>) => {
+      const m = f.snapshot.target.postgres.mounts[0];
+      if (m) f.snapshot.target.postgres.mounts.push(structuredClone(m));
+    },
+  ],
+  [
+    'duplicate mount within terminal sample',
+    (f: ReturnType<typeof fixture>) => {
+      const m = f.snapshot.target.terminal.mounts[0];
+      if (m) f.snapshot.target.terminal.mounts.push(structuredClone(m));
+    },
+  ],
+  [
+    'reordered job command arguments between samples',
+    (_f: ReturnType<typeof fixture>, after: ReturnType<typeof fixture>['snapshot']) => {
+      after.job.command.reverse();
+    },
+  ],
+  [
+    'reordered job execution flags between samples',
+    (_f: ReturnType<typeof fixture>, after: ReturnType<typeof fixture>['snapshot']) => {
+      after.job.executionFlags.reverse();
+    },
+  ],
+  [
+    'reordered job entrypoint arguments between samples',
+    (_f: ReturnType<typeof fixture>, after: ReturnType<typeof fixture>['snapshot']) => {
+      after.job.entrypoint.reverse();
+    },
+  ],
+])('refuses %s', (_name, mutate) => {
+  const f = fixture();
+  const after = structuredClone(f.snapshot);
+  mutate(f, after);
+  expect(() => inspectPromotionHostSamples({ before: f.snapshot, after }, f.options)).toThrow(
+    /^promotion_host_invalid$/u,
+  );
+});
+
+test.each(['source', 'target'] as const)('requires the %s terminal observation', (side) => {
+  const f = fixture();
+  Reflect.deleteProperty(f.snapshot[side], 'terminal');
   expect(() => inspect(f)).toThrow(/^promotion_host_invalid$/u);
 });

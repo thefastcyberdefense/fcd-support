@@ -15,6 +15,7 @@ native_root="$root"
 if command -v cygpath >/dev/null 2>&1; then native_root="$(cygpath -m "$root")"; fi
 revision="$(git -C "$native_root" rev-parse HEAD)"
 [[ "$revision" =~ ^[a-f0-9]{40}$ ]]
+[[ -f "$native_root/dist/operations/promotion-mounts.js" ]] || { printf 'docker_projection_build_required\n' >&2; exit 1; }
 cleanup() {
   local actor
   actor="$(docker ps --all --quiet --no-trunc --filter "label=fcd-support.projection-test=$scope")" || return 1
@@ -64,6 +65,34 @@ for kind in drain adoption; do
   [[ "$(docker container inspect --format "$format" "$scope")" == "$projection_volume /var/lib/postgresql true" ]] || { printf 'docker_%s_mount_projection_failed\n' "$kind" >&2; exit 1; }
   printf 'docker_%s_mount_projection_passed=true\n' "$kind"
 done
+docker rm "$scope" >/dev/null
+docker create --name "$scope" --label "fcd-support.projection-test=$scope" \
+  --network none --read-only --user 1000:1000 --cap-drop ALL --security-opt no-new-privileges \
+  --cpus 0.25 --memory 128m --pids-limit 32 \
+  --mount "type=volume,src=$projection_volume,dst=/var/lib/postgresql" \
+  --mount "type=bind,src=$native_root/package.json,dst=/run/secrets/restore-postgres-password,readonly" \
+  node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d >/dev/null
+docker container inspect --format "$OPERATIONS_RUNTIME_CONTAINER_FORMAT" "$scope" | \
+  node --input-type=module -e '
+    const {pathToFileURL}=await import("node:url");
+    const {canonicalPromotionMounts}=await import(pathToFileURL(process.argv[1]).href);
+    let text="";for await(const b of process.stdin){text+=b;if(text.length>65536)process.exit(1)}
+    const c=JSON.parse(text);
+    if(c.mounts.length!==2)process.exit(1);
+    const canonical=(mounts)=>JSON.stringify(canonicalPromotionMounts(mounts));
+    const original=canonical(c.mounts);
+    if(original!==canonical([...c.mounts].reverse()))process.exit(1);
+    let refused=false;
+    try{canonical([c.mounts[0],c.mounts[0]])}catch(error){refused=error.message==="promotion_host_invalid"}
+    if(!refused)process.exit(1);
+    for(const field of ["destination","name","propagation","source","type","readWrite"]){
+      const changed=structuredClone(c.mounts);
+      changed[0][field]=field==="readWrite"?!changed[0][field]:changed[0][field]+"_synthetic_changed";
+      if(original===canonical(changed))process.exit(1);
+    }
+    if(original===canonical(c.mounts.slice(1)))process.exit(1);
+  ' "$native_root/dist/operations/promotion-mounts.js"
+printf 'docker_promotion_mount_projection_passed=true\n'
 cleanup
 if [[ "$(uname -s)" != Linux ]]; then
   printf 'docker_single_job_create_skipped=linux-only\n'
