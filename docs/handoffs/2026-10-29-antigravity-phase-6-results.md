@@ -82,13 +82,14 @@ review or P6-GATE approval.
 | Corrected final candidate                           | `FCD_SYNTHETIC_TEST_PROJECT=fcd-support-test-agy-review bash scripts/test-encrypted-backup.sh grants`                      | Exit 0; 1,280 native tests / 55 files (400.24 seconds), then 139 PostgreSQL tests / one separate restore-only skip / 13 files (53.28 seconds)       |
 | Corrected final candidate                           | Native real-Docker ownership, subnet/IPAM, confinement and cleanup proofs                                                  | Passed; dedicated project actors/networks/volumes and matching backup-harness actors/networks/volumes/image tags all zero after exact-owned cleanup |
 | Corrected evidence                                  | TypeScript-AST matrix citation audit against each row’s named test files; shell syntax; targeted added-content secret scan | 84 exact test titles matched, zero citation mismatches; shell syntax passed; no high-confidence credential pattern and no operator email in results |
-| Corrected commit                                    | Updated exact-source GitHub workflows                                                                                      | Pending after push; submitted-head CI does not cover the corrections                                                                                |
+| Corrected commit                                    | Updated exact-source GitHub workflows                                                                                      | All four corrected-head PR workflows passed: CI 40902218674, CodeQL 40902218718, private runtime 40902218680, PostgreSQL/native 40902218850         |
 
 Antigravity reported its own Windows checks and Docker projection run. It did
 not provide an executed native/PostgreSQL lane in the submitted artifact. The
 exact-head GitHub results above and Codex's explicit executions must not be
-represented as Antigravity's local native execution. Updated candidate CI is
-required after correction commits; the submitted head's pass does not cover them.
+represented as Antigravity's local native execution. Corrected-head CI passed before integration. All four merged-source workflows
+also passed for 70f8e70 (CI 40903959620, CodeQL 40903959344, private runtime
+40903959355, PostgreSQL/native 40903959531).
 
 An intermediate correction check stopped at three fixture lint errors (an unsafe
 finally throw and two non-null assertions). They were corrected before the final
@@ -104,13 +105,20 @@ passing gate; no assertion, application timeout or policy was weakened.
 - [x] Matrix citations and socket, backend-prefix and rollback contracts are corrected.
 - [x] Unsupported historical RED/failure attribution, incorrect SHAs and operator personal data are removed from this artifact.
 - [x] Final corrected-candidate local/native execution evidence and scoped cleanup are recorded.
-- [ ] Updated exact-source CI passes after the correction commit.
-- [ ] Review corrections are committed/pushed and integrated only after validation.
+- [x] Updated exact-source CI passes after the correction commit.
+- [x] Review corrections were committed/pushed as ace6bab and integrated after validation as 70f8e70.
 - [ ] Fresh synthetic server promotion, compatible rollback, remaining failure matrix and Task 15/P6-GATE remain open.
 
-No SSH, server deployment, live Meta/Manifest/n8n/provider/tunnel action, journal
-settlement or phase/gate completion occurred in this local review. Existing
+The submitted local work and PR correction performed no server/live-service
+mutation, journal settlement or phase/gate completion. Codex subsequently ran
+separate read-only server checks; their evidence is in the deployment runbook. Existing
 uncertain scopes remain preserved. PostgreSQL remains authoritative; models
 receive no tools. Only newly authored synthetic fixtures are used. Codex retains
 server action records, later deployment and gate decisions. Installing systemd
 units or enabling live services is not a prerequisite invented by these matrices.
+
+A separate later raw-mount comparison in the PostgreSQL stop/remove guard was
+then demonstrated through the actual unchanged template. The 70f8e70 proposal
+was not deployed; its local unexecuted action drafts were withdrawn. See the
+post-verification metadata-stability spec/plan and updated AGY handoff for the
+next bounded correction. Passing this PR's gates does not override that blocker.

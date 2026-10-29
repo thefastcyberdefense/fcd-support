@@ -2,6 +2,33 @@
 
 Last reviewed: 2026-10-29 (Asia/Dhaka)
 
+Current blocker: the later PostgreSQL stop/remove proof still compares raw
+`.Mounts` order. Its controller is unchanged between `6faff8b` and `70f8e70`.
+Ten actual-template reads each of the preserved source/target showed two raw
+changes each; every complete projection matched after sorting full mount
+records, and state hashes were unchanged. This is not the recovered cause of
+the missing historic job. The new post-verification metadata-stability spec/plan
+is now AGY's priority before broader CI tests. `70f8e70` passed all four merged
+workflows but its server proposal was not executed; the four local draft action
+copies were withdrawn. No new namespace or server baseline was created.
+
+The passive observer prototype is reviewed and its signal cleanup corrected:
+28 tests/one SIGHUP skip passed on Windows and all 29 on Linux, including actual
+loop tests through hermetic worker subprocesses. Its read-only clean Docker
+transport also passed. No real observer has run; its `70f8e70` pin must be
+updated to the next reviewed fixed source before use. Existing uncertain scopes
+remain untouched and Phase 6 is incomplete.
+
+Local correction: PR #1 was reviewed, corrected and squash-merged as `70f8e70`.
+Its tree matches `ace6bab`, whose four exact-source PR workflows passed. The
+corrected local gate passed 1,873 tests/433 platform skips across 125 files;
+native checks passed 1,280 tests across 55 files and 139 PostgreSQL tests with
+one restore-only skip across 13 files. Owned resources were removed. Require
+merged-source CI before the separately recorded fresh action. Codex is preparing
+passive, content-free promotion diagnostics and a new preserved-state baseline;
+this adds no operation-resolution or readiness authority. No new server
+deployment occurred. Task 11 and Phase 6 remain incomplete.
+
 Latest: the `80ea3d2` fresh restore stage completed at source `6faff8b`, but
 promotion refused. The new selection/job are uncertain with writes possible;
 both PostgreSQL actors are healthy, the original-volume pointer, completed

@@ -1,4 +1,4 @@
-# Antigravity handoff: Phase 6 CI recovery flow and observer runtime tests
+# Antigravity handoff: Phase 6 static guard fix, CI recovery and observer tests
 
 Execute this bounded local test-infrastructure batch while Codex owns the fresh
 synthetic-server action. Do not restart project analysis, touch the primary
@@ -26,10 +26,11 @@ ancestor. Do not overwrite/reuse another checkout or alter primary `main`.
 
 Codex owns `docs/TODO.md`, `docs/PROJECT_CONTEXT.md`,
 `docs/operations/phase-6-server-deployment.md`, and all concrete server-action
-drivers. Codex is currently fixing signal cleanup in the new passive observer;
-do not duplicate that implementation. Task 1 can start now. Task 2 must wait
-until the observer correction and its execution plan are published on main,
-then incorporate the latest main without discarding your own branch work.
+drivers. Codex's observer signal-cleanup correction is included with this update;
+do not duplicate it. Its final verification is 28 passing tests/one Windows
+SIGHUP skip and all 29 passing on Linux. No actual observer has been started.
+The prototype still pins the unadmitted `70f8e70` scope and must be repinned by
+Codex before use. Fetch/incorporate this update without discarding branch work.
 
 All `6faff8b` and earlier uncertain scopes remain preserved. Their SQL outcome
 and the removed job's failure point are unknown. No resolver, retry, journal
@@ -47,6 +48,29 @@ of assuming this snapshot remains the latest server stage.
 - [ ] Inspect the existing ephemeral CI runtime modes and workflows, public
       operation entry points and synthetic fixture helpers. Reuse their trust
       boundaries. Do not conduct the Task 15 whole-phase review prematurely.
+
+## Priority 0: Fix the demonstrated later static-metadata comparison
+
+This takes precedence over CI wiring. The existing later PostgreSQL stop/remove
+proof still compares `OPERATIONS_PROMOTION_STATIC_FORMAT` as a raw string,
+including complete raw `.Mounts`. Ten real read-only observations of each
+preserved actor showed two raw order changes each, with all complete metadata
+stable after sorting full mount records. This remains in `70f8e70` despite its
+passing CI. Codex has held the unexecuted server proposal; no fresh scope exists.
+It does not establish the historic removed job's failure point.
+
+- [ ] Implement the bounded correction specified in
+      docs/superpowers/specs/2026-10-29-phase-6-post-verification-metadata-stability.md
+      and its matching plan before broader CI/runtime work.
+- [ ] Preserve complete raw fields including Mode/Driver and unknown additions,
+      duplicate multiplicity, ordered header/command/entrypoint metadata and
+      every fresh observation. Do not substitute the narrower live-host mount
+      projection, add unique-sort, remove a proof or widen capabilities.
+- [ ] Observe deterministic RED, then GREEN through production comparison;
+      test actual scoped Docker projection with a deliberate permutation.
+- [ ] Deliver the validated priority fix in its own commit before undertaking
+      broader test work. You may push that review checkpoint early. Codex owns
+      integration, exact-source server repinning and all host actions.
 
 ## Task 1: Automate the public synthetic recovery success path in CI
 

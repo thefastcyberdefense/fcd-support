@@ -179,13 +179,13 @@ test-asset acceptance remain open.
 
 The real server native lanes at `83978fc` passed:
 
-| Lane | Actual result | Test duration |
-| --- | --- | --- |
-| Unit | 1,714 passed, 324 native-only skips, 113 files | 49.22 s |
-| Native operations units | 1,100 passed, 49 files | 297.25 s |
-| Native operations PostgreSQL | 139 passed, one restore-only skip, 13 files | 50.64 s |
-| Restore units | 171 passed, 11 files | 26.70 s |
-| Two-cluster restore PostgreSQL | 47 passed, two files | 56.87 s |
+| Lane                           | Actual result                                  | Test duration |
+| ------------------------------ | ---------------------------------------------- | ------------- |
+| Unit                           | 1,714 passed, 324 native-only skips, 113 files | 49.22 s       |
+| Native operations units        | 1,100 passed, 49 files                         | 297.25 s      |
+| Native operations PostgreSQL   | 139 passed, one restore-only skip, 13 files    | 50.64 s       |
+| Restore units                  | 171 passed, 11 files                           | 26.70 s       |
+| Two-cluster restore PostgreSQL | 47 passed, two files                           | 56.87 s       |
 
 The corrected ordinary PostgreSQL lane at `3f8783f` then passed 619 tests with
 52 native-only skips across 56 files (126.91 seconds; 146 seconds including
@@ -1232,8 +1232,7 @@ target resource fingerprints, and admission baseline matched before and after.
 
 An independent read-only check found the exact clean server checkout, READY
 state with no active job, four healthy runtime actors, the protected admin Unix
-socket and login response, and the expected private HTTP responses 403, 404 and
-401. The previous restore job remains uncertain and the admission baseline is
+socket and login response, and the expected private HTTP responses 403, 404 and 401. The previous restore job remains uncertain and the admission baseline is
 unchanged. No restore, promotion, rollback, live provider, Meta, n8n or customer
 traffic was attempted. Phase 6 and its restore/failure-matrix gate remain open.
 
@@ -1782,3 +1781,139 @@ and later deployment/gate decisions. Antigravity must not edit the active
 tracker/context/server-action files, touch the server or merge its branch.
 This records the assignment, not an assertion that Antigravity has started or
 completed it. All uncertain scopes remain preserved.
+
+### Reviewed correction and next fresh synthetic action
+
+This proposal was subsequently withdrawn before execution; see the later
+static-guard blocker below. Do not execute or recreate it without the reviewed
+post-verification fix and a newly pinned action.
+
+Antigravity's submitted head was `b802e3cbbcd093e0f2bef06097dacb3d5319fd24`.
+A fresh read-only review found seven important code, test and evidence issues.
+The corrected head `ace6babde69eba45c6d3cf4bd4cc6051f800ca49` passed 1,873
+tests with 433 platform skips across 125 files, 1,280 native tests across 55
+files, and 139 PostgreSQL tests with one restore-only skip across 13 files.
+Real Docker proofs passed and exact-owned test resources were removed. All four
+PR workflows passed: CI `40902218674`, CodeQL `40902218718`, private runtime
+`40902218680`, PostgreSQL/native `40902218850`. PR #1 was squash-merged as
+`70f8e7073d20bce0b54d84011e001a2bd5bb527f`; its tree matches the tested head.
+Require all four merged-source workflows before deploying that exact revision.
+
+The correction also canonicalizes the unordered host bind inventory without
+losing multiplicity, fixes the counter-based regression and uses compiled
+production comparison in the Docker probe. Eighty-four exact matrix test titles
+matched their named source files. Corrected coverage does not prove a historic
+server failure point, resolve an old job or complete Task 11/P6-GATE.
+
+Read-only server checks passed after correcting a probe that incorrectly looked
+for a shared setting in the restore-specific file. The shared call bound is
+20,000 ms, promotion host-check bound 10,000 ms, and prepared checkpoint maximum
+age 600,000 ms. Both preserved `6faff8b` databases remained healthy/private,
+state identities/hashes matched, and the old-scope audit passed. An unused
+198.19.0.0/20 block and the minimum free disk capacity passed. Candidate namespace
+checks were performed for `ace6bab`; the actual `70f8e70` action must repeat its
+own namespace and capacity checks. No deployment or retry occurred in that probe.
+
+#### Passive observation choice and implementation steps
+
+Codex selected a passive host observer for the fresh synthetic promotion.
+This is a routine diagnostic choice under the owner's delegated execution
+authority, not a claim of separate owner approval or a new recovery design.
+Three approaches were considered:
+
+1. A bounded passive observer of scoped Docker lifecycle events and the pinned
+   promotion job's closed protocol output. It preserves stage evidence before
+   cleanup while leaving the public controller unchanged. This is selected.
+2. New production-controller phase journaling. This could give stronger stage
+   attribution but changes the deployed logging surface and needs a separate
+   application change; it is deferred.
+3. Reconstructing evidence only after actor removal. The zero-event historical
+   query already shows that this cannot provide dependable stage evidence.
+
+The observer may invoke only read-only local Docker events, inspect and logs
+commands. It must bind a matching start event to the exact protected current job
+journal and actual identity before following output. It cannot start, stop,
+remove, replay or settle any container or operation, query SQL, change selection,
+attach storage, or grant readiness. It writes only enumerated stage codes,
+bounded elapsed milliseconds and an optional numeric Docker exit code into one
+new owner-only action file. Never persist raw event attributes, logs, references,
+challenges, IDs, paths from output, errors or arbitrary reason strings. Retain
+bounded buffers, output count, total duration and only owned reader processes.
+Diagnostic gaps or observed exit codes never establish SQL outcome.
+
+Execution steps are:
+
+1. Write synthetic parser/record tests first. The initial minimal stubs produced
+   11 expected assertion failures across 14 tests; implement and verify GREEN.
+2. Self-review the observer, test bounded framing, nonce/reference/sequence
+   matching, foreign events, malformed input and content-free records. Verify
+   syntax and run the same pure tests on Linux without starting an observer.
+3. Pin a new deployment executor to `70f8e70`, starting only from the clean
+   `6faff8b` server checkout. Its full baseline includes the now-older uncertain
+   `6faff8b` scope as well as all earlier scopes and the original admission
+   snapshot. Preserve stopped targets and all prior state/storage.
+4. Precreate eight separately checked bridges in 198.19.0.0/24 through
+   198.19.7.0/24. After deployment, backup/replay and protected preparation,
+   configure only the fresh target's 198.19.8.0/24 subnet and the synthetic
+   checkpoint age bound. Repeat actual route, interface and Docker IPAM checks.
+5. Commit/push the concrete action and diagnostics before execution; require
+   merged-source CI and a fresh read-only preflight. Deploy once in a fresh
+   namespace, then verify four healthy private actors, READY/no job and all
+   preservation baselines before proceeding.
+6. Run the recorded backup/replay and isolated restore stages. Start the passive
+   observer and require its fixed ready marker before the single public
+   promotion stage. Keep public verification and all current journals as the
+   authority; observer output is diagnostic only. Only successful promotion and
+   verification permit the compatible retained-revision rollback stage.
+7. Stop on any refusal, uncertainty, failed preservation, lost acknowledgement
+   or incomplete required proof. Preserve every scope and diagnostic file. Do
+   not rerun a stage, infer completion from a missing actor, repair a pointer,
+   clear journals or add a resolver. Remaining interruption/integration evidence
+   and the Task 15 whole-phase review remain required before P6-GATE.
+
+### Later static-guard blocker and withdrawn unexecuted proposal
+
+All four merged-source `70f8e70` workflows passed: CI `40903959620`, CodeQL
+`40903959344`, private runtime `40903959355`, PostgreSQL/native `40903959531`.
+The generated fresh action's `--inspect` passed the full read-only admission,
+including old-state preservation, absent namespace and proposed network range.
+It was **not executed**.
+
+A subsequent adjacent-guard check found `OPERATIONS_PROMOTION_STATIC_FORMAT`
+still embeds raw JSON `.Mounts`. Capture/proof compares the complete resulting
+string before PostgreSQL stop/removal. The controller source is identical at
+`6faff8b` and `70f8e70`. A read-only probe of that exact template produced two
+adjacent raw changes across ten source reads and two across ten target reads.
+All complete projections matched after sorting complete raw mount records,
+including all fields and multiplicity; a deliberate reversal also rejected raw
+equality without any metadata change. State hashes matched before/after.
+This independently demonstrates a later false-refusal blocker; it does not
+recover the earlier job's failure point or settle its SQL outcome.
+
+The four generated `70f8e70` action copies were individually verified as local
+untracked drafts and withdrawn. All tracked predecessor drivers remain. No
+fresh server namespace, action directory, baseline, network, image or volume was
+created. Do not execute the `70f8e70` proposal. The bounded correction in
+`docs/superpowers/specs/2026-10-29-phase-6-post-verification-metadata-stability.md`
+and its matching plan must pass review and exact-source CI first. Regenerate
+the action/observer pins for that corrected source and repeat admission.
+
+The passive observer received a fresh pre-execution review. One cleanup finding
+was reproduced: default SIGTERM/SIGHUP could bypass reader cleanup. A flag-based
+signal handler now exits through owned-reader cleanup; persistent Docker
+readers also carry their own `--until` bound. Windows verification passed 28
+tests with one SIGHUP skip; Linux passed all 29. Hermetic worker subprocesses
+exercise the actual loop's full protocol/lifecycle, timeout, EOF, partial
+launch, real signal delivery and kill fallback. These are synthetic process
+tests, not an actual observer or promotion run. A clean-environment read-only
+Docker transport check passed separately on the preserved server.
+
+The observer is still a prototype pinned to the unadmitted `70f8e70` scope.
+Its launch marker is not a subscription acknowledgement, SQL outcome or runtime
+readiness proof. Observations from independent streams need not reflect causal
+execution ordering. Its diagnostic duration argument is bounded to 10–300
+seconds, with persistent reader wall-clock bounds five seconds longer; buffers
+and the 64-record output limit remain finite. All output is fixed stage/time and
+optional numeric exit status. No actual observer has been started. AGY's new
+handoff prioritizes the static-guard fix, then automated CI recovery and genuinely
+additional observer runtime coverage. Task 11/Task 15/P6-GATE remain open.
