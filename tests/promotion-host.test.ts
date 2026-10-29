@@ -610,6 +610,37 @@ test('binds archive mounts to their actual local volume rather than a Docker roo
   expect(() => inspect(f)).toThrow(/^promotion_host_invalid$/u);
 });
 
+test('accepts reordered host bind inventory without losing record multiplicity', () => {
+  const f = fixture();
+  f.snapshot.hostBinds.push(
+    {
+      containerId: f.snapshot.job.id,
+      source: '/synthetic/secrets/restore/restore-keyring',
+      canonicalSource: '/synthetic/secrets/restore/restore-keyring',
+    },
+    {
+      containerId: f.snapshot.job.id,
+      source: '/synthetic/secrets/restore/restore-database',
+      canonicalSource: '/synthetic/secrets/restore/restore-database',
+    },
+  );
+  // Distinct destinations may yield identical projected bind sources.
+  const repeated = f.snapshot.hostBinds[1];
+  if (repeated === undefined) throw new Error('fixture_bind_missing');
+  f.snapshot.hostBinds.push(structuredClone(repeated));
+  const after = structuredClone(f.snapshot);
+  after.hostBinds.reverse();
+  expect(inspectPromotionHostSamples({ before: f.snapshot, after }, f.options)).toEqual(
+    f.options.expectedHost,
+  );
+  const extra = after.hostBinds[0];
+  if (extra === undefined) throw new Error('fixture_bind_missing');
+  after.hostBinds.push(structuredClone(extra));
+  expect(() => inspectPromotionHostSamples({ before: f.snapshot, after }, f.options)).toThrow(
+    /^promotion_host_invalid$/u,
+  );
+});
+
 test('accepts deterministic mount-order permutations within a snapshot and between snapshots', () => {
   const f = fixture();
   // Permutation within snapshot: initial postgres vs terminal
@@ -708,6 +739,12 @@ test.each([
     },
   ],
   [
+    'reordered job execution flags between samples',
+    (_f: ReturnType<typeof fixture>, after: ReturnType<typeof fixture>['snapshot']) => {
+      after.job.executionFlags.reverse();
+    },
+  ],
+  [
     'reordered job entrypoint arguments between samples',
     (_f: ReturnType<typeof fixture>, after: ReturnType<typeof fixture>['snapshot']) => {
       after.job.entrypoint.reverse();
@@ -720,4 +757,10 @@ test.each([
   expect(() => inspectPromotionHostSamples({ before: f.snapshot, after }, f.options)).toThrow(
     /^promotion_host_invalid$/u,
   );
+});
+
+test.each(['source', 'target'] as const)('requires the %s terminal observation', (side) => {
+  const f = fixture();
+  Reflect.deleteProperty(f.snapshot[side], 'terminal');
+  expect(() => inspect(f)).toThrow(/^promotion_host_invalid$/u);
 });

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import { canonicalPromotionMounts } from './promotion-mounts.js';
 import { dockerVolumeTimestampSchema } from '../docker-volume-timestamp.js';
 import {
   inspectRestoreHostSamples,
@@ -249,25 +250,10 @@ function invalid(): never {
 function same(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && new Set(a).size === a.length && a.every((v) => b.includes(v));
 }
-function canonicalMount(m: z.infer<typeof mount>): string {
-  return JSON.stringify({
-    destination: m.destination,
-    name: m.name,
-    propagation: m.propagation,
-    readWrite: m.readWrite,
-    source: m.source,
-    type: m.type,
-  });
-}
-function canonicalMounts(mounts: readonly z.infer<typeof mount>[]): z.infer<typeof mount>[] {
-  const keys = mounts.map(canonicalMount);
-  if (new Set(keys).size !== keys.length) invalid();
-  return [...mounts].sort((a, b) => canonicalMount(a).localeCompare(canonicalMount(b)));
-}
 function canonicalContainer(c: Container): Container {
   return {
     ...c,
-    mounts: canonicalMounts(c.mounts),
+    mounts: canonicalPromotionMounts(c.mounts),
   };
 }
 function canonicalSnapshot(s: z.infer<typeof snapshot>) {
@@ -284,6 +270,11 @@ function canonicalSnapshot(s: z.infer<typeof snapshot>) {
       terminal: canonicalContainer(s.target.terminal),
     },
     job: canonicalContainer(s.job),
+    // Docker returns bind mounts in arbitrary order. Retain every record and
+    // duplicate: different destinations may project the same source here.
+    hostBinds: [...s.hostBinds].sort((a, b) =>
+      deterministicJson(a).localeCompare(deterministicJson(b)),
+    ),
   };
 }
 function deterministicJson(value: unknown): string {
@@ -346,8 +337,8 @@ function mounts(
   expected: z.infer<typeof mount>[],
   expectedTmpfs: Record<string, string>,
 ) {
-  const cMounts = canonicalMounts(c.mounts.filter((m) => m.type !== 'tmpfs'));
-  const expMounts = canonicalMounts(expected);
+  const cMounts = canonicalPromotionMounts(c.mounts.filter((m) => m.type !== 'tmpfs'));
+  const expMounts = canonicalPromotionMounts(expected);
   if (
     deterministicJson(cMounts) !== deterministicJson(expMounts) ||
     !same(Object.keys(c.tmpfs), Object.keys(expectedTmpfs)) ||

@@ -15,6 +15,7 @@ native_root="$root"
 if command -v cygpath >/dev/null 2>&1; then native_root="$(cygpath -m "$root")"; fi
 revision="$(git -C "$native_root" rev-parse HEAD)"
 [[ "$revision" =~ ^[a-f0-9]{40}$ ]]
+[[ -f "$native_root/dist/operations/promotion-mounts.js" ]] || { printf 'docker_projection_build_required\n' >&2; exit 1; }
 cleanup() {
   local actor
   actor="$(docker ps --all --quiet --no-trunc --filter "label=fcd-support.projection-test=$scope")" || return 1
@@ -73,21 +74,24 @@ docker create --name "$scope" --label "fcd-support.projection-test=$scope" \
   node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d >/dev/null
 docker container inspect --format "$OPERATIONS_RUNTIME_CONTAINER_FORMAT" "$scope" | \
   node --input-type=module -e '
-    let text="";for await(const b of process.stdin)text+=b;
+    const {pathToFileURL}=await import("node:url");
+    const {canonicalPromotionMounts}=await import(pathToFileURL(process.argv[1]).href);
+    let text="";for await(const b of process.stdin){text+=b;if(text.length>65536)process.exit(1)}
     const c=JSON.parse(text);
     if(c.mounts.length!==2)process.exit(1);
-    const m1=c.mounts[0], m2=c.mounts[1];
-    const canonicalMount = (m) => JSON.stringify({destination:m.destination,name:m.name,propagation:m.propagation,readWrite:m.readWrite,source:m.source,type:m.type});
-    const canonicalMounts = (list) => {
-      const keys = list.map(canonicalMount);
-      if (new Set(keys).size !== keys.length) throw new Error("duplicate");
-      return [...list].sort((a,b)=>canonicalMount(a).localeCompare(canonicalMount(b)));
-    };
-    const s1 = JSON.stringify(canonicalMounts([m1, m2]));
-    const s2 = JSON.stringify(canonicalMounts([m2, m1]));
-    if (s1 !== s2) process.exit(1);
-    try { canonicalMounts([m1, m1]); process.exit(1); } catch {}
-  '
+    const canonical=(mounts)=>JSON.stringify(canonicalPromotionMounts(mounts));
+    const original=canonical(c.mounts);
+    if(original!==canonical([...c.mounts].reverse()))process.exit(1);
+    let refused=false;
+    try{canonical([c.mounts[0],c.mounts[0]])}catch(error){refused=error.message==="promotion_host_invalid"}
+    if(!refused)process.exit(1);
+    for(const field of ["destination","name","propagation","source","type","readWrite"]){
+      const changed=structuredClone(c.mounts);
+      changed[0][field]=field==="readWrite"?!changed[0][field]:changed[0][field]+"_synthetic_changed";
+      if(original===canonical(changed))process.exit(1);
+    }
+    if(original===canonical(c.mounts.slice(1)))process.exit(1);
+  ' "$native_root/dist/operations/promotion-mounts.js"
 printf 'docker_promotion_mount_projection_passed=true\n'
 cleanup
 if [[ "$(uname -s)" != Linux ]]; then

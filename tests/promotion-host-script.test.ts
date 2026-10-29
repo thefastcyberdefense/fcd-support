@@ -1,4 +1,7 @@
 import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { expect, test } from 'vitest';
 
 function run(fault: string) {
@@ -81,6 +84,9 @@ test.each([
 });
 
 test('operations_promotion_host_snapshot handles reordered mounts between initial and terminal inspect', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'fcd-support-promotion-snapshot-'));
+  const counter = join(directory, 'counter');
+  writeFileSync(counter, '0');
   const revision = 'a'.repeat(40),
     source = 'd'.repeat(64),
     target = '2'.repeat(64),
@@ -106,7 +112,6 @@ test('operations_promotion_host_snapshot handles reordered mounts between initia
  source ./scripts/operations-promotion-host.sh
  declare -A OPS_CONFIG=([FCD_RUNTIME_PROJECT]=fcd-support-synthetic [FCD_RESTORE_PROJECT]=fcd-support-restore-synthetic [FCD_POSTGRES_VOLUME]=fcd-support-synthetic-source [FCD_RESTORE_VOLUME]=fcd-support-synthetic-target [FCD_BACKUP_VOLUME]=fcd-support-synthetic-backups [FCD_SUPPORT_REVISION]=${revision} [FCD_SUPPORT_IMAGE]=${image} [FCD_POSTGRES_IMAGE]=${image} [FCD_OPERATIONS_IMAGE]=${image} [FCD_SECRET_ROOT]=/synthetic/secrets [FCD_POSTGRES_DB]=fcd_support_test [FCD_DATABASE_SCHEMA]=public [FCD_DATABASE_ROLE_PREFIX]=fcd_synthetic [FCD_SCHEMA_REVISION]=000016 [FCD_STOP_GRACE_MS]=2000 [FCD_RESTORE_CPUS]=1 [FCD_RESTORE_MEMORY_MIB]=256 [FCD_RESTORE_PIDS]=64 [FCD_RESTORE_TMPFS_MIB]=32 [FCD_POSTGRES_CPUS]=1 [FCD_POSTGRES_MEMORY_MIB]=256 [FCD_POSTGRES_PIDS]=64 [FCD_POSTGRES_TMPFS_MIB]=16)
  OPS_PH_SOURCE=${source}; OPS_PH_VOLUME=fcd-support-synthetic-source; OPS_PH_IMAGE=${image}; OPS_PH_SELECTION=${selection}; OPS_JOB_CONTAINER=${job}
- target_inspect_count=0
  operations_promotion_host_context() { return 0; }
  operations_job_discover() { printf '%s' "$OPS_JOB_CONTAINER"; }
  operations_read_database_control_identifier() { printf '7300000000000000001'; }
@@ -125,7 +130,10 @@ test('operations_promotion_host_snapshot handles reordered mounts between initia
      if [[ "$*" == *reference* ]]; then printf '{"reference":"ref","parent":"par","service":"promote","commandHash":"%s"}' "${cmdHash}"; return 0; fi
      if [[ "$*" == *"${source}"* || "$*" == *"${job}"* ]]; then printf '%s' "$SOURCE_CONTAINER"; return 0; fi
      if [[ "$*" == *"${target}"* ]]; then
+       local target_inspect_count
+       target_inspect_count=$(cat "$TASK_COUNTER")
        (( target_inspect_count += 1 ))
+       printf "%s" "$target_inspect_count" > "$TASK_COUNTER"
        if [[ "$target_inspect_count" -eq 1 ]]; then printf '%s' "$TARGET1"; return 0; fi
        printf '%s' "$TARGET2"; return 0
      fi
@@ -134,23 +142,35 @@ test('operations_promotion_host_snapshot handles reordered mounts between initia
  }
  operations_promotion_host_snapshot
  `;
-  const result = spawnSync(
-    process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash',
-    ['--noprofile', '--norc', '-c', script],
-    {
-      cwd: process.cwd(),
-      encoding: 'utf8',
-      timeout: 10000,
-      env: {
-        ...process.env,
-        SOURCE_CONTAINER: sourceContainer,
-        TARGET1: target1,
-        TARGET2: target2,
+  if (resolve(counter) !== join(resolve(directory), 'counter'))
+    throw new Error('fixture_path_invalid');
+  try {
+    const result = spawnSync(
+      process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash',
+      ['--noprofile', '--norc', '-c', script],
+      {
+        cwd: process.cwd(),
+        encoding: 'utf8',
+        timeout: 10000,
+        env: {
+          ...process.env,
+          TASK_COUNTER: counter,
+          SOURCE_CONTAINER: sourceContainer,
+          TARGET1: target1,
+          TARGET2: target2,
+        },
       },
-    },
-  );
-  expect(result.error).toBeUndefined();
-  expect(result.status).toBe(0);
-  const parsed = JSON.parse(result.stdout) as { target: { postgres: unknown; terminal: unknown } };
-  expect(parsed.target.terminal).toBeDefined();
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(0);
+    const parsed = JSON.parse(result.stdout) as {
+      target: { postgres: unknown; terminal: unknown };
+    };
+    expect(parsed.target.terminal).toBeDefined();
+    expect(parsed.target.terminal).not.toEqual(parsed.target.postgres);
+    expect(readFileSync(counter, 'utf8')).toBe('2');
+  } finally {
+    rmSync(counter);
+    rmdirSync(directory);
+  }
 });
