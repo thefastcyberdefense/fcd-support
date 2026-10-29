@@ -106,5 +106,114 @@ docker exec "$peer" node --input-type=module -e 'const u="http://fcd-support-api
 grep -qx 'STATE_PHASE=ready' "$fixture/state/deployment-state"
 [[ "$(snapshot)" == "$before" ]]
 printf 'synthetic_host_deploy_passed=true\nsynthetic_host_verify_passed=true\nsynthetic_host_private_http_passed=true\nsynthetic_host_existing_stack_unchanged=true\n'
+if [[ "$ci_mode" == true ]]; then
+  stage=backup
+  initial_system_id="$(sed -n 's/^STATE_SYSTEM_IDENTIFIER=//p' "$fixture/state/deployment-state")"
+  initial_volume="$(sed -n 's/^STATE_VOLUME=//p' "$fixture/state/deployment-state")"
+  [[ "$initial_system_id" =~ ^[1-9][0-9]{0,19}$ && "$initial_volume" == "$project-postgres" ]]
+  bash scripts/run-operation.sh backup "$revision" "$fixture/config/operations.env" >"$fixture/logs/backup.log" 2>&1 </dev/null
+  [[ ! -e "$fixture/state/active-job" && ! -L "$fixture/state/active-job" ]]
+  grep -qx 'STATE_PHASE=ready' "$fixture/state/deployment-state"
+  backup_ref="$(docker run "${safe[@]}" --mount "type=volume,src=$project-backups,dst=/var/lib/fcd-support/backups,readonly" --entrypoint node "$project-application:$revision" -e '
+    import { readdirSync, readFileSync } from "node:fs";
+    const dirs = readdirSync("/var/lib/fcd-support/backups").filter(d => /^backup_[a-f0-9]{32}$/.test(d));
+    if (dirs.length === 0) process.exit(1);
+    const ref = dirs[dirs.length - 1];
+    const manifest = JSON.parse(readFileSync(`/var/lib/fcd-support/backups/${ref}/manifest.json`, "utf8"));
+    if (manifest.backupRef !== ref || manifest.state !== "created") process.exit(1);
+    console.log(ref);
+  ')"
+  [[ "$backup_ref" =~ ^backup_[a-f0-9]{32}$ ]]
+  printf 'synthetic_host_backup_passed=true\n'
+
+  stage=checkpoint
+  checkpoint_ref="$(
+    bash -c '
+      set -Eeuo pipefail
+      source scripts/operations-common.sh
+      source scripts/operations-deployment-state.sh
+      source scripts/operations-job-lifecycle.sh
+      OPS_ACTION=verify
+      operations_load_config "$1"
+      operations_preflight
+      operations_selection_apply
+      OPS_DATABASE_SYSTEM_IDENTIFIER="${OPS_SELECTION[STATE_SYSTEM_IDENTIFIER]}"
+      operations_execute_job checkpoint export-checkpoint-reference
+    ' bash "$fixture/config/operations.env"
+  )"
+  [[ "$checkpoint_ref" =~ ^checkpoint_[a-f0-9]{32}$ ]]
+  [[ ! -e "$fixture/state/active-job" && ! -L "$fixture/state/active-job" ]]
+  printf 'synthetic_host_checkpoint_passed=true\n'
+
+  stage=restore
+  restore_ref="$(bash scripts/restore-runtime.sh "$backup_ref" "$checkpoint_ref" "$revision" "$fixture/config/operations.env" 2>"$fixture/logs/restore.log")"
+  [[ "$restore_ref" =~ ^restore_[a-f0-9]{32}$ ]]
+  [[ ! -e "$fixture/state/active-job" && ! -L "$fixture/state/active-job" ]]
+  grep -qx 'RESTORE_PHASE=completed' "$fixture/state/restore-state"
+  grep -qx "RESTORE_REF=$restore_ref" "$fixture/state/restore-state"
+  grep -qx "RESTORE_BACKUP_REF=$backup_ref" "$fixture/state/restore-state"
+  grep -qx "RESTORE_CHECKPOINT_REF=$checkpoint_ref" "$fixture/state/restore-state"
+  grep -qx 'STATE_PHASE=quiescent' "$fixture/state/deployment-state"
+  docker volume inspect "$project-postgres" >/dev/null
+  docker volume inspect "$restore_project-data" >/dev/null
+  printf 'synthetic_host_restore_passed=true\n'
+
+  stage=promote
+  bash scripts/promote-restore.sh "$restore_ref" "$revision" "$fixture/config/operations.env" >"$fixture/logs/promote.log" 2>&1 </dev/null
+  [[ ! -e "$fixture/state/active-job" && ! -L "$fixture/state/active-job" ]]
+  grep -qx 'STATE_PHASE=ready' "$fixture/state/deployment-state"
+  promoted_volume="$(sed -n 's/^STATE_VOLUME=//p' "$fixture/state/deployment-state")"
+  promoted_system_id="$(sed -n 's/^STATE_SYSTEM_IDENTIFIER=//p' "$fixture/state/deployment-state")"
+  [[ "$promoted_volume" == "$restore_project-data" ]]
+  [[ "$promoted_system_id" =~ ^[1-9][0-9]{0,19}$ ]]
+  [[ "$promoted_system_id" != "$initial_system_id" ]]
+  docker volume inspect "$project-postgres" >/dev/null
+  docker volume inspect "$restore_project-data" >/dev/null
+  bash scripts/verify-runtime.sh "$revision" "$fixture/config/operations.env" >"$fixture/logs/verify-promoted.log" 2>&1 </dev/null
+  docker exec "$peer" node --input-type=module -e 'const u="http://fcd-support-api:3003";if((await fetch(u+"/webhooks/meta",{signal:AbortSignal.timeout(3000)})).status!==403||(await fetch(u+"/health",{signal:AbortSignal.timeout(3000)})).status!==404||(await fetch(u+"/webhooks/meta",{method:"POST",headers:{"content-type":"application/json"},body:"{}",signal:AbortSignal.timeout(3000)})).status!==401)process.exit(1)' >"$fixture/logs/http-promoted.log" 2>&1 </dev/null
+  [[ "$(curl --silent --show-error --max-time 5 --unix-socket "$fixture/socket/admin.sock" --output /dev/null --write-out '%{http_code}' http://localhost/login)" == 200 ]]
+  printf 'synthetic_host_promote_passed=true\n'
+
+  stage=rollback
+  bash scripts/rollback-runtime.sh "$revision" --confirm-schema-compatible "$fixture/config/operations.env" >"$fixture/logs/rollback.log" 2>&1 </dev/null
+  [[ ! -e "$fixture/state/active-job" && ! -L "$fixture/state/active-job" ]]
+  grep -qx 'STATE_PHASE=ready' "$fixture/state/deployment-state"
+  rolled_back_volume="$(sed -n 's/^STATE_VOLUME=//p' "$fixture/state/deployment-state")"
+  rolled_back_system_id="$(sed -n 's/^STATE_SYSTEM_IDENTIFIER=//p' "$fixture/state/deployment-state")"
+  [[ "$rolled_back_volume" == "$restore_project-data" ]]
+  [[ "$rolled_back_system_id" == "$promoted_system_id" ]]
+  docker volume inspect "$project-postgres" >/dev/null
+  docker volume inspect "$restore_project-data" >/dev/null
+  bash scripts/verify-runtime.sh "$revision" "$fixture/config/operations.env" >"$fixture/logs/verify-rollback.log" 2>&1 </dev/null
+  docker exec "$peer" node --input-type=module -e 'const u="http://fcd-support-api:3003";if((await fetch(u+"/webhooks/meta",{signal:AbortSignal.timeout(3000)})).status!==403||(await fetch(u+"/health",{signal:AbortSignal.timeout(3000)})).status!==404||(await fetch(u+"/webhooks/meta",{method:"POST",headers:{"content-type":"application/json"},body:"{}",signal:AbortSignal.timeout(3000)})).status!==401)process.exit(1)' >"$fixture/logs/http-rollback.log" 2>&1 </dev/null
+  [[ "$(curl --silent --show-error --max-time 5 --unix-socket "$fixture/socket/admin.sock" --output /dev/null --write-out '%{http_code}' http://localhost/login)" == 200 ]]
+  printf 'synthetic_host_rollback_passed=true\n'
+
+  stage=cleanup
+  docker rm --force "$peer" >/dev/null 2>&1 || true
+  docker compose --project-directory "$root" --env-file /dev/null --file "$root/infra/compose.runtime.yml" \
+    --project-name "$project" down --volumes --remove-orphans >/dev/null 2>&1 || true
+  docker compose --project-directory "$root" --env-file /dev/null --file "$root/infra/compose.restore.yml" \
+    --project-name "$restore_project" down --volumes --remove-orphans >/dev/null 2>&1 || true
+  for name in "$project-postgres" "$project-backups" "$restore_project-data"; do
+    if docker volume inspect "$name" >/dev/null 2>&1; then docker volume rm --force "$name" >/dev/null 2>&1 || true; fi
+  done
+  if [[ "$precreated_mode" == false ]]; then
+    for name in "$project-ingress" "$project-egress" "$project-notification" "$restore_project-data"; do
+      if docker network inspect "$name" >/dev/null 2>&1; then docker network rm "$name" >/dev/null 2>&1 || true; fi
+    done
+  fi
+  for role in application operations postgres; do
+    docker rmi "$project-$role:$revision" >/dev/null 2>&1 || true
+  done
+  rm -rf -- "$fixture"
+  [[ -z "$(docker ps -aq --filter "label=fcd-support.synthetic-host-test=$project")" ]]
+  [[ -z "$(docker ps -aq --filter "label=com.docker.compose.project=$project")" ]]
+  [[ -z "$(docker ps -aq --filter "label=com.docker.compose.project=$restore_project")" ]]
+  for name in "$project-postgres" "$project-backups" "$restore_project-data"; do
+    [[ -z "$(docker volume ls -q --filter "name=^$name$")" ]]
+  done
+  printf 'synthetic_host_recovery_passed=true\nsynthetic_host_cleanup_passed=true\n'
+fi
 # Keep this explicitly synthetic private stack and its protected state for the
 # subsequent deployment/restore/failure matrix. Never auto-remove uncertain jobs.

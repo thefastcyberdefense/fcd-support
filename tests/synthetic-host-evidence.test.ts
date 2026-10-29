@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { expect, test } from 'vitest';
 
-test.each(['deploy', 'untrusted_stage_value'])(
+test.each(['deploy', 'restore', 'untrusted_stage_value'])(
   'synthetic host report emits only closed evidence for %s',
   async (stage) => {
     const root = await mkdtemp(join(tmpdir(), 'fcd-host-evidence-test-'));
@@ -12,12 +12,12 @@ test.each(['deploy', 'untrusted_stage_value'])(
       const log = join(root, 'diagnostic.log');
       await writeFile(
         log,
-        'synthetic_untrusted_diagnostic\noperations_revision_invalid\noperations_untrusted_value\n',
+        'synthetic_untrusted_diagnostic\noperations_restore_refused\noperations_untrusted_value\n',
       );
       const trace = join(root, 'trace.log');
       await writeFile(
         trace,
-        'operations-startup.sh:71:previous=1\nsynthetic_untrusted_value:3:previous=1\n' +
+        'operations-restore-controller.sh:71:previous=1\nsynthetic_untrusted_value:3:previous=1\n' +
           'runtime_host_diagnostic=samples.healthy\n' +
           'runtime_host_diagnostic=samples.synthetic_private_key\n' +
           'runtime_host_diagnostic=synthetic_private_value\n',
@@ -40,12 +40,13 @@ test.each(['deploy', 'untrusted_stage_value'])(
           },
         },
       );
+      const expectedStage = stage === 'untrusted_stage_value' ? 'unknown' : stage;
       expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
         status: 0,
         stdout: '',
         stderr:
-          `synthetic_host_failed=${stage === 'deploy' ? 'deploy' : 'unknown'}\n` +
-          'operations_revision_invalid\noperations-startup.sh:71:previous=1\n' +
+          `synthetic_host_failed=${expectedStage}\n` +
+          'operations_restore_refused\noperations-restore-controller.sh:71:previous=1\n' +
           'runtime_host_diagnostic=samples.healthy\n',
       });
     } finally {

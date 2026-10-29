@@ -74,3 +74,21 @@ test('actual host HTTP probe exercises JSON signature rejection without admittin
     await app.close();
   }
 });
+
+test('ephemeral CI harness includes complete recovery success path and cleanup verification', async () => {
+  const source = await readFile('scripts/test-synthetic-runtime-deployment.sh', 'utf8');
+  expect(source).toContain('stage=backup');
+  expect(source).toContain('stage=checkpoint');
+  expect(source).toContain('stage=restore');
+  expect(source).toContain('stage=promote');
+  expect(source).toContain('stage=rollback');
+  expect(source).toContain('stage=cleanup');
+  expect(source).toContain('synthetic_host_backup_passed=true');
+  expect(source).toContain('synthetic_host_checkpoint_passed=true');
+  expect(source).toContain('synthetic_host_restore_passed=true');
+  expect(source).toContain('synthetic_host_promote_passed=true');
+  expect(source).toContain('synthetic_host_rollback_passed=true');
+  expect(source).toContain('synthetic_host_cleanup_passed=true');
+  expect(source).toContain('[[ "$promoted_system_id" != "$initial_system_id" ]]');
+  expect(source).toContain('[[ "$rolled_back_system_id" == "$promoted_system_id" ]]');
+});
