@@ -30,4 +30,8 @@ was corrected before those final results. Step 4 completed at pushed commit
 `6faff8b`; all four exact-source GitHub workflows passed. Step 5's fresh server
 action is recorded separately, including preservation of the old admission
 snapshot and a separately verified current baseline after start-time drift.
-Server execution remains pending; no Phase 6 gate is claimed.
+The `9c2e404` action completed the fresh synthetic deployment at source
+`6faff8b`, with both final success acknowledgements and an independent readiness,
+privacy and prior-state preservation check. Fresh backup/replay,
+restore/promotion/rollback and the remaining failure matrix remain pending;
+no Phase 6 gate is claimed.

@@ -1544,3 +1544,31 @@ The action must emit both `synthetic_action_deployment_verified=true` and
 `synthetic_action_preserved_state_unchanged=true`. Any refusal preserves
 resources and private diagnostics; never rerun this single-use executor to
 repair an interrupted attempt. Execution is still pending at this checkpoint.
+
+### Fresh 6faff8b deployment result
+
+On 2026-10-29 (Asia/Dhaka), the action and exact executor committed at
+`9c2e404` completed against source
+`6faff8b37c6bd6d867c2cace30bdb0bc88578561`. The eight explicit bridges passed
+the precreated-network guard, then the committed harness completed pinned image
+builds, private-disabled deployment, runtime verification, private HTTP
+403/404/401 and admin Unix-socket login 200 with `1000:1000:600` ownership.
+The executor emitted both required success acknowledgements. All prior
+protected file and actor/network/volume fingerprints matched the separate
+current baseline; the original admission snapshot remained unchanged. The old
+restore targets remained stopped and no uncertain journal was resolved.
+
+An independent read-only check confirmed a clean exact-source server checkout,
+READY selection without an active job, four healthy actors with read-only roots
+and zero host ports, private admin socket/login, unchanged prior state-file
+fingerprints and absence of the fresh restore project, volume and bridge.
+The new runtime is retained for the next backup/replay and isolated
+restore/promotion/rollback drill. Those actions have not yet run for this scope;
+Phase 6 and its gate remain open. No provider traffic, tunnel change, production
+asset change or customer data was used.
+
+The executor's additional `--audit` mode rechecks the protected saved baseline
+without writing files, starting containers or changing journals. It cannot
+repeat deployment or settle any job. This is the preservation check for later
+separately recorded drills; run `--audit`, never `--execute`, after this completed
+single-use action.

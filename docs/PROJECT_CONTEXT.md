@@ -3,8 +3,16 @@
 Last reviewed: 2026-10-29 (Asia/Dhaka)
 
 Commit `6faff8b` is pushed and all four exact-source GitHub workflows passed.
-The next fresh synthetic server action is recorded in
-`docs/operations/phase-6-server-deployment.md` and has not yet executed. The
+The fresh synthetic server action committed at `9c2e404` completed. Eight
+explicit bridges, pinned builds, private-disabled deploy/verify and private
+HTTP/socket checks passed; both final acknowledgements confirmed verification
+and preserved prior fingerprints. An independent check found four healthy
+private actors, READY/no job, a protected admin socket/login, unchanged prior
+state files and an absent fresh restore target. Backup/replay and fresh
+restore/promotion/rollback remain next; Phase 6 is still open.
+
+The preservation rules are recorded in
+`docs/operations/phase-6-server-deployment.md`. The
 original admission snapshot has start-time drift; its actor IDs, recorded
 versions/properties and original PostgreSQL volume still match. Current metadata
 is stable, but host/Docker clock evidence is inconsistent by about a minute.

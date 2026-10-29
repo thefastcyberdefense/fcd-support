@@ -1,5 +1,15 @@
 # Fast Cyber Defense Support Task Tracker
 
+- Fresh private deployment result (2026-10-29 Asia/Dhaka): the committed
+  `9c2e404` action deployed exact `6faff8b` in the fresh synthetic server scope.
+  Eight explicit bridges, pinned images, deploy/verify, private HTTP and admin
+  socket checks passed. Both final acknowledgements confirmed verification and
+  unchanged prior fingerprints. Independent checks confirmed four healthy
+  private actors, READY/no job, protected socket/login, unchanged old state
+  files and an absent fresh restore target. Old uncertain jobs and stopped
+  targets remain preserved. Fresh backup/replay, restore/promotion/rollback and
+  the remaining failure matrix are next; no P6 gate or live-provider pass.
+
 - Exact-source CI and next host action (2026-10-29 Asia/Dhaka): restore-subnet
   commit `6faff8b` passed all four GitHub workflows. The recorded next action
   creates a fresh private synthetic project with explicit bridge subnets and

@@ -1,6 +1,7 @@
 # Exact synthetic runbook executor; see ../phase-6-server-deployment.md.
 # --inspect performs read-only checks and temporary shared locking only.
 # --execute is single-use and refuses existing action/fixture namespaces.
+# --audit only rechecks the saved old-state baseline after execution.
 # It never resolves an old journal or starts a preserved restore target.
 import fcntl
 import hashlib
@@ -32,7 +33,7 @@ def require(value):
 def run(args, timeout=30):
     result = subprocess.run(args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=timeout)
     if result.returncode != 0:
-        if ACTION.is_dir():
+        if ACTION.is_dir() and len(sys.argv) == 2 and sys.argv[1] == '--execute':
             try:
                 descriptor = os.open(ACTION / 'command-refusal.log', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
                 with os.fdopen(descriptor, 'w', encoding='utf8') as output:
@@ -200,7 +201,14 @@ def logged(args, name, timeout=2400):
         output.flush(); os.fsync(output.fileno())
 
 try:
-    require(len(sys.argv) == 2 and sys.argv[1] in ['--inspect', '--execute'])
+    require(len(sys.argv) == 2 and sys.argv[1] in ['--inspect', '--execute', '--audit'])
+    if sys.argv[1] == '--audit':
+        STAGE = 'audit_baseline'
+        baseline = json.loads(protected(ACTION / 'preserved-baseline.json')[0])
+        assert_admission(baseline)
+        stable(baseline)
+        print('synthetic_action_saved_baseline_matches=true', flush=True)
+        raise SystemExit(0)
     STAGE = 'preflight'
     require(os.getuid() == 1000 and os.getgid() == 1000 and ROOT.resolve() == ROOT and not FIXTURE.exists() and not ACTION.exists())
     require(run(['git', '-C', str(ROOT), 'rev-parse', 'HEAD']) == OLD and not run(['git', '-C', str(ROOT), 'status', '--porcelain=v1', '--untracked-files=all']))
