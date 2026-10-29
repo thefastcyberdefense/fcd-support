@@ -24,6 +24,20 @@ operations_absolute_path() {
   [[ "/${1#/}/" != */../* && "/${1#/}/" != */./* ]]
 }
 
+operations_restore_subnet_valid() {
+  local value="$1" a b c d prefix address size last
+  [[ "$#" == 1 && "$value" =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})/([0-9]{1,2})$ ]] || return 1
+  a=$((10#${BASH_REMATCH[1]})); b=$((10#${BASH_REMATCH[2]})); c=$((10#${BASH_REMATCH[3]})); d=$((10#${BASH_REMATCH[4]})); prefix=$((10#${BASH_REMATCH[5]}))
+  [[ "$value" == "$a.$b.$c.$d/$prefix" ]] || return 1
+  (( a <= 255 && b <= 255 && c <= 255 && d <= 255 && prefix >= 8 && prefix <= 29 )) || return 1
+  address=$(( (a << 24) | (b << 16) | (c << 8) | d )); size=$(( 1 << (32 - prefix) )); last=$(( address + size - 1 ))
+  (( address % size == 0 )) || return 1
+  (( (address >= (10 << 24) && last < (11 << 24)) ||
+     (address >= ((172 << 24) | (16 << 16)) && last < ((172 << 24) | (32 << 16))) ||
+     (address >= ((192 << 24) | (168 << 16)) && last < ((192 << 24) | (169 << 16))) ||
+     (address >= ((198 << 24) | (18 << 16)) && last < ((198 << 24) | (20 << 16))) ))
+}
+
 operations_config_field() {
   local key="$1" value="$2"
   case "$key" in
@@ -41,6 +55,7 @@ operations_config_field() {
       [[ "$value" == fcd-support || "$value" =~ ^fcd-support[-a-z0-9_]{1,100}$ ]] ;;
     FCD_RESTORE_PROJECT|FCD_POSTGRES_VOLUME|FCD_RESTORE_VOLUME|FCD_BACKUP_VOLUME|FCD_INGRESS_NETWORK|FCD_NOTIFICATION_NETWORK)
       [[ "$value" =~ ^fcd-support[-a-z0-9_]{1,100}$ ]] ;;
+    FCD_RESTORE_SUBNET) operations_restore_subnet_valid "$value" ;;
     FCD_POSTGRES_DB) [[ "$value" =~ ^fcd_support(_[a-z0-9_]+)?$ ]] ;;
     FCD_ADMIN_ORIGIN) [[ "$value" =~ ^http://127\.0\.0\.1:[1-9][0-9]{0,4}$ ]] ;;
     FCD_ADMIN_BROWSER_PORT)

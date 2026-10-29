@@ -85,6 +85,16 @@ test.each([
   { key: 'FCD_DATABASE_ROLE_PREFIX', value: 'fcd_support', valid: true },
   { key: 'FCD_DATABASE_ROLE_PREFIX', value: 'foreign_roles', valid: false },
   { key: 'FCD_DATABASE_ROLE_PREFIX', value: 'fcd_' + 'x'.repeat(29), valid: false },
+  { key: 'FCD_RESTORE_SUBNET', value: '198.18.224.0/24', valid: true },
+  { key: 'FCD_RESTORE_SUBNET', value: '10.0.0.0/8', valid: true },
+  { key: 'FCD_RESTORE_SUBNET', value: '172.16.0.0/12', valid: true },
+  { key: 'FCD_RESTORE_SUBNET', value: '192.168.4.0/29', valid: true },
+  { key: 'FCD_RESTORE_SUBNET', value: '198.18.224.1/24', valid: false },
+  { key: 'FCD_RESTORE_SUBNET', value: '198.018.224.0/24', valid: false },
+  { key: 'FCD_RESTORE_SUBNET', value: '198.18.224.0/30', valid: false },
+  { key: 'FCD_RESTORE_SUBNET', value: '172.15.0.0/16', valid: false },
+  { key: 'FCD_RESTORE_SUBNET', value: '203.0.113.0/24', valid: false },
+  { key: 'FCD_RESTORE_SUBNET', value: '::1/128', valid: false },
 ])('bootstrap protected field $key/$value is closed', ({ key, value, valid }) => {
   const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash';
   const result = spawnSync(

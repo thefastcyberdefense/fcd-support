@@ -50,7 +50,7 @@ if [[ "$MODE" == grants ]]; then
   UNIT_FILES+=(tests/operations-first-boot.test.ts)
   UNIT_FILES+=(tests/operations-controller.test.ts)
   UNIT_FILES+=(tests/operations-live-socket-preflight.test.ts)
-  UNIT_FILES+=(tests/operations-restore-controller.test.ts tests/operations-promotion-controller.test.ts)
+  UNIT_FILES+=(tests/operations-restore-controller.test.ts tests/operations-promotion-controller.test.ts tests/operations-restore-subnet.test.ts)
   UNIT_FILES+=(tests/restore-job-split.test.ts tests/restore-metadata-script.test.ts tests/promotion-host-transport.test.ts)
   UNIT_FILES+=(tests/promotion-host.test.ts tests/promotion-host-script.test.ts tests/restore-compose-split.test.ts)
   UNIT_FILES+=(tests/restore-entrypoints.test.ts)
@@ -81,6 +81,7 @@ if [[ "$MODE" == state ]]; then
   UNIT_FILES+=(tests/operations-restore-controller.test.ts tests/operations-promotion-controller.test.ts)
   # The complete grants gate always runs its full unit/integration selection.
   UNIT_FILES+=(tests/promotion-host-script.test.ts)
+  UNIT_FILES+=(tests/operations-restore-subnet.test.ts)
   if [[ "$#" == 2 ]]; then
     selected=''
     for file in "${UNIT_FILES[@]}"; do [[ "$file" != "$2" ]] || selected="$file"; done
@@ -136,6 +137,7 @@ docker build --platform linux/amd64 --build-arg "VCS_REF=$REVISION" --file "$NAT
 bash "$ROOT/scripts/test-operations-image-mounts.sh" "$OPS"
 if [[ "$MODE" == grants ]]; then bash "$ROOT/scripts/test-synthetic-host-networks-docker.sh" "$OPS"; fi
 if [[ "$MODE" == grants ]]; then bash "$ROOT/scripts/test-promotion-secret-ownership-docker.sh" "$OPS"; fi
+if [[ "$MODE" == grants ]]; then bash "$ROOT/scripts/test-restore-subnet-docker.sh"; fi
 if [[ "$MODE" == restore ]]; then bash "$ROOT/scripts/test-restore-alias-docker.sh" "$OPS"; fi
 docker build --platform linux/amd64 --file "$NATIVE_ROOT/infra/Dockerfile.integration" --tag fcd-support-integration-test:local "$NATIVE_ROOT" >/dev/null 2>&1 || { echo backup_dependencies_build_failed >&2; exit 1; }
 docker build --platform linux/amd64 --build-arg "OPERATIONS_IMAGE=$OPS" --file "$NATIVE_ROOT/infra/Dockerfile.backup-test" --tag "$RUNNER" "$NATIVE_ROOT" >/dev/null 2>&1 || { echo backup_runner_build_failed >&2; exit 1; }

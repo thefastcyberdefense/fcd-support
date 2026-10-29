@@ -4,6 +4,35 @@
 
 This is an intermediate Task 11 checkpoint, not a deployment or restore gate pass.
 
+### Optional isolated restore subnet
+
+An operator may set `FCD_RESTORE_SUBNET` in the protected host configuration to
+choose the fresh target bridge's IPv4 subnet. Omit it to retain Docker's default
+pool behavior. The value must be a canonical network inside RFC 1918 private or
+RFC 2544 benchmarking space, with prefix length 8–29. The controller checks
+host IPv4 routes in every table and interface networks before recording intent
+and immediately before creating the bridge. It refuses overlap, malformed or
+unavailable inventory and then checks the actual Docker network ID and single
+default-IPAM subnet on every target proof. Explicit-subnet use requires host
+Node and `iproute2`; the guard prints no inventory or credential values.
+
+These samples cannot lock unrelated host network changes. The operator must
+choose an unused block and keep routing stable throughout the operation. A
+failure after intent preserves the intent and any created storage under the
+existing uncertainty rules. This option does not clear or settle an interrupted
+job, reuse a target, switch databases or change Docker's global pools.
+
+Final local verification passed 1,851 tests with 433 platform skips across 125
+files using `VITEST_MAX_WORKERS=4 npm run check`. An earlier unbounded Windows
+run hit five 5-second test timeouts; all five passed in isolation and the final
+bounded full gate passed without changing application deadlines. Native Linux
+validation passed 1,258 tests across 55 files, including all 41 subnet cases,
+and 139 PostgreSQL tests with one restore-only skip across 13 files. The first
+native attempt exposed two test fixtures missing the shared shell library;
+the corrected focused and full native runs passed. Real Docker verified
+explicit allocation, actual controller IPAM/ID checks and overlap refusal.
+Only owned synthetic test resources were removed.
+
 ### Fresh-runner CI and dependency maintenance
 
 At `ae13cec`, CodeQL and the complete ordinary PostgreSQL Actions job passed.

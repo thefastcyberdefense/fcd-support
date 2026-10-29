@@ -9,6 +9,16 @@ source "$(dirname -- "${BASH_SOURCE[0]}")/operations-restore-metadata.sh"
 OPERATIONS_RESTORE_VOLUME_FORMAT='{{.Name}}/{{.CreatedAt}}/{{.Driver}}/{{.Scope}}/{{if .Options}}custom{{else}}default{{end}}/{{index .Labels "com.docker.compose.project"}}/{{index .Labels "com.docker.compose.volume"}}/{{index .Labels "fcd-support.restore.ref"}}'
 OPERATIONS_RESTORE_NETWORK_FORMAT='{{.Id}}/{{.Name}}/{{.Created}}/{{.Driver}}/{{.Internal}}/{{index .Labels "com.docker.compose.project"}}/{{index .Labels "com.docker.compose.network"}}/{{index .Labels "fcd-support.restore.ref"}}/{{len .Containers}}'
 
+operations_restore_subnet_preflight() {
+  [[ "$#" == 0 && -n "${OPS_CONFIG[FCD_RESTORE_SUBNET]:-}" ]] || return 1
+  operations_config_field FCD_RESTORE_SUBNET "${OPS_CONFIG[FCD_RESTORE_SUBNET]}" || return 1
+  [[ -f "$OPS_ROOT/scripts/operations-restore-subnet.ts" && ! -L "$OPS_ROOT/scripts/operations-restore-subnet.ts" ]] || return 1
+  env -i "PATH=$PATH" LC_ALL=C timeout --signal=TERM \
+    --kill-after="$(( (${OPS_CONFIG[FCD_STOP_GRACE_MS]} + 999) / 1000 ))s" \
+    "${OPS_CONFIG[FCD_COMMAND_TIMEOUT_SECONDS]}s" node "$OPS_ROOT/scripts/operations-restore-subnet.ts" \
+    "${OPS_CONFIG[FCD_RESTORE_SUBNET]}" >/dev/null 2>&1
+}
+
 operations_restore_target_absent() {
   local project="${OPS_CONFIG[FCD_RESTORE_PROJECT]}" volume="${OPS_CONFIG[FCD_RESTORE_VOLUME]}" value
   value="$(operations_docker ps --all --quiet --no-trunc --filter "label=com.docker.compose.project=$project")" || return 1
@@ -75,6 +85,10 @@ operations_restore_network() {
   [[ -z "$extra" && "$id" =~ ^[a-f0-9]{64}$ && "$row" == "$id/$name/$created/bridge/true/$project/restore_data/$OPS_RESTORE_REFERENCE/$count" &&
     "$name" == "${OPS_CONFIG[FCD_RESTORE_PROJECT]}-data" && "$project" == "${OPS_CONFIG[FCD_RESTORE_PROJECT]}" ]] || return 1
   operations_deployment_field STATE_VOLUME_CREATED_AT "$created" || return 1
+  if [[ -n "${OPS_CONFIG[FCD_RESTORE_SUBNET]:-}" ]]; then
+    operations_config_field FCD_RESTORE_SUBNET "${OPS_CONFIG[FCD_RESTORE_SUBNET]}" || return 1
+    [[ "$(operations_docker network inspect --format '{{.Id}}/{{.IPAM.Driver}}/{{len .IPAM.Config}}/{{range .IPAM.Config}}{{.Subnet}}{{end}}' "${OPS_CONFIG[FCD_RESTORE_PROJECT]}-data")" == "$id/default/1/${OPS_CONFIG[FCD_RESTORE_SUBNET]}" ]] || return 1
+  fi
   stamp="${row%/*}"
   [[ -z "$OPS_RESTORE_NETWORK_STAMP" || "$OPS_RESTORE_NETWORK_STAMP" == "$stamp" ]] || return 1
   OPS_RESTORE_NETWORK_STAMP="$stamp"
@@ -140,12 +154,18 @@ operations_restore_leg() {
 }
 operations_restore_checked() {
   local field phase source_application source_operations metadata token identifier id image source_metadata
+  local -a network_subnet=()
   local OPS_RESTORE_REFERENCE OPS_RESTORE_SOURCE_REF OPS_RESTORE_SOURCE_VOLUME OPS_RESTORE_SOURCE_SYSTEM OPS_RESTORE_SOURCE_REVISION OPS_RESTORE_SOURCE_POSTGRES
   local OPS_RESTORE_VOLUME_STAMP='' OPS_RESTORE_NETWORK_STAMP='' OPS_RESTORE_TARGET_POSTGRES=''
   [[ "$#" == 0 && "${OPS_BACKUP_REF:-}" =~ ^backup_[a-f0-9]{32}$ && "${OPS_CHECKPOINT_REF:-}" =~ ^checkpoint_[a-f0-9]{32}$ ]] || return 1
   for field in FCD_RESTORE_PROJECT FCD_RESTORE_VOLUME FCD_POSTGRES_VOLUME FCD_BACKUP_VOLUME FCD_POSTGRES_DB FCD_DATABASE_SCHEMA FCD_SCHEMA_REVISION FCD_READY_TIMEOUT_SECONDS; do
     operations_config_field "$field" "${OPS_CONFIG[$field]:-}" || return 1
   done
+  if [[ -n "${OPS_CONFIG[FCD_RESTORE_SUBNET]:-}" ]]; then
+    operations_config_field FCD_RESTORE_SUBNET "${OPS_CONFIG[FCD_RESTORE_SUBNET]}" || return 1
+    operations_restore_subnet_preflight || return 1
+    network_subnet=(--subnet "${OPS_CONFIG[FCD_RESTORE_SUBNET]}")
+  fi
   [[ "${OPS_CONFIG[FCD_RESTORE_PROJECT]}" =~ ^fcd-support-restore-[a-z0-9][a-z0-9-]{0,63}$ &&
     "${OPS_CONFIG[FCD_RESTORE_PROJECT]}" != "${OPS_CONFIG[FCD_RUNTIME_PROJECT]}" &&
     "${OPS_CONFIG[FCD_RESTORE_VOLUME]}" != "${OPS_CONFIG[FCD_POSTGRES_VOLUME]}" && "${OPS_CONFIG[FCD_RESTORE_VOLUME]}" != "${OPS_CONFIG[FCD_BACKUP_VOLUME]}" ]] || return 1
@@ -206,7 +226,8 @@ operations_restore_checked() {
   operations_docker volume create --driver local --label "com.docker.compose.project=${OPS_CONFIG[FCD_RESTORE_PROJECT]}" \
     --label com.docker.compose.volume=restore-data --label "fcd-support.restore.ref=$OPS_RESTORE_REFERENCE" "${OPS_CONFIG[FCD_RESTORE_VOLUME]}" >/dev/null 2>&1 || true
   operations_restore_volume || return 1
-  operations_docker network create --driver bridge --internal --label "com.docker.compose.project=${OPS_CONFIG[FCD_RESTORE_PROJECT]}" \
+  if (( ${#network_subnet[@]} > 0 )); then operations_restore_subnet_preflight || return 1; fi
+  operations_docker network create --driver bridge --internal "${network_subnet[@]}" --label "com.docker.compose.project=${OPS_CONFIG[FCD_RESTORE_PROJECT]}" \
     --label com.docker.compose.network=restore_data --label "fcd-support.restore.ref=$OPS_RESTORE_REFERENCE" "${OPS_CONFIG[FCD_RESTORE_PROJECT]}-data" >/dev/null 2>&1 || true
   operations_restore_network 0 || return 1
   [[ -z "$(operations_docker ps --all --quiet --no-trunc --filter "volume=${OPS_CONFIG[FCD_RESTORE_VOLUME]}")" ]] || return 1

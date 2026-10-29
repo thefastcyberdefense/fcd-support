@@ -2,6 +2,19 @@
 
 Last reviewed: 2026-10-29 (Asia/Dhaka)
 
+The synthetic server's default Docker address pool is exhausted. An optional
+protected restore subnet now checks host routes and interfaces before mutation
+and again before network creation, then verifies the actual bridge identity and
+IPAM. It preserves the default-pool path when unset and does not settle the
+uncertain promotion. Final local validation passed 1,851 tests/433 platform
+skips across 125 files, plus 1,258 native tests across 55 files and 139
+PostgreSQL tests with one restore-only skip across 13 files. The real Docker
+proof and all 41 native subnet cases passed; the isolated project was cleaned
+up. The checker also accepted an unused synthetic subnet and rejected an
+occupied one on the actual server read-only. A new exact-revision CI pass and
+separately committed server action are required for a fresh drill.
+All four GitHub workflows passed for the earlier promotion fix `fdf08d4`.
+
 Promotion diagnosis found no currently matching database backends, prepared
 transactions or committed promotion-verification binding. Docker's journal
 recorded deletion of the exact task without an exit status. These observations
@@ -12,7 +25,7 @@ passed local validation: 1,801 code tests/423 platform skips, 1,198 native
 tests, 139 PostgreSQL tests/one restore-only skip, and a separate 250-test
 restore lane plus 47 PostgreSQL tests. Real Docker ownership/negative cases and
 the updated read-only server metadata guard passed; synthetic test projects
-were cleaned up. Exact-revision GitHub checks remain pending. The removed job's
+were cleaned up. All four exact-revision GitHub checks subsequently passed. The removed job's
 exact failure point remains unknown, and all uncertain state stays preserved.
 
 The fresh `b0ba255` synthetic restore completed, but promotion refused. The

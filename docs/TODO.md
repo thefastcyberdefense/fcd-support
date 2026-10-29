@@ -1,5 +1,19 @@
 # Fast Cyber Defense Support Task Tracker
 
+- Restore network capacity work (2026-10-29 Asia/Dhaka): an optional protected
+  restore subnet lets a fresh isolated target avoid an exhausted Docker default
+  pool. Host route/interface checks run before intent and again before bridge
+  creation; network ID and IPAM are checked on each proof. The existing uncertain
+  promotion and both databases remain preserved. The prior promotion-host fix
+  `fdf08d4` passed all four exact-revision GitHub workflows. The final subnet
+  code gate passed 1,851 tests/433 platform skips across 125 files; native
+  validation passed 1,258 tests across 55 files and 139 PostgreSQL tests with
+  one restore-only skip across 13 files. Real Docker allocation, exact-ID/IPAM
+  checks and overlap refusal passed, and the isolated project was cleaned up.
+  The same checker accepted an unused test subnet and rejected an occupied one
+  on the server read-only. A separate committed action and exact-revision CI
+  are still required before another synthetic server drill.
+
 - Promotion host diagnosis (2026-10-29 Asia/Dhaka): read-only checks found no currently matching PostgreSQL backends or prepared transactions and no committed promotion-verification binding; these do not settle the job. Docker's journal has an exact task-deletion event without exit status. The job's original failure point is unavailable. Two independent blockers are corrected: the host guard now requires UID 999 for PostgreSQL password files, and the checkpoint path matches the rendered promotion job. Real Docker ownership and negative cases pass; the updated guard accepts the preserved server metadata read-only. Full code passed 1,801 tests/423 platform skips; the native gate passed 1,198 tests and 139 PostgreSQL tests/one restore-only skip; the separate restore gate passed 250 tests and 47 PostgreSQL tests. Both synthetic test projects cleaned up. Exact-revision GitHub checks remain pending; preserve both databases and all uncertain state.
 
 - Fresh synthetic restore/promotion result (2026-10-28/29 Asia/Dhaka): exact `b0ba255` completed the isolated restore after verified backup selection and a fresh checkpoint. Promotion then refused, leaving both selection and promotion job uncertain with writes marked possible; both synthetic PostgreSQL actors are healthy and the recorded job container is absent. The completed restore record, job override, both databases and prior uncertain fixture are preserved, and the admission baseline matches. No rollback was attempted. Diagnose and design supported settlement before any retry; P6-GATE remains open.
@@ -216,12 +230,12 @@
 ## Phase 6 — Hardened Local Operations
 
 Tasks 1–10 are complete. Task 11 has deploy/verify, controlled outage/startup,
-exact-schema rollback and socket-recovery command composition. Unresolved jobs
-still block normal host preflight. Restore/promotion SQL drivers, strict metadata
-and protected descriptive history are tested, but host restore/promotion and safe
-volume switching remain incomplete. Their network/credential division awaits
-the explicit split-job design decision linked above. Tasks 12–14 have implemented
-components under integration; Task 15 failure-matrix/gate review and Task 16
+exact-schema rollback and socket-recovery command composition. The approved
+split-job design reached a successful fresh synthetic host restore; promotion
+then became uncertain. Unresolved jobs block normal host preflight and remain
+preserved. Promotion, safe volume switching and supported interruption recovery
+still need verified completion. Tasks 12–14 have implemented components under
+integration; Task 15 failure-matrix/gate review and Task 16
 concrete server handoff remain open.
 Validation is recorded in `docs/operations/runtime-deployment-safety.md`.
 

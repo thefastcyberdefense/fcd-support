@@ -42,6 +42,7 @@ async function fixture(
   current = false,
   nativeState = false,
   afterLeg = 'stream',
+  subnet = '',
 ) {
   const root = await mkdtemp(
     nativeState
@@ -70,7 +71,15 @@ declare -A OPS_CONFIG=([FCD_STATE_ROOT]="$TASK_ROOT" [FCD_RUNTIME_PROJECT]=fcd-s
  [FCD_DATABASE_SCHEMA]=public [FCD_DATABASE_ROLE_PREFIX]=fcd_test [FCD_RESTORE_PROJECT]=${project}
  [FCD_RESTORE_VOLUME]=${volume} [FCD_BACKUP_VOLUME]=fcd-support-backups [FCD_READY_TIMEOUT_SECONDS]=5 [FCD_COMMAND_TIMEOUT_SECONDS]=5 [FCD_STOP_GRACE_MS]=1000
  [FCD_SUPPORT_IMAGE]=${app} [FCD_OPERATIONS_IMAGE]=${ops} [FCD_POSTGRES_IMAGE]=${postgres})
+${subnet ? `OPS_CONFIG[FCD_RESTORE_SUBNET]=${subnet}` : ''}
 OPS_BACKUP_REF=${backup}; OPS_CHECKPOINT_REF=${checkpoint}; OPS_REVISION=${revision}
+operations_restore_subnet_preflight() {
+ [[ -n "\${OPS_CONFIG[FCD_RESTORE_SUBNET]:-}" ]] || return 0
+ trace subnet-check
+ if [[ ! -e "$TASK_ROOT/subnet-checked" ]]; then
+   touch "$TASK_ROOT/subnet-checked"; [[ "$TASK_FAULT" != subnet-early ]]
+ else [[ "$TASK_FAULT" != subnet-late ]]; fi
+}
 operations_controller_images() { trace images; OPS_CONTROLLER_APPLICATION=${app}; OPS_CONTROLLER_OPERATIONS=${ops}; OPS_CONTROLLER_POSTGRES=${postgres}; }
 operations_restore_validate_compose() { trace compose-contract; [[ "$TASK_FAULT" != compose-contract ]]; }
 operations_job_state_root() { OPS_JOB_STATE_FILE=$TASK_ROOT/active-job; }
@@ -153,9 +162,18 @@ operations_docker() {
    [[ "$TASK_FAULT" != volume-create-failed ]] || return 1; touch "$TASK_ROOT/volume"; [[ "$TASK_FAULT" != volume-create-ack ]] ;;
   'network create')
    trace create-network; test -s "$TASK_INTENT_FILE" || return 1; [[ "$*" == *'--internal'* && "$*" == *'com.docker.compose.project=${project}'* && "$*" == *'com.docker.compose.network=restore_data'* && "$*" == *"fcd-support.restore.ref=$ref"* ]] || return 1
+   if [[ -n "\${OPS_CONFIG[FCD_RESTORE_SUBNET]:-}" ]]; then [[ "$*" == *"--subnet \${OPS_CONFIG[FCD_RESTORE_SUBNET]}"* ]] || return 1; else [[ "$*" != *'--subnet'* ]] || return 1; fi
    [[ "$TASK_FAULT" != network-create-failed ]] || return 1; touch "$TASK_ROOT/network"; [[ "$TASK_FAULT" != network-create-ack ]] ;;
   'volume inspect') test -e "$TASK_ROOT/volume" || return 1; [[ "$TASK_FAULT" != volume-ref ]] || ref=restore_${'f'.repeat(32)}; if [[ "$TASK_FAULT" == volume-after ]] && after_job; then created=2030-04-02T00:00:00Z; fi; printf '%s/%s/local/local/default/%s/restore-data/%s' '${volume}' "$created" '${project}' "$ref" ;;
-  'network inspect') test -e "$TASK_ROOT/network" || return 1; [[ "$TASK_FAULT" != network-ref ]] || ref=restore_${'f'.repeat(32)}; [[ ! -e "$TASK_ROOT/postgres" ]] || count=1; printf '%s/%s/%s/bridge/true/%s/restore_data/%s/%s' '${networkId}' '${project}-data' "$created" '${project}' "$ref" "$count" ;;
+  'network inspect')
+   test -e "$TASK_ROOT/network" || return 1
+   if [[ "$*" == *'.IPAM.Driver'* ]]; then
+     trace ipam; [[ "$TASK_FAULT" != subnet-ipam-missing ]] || return 1
+     if [[ "$*" == *'{{.Id}}'* ]]; then if [[ "$TASK_FAULT" == subnet-ipam-id ]]; then printf '%s/' '${'f'.repeat(64)}'; else printf '%s/' '${networkId}'; fi; fi
+     if [[ "$TASK_FAULT" == subnet-ipam-wrong ]] || { [[ "$TASK_FAULT" == subnet-ipam-drift ]] && after_job; }; then printf 'default/1/198.18.225.0/24'; elif [[ "$TASK_FAULT" == subnet-ipam-multiple ]]; then printf 'default/2/%s' "\${OPS_CONFIG[FCD_RESTORE_SUBNET]}"; elif [[ "$TASK_FAULT" == subnet-ipam-driver ]]; then printf 'foreign/1/%s' "\${OPS_CONFIG[FCD_RESTORE_SUBNET]}"; else printf 'default/1/%s' "\${OPS_CONFIG[FCD_RESTORE_SUBNET]}"; fi
+   else
+     [[ "$TASK_FAULT" != network-ref ]] || ref=restore_${'f'.repeat(32)}; [[ ! -e "$TASK_ROOT/postgres" ]] || count=1; printf '%s/%s/%s/bridge/true/%s/restore_data/%s/%s' '${networkId}' '${project}-data' "$created" '${project}' "$ref" "$count"
+   fi ;;
   'container inspect')
    if [[ "$*" == *'fcd-support-source-postgres'* && "$*" == *'fcd-support-restore-postgres'* ]]; then if [[ "$last" == ${targetId} ]]; then printf target; elif [[ -e "$TASK_ROOT/alias" ]]; then printf source; [[ ! -e "$TASK_ROOT/collision" ]] || printf target; fi;
    elif [[ "$*" == *'fcd-support-source-postgres'* ]]; then [[ "$last" == ${targetId} || ! -e "$TASK_ROOT/alias" ]] || printf yes;
@@ -312,6 +330,61 @@ test('a conflicting source alias is removed by convergence before target creatio
     await f.dispose();
   }
 }, 30000);
+
+test('an explicit restore subnet is checked before intent and again before network creation', async () => {
+  const f = await fixture('none', 'ready', false, false, 'stream', '198.18.224.0/24');
+  try {
+    expect(f.result.status, f.result.stderr).toBe(0);
+    const checks = f.trace.flatMap((entry, index) => (entry === 'subnet-check' ? [index] : []));
+    expect(checks).toHaveLength(2);
+    expect(checks[0]).toBeLessThan(f.trace.indexOf('intent'));
+    expect(checks[1]).toBeGreaterThan(f.trace.indexOf('intent'));
+    expect(checks[1]).toBeLessThan(f.trace.indexOf('create-network'));
+    expect(f.trace.filter((entry) => entry === 'ipam').length).toBeGreaterThan(1);
+    expect(f.trace.at(-1)).toBe('complete');
+  } finally {
+    await f.dispose();
+  }
+}, 30_000);
+
+test('an early subnet conflict refuses before intent or source outage', async () => {
+  const f = await fixture('subnet-early', 'ready', false, false, 'stream', '198.18.224.0/24');
+  try {
+    expect(f.result.status).toBe(1);
+    expect(f.trace).not.toContain('intent');
+    expect(f.trace).not.toContain('drain');
+    expect(f.trace).not.toContain('create-volume');
+    expect(await readFile(join(f.root, 'phase'), 'utf8')).toBe('ready');
+  } finally {
+    await f.dispose();
+  }
+});
+
+test.each([
+  'subnet-late',
+  'subnet-ipam-missing',
+  'subnet-ipam-wrong',
+  'subnet-ipam-id',
+  'subnet-ipam-multiple',
+  'subnet-ipam-driver',
+  'subnet-ipam-drift',
+])(
+  '%s preserves intent and target evidence without completing',
+  async (fault) => {
+    const f = await fixture(fault, 'ready', false, false, 'stream', '198.18.224.0/24');
+    try {
+      expect(f.result.status, f.result.stderr).toBe(1);
+      expect(f.trace).toContain('intent');
+      expect(f.trace).not.toContain('complete');
+      expect(await readFile(join(f.root, 'phase'), 'utf8')).toBe('quiescent');
+      if (fault === 'subnet-late') expect(f.trace).not.toContain('create-network');
+      if (fault === 'subnet-ipam-drift') expect(f.trace).toContain('job:stream');
+    } finally {
+      await f.dispose();
+    }
+  },
+  30_000,
+);
 
 test.each(['draining', 'database-changing', 'uncertain', 'starting', 'switching'])(
   'restore refuses source %s without changing it',

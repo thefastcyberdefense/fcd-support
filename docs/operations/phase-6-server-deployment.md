@@ -1377,5 +1377,35 @@ passed 1,801 tests with 423 platform skips; native operations passed 1,198 tests
 and 139 PostgreSQL tests with one restore-only skip; the separate restore gate
 passed 250 tests and 47 PostgreSQL tests. Real Docker ownership and negative
 cases passed, the updated guard accepted the preserved metadata read-only, and
-synthetic test projects were cleaned up. Exact-revision GitHub checks remain
-pending. The removed job's exact failure point remains unknown.
+synthetic test projects were cleaned up. All four exact-revision GitHub checks
+passed for `fdf08d4`. The removed job's exact failure point remains unknown.
+
+### Configurable restore subnet checkpoint
+
+The restore controller now accepts optional protected `FCD_RESTORE_SUBNET`.
+It checks host routes and interfaces before intent and before bridge creation,
+and binds the actual network ID and single IPAM subnet on every target proof.
+Omitting the setting keeps the existing default-pool behavior. This permits
+planning a fresh independent fixture without clearing the uncertain promotion
+or changing the daemon's global pools.
+
+The final code gate passed 1,851 tests with 433 platform skips across 125 files
+using four workers (235.32 seconds for tests). Native validation passed 1,258
+tests across 55 files and 139 PostgreSQL tests with one restore-only skip
+across 13 files. All 41 native subnet cases passed after correcting the test
+bootstrap to load the shared shell helpers. Real Docker checked explicit
+allocation, actual controller network ID/IPAM binding, wrong-IPAM refusal and
+conflicting-subnet refusal. Cleanup reported zero resources for the isolated
+test project.
+
+Read-only server checks found a clean `b0ba255` checkout, at least 12 GiB free,
+healthy latest source/target databases, a healthy older source and its exact
+`r2` target, preserved journals and running admission actors. The older source
+selection remains quiescent; the latest promotion selection remains uncertain.
+The candidate `198.18.224.0/20` test block had no sampled Docker IPAM, non-default
+route or interface-network overlap. The new checker was streamed to Node
+without writing server files: it accepted unused `198.18.232.0/24` and refused
+occupied `198.18.240.0/24`. These are point-in-time checks, not a network
+reservation or a deployment. Exact-revision GitHub checks and a separately
+committed server action remain required. No job was retried or settled, and no
+production, provider or customer traffic was used.
