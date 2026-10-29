@@ -1634,3 +1634,37 @@ absence of the fresh restore volume and bridge. No settings, checkpoint,
 restore, promotion, rollback, public route or live provider were changed.
 Fresh checkpoint/isolated restore/promotion/rollback and the remaining
 interruption/failure matrix are still required for Phase 6.
+
+### Fresh 6faff8b restore configuration preparation action
+
+After this record and
+`docs/operations/actions/2026-10-29-prepare-restore-6faff8b.py` are committed
+and pushed, run that exact helper once with `--apply` on the synthetic server.
+Its syntax and actual read-only `--inspect` mode passed. Require exact clean
+source `6faff8b`, the new READY selection without an active/pending job or state
+replacement, local Docker, an absent fresh target and the unused checked
+`198.18.232.0/24` subnet. Run the full preservation `--audit` before and after.
+
+Under the new project's existing deployment lock, verify protected regular
+configuration files with canonical paths, single links and `1000:1000:600`
+metadata. Require the original host file to have no restore-subnet setting and
+the restore role's checkpoint age to be exactly 60000 ms. Verify no existing
+container bind-mounts either file or an ancestor.
+
+Create only the initially absent, owner-only
+`/home/redwan/fcd-support-p6-action-6faff8b/restore-drill` directory. Preserve
+byte-exact original host and restore-role settings there. First simulate and
+validate the two changes on separate private copies, including the real
+protected host configuration parser. Then atomically replace only
+`config/operations.env` to add `FCD_RESTORE_SUBNET=198.18.232.0/24`, and
+`config/restore.env` to set `CHECKPOINT_MAX_AGE_MS=600000`. Require every other
+setting and byte outside the two changes unchanged. Flush copies and directory
+entries; retain originals and simulations as private evidence. These are scoped
+synthetic settings; application defaults and all other customizable bounds stay
+unchanged.
+
+Require final parser validation and READY/no job. Any failed simulation,
+replacement or acknowledgement stops the action and preserves all files; no
+automatic reversal or retry is permitted. This action performs no checkpoint,
+SQL job, restore, promotion, rollback, network creation, provider or production
+operation. The later fresh restore drill requires its own committed action.
