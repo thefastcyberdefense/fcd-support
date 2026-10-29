@@ -1434,9 +1434,10 @@ Compare that baseline after each stage, and require the old snapshot file hash
 unchanged. Sample protected prior synthetic state/history files and existing
 source/target actor, volume and network identities without displaying file
 contents or reference values. In particular, preserve the entire `b0ba255`
-uncertain promotion, its job override and completed restore record, and both
-healthy databases. Preserve the older `8ccb9a0` quiescent source, uncertain
-restore job, original intent/abandonment history and healthy `r2` target, plus
+uncertain promotion, its job override and completed restore record, its healthy
+source database and exact stopped restore target. Preserve the older `8ccb9a0`
+quiescent healthy source, uncertain restore job, original intent/abandonment
+history and exact stopped `r2` target, plus
 all earlier fixture history. Require the same samples after each stage and at
 the end; refuse unavailable evidence or drift. Do not resolve, replay or reuse
 any old job or target.
@@ -1511,3 +1512,35 @@ current metadata baseline only after those identity/definition checks pass
 again. Require both the old file's preservation and the new baseline's stability
 throughout the action. Neither baseline proves SQL-job termination or permits
 clearing uncertainty.
+
+Further read-only inspection found both preserved restore targets exited with
+automatic restart disabled, while their two source databases remain running
+and healthy. Each target's actual image, restore-reference label and named
+volume match its protected original restore intent. The fresh action now
+requires those exact stopped states and bindings and must leave them stopped;
+it does not restart or inspect SQL on either target. Current actor/state/resource
+fingerprints are bound into the separate baseline and must remain unchanged.
+This is preservation of observed state, not proof of the uncertain jobs' outcomes.
+
+The concrete executor is
+`docs/operations/actions/2026-10-29-deploy-6faff8b.py`. Its syntax and actual
+server `--inspect` mode passed without writing server files or changing Docker
+resources. It holds temporary shared locks on old synthetic deployment journals
+and fingerprints their protected files and actor/network/volume metadata.
+Docker's unordered mount list is sorted before comparison; all mount fields
+and duplicate entries remain in the comparison. The executor preserves the
+original admission snapshot and writes the separate current baseline only in
+`--execute` mode, in the new private action directory.
+
+After this record and executor are committed and pushed, run the exact executor
+from the local checkout with stdin closed for every child command:
+
+```powershell
+$taskAction = Get-Content -LiteralPath 'docs/operations/actions/2026-10-29-deploy-6faff8b.py' -Raw
+$taskAction | ssh -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=yes redwan@192.168.10.40 "tr -d '\r' | python3 - --execute"
+```
+
+The action must emit both `synthetic_action_deployment_verified=true` and
+`synthetic_action_preserved_state_unchanged=true`. Any refusal preserves
+resources and private diagnostics; never rerun this single-use executor to
+repair an interrupted attempt. Execution is still pending at this checkpoint.

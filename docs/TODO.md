@@ -7,6 +7,9 @@
   admission actor IDs and definitions but changed start times, with inconsistent
   host/Docker wall-clock evidence after a newer reported boot. Preserve the old
   snapshot and verify a separate current baseline; this does not settle SQL jobs.
+  Both preserved restore targets are now exited with automatic restart disabled;
+  their image/reference/volume bindings still match their original intents, and
+  both sources are healthy. The action must leave those targets stopped.
   The fresh server action is recorded but has not yet run.
 
 - Restore network capacity work (2026-10-29 Asia/Dhaka): an optional protected

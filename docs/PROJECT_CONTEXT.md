@@ -11,6 +11,11 @@ is stable, but host/Docker clock evidence is inconsistent by about a minute.
 Preserve the original snapshot and all uncertain jobs; bind the new action to
 a separate verified current baseline. No journal settlement is implied.
 
+Both preserved restore targets are exited with automatic restart disabled;
+their image/reference/volume bindings match their original intents. Both source
+databases are healthy. The fresh action must preserve the targets' exact stopped
+states without restarting them or inspecting their SQL state.
+
 The synthetic server's default Docker address pool is exhausted. An optional
 protected restore subnet now checks host routes and interfaces before mutation
 and again before network creation, then verifies the actual bridge identity and
