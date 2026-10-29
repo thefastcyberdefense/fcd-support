@@ -5,8 +5,25 @@ source "$(dirname -- "${BASH_SOURCE[0]}")/operations-restore-controller.sh"
 
 # Fixed metadata allowlists deliberately omit credentials and container Env.
 # Full mount identities are compared in memory; they are never logged/emitted.
-OPERATIONS_PROMOTION_STATIC_FORMAT='{{.Id}}/{{.Image}}/{{json .Config.Cmd}}/{{json .Config.Entrypoint}}/{{json .Mounts}}/{{json .HostConfig.NetworkMode}}/{{.HostConfig.ReadonlyRootfs}}/{{.HostConfig.Privileged}}/{{len .HostConfig.PortBindings}}/{{.HostConfig.PublishAllPorts}}/{{json .HostConfig.CapAdd}}/{{json .HostConfig.CapDrop}}/{{json .HostConfig.SecurityOpt}}/{{.HostConfig.Memory}}/{{.HostConfig.NanoCpus}}/{{.HostConfig.PidsLimit}}/{{json .HostConfig.PidMode}}/{{json .HostConfig.IpcMode}}/{{range $name,$network := .NetworkSettings.Networks}}{{$name}}/{{$network.NetworkID}};{{end}}'
+OPERATIONS_PROMOTION_STATIC_FORMAT='{{.Id}}/{{.Image}}/{{json .Config.Cmd}}/{{json .Config.Entrypoint}}/{{json .HostConfig.NetworkMode}}/{{.HostConfig.ReadonlyRootfs}}/{{.HostConfig.Privileged}}/{{len .HostConfig.PortBindings}}/{{.HostConfig.PublishAllPorts}}/{{json .HostConfig.CapAdd}}/{{json .HostConfig.CapDrop}}/{{json .HostConfig.SecurityOpt}}/{{.HostConfig.Memory}}/{{.HostConfig.NanoCpus}}/{{.HostConfig.PidsLimit}}/{{json .HostConfig.PidMode}}/{{json .HostConfig.IpcMode}}/{{range $name,$network := .NetworkSettings.Networks}}{{$name}}/{{$network.NetworkID}};{{end}}{{println}}{{range .Mounts}}{{json .}}{{println}}{{end}}'
 OPERATIONS_PROMOTION_NETWORK_FORMAT='{{.Id}}/{{.Name}}/{{.Driver}}/{{.Internal}}/{{index .Labels "com.docker.compose.project"}}/{{index .Labels "com.docker.compose.network"}}'
+
+operations_promotion_static_canonical() {
+  local input="$1" header mounts sorted line
+  (( ${#input} > 0 && ${#input} <= 65536 )) || return 1
+  IFS= read -r header <<<"$input" || return 1
+  [[ -n "$header" ]] || return 1
+  mounts="${input#*"$header"$'\n'}"
+  if [[ "$input" == "$header" || -z "$mounts" ]]; then
+    printf '%s\n' "$header"
+    return 0
+  fi
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -n "$line" && "$line" =~ ^\{.*\}$ ]] || return 1
+  done <<<"${mounts%$'\n'}"
+  sorted="$(printf '%s' "$mounts" | LC_ALL=C sort)" || return 1
+  printf '%s\n%s\n' "$header" "$sorted"
+}
 
 operations_promotion_volume_facts() {
   local volume
@@ -31,6 +48,7 @@ operations_promotion_capture_postgres() {
   image_meta="$(operations_docker image inspect --format "$OPERATIONS_DRAIN_IMAGE_FORMAT" "$image")" || return 1
   [[ "$image_meta" =~ ^sha256:[a-f0-9]{64}/[a-f0-9]{40}/linux/amd64/(postgres|999|999:999)$ && "$image_meta" == "$image/$revision/"* ]] || return 1
   static="$(operations_docker container inspect --format "$OPERATIONS_PROMOTION_STATIC_FORMAT" "$id")" || return 1
+  static="$(operations_promotion_static_canonical "$static")" || return 1
   (( ${#static} > 0 && ${#static} <= 65536 )) || return 1
   volume_fact="$(operations_docker volume inspect --format "$OPERATIONS_POSTGRES_VOLUME_FORMAT" "$volume")" || return 1
   IFS=/ read -r name created rest <<<"$volume_fact"
@@ -59,12 +77,14 @@ operations_promotion_capture_postgres() {
 }
 
 operations_promotion_postgres_proof() {
-  local id="$1" phase="$2" expected network peers image
+  local id="$1" phase="$2" expected network peers image current_static
   [[ "$#" == 2 && "$id" =~ ^[a-f0-9]{64}$ && ( "$phase" == running || "$phase" == exited ) && -n "${OPS_PROMOTION_ACTORS[$id]:-}" ]] || return 1
   expected="${OPS_PROMOTION_ACTORS[$id]}"
   [[ "$phase" != exited ]] || expected="${expected/\/running\/true\//\/exited\/false\/}"
+  current_static="$(operations_docker container inspect --format "$OPERATIONS_PROMOTION_STATIC_FORMAT" "$id")" || return 1
+  current_static="$(operations_promotion_static_canonical "$current_static")" || return 1
   [[ "$(operations_docker container inspect --format "$OPERATIONS_DRAIN_ACTOR_FORMAT" "$id")" == "$expected" &&
-    "$(operations_docker container inspect --format "$OPERATIONS_PROMOTION_STATIC_FORMAT" "$id")" == "${OPS_PROMOTION_STATIC[$id]}" &&
+    "$current_static" == "${OPS_PROMOTION_STATIC[$id]}" &&
     "$(operations_docker ps --all --quiet --no-trunc --filter "label=com.docker.compose.project=${OPS_PROMOTION_PROJECTS[$id]}")" == "$id" &&
     "$(operations_docker ps --all --quiet --no-trunc --filter "volume=${OPS_PROMOTION_VOLUMES[$id]}")" == "$id" ]] || return 1
   image="${OPS_PROMOTION_IMAGES[$id]%%/*}"

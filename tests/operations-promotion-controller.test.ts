@@ -292,7 +292,19 @@ operations_docker() {
  case "$1 $2" in
   'container inspect')
    if [[ "$format" == "$OPERATIONS_DRAIN_ACTOR_FORMAT" ]]; then printf '%s' '${targetId}/${project}/postgres/${revision}/'"$image/$status/$running/false/false/false/postgres/2030-04-01T00:00:00Z";
-   elif [[ "$format" == "$OPERATIONS_PROMOTION_STATIC_FORMAT" ]]; then if [[ "$TASK_FAULT" == static && -e "$TASK_ROOT/stopped" ]]; then printf synthetic_changed_resource; else printf synthetic_static_facts; fi
+   elif [[ "$format" == "$OPERATIONS_PROMOTION_STATIC_FORMAT" ]]; then
+     h="synthetic_header"
+     m1='{"Destination":"/var/lib/postgresql","Driver":"local","Mode":"rw","Name":"data","Propagation":"","RW":true,"Source":"/data","Type":"volume"}'
+     m2='{"Destination":"/run/secrets/pg","Driver":"local","Mode":"ro","Name":"","Propagation":"","RW":false,"Source":"/sec","Type":"bind"}'
+     if [[ "$TASK_FAULT" == static && -e "$TASK_ROOT/stopped" ]]; then printf '%s\n' synthetic_changed_resource;
+     elif [[ "$TASK_FAULT" == mount-order ]]; then
+       if [[ -e "$TASK_ROOT/captured" ]]; then
+         printf '%s\n%s\n%s\n' "$h" "$m2" "$m1";
+       else
+         touch "$TASK_ROOT/captured";
+         printf '%s\n%s\n%s\n' "$h" "$m1" "$m2";
+       fi
+     else printf '%s\n%s\n%s\n' "$h" "$m1" "$m2"; fi
    elif [[ "$format" == '{{range $name,$network := .NetworkSettings.Networks}}{{println $name}}{{end}}' ]]; then printf '%s' '${project}-data';
    elif [[ "$format" == '{{.State.ExitCode}}/{{.State.OOMKilled}}' ]]; then printf 0/false;
    else trace unexpected; return 19; fi ;;
@@ -346,7 +358,7 @@ exit 1
   };
 }
 
-test.each(['none', 'stop-lost-ack', 'rm-lost-ack'])(
+test.each(['none', 'stop-lost-ack', 'rm-lost-ack', 'mount-order'])(
   'exact PostgreSQL actor retirement resolves %s once from fresh postconditions',
   async (fault) => {
     const f = await actorFixture(fault);
