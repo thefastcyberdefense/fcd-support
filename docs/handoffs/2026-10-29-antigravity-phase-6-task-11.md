@@ -1,9 +1,10 @@
-# Antigravity prompt: Task 11 promotion stability and local failure matrix
+# Antigravity prompt: Phase 6 local correction and integration evidence
 
 Copy the following instructions into Antigravity. This is a bounded local
-development assignment while Codex continues the separate synthetic server
-drill. Do not run SSH, deployments, public checks or live services from this
-assignment.
+development assignment while Codex investigates the preserved synthetic-server
+failure and prepares subsequent server evidence. The current server drill is
+blocked; Codex will review your correction before planning another fresh scope.
+Do not run SSH, deployments, public checks or live services from this assignment.
 
 ---
 
@@ -15,7 +16,59 @@ Codex is actively using the primary checkout and the local test server. Work
 in a separate Git worktree/checkout on a review branch, based on freshly fetched
 `origin/main`. Do not nest it inside the primary checkout, overwrite an existing
 directory, alter primary `main`, merge changes or perform any server action.
-Use branch prefix `codex/`, for example `codex/agy-p6-task11-failure-matrix`.
+Use branch prefix `codex/`, for example `codex/agy-p6-local-closeout`.
+
+## Work allocation and delivery order
+
+You own the following four local tasks on your review branch. Complete them in
+this order, using separate commits for independently reviewable changes. Codex
+owns server diagnosis, server action records, later deployment and final gate
+decisions. Do not edit `docs/TODO.md`, `docs/PROJECT_CONTEXT.md`,
+`docs/operations/phase-6-server-deployment.md` or `docs/operations/actions/`;
+these are Codex's active files. Read them for current context.
+
+1. **Promotion metadata stability:** implement the existing bounded correction
+   specification and plan, with deterministic RED/GREEN regressions and the
+   scoped real-Docker projection check. This is the first priority.
+2. **Task 11 interruption coverage:** produce the exact gap matrix below and
+   address demonstrated missing local regressions within the existing contract.
+   Never add a recovery authority or reopen a preserved server scope.
+3. **Tasks 12–14 integration readiness:** produce
+   `docs/testing/phase-6-tasks-12-14-integration-readiness.md`, linking each
+   required interface and local integration behavior to exact existing test
+   names and evidence. Add meaningful missing regressions and minimal fixes
+   within the already approved timer, health/dashboard and notification designs.
+   Keep server-only evidence explicitly pending. This is a bounded integration
+   check, not the Task 15 whole-phase review or a phase-completion decision.
+4. **Validation and review handoff:** run the relevant local gates, commit and
+   push the review branch, and write the results artifact described below. If
+   useful, open one draft PR covering these completed tasks. Do not merge it.
+
+For Task 3, check timer revision/lock/catch-up semantics, maintenance binding,
+database-outage health journaling, disabled-service status, private operations
+route authorization and socket isolation, and signed notification retry/dedup
+with erasure and authoritative-state preservation. Reuse existing tests instead
+of adding assertions solely to increase test counts. Use local fakes and the
+repository's isolated native/PostgreSQL lanes; never install systemd units,
+contact n8n or Manifest, or perform inference. Do not redesign interfaces or
+change limits, cadence, lifecycle policy or exposure.
+
+Finish with `docs/handoffs/2026-10-29-antigravity-phase-6-results.md` containing:
+
+- [ ] Full fetched base SHA, branch name, resulting commit SHAs and draft PR link
+      if created; list every changed file and its task.
+- [ ] RED command and decisive failure for each actual fix, followed by GREEN
+      evidence. A pre-existing passing test is cited coverage, not a RED result.
+- [ ] Exact final commands, exit outcomes, test counts, skips/platform limits and
+      real-Docker resource cleanup evidence. Distinguish historical evidence.
+- [ ] Completed and incomplete acceptance checkboxes for each of the four tasks;
+      exact unresolved behavior, authority boundary and next required proof.
+- [ ] Confirmation that no server/live-service action, primary-checkout/main
+      mutation, merge, journal settlement or phase/gate completion occurred.
+
+If a later task is blocked, finish earlier independent tasks and deliver their
+reviewable commits with the blocker documented. Do not keep the priority fix
+uncommitted while attempting a broader redesign.
 
 ## Current verified state
 
@@ -64,7 +117,7 @@ Use branch prefix `codex/`, for example `codex/agy-p6-task11-failure-matrix`.
 
 - [ ] Read the current repository instructions, `docs/PLAN.md`, `docs/TODO.md`,
   `docs/PROJECT_CONTEXT.md`, `docs/SYNTHETIC_FIXTURE_POLICY.md`, Task 11 and
-  Task 15 of `docs/superpowers/plans/2026-10-04-phase-6-hardened-local-operations.md`,
+  Tasks 12–15 of `docs/superpowers/plans/2026-10-04-phase-6-hardened-local-operations.md`,
   `docs/operations/runtime-deployment-safety.md`, and the latest entries in
   `docs/operations/phase-6-server-deployment.md`.
 - [ ] Read and implement the bounded correction in
@@ -109,9 +162,11 @@ Use branch prefix `codex/`, for example `codex/agy-p6-task11-failure-matrix`.
   an unbounded run previously caused five test timeouts. Keep Docker/PostgreSQL
   lanes sequential. Remove only verified resources owned by your synthetic
   tests; never prune globally or delete unknown volumes.
-- [ ] Update only your gap matrix and directly relevant test evidence on the
-  review branch. Do not mark tracker phases/gates complete or conduct the
-  whole-phase Task 15 review prematurely. Codex owns current server evidence.
+- [ ] Complete the Tasks 12–14 integration-readiness artifact and the results
+  artifact with the requirements above. Update only your assigned local source,
+  tests, matrices and directly relevant test evidence on the review branch. Do
+  not mark tracker phases/gates complete or conduct the whole-phase Task 15
+  review prematurely. Codex owns current server evidence.
 - [ ] Commit finished, validated branch work and push the review branch. You
   may open a draft PR for review, but do not merge or push to `main`. Report the
   exact base, commit/PR, test counts/skips, native evidence, findings and remaining
@@ -125,6 +180,9 @@ Use branch prefix `codex/`, for example `codex/agy-p6-task11-failure-matrix`.
   no changed/extra/missing/duplicate mount is hidden by normalization.
 - [ ] Every listed Task 11 requirement is either linked to concrete existing
   coverage or explicitly marked incomplete with a reason and next proof needed.
+- [ ] Every checked Tasks 12–14 interface and integration behavior has exact
+  local coverage or an explicit gap. Pending server proof stays pending, and
+  disabled services are not described as healthy or externally verified.
 - [ ] Added regressions exercise a real missing behavior, demonstrate the prior
   failure, and pass with the smallest permitted fix. Tests do not merely mirror
   implementation or weaken deadlines/assertions to obtain a pass.
@@ -140,7 +198,7 @@ Use branch prefix `codex/`, for example `codex/agy-p6-task11-failure-matrix`.
   production-number behavior.
 - [ ] No SSH/server, Meta, Manifest, n8n, provider, tunnel or production action
   occurs. No primary-checkout/main mutation occurs. Work is isolated and
-  reviewable while Codex continues the separate server drill.
+  reviewable while Codex owns the separate server investigation and later drill.
 - [ ] Final claims match actual executed checks, with exact counts and explicit
   limitations. Local passing checks do not become a P6/P7 or production pass.
 
