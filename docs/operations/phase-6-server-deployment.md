@@ -1752,3 +1752,33 @@ any stage, restart/clear a job, repair the pointer or infer rollback. The next
 local Task 11 correction must retain all observations and security checks while
 comparing unordered mounts semantically, with deterministic regressions and
 fresh CI before another separately recorded server drill. Phase 6 is not done.
+
+### Independent event-history follow-up and local work allocation
+
+A subsequent read-only probe on 2026-10-29 bound the uncertain `promote` job to
+its protected journal and queried Docker lifecycle events for that exact actor,
+from ten seconds before the attempt marker to sixty seconds after the uncertain
+journal's modification time. Docker returned zero events. Retained event
+history may be incomplete; this is neither an exit receipt nor evidence that
+the actor never started. No raw event attributes, actor IDs, references or
+message content were emitted. All current-scope state-file identities and
+hashes matched before and after, the rollback-attempt marker remained absent,
+and the full saved old-scope preservation audit passed before and after.
+
+Code inspection of `operations_job_uncertain` shows that the controller can
+stop and remove an exactly verified owned actor while retaining the uncertain
+durable job record. Consequently, actor absence is consistent with containment
+after a failure and does not establish its cause or SQL outcome. No historical
+termination receipt or failure-stage proof was recovered. Future fresh-action
+diagnostics should capture bounded, content-free lifecycle and protocol-stage
+evidence before an actor can be removed, without changing public controller
+checks or treating diagnostic observations as recovery authority.
+
+The owner requested a larger Antigravity assignment. The handoff committed at
+`15a2b55` assigns four isolated local tasks: the existing metadata-stability
+correction, exact Task 11 gap coverage, Tasks 12–14 integration readiness, and
+validated review-branch delivery. Codex retains server diagnosis/action records
+and later deployment/gate decisions. Antigravity must not edit the active
+tracker/context/server-action files, touch the server or merge its branch.
+This records the assignment, not an assertion that Antigravity has started or
+completed it. All uncertain scopes remain preserved.
