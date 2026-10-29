@@ -64,6 +64,31 @@ for kind in drain adoption; do
   [[ "$(docker container inspect --format "$format" "$scope")" == "$projection_volume /var/lib/postgresql true" ]] || { printf 'docker_%s_mount_projection_failed\n' "$kind" >&2; exit 1; }
   printf 'docker_%s_mount_projection_passed=true\n' "$kind"
 done
+docker rm "$scope" >/dev/null
+docker create --name "$scope" --label "fcd-support.projection-test=$scope" \
+  --network none --read-only --user 1000:1000 --cap-drop ALL --security-opt no-new-privileges \
+  --cpus 0.25 --memory 128m --pids-limit 32 \
+  --mount "type=volume,src=$projection_volume,dst=/var/lib/postgresql" \
+  --mount "type=bind,src=$native_root/package.json,dst=/run/secrets/restore-postgres-password,readonly" \
+  node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d >/dev/null
+docker container inspect --format "$OPERATIONS_RUNTIME_CONTAINER_FORMAT" "$scope" | \
+  node --input-type=module -e '
+    let text="";for await(const b of process.stdin)text+=b;
+    const c=JSON.parse(text);
+    if(c.mounts.length!==2)process.exit(1);
+    const m1=c.mounts[0], m2=c.mounts[1];
+    const canonicalMount = (m) => JSON.stringify({destination:m.destination,name:m.name,propagation:m.propagation,readWrite:m.readWrite,source:m.source,type:m.type});
+    const canonicalMounts = (list) => {
+      const keys = list.map(canonicalMount);
+      if (new Set(keys).size !== keys.length) throw new Error("duplicate");
+      return [...list].sort((a,b)=>canonicalMount(a).localeCompare(canonicalMount(b)));
+    };
+    const s1 = JSON.stringify(canonicalMounts([m1, m2]));
+    const s2 = JSON.stringify(canonicalMounts([m2, m1]));
+    if (s1 !== s2) process.exit(1);
+    try { canonicalMounts([m1, m1]); process.exit(1); } catch {}
+  '
+printf 'docker_promotion_mount_projection_passed=true\n'
 cleanup
 if [[ "$(uname -s)" != Linux ]]; then
   printf 'docker_single_job_create_skipped=linux-only\n'

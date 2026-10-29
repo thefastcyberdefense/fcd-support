@@ -71,7 +71,7 @@ operations_promotion_host_binds() {
 }
 
 operations_promotion_host_snapshot() {
-  local source target job source_image target_image runtime_image source_networks='' target_network role separator='' source_volume target_volume archive_volume source_actors target_actors job_actors target_id source_system target_system environment labels binds
+  local source target job source_image target_image runtime_image source_networks='' target_network role separator='' source_volume target_volume archive_volume source_actors target_actors job_actors target_id source_system target_system environment labels binds source_terminal target_terminal
   operations_promotion_host_context || return 1
   source_actors="$(operations_docker ps --all --quiet --no-trunc --filter "label=com.docker.compose.project=${OPS_CONFIG[FCD_RUNTIME_PROJECT]}")" || return 1
   [[ "$source_actors" == "$OPS_PH_SOURCE" ]] || return 1
@@ -99,11 +99,11 @@ operations_promotion_host_snapshot() {
   # Only physical pg_controldata is executed here; the job owns checkpoint/SQL.
   source_system="$(operations_read_database_control_identifier "$OPS_PH_SOURCE")" || return 1
   target_system="$(operations_read_database_control_identifier "$target_id")" || return 1
-  [[ "$(operations_docker container inspect --format "$OPERATIONS_RUNTIME_CONTAINER_FORMAT" "$OPS_PH_SOURCE")" == "$source" &&
-    "$(operations_docker container inspect --format "$OPERATIONS_RUNTIME_CONTAINER_FORMAT" "$target_id")" == "$target" ]] || return 1
+  source_terminal="$(operations_docker container inspect --format "$OPERATIONS_RUNTIME_CONTAINER_FORMAT" "$OPS_PH_SOURCE")" || return 1
+  target_terminal="$(operations_docker container inspect --format "$OPERATIONS_RUNTIME_CONTAINER_FORMAT" "$target_id")" || return 1
   operations_promotion_host_context || return 1
-  printf '{"source":{"postgres":%s,"image":%s,"networks":[%s],"volume":%s,"projectActors":["%s"],"systemIdentifier":"%s","selectionReference":"%s"},"target":{"postgres":%s,"image":%s,"network":%s,"volume":%s,"projectActors":["%s"],"systemIdentifier":"%s"},"job":%s,"jobEnvironment":%s,"jobLabels":%s,"jobProjectActors":["%s"],"runtimeImage":%s,"archiveVolume":%s,"hostBinds":%s}' \
-    "$source" "$source_image" "$source_networks" "$source_volume" "$source_actors" "$source_system" "$OPS_PH_SELECTION" "$target" "$target_image" "$target_network" "$target_volume" "$target_actors" "$target_system" "$job" "$environment" "$labels" "$job_actors" "$runtime_image" "$archive_volume" "$binds"
+  printf '{"source":{"postgres":%s,"terminal":%s,"image":%s,"networks":[%s],"volume":%s,"projectActors":["%s"],"systemIdentifier":"%s","selectionReference":"%s"},"target":{"postgres":%s,"terminal":%s,"image":%s,"network":%s,"volume":%s,"projectActors":["%s"],"systemIdentifier":"%s"},"job":%s,"jobEnvironment":%s,"jobLabels":%s,"jobProjectActors":["%s"],"runtimeImage":%s,"archiveVolume":%s,"hostBinds":%s}' \
+    "$source" "$source_terminal" "$source_image" "$source_networks" "$source_volume" "$source_actors" "$source_system" "$OPS_PH_SELECTION" "$target" "$target_terminal" "$target_image" "$target_network" "$target_volume" "$target_actors" "$target_system" "$job" "$environment" "$labels" "$job_actors" "$runtime_image" "$archive_volume" "$binds"
 }
 
 operations_promotion_host_secrets() {
