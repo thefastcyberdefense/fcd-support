@@ -26,5 +26,8 @@ tests/433 platform skips across 125 files; native validation passed 1,258 tests
 across 55 files and 139 PostgreSQL tests/one restore-only skip across 13 files.
 All 41 subnet cases and real Docker checks passed; synthetic project cleanup
 reported zero remaining resources. The first native fixture-bootstrap failure
-was corrected before those final results. Commit/push, exact-revision CI and
-the separately recorded server action remain to be completed.
+was corrected before those final results. Step 4 completed at pushed commit
+`6faff8b`; all four exact-source GitHub workflows passed. Step 5's fresh server
+action is recorded separately, including preservation of the old admission
+snapshot and a separately verified current baseline after start-time drift.
+Server execution remains pending; no Phase 6 gate is claimed.

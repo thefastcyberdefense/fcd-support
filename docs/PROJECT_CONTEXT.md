@@ -2,6 +2,15 @@
 
 Last reviewed: 2026-10-29 (Asia/Dhaka)
 
+Commit `6faff8b` is pushed and all four exact-source GitHub workflows passed.
+The next fresh synthetic server action is recorded in
+`docs/operations/phase-6-server-deployment.md` and has not yet executed. The
+original admission snapshot has start-time drift; its actor IDs, recorded
+versions/properties and original PostgreSQL volume still match. Current metadata
+is stable, but host/Docker clock evidence is inconsistent by about a minute.
+Preserve the original snapshot and all uncertain jobs; bind the new action to
+a separate verified current baseline. No journal settlement is implied.
+
 The synthetic server's default Docker address pool is exhausted. An optional
 protected restore subnet now checks host routes and interfaces before mutation
 and again before network creation, then verifies the actual bridge identity and

@@ -1,5 +1,14 @@
 # Fast Cyber Defense Support Task Tracker
 
+- Exact-source CI and next host action (2026-10-29 Asia/Dhaka): restore-subnet
+  commit `6faff8b` passed all four GitHub workflows. The recorded next action
+  creates a fresh private synthetic project with explicit bridge subnets and
+  preserves all uncertain jobs/databases. Read-only checks found unchanged
+  admission actor IDs and definitions but changed start times, with inconsistent
+  host/Docker wall-clock evidence after a newer reported boot. Preserve the old
+  snapshot and verify a separate current baseline; this does not settle SQL jobs.
+  The fresh server action is recorded but has not yet run.
+
 - Restore network capacity work (2026-10-29 Asia/Dhaka): an optional protected
   restore subnet lets a fresh isolated target avoid an exhausted Docker default
   pool. Host route/interface checks run before intent and again before bridge

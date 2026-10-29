@@ -1409,3 +1409,105 @@ occupied `198.18.240.0/24`. These are point-in-time checks, not a network
 reservation or a deployment. Exact-revision GitHub checks and a separately
 committed server action remain required. No job was retried or settled, and no
 production, provider or customer traffic was used.
+
+### Fresh independent deployment action at 6faff8b
+
+Execute only after all four GitHub workflows pass for exact source
+`6faff8b37c6bd6d867c2cace30bdb0bc88578561` and this action record is committed
+and pushed. Use `redwan@192.168.10.40`, UID/GID 1000, and the existing clean
+checkout `/home/redwan/apps/fcd-support` at
+`b0ba255016100a733887fe0e61f8f5065b1a1e86`. Require the local Docker daemon,
+Docker root `/var/lib/docker`, and at least 12 GiB free there. Require no
+container bind mount to overlap the checkout and no running operations job.
+Keep command output in new owner-only action logs, with closed results only.
+
+All four exact-source workflows passed: CI `40841770778`, PostgreSQL/native
+operations `40841770849`, CodeQL `40841770958` and private runtime controller
+`40841771071`. These remote checks do not themselves execute this server action.
+
+Before mutation, preserve the original admission snapshot and verify its actor
+IDs and running states. The start-time drift documented below must not be
+silently overwritten. After rechecking recorded image/version, read-only-root,
+zero-host-port and original PostgreSQL-volume properties, save a separate
+owner-only current admission metadata baseline in the new action directory.
+Compare that baseline after each stage, and require the old snapshot file hash
+unchanged. Sample protected prior synthetic state/history files and existing
+source/target actor, volume and network identities without displaying file
+contents or reference values. In particular, preserve the entire `b0ba255`
+uncertain promotion, its job override and completed restore record, and both
+healthy databases. Preserve the older `8ccb9a0` quiescent source, uncertain
+restore job, original intent/abandonment history and healthy `r2` target, plus
+all earlier fixture history. Require the same samples after each stage and at
+the end; refuse unavailable evidence or drift. Do not resolve, replay or reuse
+any old job or target.
+
+The only new runtime project is `fcd-support-host-test-p6-6faff8b`, under
+`/home/redwan/fcd-support-host-test-p6-6faff8b`. Its future target project is
+`fcd-support-restore-host-test-p6-6faff8b`. Require both namespaces, fixture
+root, source/backup/target volumes, eight named bridges, restore bridge and
+candidate image tags to be absent. Create a separate initially absent,
+owner-only `/home/redwan/fcd-support-p6-action-6faff8b` log directory. Fetch
+synchronized `main` and check out only the exact source above; refuse local
+changes rather than resetting them. Existing admission actors continue using
+their retained built images.
+
+Check the complete `198.18.224.0/20` test block against current Docker IPAM,
+non-default IPv4 routes in every host table and IPv4 interface networks.
+Require no overlap and available bounded inventory. Create eight dedicated
+bridge networks in order from `198.18.224.0/24` through `198.18.231.0/24`,
+repeating the individual subnet check and name-absence check immediately before
+each creation. The first six are internal, named with the new project and
+`webhook-data`, `admin-data`, `reply-data`, `outbound-data`, `notification-data`
+and `operations-data`. Label each with the exact synthetic project, Compose
+project and corresponding underscore-form Compose network name. The seventh
+is the internal project ingress bridge; the eighth is its non-internal egress
+bridge. Both carry the exact synthetic-project label. Verify returned immutable
+IDs, default single-subnet IPAM, exact requested subnet and zero membership.
+Do not change Docker's default pool or any existing network.
+
+Validate the eight bridges with the committed precreated-network guard. Then
+run once, with closed stdin and private diagnostics:
+
+```sh
+bash scripts/test-synthetic-runtime-deployment.sh \
+  6faff8b37c6bd6d867c2cace30bdb0bc88578561 --synthetic-precreated
+```
+
+The committed harness creates fresh synthetic credentials and pinned images,
+deploys in private-disabled mode and checks the operator deploy/verify commands,
+private HTTP 403/404/401, admin Unix-socket login 200 and protected socket
+ownership. Independently require four healthy runtime actors, READY selection,
+no active job and matching preserved-state/admission samples. Retain a
+successful new synthetic runtime for the following backup/restore matrix.
+
+A refusal, interruption, lost acknowledgement or changed evidence stops the
+action. Preserve all new and old resources and diagnostics; do not retry,
+clear state, infer an outcome or switch to an older database. The existing
+admission stack is unaffected by this separate project, so no admission
+rollback is part of this action. It performs no restore, promotion, provider
+traffic, tunnel change or production action. Using `198.18.232.0/24` as a
+future explicit restore subnet requires a separate recorded action and fresh
+overlap/absence checks; this sample does not reserve that subnet.
+
+### Read-only admission snapshot drift before the fresh action
+
+The original `b0ba255` admission snapshot no longer matches container start
+times. All three immutable container IDs and running states still match. The
+host reports a current boot later than the snapshot file's modification time;
+the Docker start timestamps are about 69 seconds earlier than that reported
+boot time. This inconsistent wall-clock evidence does not establish an exact
+restart sequence or settle any interrupted job.
+
+Independent bounded checks found two stable current metadata samples: the API
+and tunnel retain the recorded `207a5e6` image references, PostgreSQL uses a
+pinned `18.4` reference and reports version `18.4`, all three actors are healthy
+with read-only roots and zero host ports, and PostgreSQL retains the original
+named volume. The latest and older synthetic job records and their overrides
+passed protected-file/state checks, and the latest completed restore record
+remains. No restart, state repair or new deployment was performed.
+
+The fresh action above preserves the original snapshot and records a separate
+current metadata baseline only after those identity/definition checks pass
+again. Require both the old file's preservation and the new baseline's stability
+throughout the action. Neither baseline proves SQL-job termination or permits
+clearing uncertainty.
