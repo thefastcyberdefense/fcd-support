@@ -1572,3 +1572,47 @@ without writing files, starting containers or changing journals. It cannot
 repeat deployment or settle any job. This is the preservation check for later
 separately recorded drills; run `--audit`, never `--execute`, after this completed
 single-use action.
+
+### Fresh 6faff8b backup/replay action
+
+After this record and `docs/operations/actions/2026-10-29-backup-replay-6faff8b.sh`
+are committed and pushed, use only exact source
+`6faff8b37c6bd6d867c2cace30bdb0bc88578561` and the READY synthetic project
+`fcd-support-host-test-p6-6faff8b`. Its four source actors must be healthy and
+private, with no active job; the fresh restore target must remain absent. Run
+the deployment executor's read-only `--audit` before and after this drill to
+recheck the entire old-state baseline. Preserve all old journals and stopped
+targets; never execute the old deployment again.
+
+The single-use backup script requires a local daemon, the exact clean source,
+the new project's retained operations image without implicit volumes, the
+existing labelled backup volume and its exact Docker-root mountpoint, and the
+protected new recovery-HMAC file. It creates only a new owner-only
+`/home/redwan/fcd-support-p6-action-6faff8b/backup-replay` evidence directory.
+It reads the initial pre-migration archive, runs the existing public scheduler
+`scripts/run-operation.sh backup <revision> <new-config>` once, verifies the
+runtime and signed metadata, then repeats in the same UTC day/month and compares
+the complete authenticated metadata byte-for-byte. No settings or limits change.
+
+Each metadata reader is a fresh named, labelled, non-root, networkless,
+read-only, resource-limited container. It has exactly two read-only bind mounts:
+the existing backup volume's mountpoint and the new project's recovery-HMAC
+file. It receives no database, restore identity, provider key or customer data.
+Before start, verify its actual identity, user, network, ports and two mounts;
+remove only that exact exited, successful reader. The existing manifest reader
+verifies HMAC and ciphertext digest without decrypting an archive. Manifests,
+references, hashes and key material must never be printed or committed; only
+closed outcomes are reported. All reader and scheduler diagnostics remain private.
+
+Require one pre-migration, one daily and one monthly signed archive, with daily
+and monthly matching the exact source/schema. Replay must retain identical
+authenticated metadata. The script checks preserved prior file and actor
+identity/start/state metadata at each boundary, and runs public runtime
+verification after each scheduler activation. Final full read-only audit must
+pass, with READY/no job and the fresh restore target still absent. A refusal,
+uncertain job, clock-period change or lost acknowledgement stops this action;
+preserve the evidence and do not rerun the single-use script or clear state.
+No restore, promotion, rollback, tunnel, live provider or production action is
+included. The signed-reader library's malformed/tampered cases already pass
+the exact-source unit/native gates; this wrapper must pass shell and embedded
+JavaScript syntax checks before execution. Actual server execution is pending.
