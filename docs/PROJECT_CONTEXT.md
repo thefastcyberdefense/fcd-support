@@ -8,8 +8,13 @@ explicit bridges, pinned builds, private-disabled deploy/verify and private
 HTTP/socket checks passed; both final acknowledgements confirmed verification
 and preserved prior fingerprints. An independent check found four healthy
 private actors, READY/no job, a protected admin socket/login, unchanged prior
-state files and an absent fresh restore target. Backup/replay and fresh
-restore/promotion/rollback remain next; Phase 6 is still open.
+state files and an absent fresh restore target. The `cda55ed` backup/replay
+action subsequently passed: three signed archives retained identical
+authenticated metadata after replay, runtime verification and full preservation
+audits passed, and independent checks confirmed private evidence, READY/no job,
+removed metadata readers and an absent target. Fresh checkpoint/isolated
+restore/promotion/rollback and the remaining failure matrix are next; Phase 6
+is still open.
 
 The preservation rules are recorded in
 `docs/operations/phase-6-server-deployment.md`. The

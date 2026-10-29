@@ -32,6 +32,8 @@ action is recorded separately, including preservation of the old admission
 snapshot and a separately verified current baseline after start-time drift.
 The `9c2e404` action completed the fresh synthetic deployment at source
 `6faff8b`, with both final success acknowledgements and an independent readiness,
-privacy and prior-state preservation check. Fresh backup/replay,
-restore/promotion/rollback and the remaining failure matrix remain pending;
-no Phase 6 gate is claimed.
+privacy and prior-state preservation check. The `cda55ed` backup/replay action
+also passed with three signed archives and identical authenticated replay
+metadata, followed by an independent private-evidence/readiness check.
+Fresh checkpoint/restore/promotion/rollback and the remaining failure matrix
+remain pending; no Phase 6 gate is claimed.

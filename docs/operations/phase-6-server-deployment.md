@@ -1616,3 +1616,21 @@ No restore, promotion, rollback, tunnel, live provider or production action is
 included. The signed-reader library's malformed/tampered cases already pass
 the exact-source unit/native gates; this wrapper must pass shell and embedded
 JavaScript syntax checks before execution. Actual server execution is pending.
+
+### Fresh 6faff8b backup/replay result
+
+On 2026-10-29 (Asia/Dhaka), the exact action committed at `cda55ed` passed on
+the fresh `6faff8b` synthetic runtime. The networkless reader verified the
+initial pre-migration archive, then the scheduler created and verified daily
+and monthly backups. Its second activation retained the same three signed
+archives with identical authenticated metadata. Runtime verification passed
+after each activation. Full saved-baseline audits passed before and after;
+the script's prior-file and actor checks also passed at each boundary.
+
+An independent read-only check confirmed private evidence-directory/file
+permissions, identical three-archive replay metadata, four healthy source
+actors, READY/no job, removal of the three successful metadata readers and
+absence of the fresh restore volume and bridge. No settings, checkpoint,
+restore, promotion, rollback, public route or live provider were changed.
+Fresh checkpoint/isolated restore/promotion/rollback and the remaining
+interruption/failure matrix are still required for Phase 6.

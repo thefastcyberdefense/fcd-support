@@ -1,5 +1,14 @@
 # Fast Cyber Defense Support Task Tracker
 
+- Fresh backup/replay result (2026-10-29 Asia/Dhaka): the `cda55ed` action passed
+  on the fresh `6faff8b` server scope. Three signed archives verified and retained
+  identical authenticated metadata after scheduler replay; runtime verification
+  and full preservation audits passed. Independent checks found private evidence,
+  four healthy actors, READY/no job, removed metadata readers and an absent fresh
+  restore target. No settings, restore, promotion or provider action occurred.
+  Fresh checkpoint/restore/promotion/rollback and the remaining Task 11 failure
+  matrix remain next; P6-GATE is still open.
+
 - Fresh private deployment result (2026-10-29 Asia/Dhaka): the committed
   `9c2e404` action deployed exact `6faff8b` in the fresh synthetic server scope.
   Eight explicit bridges, pinned images, deploy/verify, private HTTP and admin
