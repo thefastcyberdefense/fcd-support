@@ -1668,3 +1668,55 @@ replacement or acknowledgement stops the action and preserves all files; no
 automatic reversal or retry is permitted. This action performs no checkpoint,
 SQL job, restore, promotion, rollback, network creation, provider or production
 operation. The later fresh restore drill requires its own committed action.
+
+### Fresh restore preparation result and staged drill action
+
+The `e930e5b` preparation action passed on 2026-10-29 (Asia/Dhaka). It retained
+the original settings and simulations, changed only the two recorded synthetic
+settings, passed the real host parser and retained READY/no job. Full saved
+preservation audits passed before and after. No checkpoint or SQL job ran.
+
+After this record and `docs/operations/actions/2026-10-29-restore-drill-6faff8b.sh`
+are committed and pushed, execute its stages once, in order: `restore`,
+`promote`, then `rollback`. Use only the exact clean `6faff8b` source, the new
+synthetic project, protected prepared settings and signed daily backup selected
+from the successful private replay evidence. The stage driver requires actual
+settings to match the validated private simulations. Markers describe attempts
+and acknowledgements; they never replace the controllers' journal, physical
+identity or fresh-proof checks. Refuse existing attempt markers and preserve
+them on failure; do not rerun a stage.
+
+Before and after each successful stage, run the deployment executor's full
+read-only `--audit`. Require old journals, original admission snapshot,
+current admission baseline and prior actor/network/volume metadata unchanged;
+the old restore targets must remain stopped. Stop the sequence on any refusal,
+uncertain journal, lost acknowledgement, failed audit or changed evidence.
+
+The `restore` stage requires the fresh project/volume/bridge absent and the
+explicit `198.18.232.0/24` subnet available. It publicly verifies the READY
+runtime, preserves its selected identity privately, and exports one fresh
+checkpoint using the existing scheduler's protected configuration, deployment
+lock, Ready/physical identity and retained-image checks with the narrow
+`checkpoint export-checkpoint-reference` job. Then run `restore-runtime.sh`
+once with that checkpoint, the selected signed daily backup and prepared
+configuration. The existing restore implementation independently checks the
+signed manifest, ciphertext digest and verified authoritative backup catalog.
+Require its completed protected restore record, quiescent source and no active
+job. This stage does not attach application writers to the target.
+
+Only after restore succeeds, `promote` invokes the existing fresh-checkpoint,
+two-challenge promotion controller and public runtime verification. Require
+READY on the fresh restored volume with a physical system identifier distinct
+from the original source and the original volume retained as provenance.
+Only then may `rollback` invoke the retained same-revision, exact-schema
+compatibility command and public verification. It must preserve the selected
+restored volume and physical identity; it does not restore old data or select
+the old source volume. Verify both named volumes remain present.
+
+Keep all references, metadata and diagnostics in the private restore-drill
+directory, with only closed outcomes printed. The stage driver's shell and
+embedded Python syntax must pass before execution. A failure preserves both
+databases, volumes, networks, files and uncertainty; there is no automatic
+rollback, cleanup, retry or selection repair. No provider, public tunnel,
+production asset or customer-data action is included. This drill alone cannot
+complete the remaining interruption matrix or P6-GATE.
