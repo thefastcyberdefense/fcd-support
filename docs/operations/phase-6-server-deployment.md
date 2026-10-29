@@ -1361,3 +1361,21 @@ override. Do not retry promotion, clear the journal, repair the selection or
 infer rollback. Diagnose the refusal with content-free read-only evidence and
 design any supported settlement separately. Phase 6 and its failure matrix
 remain open; no live provider or customer traffic was used.
+
+Read-only diagnosis found no currently matching operation backend or prepared
+transaction on either synthetic database, and the target lacked the promotion
+verification binding. Docker's journal recorded deletion of the exact task but
+contained no exit status. These point-in-time observations do not settle the job.
+The old promotion host secret guard also refused the preserved fixture because
+it expected UID 1000 for PostgreSQL password files owned by UID 999. A real
+Docker regression reproduced that refusal; the role-specific correction is
+under validation. A separate read-only render of the preserved promotion job
+showed its checkpoint root is `/var/lib/fcd-support/backups`, while the old
+host validator expected a `checkpoints` subdirectory. A Compose-linked regression
+reproduced that mismatch. Both fixes passed local validation: the full code gate
+passed 1,801 tests with 423 platform skips; native operations passed 1,198 tests
+and 139 PostgreSQL tests with one restore-only skip; the separate restore gate
+passed 250 tests and 47 PostgreSQL tests. Real Docker ownership and negative
+cases passed, the updated guard accepted the preserved metadata read-only, and
+synthetic test projects were cleaned up. Exact-revision GitHub checks remain
+pending. The removed job's exact failure point remains unknown.

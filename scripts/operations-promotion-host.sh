@@ -107,11 +107,15 @@ operations_promotion_host_snapshot() {
 }
 
 operations_promotion_host_secrets() {
-  local secret
+  local secret owner
   # Resolve only fixed credential paths; no secret bytes are read or emitted.
   for secret in restore/restore-checkpoint-database restore/restore-database restore/restore-keyring verify-backup/restore-identity backup/recovery-hmac postgres/postgres-password restore/restore-postgres-password; do
+    case "$secret" in
+      postgres/postgres-password|restore/restore-postgres-password) owner=999:999 ;;
+      *) owner=1000:1000 ;;
+    esac
     secret="${OPS_CONFIG[FCD_SECRET_ROOT]}/$secret"
-    [[ -f "$secret" && ! -L "$secret" && "$(realpath -e -- "$secret" 2>/dev/null)" == "$secret" && "$(stat -c '%u:%g:%h' -- "$secret")" == 1000:1000:1 && ( "$(stat -c '%a' -- "$secret")" == 600 || "$(stat -c '%a' -- "$secret")" == 400 ) ]] && operations_protected_ancestors "$(dirname -- "$secret")" || return 1
+    [[ -f "$secret" && ! -L "$secret" && "$(realpath -e -- "$secret" 2>/dev/null)" == "$secret" && "$(stat -c '%u:%g:%h' -- "$secret")" == "$owner:1" && ( "$(stat -c '%a' -- "$secret")" == 600 || "$(stat -c '%a' -- "$secret")" == 400 ) ]] && operations_protected_ancestors "$(dirname -- "$secret")" || return 1
   done
 }
 

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { expect, test } from 'vitest';
 import { inspectPromotionHostSamples } from '../src/operations/promotion-host.js';
 
@@ -167,7 +168,7 @@ function fixture(createdAt = '2030-01-01T00:00:00Z') {
     MODEL_EXECUTION_ENABLED: 'false',
     OUTBOUND_EXECUTION_ENABLED: 'false',
     N8N_EXECUTION_ENABLED: 'false',
-    CHECKPOINT_ARCHIVE_DIRECTORY: '/var/lib/fcd-support/backups/checkpoints',
+    CHECKPOINT_ARCHIVE_DIRECTORY: '/var/lib/fcd-support/backups',
   };
   const job = {
     ...base,
@@ -298,6 +299,22 @@ function inspect(f: ReturnType<typeof fixture>) {
     f.options,
   );
 }
+test('accepts the checkpoint path supplied by restore Compose and rejects a substituted path', () => {
+  const source = readFileSync('infra/compose.restore.yml', 'utf8');
+  const paths = [
+    ...source.matchAll(/^ {6}CHECKPOINT_ARCHIVE_DIRECTORY: (\/[A-Za-z0-9._/-]+)[ \t]*\r?$/gmu),
+  ];
+  expect(paths).toHaveLength(1);
+  const checkpointPath = paths[0]?.[1];
+  if (checkpointPath === undefined) throw new Error('compose_checkpoint_path_missing');
+  const actual = fixture();
+  actual.snapshot.jobEnvironment.CHECKPOINT_ARCHIVE_DIRECTORY = checkpointPath;
+  expect(inspect(actual)).toEqual(actual.options.expectedHost);
+  const substituted = fixture();
+  substituted.snapshot.jobEnvironment.CHECKPOINT_ARCHIVE_DIRECTORY = `${checkpointPath}/checkpoints`;
+  expect(() => inspect(substituted)).toThrow(/^promotion_host_invalid$/u);
+});
+
 test('accepts only the exact live narrow promotion job on both private bridges and retains canonical target identity', () => {
   const f = fixture();
   expect(inspect(f)).toEqual(f.options.expectedHost);

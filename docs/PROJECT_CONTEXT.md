@@ -2,6 +2,19 @@
 
 Last reviewed: 2026-10-29 (Asia/Dhaka)
 
+Promotion diagnosis found no currently matching database backends, prepared
+transactions or committed promotion-verification binding. Docker's journal
+recorded deletion of the exact task without an exit status. These observations
+do not settle the job or prove its outcome. The original host guard also
+reproducibly rejects the correctly UID-999-owned PostgreSQL password files. Its
+checkpoint path also disagrees with the rendered promotion job. Both corrections
+passed local validation: 1,801 code tests/423 platform skips, 1,198 native
+tests, 139 PostgreSQL tests/one restore-only skip, and a separate 250-test
+restore lane plus 47 PostgreSQL tests. Real Docker ownership/negative cases and
+the updated read-only server metadata guard passed; synthetic test projects
+were cleaned up. Exact-revision GitHub checks remain pending. The removed job's
+exact failure point remains unknown, and all uncertain state stays preserved.
+
 The fresh `b0ba255` synthetic restore completed, but promotion refused. The
 selection and promotion job are uncertain and the state records writes as
 possible; both synthetic PostgreSQL actors remain healthy. The recorded job

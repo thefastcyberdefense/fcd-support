@@ -494,7 +494,7 @@ function check(s: z.infer<typeof snapshot>, o: Options) {
     RESTORE_TARGET_SERVICE_ALIAS: 'fcd-support-restore-postgres',
     ...Object.fromEntries(Object.entries(files).map(([k, [, v]]) => [k, `/run/secrets/${v}`])),
     ...Object.fromEntries(flags.map((k) => [k, 'false'])),
-    CHECKPOINT_ARCHIVE_DIRECTORY: '/var/lib/fcd-support/backups/checkpoints',
+    CHECKPOINT_ARCHIVE_DIRECTORY: '/var/lib/fcd-support/backups',
   };
   const imageEnvironment: Readonly<Record<string, RegExp>> = {
     PG_MAJOR: /^18$/u,
