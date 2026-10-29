@@ -1,14 +1,21 @@
 # Project Context
 
-Last reviewed: 2026-10-28 (Asia/Dhaka)
+Last reviewed: 2026-10-29 (Asia/Dhaka)
 
-The fresh `b0ba255` synthetic host passed the recorded backup/replay action:
+The fresh `b0ba255` synthetic restore completed, but promotion refused. The
+selection and promotion job are uncertain and the state records writes as
+possible; both synthetic PostgreSQL actors remain healthy. The recorded job
+container is absent, while its override and the completed restore record remain.
+The older uncertain restore and admission baseline are unchanged. No rollback
+was attempted. Preserve both databases and all journals; diagnose before any
+supported settlement or retry. Phase 6 is not complete.
+
+Before that restore, the fresh `b0ba255` host passed the backup/replay action:
 three signed archives verified and retained identical authenticated metadata and
 identities after replay. An empty, exact-ID default-pool capacity canary passed
 and was removed. Independent checks found the source READY with no active job,
-the new restore target absent, private evidence files, the older uncertain job
-preserved and the admission baseline unchanged. Fresh restore/promotion and the
-Phase 6 failure matrix remain open.
+the then-absent restore target, private evidence files, the older uncertain job
+and the admission baseline. Promotion and the Phase 6 failure matrix remain open.
 
 Exact source `b0ba255` passed its recorded fresh synthetic deployment on the
 local server after all four GitHub workflows passed. Eight precreated bridges,
@@ -17,7 +24,8 @@ check confirmed four healthy actors, READY state without an active job, a
 protected admin socket/login, and private HTTP responses 403/404/401. The old
 uncertain restore state, target fingerprints and admission baseline remained
 unchanged. No restore, promotion, rollback, live provider or customer traffic
-occurred. Fresh host restore/promotion and the Phase 6 failure matrix remain open.
+occurred at that deployment checkpoint. Promotion and the Phase 6 failure matrix
+remain open.
 
 At `1446888`, both private-runtime CI variants and CodeQL passed. General CI's
 Docker projections passed before a stopped-job creation failure about 16.1

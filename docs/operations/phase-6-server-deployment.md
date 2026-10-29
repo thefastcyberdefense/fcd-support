@@ -1338,3 +1338,26 @@ This is a private synthetic test only. It does not contact Meta, Manifest, n8n
 or another provider, expose a tunnel, use customer traffic or change production
 assets. Passing this drill alone does not complete the Phase 6 failure matrix or
 gate.
+
+### Fresh synthetic restore and uncertain promotion result
+
+On 2026-10-28 (Asia/Dhaka), the recorded action selected a signed daily backup
+with a verified catalog entry, safely changed the synthetic restore-only
+checkpoint-age setting after testing the update, exported a fresh checkpoint,
+and rechecked target-network capacity. The public restore completed and wrote
+its completed restore record. The subsequent promotion returned
+`operations_promotion_refused`; no rollback was attempted.
+
+Read-only follow-up on 2026-10-29 found the new selection and promotion job
+both marked uncertain, with `STATE_WRITES_POSSIBLE=yes`. Both synthetic source
+and restored PostgreSQL actors were healthy. The promotion job's recorded
+container was absent, its override remained, and the completed restore record
+remained. The earlier `8ccb9a0` uncertain job and admission baseline were also
+preserved. The absence of the actor does not establish whether promotion had
+side effects or which database is authoritative.
+
+Preserve both databases, volumes, networks, settings, restore record, job and
+override. Do not retry promotion, clear the journal, repair the selection or
+infer rollback. Diagnose the refusal with content-free read-only evidence and
+design any supported settlement separately. Phase 6 and its failure matrix
+remain open; no live provider or customer traffic was used.
