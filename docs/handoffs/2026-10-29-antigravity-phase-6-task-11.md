@@ -1,4 +1,4 @@
-# Antigravity prompt: Phase 6 Task 11 local failure-matrix work
+# Antigravity prompt: Task 11 promotion stability and local failure matrix
 
 Copy the following instructions into Antigravity. This is a bounded local
 development assignment while Codex continues the separate synthetic server
@@ -37,6 +37,17 @@ Use branch prefix `codex/`, for example `codex/agy-p6-task11-failure-matrix`.
   archives and identical authenticated replay metadata. Full preservation
   audits and independent evidence/readiness checks passed. The fresh restore
   target was absent at that checkpoint.
+- Latest server result: the `80ea3d2` fresh isolated restore completed, then
+  promotion refused. The fresh `6faff8b` selection/job are now uncertain with
+  writes possible. Both PostgreSQL actors are healthy; the original-volume
+  pointer, completed restore record and override remain; the recorded job actor
+  is absent. Rollback was not attempted. Do not retry, clear or resolve this scope.
+- A separate read-only actual-Docker probe found a concrete local fix to make:
+  `operations_promotion_host_snapshot` compares repeated container projections
+  as raw strings. The target projection changed four times across ten reads,
+  entirely due to ordering of its two mounts. Every complete observation was
+  identical after sorting mount records. This independently demonstrates false
+  refusal; the removed job's exact failure point remains unknown.
 - Codex may advance the server drill after this prompt was written. Read the
   latest tracker/context instead of assuming a server stage from this snapshot.
 - Older `b0ba255` promotion and `8ccb9a0` restore jobs remain uncertain. Their
@@ -56,6 +67,19 @@ Use branch prefix `codex/`, for example `codex/agy-p6-task11-failure-matrix`.
   Task 15 of `docs/superpowers/plans/2026-10-04-phase-6-hardened-local-operations.md`,
   `docs/operations/runtime-deployment-safety.md`, and the latest entries in
   `docs/operations/phase-6-server-deployment.md`.
+- [ ] Read and implement the bounded correction in
+  `docs/superpowers/specs/2026-10-29-phase-6-promotion-metadata-stability.md`
+  and its matching plan. This is your priority before the broader gap matrix.
+  Add deterministic RED mount-order permutations within and between samples;
+  retain every fresh source/target observation through the strict compiled
+  TypeScript validator. An equivalent existing trusted canonicalization port is
+  acceptable. Do not remove terminal rechecks, ignore failures or sort all arrays
+  globally. Commands/entrypoints remain ordered.
+- [ ] Require equivalent reordered mounts to pass, while changed source,
+  destination, type/name, write mode, propagation, extra/missing entries and
+  duplicates still refuse. Use controlled permutations for deterministic CI and
+  an actual scoped local-Docker projection test. Do not require Docker's random
+  ordering to vary for the test to pass. Add no new host privilege or resolver.
 - [ ] Verify branch/base/worktree status. Preserve unrelated work. Recent
   routine pushes used `redwan-cse`; verify the authenticated account before
   GitHub writes and follow the user's current account instructions. Do not
@@ -95,6 +119,10 @@ Use branch prefix `codex/`, for example `codex/agy-p6-task11-failure-matrix`.
 
 ## Acceptance criteria
 
+- [ ] The promotion metadata-stability regression reproduces the existing raw
+  comparison failure, then passes with the intended semantic comparison. All
+  actual observations and negative capability/identity cases remain enforced;
+  no changed/extra/missing/duplicate mount is hidden by normalization.
 - [ ] Every listed Task 11 requirement is either linked to concrete existing
   coverage or explicitly marked incomplete with a reason and next proof needed.
 - [ ] Added regressions exercise a real missing behavior, demonstrate the prior

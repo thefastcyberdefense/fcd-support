@@ -1720,3 +1720,35 @@ databases, volumes, networks, files and uncertainty; there is no automatic
 rollback, cleanup, retry or selection repair. No provider, public tunnel,
 production asset or customer-data action is included. This drill alone cannot
 complete the remaining interruption matrix or P6-GATE.
+
+### Fresh restore success and refused promotion
+
+On 2026-10-29 (Asia/Dhaka), the committed `80ea3d2` restore stage exported a
+fresh checkpoint and completed the isolated restore on explicit subnet
+`198.18.232.0/24`. The completed restore record, quiescent source and no active
+job passed; the full prior-scope preservation audit also passed.
+
+The following promotion stage returned `operations_promotion_refused`.
+Read-only inspection found the new selection and promotion job uncertain,
+`STATE_WRITES_POSSIBLE=yes`, the selected pointer still naming the original
+volume, the recorded job actor absent, and the job override/completed restore
+record preserved. Both new PostgreSQL actors are running and healthy. Rollback
+was not attempted. The old-scope full preservation audit still matches.
+These observations do not establish whether promotion SQL had side effects.
+
+Protected file metadata showed about 3.3 seconds from job-override creation to
+the uncertain job record; that timing does not establish a root cause. A
+separate read-only stability probe used the actual guarded Docker projection:
+ten source reads were stable, while ten target reads had four adjacent raw
+changes. Both had two mounts, and every complete parsed observation matched
+after mount-order normalization. The collector's raw source/target string
+rechecks can reject unchanged resources solely because of Docker mount order.
+This independently reproducible blocker is specified in
+`docs/superpowers/specs/2026-10-29-phase-6-promotion-metadata-stability.md`.
+The removed job's exact failure point remains unknown.
+
+Preserve the entire fresh scope and all earlier uncertain scopes. Do not rerun
+any stage, restart/clear a job, repair the pointer or infer rollback. The next
+local Task 11 correction must retain all observations and security checks while
+comparing unordered mounts semantically, with deterministic regressions and
+fresh CI before another separately recorded server drill. Phase 6 is not done.

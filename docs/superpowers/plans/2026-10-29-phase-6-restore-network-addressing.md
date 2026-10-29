@@ -35,5 +35,9 @@ The `9c2e404` action completed the fresh synthetic deployment at source
 privacy and prior-state preservation check. The `cda55ed` backup/replay action
 also passed with three signed archives and identical authenticated replay
 metadata, followed by an independent private-evidence/readiness check.
-Fresh checkpoint/restore/promotion/rollback and the remaining failure matrix
-remain pending; no Phase 6 gate is claimed.
+The `80ea3d2` stage subsequently completed fresh checkpoint/isolated restore.
+Promotion refused and its new scope remains uncertain and preserved; rollback
+was not attempted. Actual target projection reads demonstrated a mount-order
+false-refusal risk, specified in the separate promotion metadata-stability
+specification/plan. That local correction, promotion/rollback and the remaining
+failure matrix remain pending; no Phase 6 gate is claimed.

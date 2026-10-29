@@ -2,6 +2,23 @@
 
 Last reviewed: 2026-10-29 (Asia/Dhaka)
 
+Latest: the `80ea3d2` fresh restore stage completed at source `6faff8b`, but
+promotion refused. The new selection/job are uncertain with writes possible;
+both PostgreSQL actors are healthy, the original-volume pointer, completed
+restore record and override remain, and the recorded job actor is absent. No
+rollback ran. The old-scope audit still matches. Do not infer SQL outcome or
+retry/clear/repair any scope.
+
+A separate actual-Docker probe demonstrated target mount-order instability:
+four adjacent raw changes across ten observations, with identical complete
+metadata after sorting mounts. The host collector's raw string recheck can
+therefore falsely refuse. This is an independent blocker, not proof of the
+removed job's exact failure point. The next local Task 11 fix is defined in
+`docs/superpowers/specs/2026-10-29-phase-6-promotion-metadata-stability.md` and
+its matching plan. Antigravity's isolated local assignment prioritizes that
+test-first fix; no new resolver, readiness bypass or server action is authorized
+by that assignment. Phase 6 remains incomplete.
+
 Commit `6faff8b` is pushed and all four exact-source GitHub workflows passed.
 The fresh synthetic server action committed at `9c2e404` completed. Eight
 explicit bridges, pinned builds, private-disabled deploy/verify and private
