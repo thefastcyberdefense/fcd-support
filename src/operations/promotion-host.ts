@@ -244,8 +244,14 @@ const benignEnvironment = new Set([
   'RESTORE_STALE_LEASE_MS',
   'RESTORE_MAX_CHECKPOINT_AGE_MS',
 ]);
-function invalid(): never {
-  throw new Error('promotion_host_invalid');
+export class PromotionHostValidationError extends Error {
+  public constructor(public readonly diagnosticCode: string) {
+    super('promotion_host_invalid');
+    this.name = 'PromotionHostValidationError';
+  }
+}
+function invalid(code = 'validation'): never {
+  throw new PromotionHostValidationError(code);
 }
 function same(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && new Set(a).size === a.length && a.every((v) => b.includes(v));
@@ -328,22 +334,23 @@ function tmpfs(value: string): string {
     .join(',');
 }
 function security(c: Container, l: Options['limits']['job'], o: Options) {
+  if ((c.capAdd?.length ?? 0) !== 0) invalid('samples.capAdd');
+  if (!same(c.capDrop, ['ALL'])) invalid('samples.capDrop');
   if (
-    (c.capAdd?.length ?? 0) !== 0 ||
-    !same(c.capDrop, ['ALL']) ||
     c.securityOpt.length !== 1 ||
-    !['no-new-privileges', 'no-new-privileges:true'].includes(c.securityOpt[0] ?? '') ||
-    (c.groupAdd?.length ?? 0) !== 0 ||
-    (c.volumesFrom?.length ?? 0) !== 0 ||
-    (c.extraHosts?.length ?? 0) !== 0 ||
-    Object.keys(c.sysctls ?? {}).length !== 0 ||
-    c.nanoCpus !== Math.round(l.cpus * 1e9) ||
-    c.memory !== l.memoryMiB * 1048576 ||
-    c.pidsLimit !== l.pids ||
-    c.stopTimeout !== o.limits.stopTimeoutSeconds ||
-    new Set(c.environmentNames).size !== c.environmentNames.length
+    !['no-new-privileges', 'no-new-privileges:true'].includes(c.securityOpt[0] ?? '')
   )
-    invalid();
+    invalid('samples.securityOpt');
+  if ((c.groupAdd?.length ?? 0) !== 0) invalid('samples.groupAdd');
+  if ((c.volumesFrom?.length ?? 0) !== 0) invalid('samples.volumesFrom');
+  if ((c.extraHosts?.length ?? 0) !== 0) invalid('samples.extraHosts');
+  if (Object.keys(c.sysctls ?? {}).length !== 0) invalid('samples.sysctls');
+  if (c.nanoCpus !== Math.round(l.cpus * 1e9)) invalid('samples.nanoCpus');
+  if (c.memory !== l.memoryMiB * 1048576) invalid('samples.memory');
+  if (c.pidsLimit !== l.pids) invalid('samples.pidsLimit');
+  if (c.stopTimeout !== o.limits.stopTimeoutSeconds) invalid('samples.stopTimeout');
+  if (new Set(c.environmentNames).size !== c.environmentNames.length)
+    invalid('samples.environmentNames');
 }
 function mounts(
   c: Container,
@@ -352,17 +359,18 @@ function mounts(
 ) {
   const cMounts = canonicalPromotionMounts(c.mounts.filter((m) => m.type !== 'tmpfs'));
   const expMounts = canonicalPromotionMounts(expected);
+  if (deterministicJson(cMounts) !== deterministicJson(expMounts)) invalid('samples.mounts');
+  if (!same(Object.keys(c.tmpfs), Object.keys(expectedTmpfs))) invalid('samples.tmpfs');
+  if (Object.entries(c.tmpfs).some(([p, v]) => tmpfs(v) !== tmpfs(expectedTmpfs[p] ?? '')))
+    invalid('samples.tmpfs');
   if (
-    deterministicJson(cMounts) !== deterministicJson(expMounts) ||
-    !same(Object.keys(c.tmpfs), Object.keys(expectedTmpfs)) ||
-    Object.entries(c.tmpfs).some(([p, v]) => tmpfs(v) !== tmpfs(expectedTmpfs[p] ?? '')) ||
     c.mounts.some(
       (m) =>
         m.type === 'tmpfs' &&
         (!(m.destination in c.tmpfs) || !m.readWrite || m.source !== '' || m.name !== ''),
     )
   )
-    invalid();
+    invalid('samples.tmpfs');
 }
 function binding(root: string, directory: string, secret: string): z.infer<typeof mount> {
   return {
@@ -390,20 +398,21 @@ function volumeMount(
 }
 function postgres(c: Container, v: z.infer<typeof volume>, o: Options, target: boolean) {
   security(c, o.limits.postgres, o);
+  if (c.service !== 'postgres') invalid('samples.service');
+  if (!c.healthy) invalid('samples.healthy');
+  if (!['postgres', '999', '999:999'].includes(c.user)) invalid('samples.user');
+  if (c.restartPolicy !== (target ? 'no' : 'unless-stopped')) invalid('samples.restartPolicy');
+  if (JSON.stringify(c.command) !== '["postgres"]') invalid('samples.command');
+  if (JSON.stringify(c.entrypoint) !== '["/usr/local/bin/fcd-postgres-entrypoint.sh"]')
+    invalid('samples.entrypoint');
   if (
-    c.service !== 'postgres' ||
-    !c.healthy ||
-    !['postgres', '999', '999:999'].includes(c.user) ||
-    c.restartPolicy !== (target ? 'no' : 'unless-stopped') ||
-    JSON.stringify(c.command) !== '["postgres"]' ||
-    JSON.stringify(c.entrypoint) !== '["/usr/local/bin/fcd-postgres-entrypoint.sh"]' ||
     c.environmentNames.some(
       (k) =>
         /(?:SECRET|TOKEN|PASSWORD|API_KEY|ACCESS_KEY|DATABASE_URL|HMAC|KEYRING)/u.test(k) &&
         k !== 'POSTGRES_PASSWORD_FILE',
     )
   )
-    invalid();
+    invalid('samples.environmentNames');
   const n = o.limits.postgres.tmpfsMiB;
   mounts(
     c,
@@ -424,41 +433,40 @@ function postgres(c: Container, v: z.infer<typeof volume>, o: Options, target: b
 function check(s: z.infer<typeof snapshot>, o: Options) {
   const { source, target, job } = s;
   const sourceOps = `${o.runtimeProject}-operations-data`;
-  if (
-    s.archiveVolume.name !== o.backupVolumeName ||
-    new Set([source.postgres.id, target.postgres.id, job.id]).size !== 3 ||
-    o.sourceSystemIdentifier === o.targetSystemIdentifier ||
-    o.sourceVolumeName === o.expectedHost.volumeName ||
-    o.backupVolumeName === o.sourceVolumeName ||
-    o.backupVolumeName === o.expectedHost.volumeName ||
-    source.postgres.id !== o.sourceContainerId ||
-    source.postgres.project !== o.runtimeProject ||
-    source.postgres.revision !== o.sourceRevision ||
-    source.postgres.imageId !== o.sourcePostgresImageId ||
-    source.image.id !== o.sourcePostgresImageId ||
-    source.image.revision !== o.sourceRevision ||
-    !['postgres', '999', '999:999'].includes(source.image.user) ||
-    source.systemIdentifier !== o.sourceSystemIdentifier ||
-    source.selectionReference !== o.sourceSelectionReference ||
-    !same(source.projectActors, [source.postgres.id]) ||
-    !same(source.volume.users, [source.postgres.id]) ||
-    source.volume.name !== o.sourceVolumeName ||
-    source.volume.createdAt !== o.sourceVolumeIdentity.createdAt ||
-    source.volume.project !== o.sourceVolumeIdentity.project ||
-    source.volume.logicalName !== o.sourceVolumeIdentity.logicalName ||
-    target.postgres.project !== o.expectedHost.projectName ||
-    target.postgres.revision !== o.gitRevision ||
-    target.postgres.imageId !== o.expectedHost.postgresImageId ||
-    target.image.id !== o.expectedHost.postgresImageId ||
-    target.image.revision !== o.gitRevision ||
-    target.systemIdentifier !== o.targetSystemIdentifier ||
-    !same(target.projectActors, [target.postgres.id]) ||
-    !same(target.volume.users, [target.postgres.id]) ||
-    s.runtimeImage.id !== o.expectedHost.runtimeImageId ||
-    s.runtimeImage.revision !== o.gitRevision ||
-    !['node', '1000', '1000:1000'].includes(s.runtimeImage.user)
-  )
-    invalid();
+  if (s.archiveVolume.name !== o.backupVolumeName) invalid('samples.volume');
+  if (new Set([source.postgres.id, target.postgres.id, job.id]).size !== 3) invalid('samples.id');
+  if (o.sourceSystemIdentifier === o.targetSystemIdentifier) invalid('samples.systemIdentifier');
+  if (o.sourceVolumeName === o.expectedHost.volumeName) invalid('samples.volume');
+  if (o.backupVolumeName === o.sourceVolumeName) invalid('samples.volume');
+  if (o.backupVolumeName === o.expectedHost.volumeName) invalid('samples.volume');
+  if (source.postgres.id !== o.sourceContainerId) invalid('samples.id');
+  if (source.postgres.project !== o.runtimeProject) invalid('samples.project');
+  if (source.postgres.revision !== o.sourceRevision) invalid('samples.revision');
+  if (source.postgres.imageId !== o.sourcePostgresImageId) invalid('samples.imageId');
+  if (source.image.id !== o.sourcePostgresImageId) invalid('samples.imageId');
+  if (source.image.revision !== o.sourceRevision) invalid('samples.revision');
+  if (!['postgres', '999', '999:999'].includes(source.image.user)) invalid('samples.user');
+  if (source.systemIdentifier !== o.sourceSystemIdentifier) invalid('samples.systemIdentifier');
+  if (source.selectionReference !== o.sourceSelectionReference) invalid('samples.reference');
+  if (!same(source.projectActors, [source.postgres.id])) invalid('samples.projectActors');
+  if (!same(source.volume.users, [source.postgres.id])) invalid('samples.users');
+  if (source.volume.name !== o.sourceVolumeName) invalid('samples.name');
+  if (source.volume.createdAt !== o.sourceVolumeIdentity.createdAt) invalid('samples.createdAt');
+  if (source.volume.project !== o.sourceVolumeIdentity.project) invalid('samples.project');
+  if (source.volume.logicalName !== o.sourceVolumeIdentity.logicalName)
+    invalid('samples.logicalName');
+  if (target.postgres.project !== o.expectedHost.projectName) invalid('samples.project');
+  if (target.postgres.revision !== o.gitRevision) invalid('samples.revision');
+  if (target.postgres.imageId !== o.expectedHost.postgresImageId) invalid('samples.imageId');
+  if (target.image.id !== o.expectedHost.postgresImageId) invalid('samples.imageId');
+  if (target.image.revision !== o.gitRevision) invalid('samples.revision');
+  if (target.systemIdentifier !== o.targetSystemIdentifier) invalid('samples.systemIdentifier');
+  if (!same(target.projectActors, [target.postgres.id])) invalid('samples.projectActors');
+  if (!same(target.volume.users, [target.postgres.id])) invalid('samples.users');
+  if (s.runtimeImage.id !== o.expectedHost.runtimeImageId) invalid('samples.imageId');
+  if (s.runtimeImage.revision !== o.gitRevision) invalid('samples.revision');
+  if (!['node', '1000', '1000:1000'].includes(s.runtimeImage.user)) invalid('samples.user');
+
   const sourceNames = ['webhook', 'admin', 'reply', 'outbound', 'notification', 'operations'].map(
     (role) => `${o.runtimeProject}-${role}-data`,
   );
@@ -474,7 +482,7 @@ function check(s: z.infer<typeof snapshot>, o: Options) {
     ) ||
     !sourceNames.includes(source.postgres.networkMode)
   )
-    invalid();
+    invalid('samples.networks');
   for (const n of source.networks) {
     if (
       n.project !== o.runtimeProject ||
@@ -485,10 +493,10 @@ function check(s: z.infer<typeof snapshot>, o: Options) {
       ) ||
       source.postgres.networks.find((p) => p.name === n.name)?.id !== n.id
     )
-      invalid();
+      invalid('samples.networks');
   }
   const sourceNetwork = source.networks.find((n) => n.name === sourceOps);
-  if (sourceNetwork === undefined) invalid();
+  if (sourceNetwork === undefined) invalid('samples.networks');
   if (
     target.network.name !== `${o.expectedHost.projectName}-data` ||
     target.network.project !== o.expectedHost.projectName ||
@@ -500,7 +508,7 @@ function check(s: z.infer<typeof snapshot>, o: Options) {
     target.postgres.networks[0].id !== target.network.id ||
     target.postgres.networkMode !== target.network.name
   )
-    invalid();
+    invalid('samples.networks');
   if (
     job.id !== o.job.id ||
     job.project !== o.job.project ||
@@ -527,7 +535,7 @@ function check(s: z.infer<typeof snapshot>, o: Options) {
     s.jobLabels.commandHash !== o.job.commandHash ||
     o.job.project !== `fcd-support-operation-${o.job.reference.slice('operation_'.length)}`
   )
-    invalid();
+    invalid('samples.command');
   security(job, o.limits.job, o);
   const env = {
     NODE_ENV: 'production',
@@ -568,7 +576,7 @@ function check(s: z.infer<typeof snapshot>, o: Options) {
       (k) => !(k in env) && !(k in imageEnvironment) && !benignEnvironment.has(k),
     )
   )
-    invalid();
+    invalid('samples.environmentNames');
   mounts(
     job,
     [
@@ -592,14 +600,14 @@ function check(s: z.infer<typeof snapshot>, o: Options) {
     deterministicJson(canonicalContainer(source.postgres)) !==
     deterministicJson(canonicalContainer(source.terminal))
   )
-    invalid();
+    invalid('samples.stability');
   postgres(target.postgres, target.volume, o, true);
   postgres(target.terminal, target.volume, o, true);
   if (
     deterministicJson(canonicalContainer(target.postgres)) !==
     deterministicJson(canonicalContainer(target.terminal))
   )
-    invalid();
+    invalid('samples.stability');
   if (
     overlaps(source.volume.mountpoint, target.volume.mountpoint) ||
     [source.volume.mountpoint, target.volume.mountpoint].some((root) =>
@@ -611,7 +619,7 @@ function check(s: z.infer<typeof snapshot>, o: Options) {
       ),
     )
   )
-    invalid();
+    invalid('samples.hostBinds');
   // The raw source/target membership and complete job capability checks above
   // precede this filtered base view. A foreign peer is never filtered away.
   const { scope: ignoredScope, ...targetNetwork } = target.network;
@@ -668,16 +676,36 @@ export function inspectPromotionHostSamples(
   input: unknown,
   expected: unknown,
 ): RestoreHostIdentity {
+  let o: Options;
   try {
-    const o = promotionHostOptionsSchema.parse(expected);
-    const samples = z.strictObject({ before: snapshot, after: snapshot }).parse(input);
-    const before = check(samples.before, o);
-    const after = check(samples.after, o);
-    if (
-      deterministicJson(canonicalSnapshot(samples.before)) !==
-      deterministicJson(canonicalSnapshot(samples.after))
-    )
-      invalid();
+    o = promotionHostOptionsSchema.parse(expected);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      const issue = error.issues[0];
+      const prop = issue !== undefined ? issue.path[issue.path.length - 1] : undefined;
+      invalid(prop !== undefined ? `samples.${String(prop)}` : 'input');
+    }
+    invalid('input');
+  }
+  let samples: { before: z.infer<typeof snapshot>; after: z.infer<typeof snapshot> };
+  try {
+    samples = z.strictObject({ before: snapshot, after: snapshot }).parse(input);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      const issue = error.issues[0];
+      const prop = issue !== undefined ? issue.path[issue.path.length - 1] : undefined;
+      invalid(prop !== undefined ? `samples.${String(prop)}` : 'samples');
+    }
+    invalid('samples');
+  }
+  const before = check(samples.before, o);
+  const after = check(samples.after, o);
+  if (
+    deterministicJson(canonicalSnapshot(samples.before)) !==
+    deterministicJson(canonicalSnapshot(samples.after))
+  )
+    invalid('samples.stability');
+  try {
     return inspectRestoreHostSamples(
       { before, after },
       {
@@ -689,6 +717,6 @@ export function inspectPromotionHostSamples(
       },
     );
   } catch {
-    invalid();
+    invalid('samples.target');
   }
 }

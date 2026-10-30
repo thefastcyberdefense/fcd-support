@@ -150,6 +150,7 @@ operations_job_promotion_exchange() {
   fi
   exec {promotion_write}>&- {promotion_read}<&-
   if [[ "$failed" == true ]]; then
+    operations_docker container logs --tail 32 "$OPS_JOB_CONTAINER" >&3 2>/dev/null || true
     kill "$promotion_pid" 2>/dev/null || true
     wait "$promotion_pid" 2>/dev/null || true
     OPS_PROMOTION_ACK=''; OPS_PROMOTION_TRANSCRIPT=''

@@ -56,8 +56,9 @@ synthetic_host_report_failure() {
       script="${BASH_REMATCH[1]}"
       case "$script" in
         operations-job-lifecycle.sh|operations-promotion-host.sh|operations-promotion-controller.sh|operations-restore-host.sh|operations-restore-controller.sh|operations-runtime-host.sh)
-          if (( ${#transport_frames[@]} < 16 )); then
-            transport_frames+=("$line")
+          transport_frames+=("$line")
+          if (( ${#transport_frames[@]} > 16 )); then
+            transport_frames=("${transport_frames[@]:1}")
           fi
           trace_frames+=("$line") ;;
         operations-common.sh|operations-controller.sh|operations-startup.sh|operations-bootstrap.sh|operations-first-boot.sh|operations-deployment-state.sh|operations-postgres.sh|operations-drain.sh|operations-containment.sh|operations-restore-state.sh|operations-restore-metadata.sh)
