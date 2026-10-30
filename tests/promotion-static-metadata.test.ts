@@ -174,6 +174,9 @@ describe('operations_promotion_static_canonical', { timeout: 30_000 }, () => {
 
   test.each([
     ['empty input', ''],
+    ['header without mounts', header],
+    ['empty mount section', `${header}\n`],
+    ['oversized input', 'x'.repeat(65_537)],
     [
       'malformed mount framing - missing closing brace',
       `${header}\n{"Destination":"/var/lib"}\n{"Destination":"/bad"\n`,

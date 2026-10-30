@@ -130,16 +130,15 @@ if [[ "$ci_mode" == true ]]; then
   checkpoint_ref="$(
     bash -c '
       set -Eeuo pipefail
-      source scripts/operations-common.sh
-      source scripts/operations-deployment-state.sh
-      source scripts/operations-job-lifecycle.sh
-      OPS_ACTION=verify
-      operations_load_config "$1"
+      source scripts/run-operation.sh
+      operations_scheduled_arguments backup "$1" "$2"
+      OPS_ROOT="$PWD"; OPS_ACTION=verify
+      operations_load_config "$OPS_CONFIG_FILE"
       operations_preflight
-      operations_selection_apply
-      OPS_DATABASE_SYSTEM_IDENTIFIER="${OPS_SELECTION[STATE_SYSTEM_IDENTIFIER]}"
+      operations_scheduled_ready
+      operations_scheduled_images
       operations_execute_job checkpoint export-checkpoint-reference
-    ' bash "$fixture/config/operations.env"
+    ' bash "$revision" "$fixture/config/operations.env"
   )"
   [[ "$checkpoint_ref" =~ ^checkpoint_[a-f0-9]{32}$ ]]
   [[ ! -e "$fixture/state/active-job" && ! -L "$fixture/state/active-job" ]]
@@ -149,10 +148,10 @@ if [[ "$ci_mode" == true ]]; then
   restore_ref="$(bash scripts/restore-runtime.sh "$backup_ref" "$checkpoint_ref" "$revision" "$fixture/config/operations.env" 2>"$fixture/logs/restore.log")"
   [[ "$restore_ref" =~ ^restore_[a-f0-9]{32}$ ]]
   [[ ! -e "$fixture/state/active-job" && ! -L "$fixture/state/active-job" ]]
-  grep -qx 'RESTORE_PHASE=completed' "$fixture/state/restore-state"
-  grep -qx "RESTORE_REF=$restore_ref" "$fixture/state/restore-state"
-  grep -qx "RESTORE_BACKUP_REF=$backup_ref" "$fixture/state/restore-state"
-  grep -qx "RESTORE_CHECKPOINT_REF=$checkpoint_ref" "$fixture/state/restore-state"
+  grep -qx 'RESTORE_PHASE=completed' "$fixture/state/restore-${restore_ref#restore_}.record"
+  grep -qx "RESTORE_REF=$restore_ref" "$fixture/state/restore-${restore_ref#restore_}.record"
+  grep -qx "RESTORE_BACKUP_REF=$backup_ref" "$fixture/state/restore-${restore_ref#restore_}.record"
+  grep -qx "RESTORE_CHECKPOINT_REF=$checkpoint_ref" "$fixture/state/restore-${restore_ref#restore_}.record"
   grep -qx 'STATE_PHASE=quiescent' "$fixture/state/deployment-state"
   docker volume inspect "$project-postgres" >/dev/null
   docker volume inspect "$restore_project-data" >/dev/null
@@ -190,29 +189,8 @@ if [[ "$ci_mode" == true ]]; then
   printf 'synthetic_host_rollback_passed=true\n'
 
   stage=cleanup
-  docker rm --force "$peer" >/dev/null 2>&1 || true
-  docker compose --project-directory "$root" --env-file /dev/null --file "$root/infra/compose.runtime.yml" \
-    --project-name "$project" down --volumes --remove-orphans >/dev/null 2>&1 || true
-  docker compose --project-directory "$root" --env-file /dev/null --file "$root/infra/compose.restore.yml" \
-    --project-name "$restore_project" down --volumes --remove-orphans >/dev/null 2>&1 || true
-  for name in "$project-postgres" "$project-backups" "$restore_project-data"; do
-    if docker volume inspect "$name" >/dev/null 2>&1; then docker volume rm --force "$name" >/dev/null 2>&1 || true; fi
-  done
-  if [[ "$precreated_mode" == false ]]; then
-    for name in "$project-ingress" "$project-egress" "$project-notification" "$restore_project-data"; do
-      if docker network inspect "$name" >/dev/null 2>&1; then docker network rm "$name" >/dev/null 2>&1 || true; fi
-    done
-  fi
-  for role in application operations postgres; do
-    docker rmi "$project-$role:$revision" >/dev/null 2>&1 || true
-  done
-  rm -rf -- "$fixture"
-  [[ -z "$(docker ps -aq --filter "label=fcd-support.synthetic-host-test=$project")" ]]
-  [[ -z "$(docker ps -aq --filter "label=com.docker.compose.project=$project")" ]]
-  [[ -z "$(docker ps -aq --filter "label=com.docker.compose.project=$restore_project")" ]]
-  for name in "$project-postgres" "$project-backups" "$restore_project-data"; do
-    [[ -z "$(docker volume ls -q --filter "name=^$name$")" ]]
-  done
+  source "$root/scripts/synthetic-host-cleanup.sh"
+  synthetic_host_cleanup
   printf 'synthetic_host_recovery_passed=true\nsynthetic_host_cleanup_passed=true\n'
 fi
 # Keep this explicitly synthetic private stack and its protected state for the

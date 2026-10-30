@@ -14,10 +14,7 @@ operations_promotion_static_canonical() {
   IFS= read -r header <<<"$input" || return 1
   [[ -n "$header" ]] || return 1
   mounts="${input#*"$header"$'\n'}"
-  if [[ "$input" == "$header" || -z "$mounts" ]]; then
-    printf '%s\n' "$header"
-    return 0
-  fi
+  [[ "$input" != "$header" && -n "$mounts" ]] || return 1
   while IFS= read -r line || [[ -n "$line" ]]; do
     [[ -n "$line" && "$line" =~ ^\{.*\}$ ]] || return 1
   done <<<"${mounts%$'\n'}"

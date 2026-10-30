@@ -77,7 +77,8 @@ attributes={'fcd-support.operation.parent':module.PROJECT,'fcd-support.operation
 def lifecycle(action):
  attrs=dict(attributes)
  if action=='die': attrs['exitCode']='0'
- return json.dumps({'Type':'container','Action':action,'Actor':{'ID':actor,'Attributes':attrs}}).encode()+b'\n'
+ if mode=='fragmented': attrs['synthetic_unknown']='synthetic_বাংলা'
+ return json.dumps({'Type':'container','Action':action,'Actor':{'ID':actor,'Attributes':attrs}},ensure_ascii=False).encode()+b'\n'
 def protocol(sequence,nonce):
  return json.dumps({'event':'promotion_host_check','operationRef':reference,'sequence':sequence,'challenge':nonce}).encode()+b'\n'
 class Stream:
@@ -113,8 +114,8 @@ class Selector:
   kind='events' if step in (0,2) else 'logs'
   if mode=='eof': kind='events'; data=b''
   elif mode=='fragmented':
-   if step==0: kind='events'; data=lifecycle('start').replace(b'\n',b'\r\n')[:15]
-   elif step==1: kind='events'; data=lifecycle('start').replace(b'\n',b'\r\n')[15:]
+   if step==0: kind='events'; data=lifecycle('start').replace(b'\n',b'\r\n')[:lifecycle('start').index('ব'.encode())+1]
+   elif step==1: kind='events'; data=lifecycle('start').replace(b'\n',b'\r\n')[lifecycle('start').index('ব'.encode())+1:]
    elif step==2: kind='logs'; data=(protocol(1,'e'*32).replace(b'\n',b'\r\n'))[:20]
    elif step==3: kind='logs'; data=(protocol(1,'e'*32).replace(b'\n',b'\r\n'))[20:]+(protocol(2,'f'*32)+b'{"status":"completed","processed":1,"reasonCode":"ok"}\r\n')
    elif step==4: kind='events'; data=(lifecycle('die')+lifecycle('destroy')).replace(b'\n',b'\r\n')
@@ -134,7 +135,7 @@ raw=module.OUTPUT.read_text()
 print(json.dumps({'result':result,'delivered':delivered[0],'stages':stages,'selectorClosed':selector.closed,
  'readers':[{'terminated':p.terminated,'killed':p.killed,'closed':p.stdout.closed,'waits':p.waits,
              'bounded':'--until' in p.args} for p in readers],
- 'contentFree':not any(value in raw for value in [actor,reference,command,'e'*32,'f'*32,'synthetic_sensitive_sentinel'])}))
+ 'contentFree':not any(value in raw for value in [actor,reference,command,'e'*32,'f'*32,'synthetic_sensitive_sentinel','synthetic_unknown','synthetic_বাংলা'])}))
 '''
 
 
@@ -324,7 +325,7 @@ class ObserverTests(unittest.TestCase):
     def test_bind_job_rejects_missing_actor_and_boolean_types(self):
         self.assertFalse(observer.bind_job(('', REFERENCE, COMMAND), job(), projection(), PROJECT, REVISION))
         self.assertFalse(observer.bind_job((ACTOR, REFERENCE, COMMAND), {**job(), 'JOB_VERSION': True}, projection(), PROJECT, REVISION))
-        self.assertFalse(observer.bind_job((ACTOR, REFERENCE, COMMAND), {**job(), 'JOB_PHASE': 'completed'}, projection(), PROJECT, REVISION))
+        self.assertFalse(observer.bind_job((ACTOR, REFERENCE, COMMAND), {**job(), 'JOB_PHASE': True}, projection(), PROJECT, REVISION))
 
     def test_follow_starts_only_after_actual_identity_and_journal_match(self):
         calls = []
