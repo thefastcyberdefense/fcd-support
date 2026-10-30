@@ -266,3 +266,39 @@ test('operations_promotion_host_snapshot handles reordered networks between init
     rmdirSync(directory);
   }
 });
+
+test('operations_promotion_host_environment generates valid Go template syntax without triple braces', () => {
+  const script = `
+ source ./scripts/operations-common.sh
+ source ./scripts/operations-job-lifecycle.sh
+ source ./scripts/operations-promotion-host.sh
+ OPS_JOB_CONTAINER="1111111111111111111111111111111111111111111111111111111111111111"
+ operations_docker() {
+   if [[ "$1/$2" == container/inspect && "$3" == --format ]]; then
+     local fmt="$4"
+     if [[ "$fmt" == "{{{"* ]]; then
+       printf 'template parsing error: template: :1: unexpected "{" in command\\n' >&2
+       return 1
+     fi
+     printf '{"NODE_ENV":"production"}'
+     return 0
+   fi
+   return 1
+ }
+ operations_promotion_host_environment
+ `;
+  const result = spawnSync(
+    process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash',
+    ['--noprofile', '--norc', '-c', script],
+    {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      timeout: 10000,
+      env: process.env,
+    },
+  );
+  expect(result.error).toBeUndefined();
+  expect(result.status).toBe(0);
+  expect(result.stdout).toBe('{"NODE_ENV":"production"}');
+  expect(result.stderr).toBe('');
+});
