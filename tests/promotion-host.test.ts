@@ -656,6 +656,24 @@ test('accepts deterministic mount-order permutations within a snapshot and betwe
   );
 });
 
+test('accepts deterministic network and member order permutations within a snapshot and between snapshots', () => {
+  const f = fixture();
+  // Permutation within snapshot: initial postgres vs terminal
+  f.snapshot.source.terminal.networks.reverse();
+  const after = structuredClone(f.snapshot);
+  // Permutation between snapshots: before vs after
+  after.source.postgres.networks.reverse();
+  after.job.networks.reverse();
+  const opsNet = after.source.networks.find((n) => n.name.endsWith('-operations-data'));
+  if (!opsNet) throw new Error('fixture_operations_network_missing');
+  opsNet.members.reverse();
+  after.target.network.members.reverse();
+  after.source.networks.reverse();
+  expect(inspectPromotionHostSamples({ before: f.snapshot, after }, f.options)).toEqual(
+    f.options.expectedHost,
+  );
+});
+
 test.each([
   [
     'changed mount source within sample',

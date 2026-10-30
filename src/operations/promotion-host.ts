@@ -254,6 +254,9 @@ function canonicalContainer(c: Container): Container {
   return {
     ...c,
     mounts: canonicalPromotionMounts(c.mounts),
+    networks: [...c.networks].sort(
+      (a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id),
+    ),
   };
 }
 function canonicalSnapshot(s: z.infer<typeof snapshot>) {
@@ -263,11 +266,21 @@ function canonicalSnapshot(s: z.infer<typeof snapshot>) {
       ...s.source,
       postgres: canonicalContainer(s.source.postgres),
       terminal: canonicalContainer(s.source.terminal),
+      networks: [...s.source.networks]
+        .map((n) => ({
+          ...n,
+          members: [...n.members].sort(),
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)),
     },
     target: {
       ...s.target,
       postgres: canonicalContainer(s.target.postgres),
       terminal: canonicalContainer(s.target.terminal),
+      network: {
+        ...s.target.network,
+        members: [...s.target.network.members].sort(),
+      },
     },
     job: canonicalContainer(s.job),
     // Docker returns bind mounts in arbitrary order. Retain every record and

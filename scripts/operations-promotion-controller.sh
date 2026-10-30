@@ -9,7 +9,7 @@ OPERATIONS_PROMOTION_STATIC_FORMAT='{{.Id}}/{{.Image}}/{{json .Config.Cmd}}/{{js
 OPERATIONS_PROMOTION_NETWORK_FORMAT='{{.Id}}/{{.Name}}/{{.Driver}}/{{.Internal}}/{{index .Labels "com.docker.compose.project"}}/{{index .Labels "com.docker.compose.network"}}'
 
 operations_promotion_static_canonical() {
-  local input="$1" header mounts sorted line
+  local input="$1" header mounts sorted line prefix nets sorted_nets
   (( ${#input} > 0 && ${#input} <= 65536 )) || return 1
   IFS= read -r header <<<"$input" || return 1
   [[ -n "$header" ]] || return 1
@@ -18,6 +18,12 @@ operations_promotion_static_canonical() {
   while IFS= read -r line || [[ -n "$line" ]]; do
     [[ -n "$line" && "$line" =~ ^\{.*\}$ ]] || return 1
   done <<<"${mounts%$'\n'}"
+  if [[ "$header" =~ ^(.*\/)(([^;/]+\/[^;/]+;)+)$ ]]; then
+    prefix="${BASH_REMATCH[1]}"
+    nets="${BASH_REMATCH[2]}"
+    sorted_nets="$(printf '%s' "$nets" | tr ';' '\n' | grep -v '^$' | LC_ALL=C sort | tr '\n' ';')"
+    header="${prefix}${sorted_nets}"
+  fi
   sorted="$(printf '%s' "$mounts" | LC_ALL=C sort)" || return 1
   printf '%s\n%s\n' "$header" "$sorted"
 }
@@ -50,7 +56,7 @@ operations_promotion_capture_postgres() {
   volume_fact="$(operations_docker volume inspect --format "$OPERATIONS_POSTGRES_VOLUME_FORMAT" "$volume")" || return 1
   IFS=/ read -r name created rest <<<"$volume_fact"
   [[ "$name" == "$volume" && "$rest" == local/local/default/* ]] && operations_deployment_field STATE_VOLUME_CREATED_AT "$created" || return 1
-  names="$(operations_docker container inspect --format '{{range $name,$network := .NetworkSettings.Networks}}{{println $name}}{{end}}' "$id")" || return 1
+  names="$(operations_docker container inspect --format '{{range $name,$network := .NetworkSettings.Networks}}{{println $name}}{{end}}' "$id" | LC_ALL=C sort)" || return 1
   (( ${#names} > 0 && ${#names} <= 2048 )) || return 1
   local -A seen=()
   while IFS= read -r network; do
@@ -86,7 +92,7 @@ operations_promotion_postgres_proof() {
     "$(operations_docker ps --all --quiet --no-trunc --filter "volume=${OPS_PROMOTION_VOLUMES[$id]}")" == "$id" ]] || return 1
   image="${OPS_PROMOTION_IMAGES[$id]%%/*}"
   [[ "$(operations_docker image inspect --format "$OPERATIONS_DRAIN_IMAGE_FORMAT" "$image")" == "${OPS_PROMOTION_IMAGES[$id]}" &&
-    "$(operations_docker container inspect --format '{{range $name,$network := .NetworkSettings.Networks}}{{println $name}}{{end}}' "$id")" == "${OPS_PROMOTION_NETWORKS[$id]}" ]] || return 1
+    "$(operations_docker container inspect --format '{{range $name,$network := .NetworkSettings.Networks}}{{println $name}}{{end}}' "$id" | LC_ALL=C sort)" == "${OPS_PROMOTION_NETWORKS[$id]}" ]] || return 1
   operations_promotion_volume_facts || return 1
   while IFS= read -r network; do
     [[ "$(operations_docker network inspect --format "$OPERATIONS_PROMOTION_NETWORK_FORMAT" "$network")" == "${OPS_PROMOTION_NETWORK_FACTS["$id|$network"]}" ]] || return 1
