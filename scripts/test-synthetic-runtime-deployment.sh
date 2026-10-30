@@ -20,8 +20,15 @@ fixture="$operator_home/$project"
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 source "$root/scripts/synthetic-host-evidence.sh"
 source "$root/scripts/synthetic-host-networks.sh"
+# Closed trace/state evidence survives nested stderr suppression in CI only.
+synthetic_host_run() {
+  [[ "$ci_mode" == true ]]
+  BASH_ENV="$fixture/logs/trace-entry.bash" FCD_SYNTHETIC_TRACE="$fixture/logs/$stage-lines.log" \
+    FCD_SYNTHETIC_EVIDENCE_LIBRARY="$root/scripts/synthetic-host-evidence.sh" FCD_RUNTIME_HOST_DIAGNOSTICS=closed-v1 \
+    bash "$@"
+}
 stage=preflight
-trap 'synthetic_host_report_failure "$stage" "$fixture/logs/$stage.log" "$fixture/logs/deploy-lines.log"' ERR
+trap 'synthetic_host_report_failure "$stage" "$fixture/logs/$stage.log" "$fixture/logs/$stage-lines.log" "$fixture/state"' ERR
 [[ "$(uname -s)" == Linux && "$(id -u):$(id -g)" == 1000:1000 ]]
 if [[ "$ci_mode" == true ]]; then
   all_containers="$(docker ps --all --quiet --no-trunc)"
@@ -52,7 +59,9 @@ if [[ "$ci_mode" == true ]]; then [[ -z "$before" ]]; else [[ "$(printf '%s\n' "
 umask 077
 stage=fixture
 cd "$root"
-node tests/helpers/runtime-host-fixture.ts "$fixture" "$project" "$revision" </dev/null
+fixture_profile=standard
+[[ "$ci_mode" != true ]] || fixture_profile=ci-recovery
+node tests/helpers/runtime-host-fixture.ts "$fixture" "$project" "$revision" "$fixture_profile" </dev/null
 printf '%s\n' "$before" >"$fixture/logs/retained.snapshot"
 stage=build
 for role in application operations postgres; do
@@ -111,7 +120,7 @@ if [[ "$ci_mode" == true ]]; then
   initial_system_id="$(sed -n 's/^STATE_SYSTEM_IDENTIFIER=//p' "$fixture/state/deployment-state")"
   initial_volume="$(sed -n 's/^STATE_VOLUME=//p' "$fixture/state/deployment-state")"
   [[ "$initial_system_id" =~ ^[1-9][0-9]{0,19}$ && "$initial_volume" == "$project-postgres" ]]
-  bash scripts/run-operation.sh backup "$revision" "$fixture/config/operations.env" >"$fixture/logs/backup.log" 2>&1 </dev/null
+  synthetic_host_run scripts/run-operation.sh backup "$revision" "$fixture/config/operations.env" >"$fixture/logs/backup.log" 2>&1 </dev/null
   [[ ! -e "$fixture/state/active-job" && ! -L "$fixture/state/active-job" ]]
   grep -qx 'STATE_PHASE=ready' "$fixture/state/deployment-state"
   backup_ref="$(docker run "${safe[@]}" --mount "type=volume,src=$project-backups,dst=/var/lib/fcd-support/backups,readonly" --entrypoint node "$project-application:$revision" -e '
@@ -128,7 +137,7 @@ if [[ "$ci_mode" == true ]]; then
 
   stage=checkpoint
   checkpoint_ref="$(
-    bash -c '
+    synthetic_host_run -c '
       set -Eeuo pipefail
       source scripts/run-operation.sh
       operations_scheduled_arguments backup "$1" "$2"
@@ -145,7 +154,7 @@ if [[ "$ci_mode" == true ]]; then
   printf 'synthetic_host_checkpoint_passed=true\n'
 
   stage=restore
-  restore_ref="$(bash scripts/restore-runtime.sh "$backup_ref" "$checkpoint_ref" "$revision" "$fixture/config/operations.env" 2>"$fixture/logs/restore.log")"
+  restore_ref="$(synthetic_host_run scripts/restore-runtime.sh "$backup_ref" "$checkpoint_ref" "$revision" "$fixture/config/operations.env" 2>"$fixture/logs/restore.log")"
   [[ "$restore_ref" =~ ^restore_[a-f0-9]{32}$ ]]
   [[ ! -e "$fixture/state/active-job" && ! -L "$fixture/state/active-job" ]]
   grep -qx 'RESTORE_PHASE=completed' "$fixture/state/restore-${restore_ref#restore_}.record"
@@ -158,7 +167,7 @@ if [[ "$ci_mode" == true ]]; then
   printf 'synthetic_host_restore_passed=true\n'
 
   stage=promote
-  bash scripts/promote-restore.sh "$restore_ref" "$revision" "$fixture/config/operations.env" >"$fixture/logs/promote.log" 2>&1 </dev/null
+  synthetic_host_run scripts/promote-restore.sh "$restore_ref" "$revision" "$fixture/config/operations.env" >"$fixture/logs/promote.log" 2>&1 </dev/null
   [[ ! -e "$fixture/state/active-job" && ! -L "$fixture/state/active-job" ]]
   grep -qx 'STATE_PHASE=ready' "$fixture/state/deployment-state"
   promoted_volume="$(sed -n 's/^STATE_VOLUME=//p' "$fixture/state/deployment-state")"
@@ -168,13 +177,13 @@ if [[ "$ci_mode" == true ]]; then
   [[ "$promoted_system_id" != "$initial_system_id" ]]
   docker volume inspect "$project-postgres" >/dev/null
   docker volume inspect "$restore_project-data" >/dev/null
-  bash scripts/verify-runtime.sh "$revision" "$fixture/config/operations.env" >"$fixture/logs/verify-promoted.log" 2>&1 </dev/null
+  synthetic_host_run scripts/verify-runtime.sh "$revision" "$fixture/config/operations.env" >"$fixture/logs/verify-promoted.log" 2>&1 </dev/null
   docker exec "$peer" node --input-type=module -e 'const u="http://fcd-support-api:3003";if((await fetch(u+"/webhooks/meta",{signal:AbortSignal.timeout(3000)})).status!==403||(await fetch(u+"/health",{signal:AbortSignal.timeout(3000)})).status!==404||(await fetch(u+"/webhooks/meta",{method:"POST",headers:{"content-type":"application/json"},body:"{}",signal:AbortSignal.timeout(3000)})).status!==401)process.exit(1)' >"$fixture/logs/http-promoted.log" 2>&1 </dev/null
   [[ "$(curl --silent --show-error --max-time 5 --unix-socket "$fixture/socket/admin.sock" --output /dev/null --write-out '%{http_code}' http://localhost/login)" == 200 ]]
   printf 'synthetic_host_promote_passed=true\n'
 
   stage=rollback
-  bash scripts/rollback-runtime.sh "$revision" --confirm-schema-compatible "$fixture/config/operations.env" >"$fixture/logs/rollback.log" 2>&1 </dev/null
+  synthetic_host_run scripts/rollback-runtime.sh "$revision" --confirm-schema-compatible "$fixture/config/operations.env" >"$fixture/logs/rollback.log" 2>&1 </dev/null
   [[ ! -e "$fixture/state/active-job" && ! -L "$fixture/state/active-job" ]]
   grep -qx 'STATE_PHASE=ready' "$fixture/state/deployment-state"
   rolled_back_volume="$(sed -n 's/^STATE_VOLUME=//p' "$fixture/state/deployment-state")"
@@ -183,7 +192,7 @@ if [[ "$ci_mode" == true ]]; then
   [[ "$rolled_back_system_id" == "$promoted_system_id" ]]
   docker volume inspect "$project-postgres" >/dev/null
   docker volume inspect "$restore_project-data" >/dev/null
-  bash scripts/verify-runtime.sh "$revision" "$fixture/config/operations.env" >"$fixture/logs/verify-rollback.log" 2>&1 </dev/null
+  synthetic_host_run scripts/verify-runtime.sh "$revision" "$fixture/config/operations.env" >"$fixture/logs/verify-rollback.log" 2>&1 </dev/null
   docker exec "$peer" node --input-type=module -e 'const u="http://fcd-support-api:3003";if((await fetch(u+"/webhooks/meta",{signal:AbortSignal.timeout(3000)})).status!==403||(await fetch(u+"/health",{signal:AbortSignal.timeout(3000)})).status!==404||(await fetch(u+"/webhooks/meta",{method:"POST",headers:{"content-type":"application/json"},body:"{}",signal:AbortSignal.timeout(3000)})).status!==401)process.exit(1)' >"$fixture/logs/http-rollback.log" 2>&1 </dev/null
   [[ "$(curl --silent --show-error --max-time 5 --unix-socket "$fixture/socket/admin.sock" --output /dev/null --write-out '%{http_code}' http://localhost/login)" == 200 ]]
   printf 'synthetic_host_rollback_passed=true\n'

@@ -87,11 +87,11 @@ synthetic_host_cleanup() {
     [[ -z "$inventory" ]]
   done
   inventory="$(docker ps --all --quiet --filter "label=fcd-support.synthetic-host-test=$project")"
-    [[ -z "$inventory" ]]
+  [[ -z "$inventory" ]]
   inventory="$(docker network ls --quiet --filter "label=fcd-support.synthetic-host-test=$project")"
-    [[ -z "$inventory" ]]
+  [[ -z "$inventory" ]]
   inventory="$(docker volume ls --quiet --filter "label=fcd-support.synthetic-host-test=$project")"
-    [[ -z "$inventory" ]]
+  [[ -z "$inventory" ]]
   inventory="$(docker image ls --quiet --filter "label=fcd-support.synthetic-host-test=$project")"
   [[ -z "$inventory" ]]
   for name in "$project-postgres" "$project-backups" "$restore_project-data"; do synthetic_host_require_absent volume "$name"; done

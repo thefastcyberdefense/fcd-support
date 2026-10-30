@@ -114,3 +114,20 @@ test.each(['backup', 'verify-backup', 'checkpoint', 'restore'])(
     }
   },
 );
+
+test('CI recovery fixture explicitly budgets checkpoint freshness without changing the standard fixture', async () => {
+  const parent = await mkdtemp(join(tmpdir(), 'fcd-host-fixture-test-'));
+  const root = join(parent, 'fcd-support-host-test-synthetic');
+  try {
+    await writeRuntimeHostFixture(
+      root,
+      'fcd-support-host-test-synthetic',
+      'b'.repeat(40),
+      'ci-recovery',
+    );
+    const settings = environment(await readFile(join(root, 'config/restore.env'), 'utf8'));
+    expect(settings.CHECKPOINT_MAX_AGE_MS).toBe('600000');
+  } finally {
+    await rm(parent, { recursive: true, force: true });
+  }
+});

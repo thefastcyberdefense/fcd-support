@@ -9,6 +9,14 @@ test.each(['deploy', 'restore', 'untrusted_stage_value'])(
   async (stage) => {
     const root = await mkdtemp(join(tmpdir(), 'fcd-host-evidence-test-'));
     try {
+      await writeFile(
+        join(root, 'active-job'),
+        'JOB_SERVICE=restore-reconcile\nJOB_PHASE=uncertain\nJOB_REF=synthetic_private_reference\n',
+      );
+      await writeFile(
+        join(root, 'deployment-state'),
+        'STATE_PHASE=quiescent\nSTATE_SYSTEM_IDENTIFIER=synthetic_private_identifier\n',
+      );
       const log = join(root, 'diagnostic.log');
       await writeFile(
         log,
@@ -26,7 +34,7 @@ test.each(['deploy', 'restore', 'untrusted_stage_value'])(
         process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash',
         [
           '-c',
-          'source "$TASK_LIBRARY" && synthetic_host_report_failure "$TASK_STAGE" "$TASK_LOG" "$TASK_TRACE"',
+          'source "$TASK_LIBRARY" && synthetic_host_report_failure "$TASK_STAGE" "$TASK_LOG" "$TASK_TRACE" "$TASK_STATE"',
         ],
         {
           encoding: 'utf8',
@@ -36,6 +44,7 @@ test.each(['deploy', 'restore', 'untrusted_stage_value'])(
             TASK_LIBRARY: resolve('scripts/synthetic-host-evidence.sh').replaceAll('\\', '/'),
             TASK_LOG: log.replaceAll('\\', '/'),
             TASK_STAGE: stage,
+            TASK_STATE: root.replaceAll('\\', '/'),
             TASK_TRACE: trace.replaceAll('\\', '/'),
           },
         },
@@ -46,6 +55,7 @@ test.each(['deploy', 'restore', 'untrusted_stage_value'])(
         stdout: '',
         stderr:
           `synthetic_host_failed=${expectedStage}\n` +
+          'synthetic_host_job_service=restore-reconcile\nsynthetic_host_job_phase=uncertain\nsynthetic_host_selection_phase=quiescent\n' +
           'operations_restore_refused\noperations-restore-controller.sh:71:previous=1\n' +
           'runtime_host_diagnostic=samples.healthy\n',
       });

@@ -109,3 +109,39 @@ executed; no server action or old-scope resolution is implied.
 - [x] All older uncertain scopes (`6faff8b` and earlier) remain completely untouched and preserved.
 - [x] Primary checkout `J:\DevDrive\fcd-support` and `main` branch are untouched.
 - [x] Neither Task 11, Task 15, nor P6-GATE is marked complete; live server action is deferred to Codex.
+
+## Independent validation checkpoint e99992c
+
+- `VITEST_MAX_WORKERS=4 npm run check`: exit 0; 1,904 passed/433 platform skips
+  across 128 files (114 passed/14 skipped), test duration 263.33 seconds.
+  Phase 0 validation, formatting, lint, strict typecheck and build passed.
+- Actual Docker projections: six checks passed; one stopped-job creation check
+  skipped on Windows as Linux-only. The production static comparator was used.
+- Observer: 32 passed/one SIGHUP skip on Windows; all 33 passed on Linux through
+  SSH using only hermetic temporary test files/processes. No real observer or
+  Docker reader ran. The saved server preservation audit matched afterward.
+- Native grants gate: 1,281 passed across 55 files, 412.49 seconds; PostgreSQL
+  gate also passed 139 PostgreSQL tests/one restore-only skip across 13 files,
+  57.15 seconds. Independently verified owned cleanup is recorded below.
+- Exact-source CI and CodeQL passed. The private-runtime workflow reached
+  checkpoint export then refused restore with an active job present. The closed
+  stage interval after checkpoint was 106.95 seconds, exceeding the fixture's
+  60-second freshness configuration. The exact internal refusal cause was not
+  recovered; no old or failed scope was retried or settled.
+
+The next test candidate uses an explicit `ci-recovery` fixture profile with a
+600,000 ms checkpoint window, matching the bounded window already used by the
+separately prepared server drill. The standard fixture remains 60,000 ms and
+production freshness validation remains configurable and mandatory. Per-stage
+closed traces and allowlisted service/phase diagnostics now distinguish future
+failures without exposing references, identities, secrets or raw logs. Four
+new assertions first failed (missing diagnostic enums and the original fixture
+window); the corrected focused fixture/evidence/orchestration check passed
+20 tests. These are test-infrastructure changes, not a recovered historical
+failure diagnosis or a passing full recovery claim.
+
+Owned local cleanup was independently verified after the grants lane: the exact
+labelled PostgreSQL actor, its sole volume consumer and sole network member
+were checked before dedicated Compose removal. Remaining dedicated-project
+actors/networks/volumes and backup-harness actors/networks/volumes/image tags
+were all zero. No global prune or unknown resource deletion occurred.

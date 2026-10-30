@@ -20,6 +20,22 @@ synthetic_host_report_failure() {
     preflight|fixture|build|keys|isolated-resources|deploy|verify|private-http|backup|checkpoint|restore|promote|rollback|cleanup) stage="$1" ;;
   esac
   printf 'synthetic_host_failed=%s\n' "$stage" >&2
+  # Diagnostic enums only; identities, references and arbitrary values are ignored.
+  local state_root="${4:-}" record
+  if [[ -n "$state_root" ]]; then
+    for record in active-job deployment-state; do
+      [[ -f "$state_root/$record" && ! -L "$state_root/$record" ]] || continue
+      while IFS= read -r line; do
+        if [[ "$record" == active-job && "$line" =~ ^JOB_SERVICE=(bootstrap|migrate|backup|verify-backup|checkpoint|health|maintenance|restore|restore-bootstrap|restore-migrate|restore-reconcile|promote)$ ]]; then
+          printf 'synthetic_host_job_service=%s\n' "${BASH_REMATCH[1]}" >&2
+        elif [[ "$record" == active-job && "$line" =~ ^JOB_PHASE=(intent|created|started|uncertain|completed)$ ]]; then
+          printf 'synthetic_host_job_phase=%s\n' "${BASH_REMATCH[1]}" >&2
+        elif [[ "$record" == deployment-state && "$line" =~ ^STATE_PHASE=(ready|draining|quiescent|switching|starting|uncertain)$ ]]; then
+          printf 'synthetic_host_selection_phase=%s\n' "${BASH_REMATCH[1]}" >&2
+        fi
+      done < <(head -c 4096 -- "$state_root/$record" 2>/dev/null)
+    done
+  fi
   [[ -f "$file" && ! -L "$file" ]] || return 0
   while IFS= read -r line; do
     case "$line" in
