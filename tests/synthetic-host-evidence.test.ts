@@ -171,3 +171,56 @@ printf synthetic_unsafe_advancement
     }
   },
 );
+
+test('prioritizes trusted transport failure frames displaced by common or state frames', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'fcd-host-evidence-test-'));
+  try {
+    const log = join(root, 'diagnostic.log');
+    await writeFile(log, 'operations_promotion_refused\n');
+    const trace = join(root, 'trace.log');
+    const noise = Array.from(
+      { length: 70 },
+      (_, i) =>
+        `operations-common.sh:${String(i + 1)}:previous=1\noperations-deployment-state.sh:${String(i + 1)}:previous=1\n`,
+    ).join('');
+    await writeFile(
+      trace,
+      'operations-job-lifecycle.sh:137:previous=1\n' +
+        'synthetic_sentinel_file.sh:1:previous=1\n' +
+        'operationRef=operation_0123456789abcdef0123456789abcdef\n' +
+        'challenge=0123456789abcdef0123456789abcdef\n' +
+        noise,
+    );
+    const result = spawnSync(
+      process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash',
+      [
+        '-c',
+        'source "$TASK_LIBRARY" && synthetic_host_report_failure "$TASK_STAGE" "$TASK_LOG" "$TASK_TRACE" "$TASK_STATE"',
+      ],
+      {
+        encoding: 'utf8',
+        timeout: 5000,
+        env: {
+          ...process.env,
+          TASK_LIBRARY: resolve('scripts/synthetic-host-evidence.sh').replaceAll('\\', '/'),
+          TASK_LOG: log.replaceAll('\\', '/'),
+          TASK_STAGE: 'promote',
+          TASK_STATE: root.replaceAll('\\', '/'),
+          TASK_TRACE: trace.replaceAll('\\', '/'),
+        },
+      },
+    );
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('synthetic_host_failed=promote\n');
+    expect(result.stderr).toContain('operations_promotion_refused\n');
+    expect(result.stderr).toContain('operations-job-lifecycle.sh:137:previous=1\n');
+    expect(result.stderr).not.toContain('synthetic_sentinel_file');
+    expect(result.stderr).not.toContain('operationRef');
+    expect(result.stderr).not.toContain('challenge');
+    const lines = result.stderr.trim().split('\n');
+    expect(lines.length).toBeLessThanOrEqual(70);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

@@ -45,13 +45,42 @@ synthetic_host_report_failure() {
   done < <(head -c 16384 -- "$file" 2>/dev/null)
   file="${3:-}"
   [[ -f "$file" && ! -L "$file" ]] || return 0
+  local -a transport_frames=() trace_frames=() diagnostics=()
+  local script diagnostic frame
+  local -i i start=0 count=0
   while IFS= read -r line; do
-    synthetic_host_runtime_diagnostic "$line"
-    if [[ "$line" =~ ^([a-z-]+\.sh):[0-9]{1,6}:previous=[1-9][0-9]{0,2}$ ]]; then
-      case "${BASH_REMATCH[1]}" in
-        operations-common.sh|operations-controller.sh|operations-startup.sh|operations-bootstrap.sh|operations-first-boot.sh|operations-job-lifecycle.sh|operations-runtime-host.sh|operations-deployment-state.sh|operations-postgres.sh|operations-drain.sh|operations-containment.sh|operations-restore-controller.sh|operations-promotion-controller.sh|operations-promotion-host.sh|operations-restore-host.sh|operations-restore-state.sh|operations-restore-metadata.sh)
-          printf '%s\n' "$line" ;;
+    diagnostic="$(synthetic_host_runtime_diagnostic "$line")"
+    if [[ -n "$diagnostic" ]]; then
+      diagnostics+=("$diagnostic")
+    elif [[ "$line" =~ ^([a-z-]+\.sh):[0-9]{1,6}:previous=[1-9][0-9]{0,2}$ ]]; then
+      script="${BASH_REMATCH[1]}"
+      case "$script" in
+        operations-job-lifecycle.sh|operations-promotion-host.sh|operations-promotion-controller.sh|operations-restore-host.sh|operations-restore-controller.sh|operations-runtime-host.sh)
+          if (( ${#transport_frames[@]} < 16 )); then
+            transport_frames+=("$line")
+          fi
+          trace_frames+=("$line") ;;
+        operations-common.sh|operations-controller.sh|operations-startup.sh|operations-bootstrap.sh|operations-first-boot.sh|operations-deployment-state.sh|operations-postgres.sh|operations-drain.sh|operations-containment.sh|operations-restore-state.sh|operations-restore-metadata.sh)
+          trace_frames+=("$line") ;;
       esac
     fi
-  done < <(head -c 8388608 -- "$file" 2>/dev/null) | tail -n 64 >&2
+  done < <(head -c 8388608 -- "$file" 2>/dev/null)
+  local -A seen=()
+  for frame in "${transport_frames[@]}"; do
+    printf '%s\n' "$frame" >&2
+    seen["$frame"]=1
+  done
+  for frame in "${diagnostics[@]}"; do
+    printf '%s\n' "$frame" >&2
+  done
+  count="${#trace_frames[@]}"
+  if (( count > 48 )); then
+    (( start = count - 48 ))
+  fi
+  for (( i = start; i < count; i++ )); do
+    frame="${trace_frames[i]}"
+    if [[ -z "${seen["$frame"]:-}" ]]; then
+      printf '%s\n' "$frame" >&2
+    fi
+  done
 }
