@@ -40,10 +40,9 @@ operations_promotion_host_volume() {
 operations_promotion_host_environment() {
   # Only names and these fixed nonsecret path/identity settings enter stdio.
   # Never project unknown values or a complete Config.Env array.
-  local template='{ ' key separator=''
+  local template='{ {{$first := true}}' key
   for key in NODE_ENV OPS_GIT_REVISION OPS_OPERATION_REFERENCE OPS_DATABASE_SYSTEM_IDENTIFIER OPS_SOURCE_DATABASE_SYSTEM_IDENTIFIER OPS_DATABASE_NAME OPS_SOURCE_DATABASE_NAME OPS_DATABASE_SCHEMA OPS_DATABASE_ROLE_PREFIX OPS_SCHEMA_REVISION RESTORE_SOURCE_SERVICE_ALIAS RESTORE_TARGET_SERVICE_ALIAS RESTORE_SOURCE_CHECKPOINT_DATABASE_URL_FILE RESTORE_TARGET_OWNER_DATABASE_URL_FILE PRIVACY_HMAC_KEYRING_FILE BACKUP_AGE_IDENTITY_FILE RECOVERY_MANIFEST_HMAC_FILE MODEL_EXECUTION_ENABLED OUTBOUND_EXECUTION_ENABLED N8N_EXECUTION_ENABLED CHECKPOINT_ARCHIVE_DIRECTORY PG_MAJOR PG_VERSION PGDATA PG_SHA256; do
-    template+='{{range .Config.Env}}{{if eq (index (split . "=") 0) "'"$key"'"}}'"$separator\"$key\":"'{{json (slice . '"$((${#key}+1))"')}}{{end}}{{end}}'
-    separator=,
+    template+='{{range .Config.Env}}{{if eq (index (split . "=") 0) "'"$key"'"}}{{if $first}}{{$first = false}}{{else}},{{end}}'"\"$key\":"'{{json (slice . '"$((${#key}+1))"')}}{{end}}{{end}}'
   done
   template+='}'
   operations_docker container inspect --format "$template" "$OPS_JOB_CONTAINER"

@@ -280,6 +280,10 @@ test('operations_promotion_host_environment generates valid Go template syntax w
        printf 'template parsing error: template: :1: unexpected "{" in command\\n' >&2
        return 1
      fi
+     if [[ "$fmt" != *'first := true'* ]]; then
+       printf 'template prefix invalid: %s\\n' "$fmt" >&2
+       return 1
+     fi
      printf '{"NODE_ENV":"production"}'
      return 0
    fi
