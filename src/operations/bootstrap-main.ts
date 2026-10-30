@@ -47,6 +47,22 @@ export function parseBootstrapCommand(args: readonly string[]) {
   }
 }
 
+export function normalizeBootstrapConnectionString(
+  connectionString: string | undefined,
+): string | undefined {
+  if (connectionString === undefined) return undefined;
+  try {
+    const url = new URL(connectionString);
+    if (url.hostname === 'fcd-support-restore-postgres') {
+      url.hostname = 'postgres';
+      return url.toString();
+    }
+  } catch {
+    return connectionString;
+  }
+  return connectionString;
+}
+
 export async function runBootstrapMain(): Promise<void> {
   let pool: pg.Pool | undefined;
   let failed = false;
@@ -91,8 +107,9 @@ export async function runBootstrapMain(): Promise<void> {
       config.n8nExecutionEnabled
     )
       throw new Error('invalid');
+    const connectionString = normalizeBootstrapConnectionString(environment.DATABASE_URL);
     pool = new pg.Pool({
-      connectionString: environment.DATABASE_URL,
+      connectionString,
       max: 1,
       connectionTimeoutMillis: config.maximumCallMilliseconds,
       query_timeout: config.maximumCallMilliseconds,
