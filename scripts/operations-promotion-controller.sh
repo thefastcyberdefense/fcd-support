@@ -15,16 +15,20 @@ operations_promotion_static_canonical() {
   [[ -n "$header" ]] || return 1
   mounts="${input#*"$header"$'\n'}"
   [[ "$input" != "$header" && -n "$mounts" ]] || return 1
+  while [[ "$mounts" == *$'\n' ]]; do
+    mounts="${mounts%$'\n'}"
+  done
+  [[ -n "$mounts" ]] || return 1
   while IFS= read -r line || [[ -n "$line" ]]; do
     [[ -n "$line" && "$line" =~ ^\{.*\}$ ]] || return 1
-  done <<<"${mounts%$'\n'}"
+  done <<<"$mounts"
   if [[ "$header" =~ ^(.*\/)(([^;/]+\/[^;/]+;)+)$ ]]; then
     prefix="${BASH_REMATCH[1]}"
     nets="${BASH_REMATCH[2]}"
     sorted_nets="$(printf '%s' "$nets" | tr ';' '\n' | grep -v '^$' | LC_ALL=C sort | tr '\n' ';')"
     header="${prefix}${sorted_nets}"
   fi
-  sorted="$(printf '%s' "$mounts" | LC_ALL=C sort)" || return 1
+  sorted="$(printf '%s\n' "$mounts" | LC_ALL=C sort)" || return 1
   printf '%s\n%s\n' "$header" "$sorted"
 }
 

@@ -101,6 +101,16 @@ describe('operations_promotion_static_canonical', { timeout: 30_000 }, () => {
     expect(lines[0]).toBe(header);
   });
 
+  test('accepts real Docker inspect trailing newlines after mount records', () => {
+    const s1 = `${header}\n${mountA}\n${mountB}\n\n`;
+    const s2 = `${header}\n${mountB}\n${mountA}\n`;
+    const r1 = canonicalize(s1);
+    const r2 = canonicalize(s2);
+    expect(r1.status).toBe(0);
+    expect(r2.status).toBe(0);
+    expect(r1.stdout).toBe(r2.stdout);
+  });
+
   test('canonicalizes all permutations of 3 mounts identically', () => {
     const perms = [
       [mountA, mountB, mountC],
