@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { expect, test } from 'vitest';
@@ -111,3 +111,63 @@ synthetic_host_report_failure deploy "$TASK_LOG" "$FCD_SYNTHETIC_TRACE"
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test.each(['promote', 'cleanup'])(
+  'a failed %s stage emits only closed evidence outside its log',
+  async (stage) => {
+    const root = await mkdtemp(join(tmpdir(), 'fcd-host-evidence-test-'));
+    try {
+      await mkdir(join(root, 'logs'));
+      const source = (
+        await readFile('scripts/test-synthetic-runtime-deployment.sh', 'utf8')
+      ).replaceAll('\r\n', '\n');
+      const helpers = source.slice(
+        source.indexOf('# Closed trace/state evidence'),
+        source.indexOf('stage=preflight'),
+      );
+      const trap = source
+        .split('\n')
+        .find((line) => line.startsWith('trap ') && line.endsWith(' ERR'));
+      const operation = source
+        .split('\n')
+        .find((line) =>
+          stage === 'promote'
+            ? line.startsWith('  synthetic_host_run scripts/promote-restore.sh')
+            : /^ {2}(?:\( )?synthetic_host_cleanup(?: |$)/u.test(line),
+        );
+      if (trap === undefined || operation === undefined) throw new Error('synthetic_stage_missing');
+      const script = `set -Eeuo pipefail
+source "$TASK_LIBRARY"
+ci_mode=true; fixture="$TASK_DIRECTORY"; root="$TASK_DIRECTORY"; stage=${stage}
+restore_ref=restore_${'a'.repeat(32)}; revision=${'b'.repeat(40)}
+bash() { printf 'operations_promotion_refused\\n' >&2; return 1; }
+synthetic_host_cleanup() { printf 'synthetic_sensitive_sentinel\\n' >&2; return 1; }
+${helpers}
+${trap}
+${operation}
+printf synthetic_unsafe_advancement
+`;
+      const result = spawnSync(
+        process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash',
+        ['--noprofile', '--norc', '-c', script],
+        {
+          encoding: 'utf8',
+          timeout: 5000,
+          env: {
+            PATH: process.env.PATH,
+            SystemRoot: process.env.SystemRoot,
+            TASK_LIBRARY: resolve('scripts/synthetic-host-evidence.sh').replaceAll('\\', '/'),
+            TASK_DIRECTORY: root.replaceAll('\\', '/'),
+          },
+        },
+      );
+      expect(result.status).toBe(1);
+      expect(result.stdout).toBe('');
+      expect(result.stderr).toContain(`synthetic_host_failed=${stage}\n`);
+      if (stage === 'promote') expect(result.stderr).toContain('operations_promotion_refused\n');
+      expect(result.stderr).not.toContain('synthetic_sensitive_sentinel');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);

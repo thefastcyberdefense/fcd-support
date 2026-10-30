@@ -145,3 +145,27 @@ labelled PostgreSQL actor, its sole volume consumer and sole network member
 were checked before dedicated Compose removal. Remaining dedicated-project
 actors/networks/volumes and backup-harness actors/networks/volumes/image tags
 were all zero. No global prune or unknown resource deletion occurred.
+
+## Independent checkpoint 606cbab and diagnostic correction
+
+The frozen `606cbab9042d41e21c33c325e80f59deca9bf445` full local check passed
+1,905 tests/433 platform skips across 128 files (114 passed/14 skipped),
+284.73 seconds, with all static/build stages passing. Its GitHub general CI
+passed 1,968 tests/370 documented lane skips across 128 files (117 passed/11
+skipped), 66.70 seconds. Those skips are complemented by the separate native
+permissions lane; do not sum overlapping lanes into a distinct-test count.
+
+Both CI network modes completed isolated restore with the explicit fixture
+window, then failed before reporting promotion success. General CI and CodeQL
+passed. This is not an accepted full recovery or promotion pass. Freshness was
+a demonstrated fixture budget mismatch; the earlier internal refusal remains
+unrecovered.
+
+A behavioral regression then reproduced another test-harness defect: ERR
+handling inside a redirected stage function wrote its own closed diagnostics
+into the private stage log, leaving CI output empty. Explicit failure dispatch
+now runs outside public-stage redirection. Child scripts still enforce their
+own strict guards. Cleanup runs in an errexit-preserving subshell with private
+output, so its parent reports closed diagnostics. A synthetic arbitrary-stderr
+sentinel first leaked in the cleanup test and is now suppressed. Neither change
+adds operation authority, clears jobs or changes deployed runtime policy.

@@ -45,6 +45,7 @@ set -Eeuo pipefail
 root="$TASK_DIRECTORY"; fixture="$root"; revision=${'b'.repeat(40)}
 project=fcd-support-host-test-ci-bbbbbbb; restore_project=fcd-support-restore-host-test-ci-bbbbbbb
 synthetic_host_run() { bash "$@"; }
+synthetic_host_stage_failed() { exit 1; }
 ci_mode=true; precreated_mode=false; peer=${'c'.repeat(64)}; before=''; safe=()
 trace() { printf '%s\\n' "$1" >> "$root/trace"; }
 export -f trace
