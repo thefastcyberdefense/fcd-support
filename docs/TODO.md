@@ -1,5 +1,15 @@
 # Fast Cyber Defense Support Task Tracker
 
+- PR #2 independent review (2026-10-30 Asia/Dhaka): five important submission
+  findings and follow-up diagnostic/privacy regressions are corrected on
+  `c185c7d`. Full Windows check passed 1,907 tests/433 skips; exact-source CI,
+  CodeQL and PostgreSQL/native passed. Both private-runtime CI modes complete
+  restore then leave the interactive promotion job/selection uncertain before
+  the later stop/remove guard. PR #2 stays draft/unmerged; no new server action
+  occurred. The explicit next AGY plan prioritizes this real recovery failure,
+  then a coverage map and dependency-gated Task 15 work. Codex retains server
+  execution and gate review. See the 2026-10-30 PR review and AGY handoff.
+
 - New independent post-verification blocker (2026-10-29 Asia/Dhaka): the later
   PostgreSQL stop/remove guard still compares raw complete `.Mounts` order.
   Ten exact-template reads per preserved actor produced two raw changes each;
