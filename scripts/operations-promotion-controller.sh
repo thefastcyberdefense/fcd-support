@@ -13,7 +13,7 @@ operations_promotion_static_canonical() {
   (( ${#input} > 0 && ${#input} <= 65536 )) || return 1
   IFS= read -r header <<<"$input" || return 1
   [[ -n "$header" ]] || return 1
-  mounts="${input#*"$header"$'\n'}"
+  mounts="${input#*$'\n'}"
   [[ "$input" != "$header" && -n "$mounts" ]] || return 1
   while [[ "$mounts" == *$'\n' ]]; do
     mounts="${mounts%$'\n'}"
@@ -60,10 +60,11 @@ operations_promotion_capture_postgres() {
   volume_fact="$(operations_docker volume inspect --format "$OPERATIONS_POSTGRES_VOLUME_FORMAT" "$volume")" || return 1
   IFS=/ read -r name created rest <<<"$volume_fact"
   [[ "$name" == "$volume" && "$rest" == local/local/default/* ]] && operations_deployment_field STATE_VOLUME_CREATED_AT "$created" || return 1
-  names="$(operations_docker container inspect --format '{{range $name,$network := .NetworkSettings.Networks}}{{println $name}}{{end}}' "$id" | LC_ALL=C sort)" || return 1
+  names="$(operations_docker container inspect --format '{{range $name,$network := .NetworkSettings.Networks}}{{println $name}}{{end}}' "$id" | grep -v '^$' | LC_ALL=C sort)" || return 1
   (( ${#names} > 0 && ${#names} <= 2048 )) || return 1
   local -A seen=()
   while IFS= read -r network; do
+    [[ -n "$network" ]] || continue
     [[ -z "${seen[$network]:-}" ]] || return 1
     seen[$network]=yes; (( count += 1 )); (( count <= 6 )) || return 1
     if [[ "$project" == "${OPS_CONFIG[FCD_RUNTIME_PROJECT]}" ]]; then
@@ -96,9 +97,10 @@ operations_promotion_postgres_proof() {
     "$(operations_docker ps --all --quiet --no-trunc --filter "volume=${OPS_PROMOTION_VOLUMES[$id]}")" == "$id" ]] || return 1
   image="${OPS_PROMOTION_IMAGES[$id]%%/*}"
   [[ "$(operations_docker image inspect --format "$OPERATIONS_DRAIN_IMAGE_FORMAT" "$image")" == "${OPS_PROMOTION_IMAGES[$id]}" &&
-    "$(operations_docker container inspect --format '{{range $name,$network := .NetworkSettings.Networks}}{{println $name}}{{end}}' "$id" | LC_ALL=C sort)" == "${OPS_PROMOTION_NETWORKS[$id]}" ]] || return 1
+    "$(operations_docker container inspect --format '{{range $name,$network := .NetworkSettings.Networks}}{{println $name}}{{end}}' "$id" | grep -v '^$' | LC_ALL=C sort)" == "${OPS_PROMOTION_NETWORKS[$id]}" ]] || return 1
   operations_promotion_volume_facts || return 1
   while IFS= read -r network; do
+    [[ -n "$network" ]] || continue
     [[ "$(operations_docker network inspect --format "$OPERATIONS_PROMOTION_NETWORK_FORMAT" "$network")" == "${OPS_PROMOTION_NETWORK_FACTS["$id|$network"]}" ]] || return 1
     peers="$(operations_docker network inspect --format '{{range $id,$member := .Containers}}{{println $id}}{{end}}' "$network")" || return 1
     if [[ "$phase" == running ]]; then [[ "$peers" == "$id" ]] || return 1; else [[ -z "$peers" ]] || return 1; fi
@@ -121,6 +123,7 @@ operations_promotion_remove_postgres() {
   [[ -z "$(operations_docker ps --all --quiet --no-trunc --filter "label=com.docker.compose.project=${OPS_PROMOTION_PROJECTS[$id]}")" &&
     -z "$(operations_docker ps --all --quiet --no-trunc --filter "volume=${OPS_PROMOTION_VOLUMES[$id]}")" ]] || return 1
   while IFS= read -r network; do
+    [[ -n "$network" ]] || continue
     [[ "$(operations_docker network inspect --format "$OPERATIONS_PROMOTION_NETWORK_FORMAT" "$network")" == "${OPS_PROMOTION_NETWORK_FACTS["$id|$network"]}" &&
       -z "$(operations_docker network inspect --format '{{range $id,$member := .Containers}}{{println $id}}{{end}}' "$network")" ]] || return 1
   done <<<"${OPS_PROMOTION_NETWORKS[$id]}"
