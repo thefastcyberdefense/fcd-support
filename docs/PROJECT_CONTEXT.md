@@ -1,31 +1,34 @@
 # Project Context
 
-Last reviewed: 2026-10-30 (Asia/Dhaka)
+Last reviewed: 2026-10-31 (Asia/Dhaka)
 
-Current state: PR #2 is reviewed, corrected and held draft/unmerged at
-`c185c7d572b0b2ab6c91fa94a7c9f83dc630717b`. Full Windows check passed
-1,907 tests/433 skips across 128 files, 251.04 seconds. Exact-source general CI,
-CodeQL and PostgreSQL/native passed. Both public private-runtime CI modes now
-complete restore, then the interactive promotion job and selection become
-uncertain at the job call before the later PostgreSQL capture/retirement guard.
-The exact handshake/internal job cause is unknown. No promotion/rollback/cleanup
-success is claimed, and Task 11/Task 15/P6-GATE remain open.
+Current state: PR #2 is squash-merged at
+`67a4a4bede6d3252dc936a6e410f4b90c1359ac3`. Its application tree exactly matches
+reviewed `9c6ffc5`, whose Windows gate passed 1,922 tests/433 skips and all four
+exact-source workflows passed. Both runtime CI modes completed the full public
+synthetic recovery/compatible same-revision rollback/cleanup path. New privacy
+regressions cover raw job logs, arbitrary diagnostic map keys and bounded output.
+All four exact merged-source workflows passed before the new server action.
 
-Codex corrected missing checkpoint admission, the restore-record path,
-cleanup ownership/failure handling, source-only tests and hidden diagnostic
-reports; complete raw mount order is normalized without dropping fields or
-observations. The CI-only fixture has an explicit 600,000 ms checkpoint window;
-the standard fixture and configurable runtime policy remain unchanged. The
-2026-10-30 independent review records exact counts, skips, durations and links.
+Server source remains clean `6faff8b`. Direct read-only SSH diagnosis confirmed
+Docker initialization/default-bridge recreation; custom network identities,
+configurations, membership, protected files and volumes match. The historical
+baseline is preserved and refuses changed actor start/network metadata. A new
+separately captured stable current baseline cannot settle any old uncertain job.
+The latest old target is now stopped with restart disabled; leave it stopped.
 
-The owner requested a new AGY development package. Codex returns bounded local/
-CI ownership of PR #2 to AGY: first complete the real promotion proof, then map
-remaining coverage and implement Task 15 only after Task 11's dependencies clear.
-The new handoff and plan include checkboxes and acceptance criteria. Codex keeps
-primary tracking, integration, actual server actions and fresh whole-phase review.
-Server source remains `6faff8b`; all old uncertain scopes are preserved. Only
-hermetic Linux observer tests and a read-only saved-baseline audit ran over SSH
-in this review; no application deployment or operation attempt occurred.
+Fresh `67a4a4b` deployment/backup/restore/promotion/rollback action records and
+observer pins passed independent review, syntax checks and read-only admission.
+No new server scope or operation exists yet. Commit/push the records after merged
+CI, deploy once, audit preservation between stages, and stop on any refusal.
+Task 11/P6-004 and P6-GATE remain open until their remaining evidence is verified.
+
+AGY's `codex/agy-p6-failure-matrix` is synchronized at `ac6e7c0`; its application
+tree equals reviewed main and only the gap-map document differs. Task 15 test
+implementation waits for Codex to record Task 11 complete. Avoid duplicating the
+existing ENOSPC, restored-work quarantine and fake-lock tests; the next handoff
+will identify precise missing assertions. Codex retains server actions, trackers
+and fresh whole-phase review. No live provider, tunnel or production change ran.
 
 The following entries retain earlier checkpoints and their evidence.
 

@@ -10,10 +10,10 @@ import subprocess
 import sys
 import time
 
-REVISION = '70f8e7073d20bce0b54d84011e001a2bd5bb527f'
-PROJECT = 'fcd-support-host-test-p6-70f8e70'
+REVISION = '67a4a4bede6d3252dc936a6e410f4b90c1359ac3'
+PROJECT = 'fcd-support-host-test-p6-67a4a4b'
 ROOT = Path('/home/redwan') / PROJECT
-OUTPUT = Path('/home/redwan/fcd-support-p6-action-70f8e70/restore-drill/promotion-observer.jsonl')
+OUTPUT = Path('/home/redwan/fcd-support-p6-action-67a4a4b/restore-drill/promotion-observer.jsonl')
 STAGES = frozenset([
     'observer_ready', 'observer_finished', 'observer_timeout', 'observer_interrupted', 'reader_ended',
     'container_start', 'container_die', 'container_destroy', 'container_kill',

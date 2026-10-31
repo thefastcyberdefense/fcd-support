@@ -1,5 +1,16 @@
 # Fast Cyber Defense Support Task Tracker
 
+- PR #2 integrated (2026-10-31 Asia/Dhaka): reviewed correction `9c6ffc5`
+  passes the full Windows gate (1,922 passed/433 platform skips) and all four
+  exact-source workflows, including full public recovery in both CI modes.
+  Squash merge `67a4a4b` has the identical tested application tree. All four exact merged-source
+  workflows also passed. Fresh server action records passed independent
+  review and read-only preflight; no new server operation has run. A separate
+  current baseline is required after confirmed Docker default-bridge recreation;
+  all old uncertain scopes and stopped targets stay preserved. Task 11/P6-004,
+  Task 15 and P6-GATE remain open. AGY's matrix branch is synchronized at `ac6e7c0`.
+  See `docs/reviews/2026-10-31-pr-2-integration.md` and the server runbook.
+
 - PR #2 independent review (2026-10-30 Asia/Dhaka): five important submission
   findings and follow-up diagnostic/privacy regressions are corrected on
   `c185c7d`. Full Windows check passed 1,907 tests/433 skips; exact-source CI,

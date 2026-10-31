@@ -1917,3 +1917,53 @@ and the 64-record output limit remain finite. All output is fixed stage/time and
 optional numeric exit status. No actual observer has been started. AGY's new
 handoff prioritizes the static-guard fix, then automated CI recovery and genuinely
 additional observer runtime coverage. Task 11/Task 15/P6-GATE remain open.
+
+### Fresh reviewed 67a4a4b action (2026-10-31)
+
+PR #2 is merged as `67a4a4bede6d3252dc936a6e410f4b90c1359ac3` with the exact
+application tree tested at `9c6ffc5`. The corrected-source four workflows pass;
+all four exact merged-source workflows must also pass before execution. See
+`docs/reviews/2026-10-31-pr-2-integration.md` for independent evidence.
+
+Read-only SSH diagnosis found only the default bridge was recreated, coinciding
+with Docker daemon initialization. Custom network identities/configurations and
+actor memberships by network name match; protected files and volumes match.
+The old baseline remains immutable and refuses actor start/endpoint drift. Two
+current observations are stable. Capture a separate current baseline in the new
+action directory; do not replace or claim a match against the old baseline.
+Old uncertain jobs retain unknown SQL outcomes. All old targets, including
+`6faff8b`, are stopped/restart-disabled and must remain so.
+
+The following single-use records are pinned to the merged source, the clean old
+`6faff8b` checkout and fresh private `67a4a4b` namespaces:
+
+- `docs/operations/actions/2026-10-31-deploy-67a4a4b.py`
+- `docs/operations/actions/2026-10-31-backup-replay-67a4a4b.sh`
+- `docs/operations/actions/2026-10-31-prepare-restore-67a4a4b.py`
+- `docs/operations/actions/2026-10-31-restore-drill-67a4a4b.sh`
+
+Fresh independent review found no Important/Critical issue. `--inspect` passed
+read-only admission, preservation/absent-scope checks and capacity. Syntax and
+repinned observer pure tests passed (32/one Windows SIGHUP skip). These records
+have not executed. Commit/push them before server mutation.
+
+Execute deployment once; require final verification and full `--audit`. Run
+backup/replay once and audit. Prepare only the fresh protected fixture's isolated
+`198.19.8.0/24` target subnet and explicit synthetic 600,000 ms checkpoint window;
+the eight fresh source bridges occupy `198.19.0.0/24` through `198.19.7.0/24`.
+Run isolated restore once and audit. Start the repinned passive observer in a
+separate SSH session, require its launch marker, then promote once. Its marker
+is not a subscription acknowledgement and observations never settle SQL jobs.
+Only successful public promotion and verification permit compatible retained
+same-revision rollback, followed by public verify and full preservation audit.
+Both source/restored volumes must remain. Stop on any refusal, uncertainty,
+missing acknowledgement or preservation failure; never retry or repair a scope.
+
+No provider call, Meta asset, tunnel/public ingress, production resource, old
+selection/job or old target is changed by this action. Task 11 and P6-GATE remain
+open pending actual proof, remaining interruption coverage and independent review.
+
+Before committing this action, all four merged-source workflows passed:
+CI `41167434851`, CodeQL `41167434819`, PostgreSQL/native `41167435035` and
+private runtime `41167434856`. The action stays pinned to the tested `67a4a4b`
+application source even when later documentation commits advance main.
