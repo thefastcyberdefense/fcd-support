@@ -16,18 +16,20 @@ endpoint metadata/default bridge identity changed. The original baseline remains
 unchanged, and the original action stopped before rollback.
 
 Fresh selected restored volume/physical identity and completed promotion record
-match, both volumes remain, and no active job exists. The reviewed `4c51898`
-action recovered the stale admin socket and restarted the same admin; all four
-runtime services are healthy. Final public verify refused the stopped synthetic
-ingress canary, whose restart policy is `no`. The failed attempt remains without
-a completion marker, and rollback is unattempted.
+match, both volumes remain, and no active job exists. `4c51898` recovered the
+stale admin socket and restarted the same admin; all four services are healthy.
+The exact inert canary was then started once by `626f411`. Its guard refused
+before verification because it compared Docker allocation counters as static
+metadata. Both attempts remain failed without completion markers; neither is
+retried or repaired. Rollback remains unattempted.
 
-A separate exact-canary recovery/rollback action passed read-only admission,
-11 pure/hermetic methods and independent review. Commit/push precede execution.
-It starts only the existing inert mount-free canary, requires current public
-verify and full baseline/binding checks, and writes a new completion record;
-it never reruns socket recovery or repairs the old record. Old jobs, baselines,
-volumes and stopped targets remain untouched. See the reboot recovery review.
+The new rollback-only proposal permits only the observed exact +1/-1 allocation
+transition on both same networks; every other field remains exact. It binds all
+failed evidence and current boot/policies, then requires unchanged public verify
+before one rollback intent, public rollback and verify. Read-only admission and
+six pure/hermetic methods pass; final independent review/commit/push precede
+execution. Old scopes and targets remain preserved. See the reboot recovery
+review for actual results, code pins and limitations.
 
 Task 11/P6-004, Task 15 and P6-GATE remain open. AGY's matrix branch is
 synchronized at `ac6e7c0`; the next checklist is

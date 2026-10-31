@@ -135,3 +135,41 @@ checks. Reviewed action SHA256:
 `07b311ecea011e789cacba1bc60ef505859d480783af730090992314be1f8c9f`.
 The new action remains unexecuted pending this commit/push. Unchanged application
 source is still exact `67a4a4b`; all its four workflows pass. Task 11 stays open.
+
+## Actual canary start and corrected rollback-only proposal
+
+The committed `626f411` canary action ran once. Docker acknowledged starting the
+exact same inert canary, which is running. The action then refused before public
+verification because its full network projection included Docker's live `Status`
+allocation counters. It remains failed without its completion marker. Do not
+rerun either recovery action or declare either failed attempt successful.
+
+Read-only comparison found every peer/network field unchanged except `Status`
+on both exact networks. The schema is `Status.IPAM.Subnets[existing subnet]`
+with integer `IPsInUse` and `DynamicIPsAvailable`; the exact deltas are +1/-1
+on each network. Old baseline/policies, full fresh bindings and healthy runtime/
+admin definition still match. No rollback has been attempted.
+
+The separate `2026-10-31-rollback-after-reboot-67a4a4b.py` is rollback-only. It
+requires that exact known two-network allocation transition, rejects unknown
+fields/types/other changes, binds the protected successful peer start ack and all
+failed recovery evidence, and captures a new private proof without altering old
+records. Current unchanged public verify must pass before recording its one-use
+rollback intent. It then invokes unchanged same-revision compatible rollback
+once, verifies publicly, and audits preserved old scopes/policies, immutable
+fresh configuration/secret metadata/restore evidence, the selected restored
+physical identity and both volumes. No recovery/start/stop path is invoked.
+
+The counter test was RED with the initial rejecting stub, then GREEN. Six
+pure/hermetic methods pass: exact counter transition with 11 rejection subcases,
+immutable proof checks, actual runner verification/intent/rollback ordering,
+six refusal/changed-boot/binding cases and single-use execution. Read-only
+`--inspect` passed. Python syntax and diff checks pass. Final independent review
+and commit/push are required before execution; Task 11 remains open.
+
+Final rollback-only scoped review: no Important/Critical findings. The reviewer
+independently passed all six updated hermetic methods and diff checks. Exact
+reviewed action SHA256:
+`3653dc8c32ed58b2ae5747d6cff15170442a11e2061e7970ed6f4a5b055c8da5`.
+The action's read-only admission passed; committing/pushing precedes execution.
+Application source remains unchanged `67a4a4b` with four passing workflows.

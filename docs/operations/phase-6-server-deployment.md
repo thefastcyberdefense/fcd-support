@@ -2020,3 +2020,23 @@ restored physical identity and both volumes. Original failed records remain
 immutable. Any refusal or restart stops continuation. No old scope is retried.
 The concrete proposal passes 11 hermetic methods and scoped independent review;
 no canary action has executed at this record point. Application remains `67a4a4b`.
+
+### Rollback-only continuation after acknowledged canary start
+
+The `626f411` canary start was acknowledged and the same peer is running. The
+post-start guard refused before verification: only each network's live `Status`
+allocation counters changed (+1 IP in use/-1 available). Every static field and
+preservation/binding check matched. Preserve that failed attempt and its absent
+completion marker; never rerun the canary or socket-recovery stages.
+
+The separate
+`docs/operations/actions/2026-10-31-rollback-after-reboot-67a4a4b.py` admits only
+the exact known counter schema/transition while pinning all other peer/network
+fields and failed evidence. After review/commit/push and read-only `--inspect`,
+run `--execute` once. Current public verify precedes the one-use rollback intent;
+only then run unchanged same-revision rollback and public verify. Its new
+`rollback-after-reboot` proof/markers never modify prior records. Require
+`--audit`, healthy private runtime, unchanged selected restored identity and both
+volumes, exact old baseline/restart policies and immutable fresh bindings.
+Any refusal, restart, missing acknowledgement or drift stops continuation.
+Six hermetic methods and read-only admission pass; execution remains pending.
