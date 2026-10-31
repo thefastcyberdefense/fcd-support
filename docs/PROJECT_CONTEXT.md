@@ -2,41 +2,37 @@
 
 Last reviewed: 2026-10-31 (Asia/Dhaka)
 
-Current source: PR #2 merged as `67a4a4bede6d3252dc936a6e410f4b90c1359ac3`;
-all four exact merged-source workflows pass. The reviewed application matches
-`9c6ffc5` (Windows 1,922 passed/433 skips; both full recovery CI modes pass).
-Action records `7afffd5` were committed/pushed before fresh server execution.
+**Task 11 is COMPLETE for implementation and its bounded historical server drill.**
+Exact application `67a4a4bede6d3252dc936a6e410f4b90c1359ac3` passed all four
+merged-source workflows and matches the validated `9c6ffc5` application tree
+(Windows 1,922 tests/433 platform skips). Both real ephemeral CI recovery modes
+pass. The actual private server completed deploy, signed backup/replay, isolated
+restore, promotion/verify, then the first compatible same-revision retained
+rollback/verify and full audit through committed action `3f22344`. The restored
+physical identity and both volumes were preserved. Failed intermediate attempts
+remain failed; no prior completion marker or baseline was repaired.
 
-Actual server drill: deploy/private verify, three signed archives/replay,
-isolated restore and public promote/verify passed. Full preservation audits
-matched through immediately before promotion, then refused old start/network
-drift. Direct SSH diagnosis proves a host reboot during the drill. Old protected
-files/volumes/actor identities/other definitions match; running-actor start and
-endpoint metadata/default bridge identity changed. The original baseline remains
-unchanged, and the original action stopped before rollback.
+The extra independent post-rollback HTTP probe did not run at that checkpoint
+due to approval-service usage limits. After a much later owner continuation,
+read-only inspection found another guest reboot and seven old stopped actors
+absent. Their volumes/state-file metadata remain. Current admin is unhealthy,
+canary stopped, and current preservation/readiness refuses. Actual PostgreSQL
+control identity and API-local 403/404/401 still match; this is not a current
+admin/private-ingress pass. Current source is clean `67a4a4b`. No new recovery,
+old actor reconstruction, journal settlement or rollback has run.
 
-Fresh selected restored volume/physical identity and completed promotion record
-match, both volumes remain, and no active job exists. `4c51898` recovered the
-stale admin socket and restarted the same admin; all four services are healthy.
-The exact inert canary was then started once by `626f411`. Its guard refused
-before verification because it compared Docker allocation counters as static
-metadata. Both attempts remain failed without completion markers; neither is
-retried or repaired. Rollback remains unattempted.
+The owner reaffirmed delegated decisions and required protecting other projects.
+Any server change stays within the fcd-support test stack; no Docker-daemon/VM/shared-infrastructure/tunnel,
+shared-project or production changes. The current incident stays OPEN in
+`docs/operations/incidents/2026-10-31-test-server-restart-and-actor-loss.md`.
+Task 11's bounded closure and limitations are recorded in
+`docs/reviews/2026-10-31-phase-6-task-11-closeout.md`.
 
-The new rollback-only proposal permits only the observed exact +1/-1 allocation
-transition on both same networks; every other field remains exact. It binds all
-failed evidence and current boot/policies, then requires unchanged public verify
-before one rollback intent, public rollback and verify. Read-only admission and
-six pure/hermetic methods pass; final independent review/commit/push precede
-execution. Old scopes and targets remain preserved. See the reboot recovery
-review for actual results, code pins and limitations.
-
-Task 11/P6-004, Task 15 and P6-GATE remain open. AGY's matrix branch is
-synchronized at `ac6e7c0`; the next checklist is
-`docs/handoffs/2026-10-31-antigravity-phase-6-next.md`. Evidence-map corrections
-may proceed, but implementation waits for Codex's Task 11 completion. Codex owns
-server actions, trackers and independent whole-phase review. No provider,
-tunnel, Meta or production resource change ran.
+P6-004/005/006 remain IN PROGRESS because they include Task 15; P6-GATE remains
+BLOCKED. AGY's approved local failure-matrix work is now unblocked. Current
+handoff: `docs/handoffs/2026-10-31-antigravity-phase-6-next.md`, with its linked
+focused plan. Codex owns server recovery, trackers, integration and independent
+whole-phase review. No live provider, Meta, tunnel or production change ran.
 
 The following entries retain earlier checkpoints and their evidence.
 

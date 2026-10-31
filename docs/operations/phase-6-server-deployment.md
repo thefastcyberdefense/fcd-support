@@ -2040,3 +2040,24 @@ only then run unchanged same-revision rollback and public verify. Its new
 volumes, exact old baseline/restart policies and immutable fresh bindings.
 Any refusal, restart, missing acknowledgement or drift stops continuation.
 Six hermetic methods and read-only admission pass; execution remains pending.
+
+### Bounded Task 11 completion and later current-host incident
+
+The committed `3f22344` rollback-only action passed current public verify, the
+first compatible retained same-revision rollback, post-rollback public verify
+and the separate full `--audit`. Task 11 closes for that bounded implementation/
+actual drill, preserving restored identity and both volumes. The extra independent
+HTTP probe did not run then because approval review hit a usage limit. No result
+is invented for that probe. See the Task 11 closeout review.
+
+After owner continuation many hours later, current read-only checks found another
+clean guest reboot and seven older stopped actors missing. Volumes/state files
+remain; current admin is unhealthy and canary exited. Boot/preservation admission
+now refuses. Do not replay completed actions or replace the old baseline. This
+is a separate open incident in
+`docs/operations/incidents/2026-10-31-test-server-restart-and-actor-loss.md`.
+Source remains clean `67a4a4b`; actual PostgreSQL control identity and API-local
+403/404/401 pass, without claiming current admin/private-ingress readiness.
+The owner permits decisions but requires protecting every other server project.
+No Docker-daemon/VM/shared-infrastructure/tunnel change or global cleanup is authorized here.
+AGY's local Task 15 work may proceed; aggregate P6 rows and P6-GATE remain open.

@@ -10,10 +10,18 @@ your clean `codex/agy-p6-failure-matrix` branch at
 main and only your gap-map document differs. The runtime branch is historical;
 continue in `J:\DevDrive\fcd-support-agy-failure-matrix`.
 
-**Entry gate:** implement only after Codex records Task 11 COMPLETE. Until then,
-correct evidence citations only. Fetch and merge the latest main into your
-branch after that gate clears; do not force push or modify the primary checkout.
-No separate routine owner approval is needed for this approved local scope.
+**Entry gate is satisfied:** Codex recorded Task 11 COMPLETE for the bounded
+successful source/drill in `docs/reviews/2026-10-31-phase-6-task-11-closeout.md`.
+Fetch/merge the latest main before implementation. Tasks 12–14's local contracts
+are included in the passing exact-source gates; audit their citations during
+Task 15. P6-004 is still IN PROGRESS because its mapping includes Task 15; do
+not require its aggregate completion first. A later host incident is
+open and does not block these isolated local tests. Do not touch that host.
+
+Start now in the existing clean isolated matrix worktree after verifying its
+state. If it has your uncommitted work, preserve it and report before attempting
+an integration. No force push or primary-checkout changes. The existing owner
+approval covers this scope; no new routine owner approval is required.
 
 ## Checklist and acceptance
 

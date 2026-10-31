@@ -1,8 +1,10 @@
 # Phase 6 Task 15 focused closeout plan
 
 This narrows Task 3 of the approved 2026-10-30 recovery/failure-matrix plan.
-Existing owner approval covers local synthetic implementation. Task 11 must
-first be recorded COMPLETE by Codex; this document does not close that dependency.
+Existing owner approval covers local synthetic implementation. Task 11 has been recorded COMPLETE by Codex for the bounded
+source/drill in the 2026-10-31 Task 11 closeout review. Its later host incident
+remains open; this is no current-server readiness claim. The aggregate P6-004
+row includes Task 15 and must not be a circular entry dependency.
 Codex retains server execution and the independent whole-phase gate review.
 
 ## Task 1: Correct the evidence inventory
