@@ -480,12 +480,16 @@ test.skipIf(process.platform === 'win32')(
     const root = await mkdtemp(join('/tmp', 'fcd-flock-test-'));
     await chmod(root, 0o700);
     const trace = join(root, 'job.trace');
+    const lock = join(root, 'deployment.lock');
+    await writeFile(lock, '', { mode: 0o600 });
     try {
       // Process 1: Acquires real OS flock, signals via stdout, waits for stdin barrier, then records job and releases
       const proc1Script = `
 source "$TASK_COMMON"
 declare -gA OPS_CONFIG=([FCD_STATE_ROOT]="$TASK_ROOT" [FCD_MAINTENANCE_SLOT_SECONDS]=300)
-operations_lock
+lock="\${OPS_CONFIG[FCD_STATE_ROOT]}/deployment.lock"
+exec {OPS_LOCK_DESCRIPTOR}<>"$lock" || operations_fail operations_lock_invalid
+flock --nonblock "$OPS_LOCK_DESCRIPTOR" 2>/dev/null || operations_fail operations_lock_conflict
 printf 'LOCKED\\n'
 read -r line
 printf 'slot_1000\\n' >> "$TASK_TRACE"
@@ -501,6 +505,11 @@ exec {OPS_LOCK_DESCRIPTOR}>&-
         stdio: ['pipe', 'pipe', 'pipe'],
       });
 
+      let proc1Stderr = '';
+      proc1.stderr.on('data', (data: Buffer) => {
+        proc1Stderr += data.toString();
+      });
+
       // Deterministic barrier: Wait until Process 1 confirmed holding the real flock
       await new Promise<void>((resolvePromise, rejectPromise) => {
         proc1.stdout.once('data', (data: Buffer) => {
@@ -510,7 +519,9 @@ exec {OPS_LOCK_DESCRIPTOR}>&-
         proc1.once('error', rejectPromise);
         proc1.once('exit', (code) => {
           if (code !== 0)
-            rejectPromise(new Error(`Process 1 exited prematurely with code ${String(code)}`));
+            rejectPromise(
+              new Error(`Process 1 exited prematurely with code ${String(code)}: ${proc1Stderr}`),
+            );
         });
       });
 
@@ -518,7 +529,9 @@ exec {OPS_LOCK_DESCRIPTOR}>&-
       const proc2Script = `
 source "$TASK_COMMON"
 declare -gA OPS_CONFIG=([FCD_STATE_ROOT]="$TASK_ROOT" [FCD_MAINTENANCE_SLOT_SECONDS]=300)
-operations_lock
+lock="\${OPS_CONFIG[FCD_STATE_ROOT]}/deployment.lock"
+exec {OPS_LOCK_DESCRIPTOR}<>"$lock" || operations_fail operations_lock_invalid
+flock --nonblock "$OPS_LOCK_DESCRIPTOR" 2>/dev/null || operations_fail operations_lock_conflict
 printf 'UNSAFE_ENTERED_JOB\\n' >> "$TASK_TRACE"
 `;
       const proc2 = spawnSync(bash, ['--noprofile', '--norc', '-c', proc2Script], {
@@ -552,7 +565,9 @@ printf 'UNSAFE_ENTERED_JOB\\n' >> "$TASK_TRACE"
       const proc3Script = `
 source "$TASK_COMMON"
 declare -gA OPS_CONFIG=([FCD_STATE_ROOT]="$TASK_ROOT" [FCD_MAINTENANCE_SLOT_SECONDS]=300)
-operations_lock
+lock="\${OPS_CONFIG[FCD_STATE_ROOT]}/deployment.lock"
+exec {OPS_LOCK_DESCRIPTOR}<>"$lock" || operations_fail operations_lock_invalid
+flock --nonblock "$OPS_LOCK_DESCRIPTOR" 2>/dev/null || operations_fail operations_lock_conflict
 printf 'slot_2000\\n' >> "$TASK_TRACE"
 exec {OPS_LOCK_DESCRIPTOR}>&-
 `;
@@ -573,7 +588,9 @@ exec {OPS_LOCK_DESCRIPTOR}>&-
       const proc4Script = `
 source "$TASK_COMMON"
 declare -gA OPS_CONFIG=([FCD_STATE_ROOT]="$TASK_ROOT" [FCD_MAINTENANCE_SLOT_SECONDS]=300)
-operations_lock
+lock="\${OPS_CONFIG[FCD_STATE_ROOT]}/deployment.lock"
+exec {OPS_LOCK_DESCRIPTOR}<>"$lock" || operations_fail operations_lock_invalid
+flock --nonblock "$OPS_LOCK_DESCRIPTOR" 2>/dev/null || operations_fail operations_lock_conflict
 if grep -q "slot_1000" "$TASK_TRACE"; then
   printf '{"status":"skipped","processed":0,"reasonCode":"not_due"}\\n'
 else
