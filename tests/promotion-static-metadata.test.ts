@@ -71,6 +71,23 @@ operations_promotion_static_canonical "$TASK_INPUT"
 }
 
 describe('operations_promotion_static_canonical', { timeout: 30_000 }, () => {
+  test('canonicalizes reordered network entries in header identically', () => {
+    const netPrefix = header.slice(
+      0,
+      header.lastIndexOf(
+        '/default/3333333333333333333333333333333333333333333333333333333333333333;',
+      ) + 1,
+    );
+    const h1 = `${netPrefix}netA/1111;netB/2222;netC/3333;`;
+    const h2 = `${netPrefix}netC/3333;netA/1111;netB/2222;`;
+    const r1 = canonicalize(`${h1}\n${mountA}\n`);
+    const r2 = canonicalize(`${h2}\n${mountA}\n`);
+    expect(r1.status).toBe(0);
+    expect(r2.status).toBe(0);
+    expect(r1.stdout).toBe(r2.stdout);
+    expect(r1.stdout.split('\n')[0]).toBe(`${netPrefix}netA/1111;netB/2222;netC/3333;`);
+  });
+
   test('normalizes reordered mount records into identical canonical output', () => {
     const s1 = `${header}\n${mountA}\n${mountB}\n`;
     const s2 = `${header}\n${mountB}\n${mountA}\n`;
@@ -82,6 +99,16 @@ describe('operations_promotion_static_canonical', { timeout: 30_000 }, () => {
     const lines = r1.stdout.trim().split('\n');
     expect(lines).toHaveLength(3);
     expect(lines[0]).toBe(header);
+  });
+
+  test('accepts real Docker inspect trailing newlines after mount records', () => {
+    const s1 = `${header}\n${mountA}\n${mountB}\n\n`;
+    const s2 = `${header}\n${mountB}\n${mountA}\n`;
+    const r1 = canonicalize(s1);
+    const r2 = canonicalize(s2);
+    expect(r1.status).toBe(0);
+    expect(r2.status).toBe(0);
+    expect(r1.stdout).toBe(r2.stdout);
   });
 
   test('canonicalizes all permutations of 3 mounts identically', () => {

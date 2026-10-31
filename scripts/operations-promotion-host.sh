@@ -40,10 +40,9 @@ operations_promotion_host_volume() {
 operations_promotion_host_environment() {
   # Only names and these fixed nonsecret path/identity settings enter stdio.
   # Never project unknown values or a complete Config.Env array.
-  local template='{' key separator=''
+  local template='{ {{$first := true}}' key
   for key in NODE_ENV OPS_GIT_REVISION OPS_OPERATION_REFERENCE OPS_DATABASE_SYSTEM_IDENTIFIER OPS_SOURCE_DATABASE_SYSTEM_IDENTIFIER OPS_DATABASE_NAME OPS_SOURCE_DATABASE_NAME OPS_DATABASE_SCHEMA OPS_DATABASE_ROLE_PREFIX OPS_SCHEMA_REVISION RESTORE_SOURCE_SERVICE_ALIAS RESTORE_TARGET_SERVICE_ALIAS RESTORE_SOURCE_CHECKPOINT_DATABASE_URL_FILE RESTORE_TARGET_OWNER_DATABASE_URL_FILE PRIVACY_HMAC_KEYRING_FILE BACKUP_AGE_IDENTITY_FILE RECOVERY_MANIFEST_HMAC_FILE MODEL_EXECUTION_ENABLED OUTBOUND_EXECUTION_ENABLED N8N_EXECUTION_ENABLED CHECKPOINT_ARCHIVE_DIRECTORY PG_MAJOR PG_VERSION PGDATA PG_SHA256; do
-    template+='{{range .Config.Env}}{{if eq (index (split . "=") 0) "'"$key"'"}}'"$separator\"$key\":"'{{json (slice . '"$((${#key}+1))"')}}{{end}}{{end}}'
-    separator=,
+    template+='{{range .Config.Env}}{{if eq (index (split . "=") 0) "'"$key"'"}}{{if $first}}{{$first = false}}{{else}},{{end}}'"\"$key\":"'{{json (slice . '"$((${#key}+1))"')}}{{end}}{{end}}'
   done
   template+='}'
   operations_docker container inspect --format "$template" "$OPS_JOB_CONTAINER"
@@ -119,6 +118,21 @@ operations_promotion_host_secrets() {
   done
 }
 
+# Optional diagnostics are one exact closed line, never validator payloads or logs.
+operations_promotion_host_diagnostic() {
+  [[ "${FCD_RUNTIME_HOST_DIAGNOSTICS:-}" == closed-v1 && "$#" == 1 && ${#1} -le 128 ]] || return 0
+  case "$1" in
+    runtime_host_diagnostic=arguments|runtime_host_diagnostic=input|runtime_host_diagnostic=validation|runtime_host_diagnostic=samples) ;;
+    runtime_host_diagnostic=samples.*)
+      case "${1#runtime_host_diagnostic=samples.}" in
+        capAdd|capDrop|securityOpt|groupAdd|volumesFrom|extraHosts|sysctls|nanoCpus|memory|pidsLimit|stopTimeout|environmentNames|mounts|tmpfs|service|healthy|user|restartPolicy|command|entrypoint|volume|id|systemIdentifier|project|revision|imageId|reference|projectActors|users|name|createdAt|logicalName|networks|hostBinds|stability|target) ;;
+        *) return 0 ;;
+      esac ;;
+    *) return 0 ;;
+  esac
+  { printf '%s\n' "$1" >&3; } 2>/dev/null || true
+}
+
 operations_inspect_promotion_host() (
   local bound="${1:-}" field before after result image volume_project volume_logical options payload
   [[ "$#" == 7 && ${#bound} -ge 2 && ${#bound} -le 2048 && "$2" =~ ^[a-f0-9]{64}$ && "$3" =~ ^fcd-support[-a-z0-9_]{1,100}$ && "$4" =~ ^[1-9][0-9]{0,19}$ && "$5" =~ ^selection_[a-f0-9]{32}$ && "$6" =~ ^[a-f0-9]{40}$ && "$7" =~ ^sha256:[a-f0-9]{64}$ ]] || operations_fail promotion_host_invalid
@@ -142,11 +156,21 @@ operations_inspect_promotion_host() (
   after="$(operations_promotion_host_snapshot)" || operations_fail promotion_host_invalid
   payload="$(printf '{"options":%s,"samples":{"before":%s,"after":%s}}' "$options" "$before" "$after")"
   (( ${#payload} <= 524288 )) || operations_fail promotion_host_invalid
+  local -a diag_flags=()
+  [[ "${FCD_RUNTIME_HOST_DIAGNOSTICS:-}" != closed-v1 ]] || diag_flags+=(--env FCD_RUNTIME_HOST_DIAGNOSTICS=closed-v1)
   result="$({ printf '%s' "$payload" | operations_docker run --rm --interactive --pull never --network none --read-only --user 1000:1000 \
     --label "fcd-support.promotion-inspection=${OPS_CONFIG[FCD_RESTORE_PROJECT]}" --cap-drop ALL --security-opt no-new-privileges \
+    "${diag_flags[@]}" \
     --cpus "${OPS_CONFIG[FCD_RESTORE_CPUS]}" --memory "${OPS_CONFIG[FCD_RESTORE_MEMORY_MIB]}m" --pids-limit "${OPS_CONFIG[FCD_RESTORE_PIDS]}" \
-    --entrypoint node "$OPS_JOB_IMAGE" dist/operations/promotion-host-main.js; } 2>/dev/null)" || operations_fail promotion_host_invalid
+    --entrypoint node "$OPS_JOB_IMAGE" dist/operations/promotion-host-main.js; } 2>/dev/null)" || {
+      operations_promotion_host_diagnostic "$result"
+      operations_fail promotion_host_invalid
+    }
   operations_promotion_host_context || operations_fail promotion_host_invalid
+  if [[ "$result" =~ ^runtime_host_diagnostic= ]]; then
+    operations_promotion_host_diagnostic "$result"
+    operations_fail promotion_host_invalid
+  fi
   [[ "$result" == "$bound" ]] || operations_fail promotion_host_invalid
   printf '%s\n' "$bound"
 )

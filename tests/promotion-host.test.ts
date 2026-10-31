@@ -1,7 +1,10 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { expect, test } from 'vitest';
-import { inspectPromotionHostSamples } from '../src/operations/promotion-host.js';
+import {
+  inspectPromotionHostSamples,
+  PromotionHostValidationError,
+} from '../src/operations/promotion-host.js';
 
 function fixture(createdAt = '2030-01-01T00:00:00Z') {
   const revision = 'a'.repeat(40);
@@ -656,6 +659,24 @@ test('accepts deterministic mount-order permutations within a snapshot and betwe
   );
 });
 
+test('accepts deterministic network and member order permutations within a snapshot and between snapshots', () => {
+  const f = fixture();
+  // Permutation within snapshot: initial postgres vs terminal
+  f.snapshot.source.terminal.networks.reverse();
+  const after = structuredClone(f.snapshot);
+  // Permutation between snapshots: before vs after
+  after.source.postgres.networks.reverse();
+  after.job.networks.reverse();
+  const opsNet = after.source.networks.find((n) => n.name.endsWith('-operations-data'));
+  if (!opsNet) throw new Error('fixture_operations_network_missing');
+  opsNet.members.reverse();
+  after.target.network.members.reverse();
+  after.source.networks.reverse();
+  expect(inspectPromotionHostSamples({ before: f.snapshot, after }, f.options)).toEqual(
+    f.options.expectedHost,
+  );
+});
+
 test.each([
   [
     'changed mount source within sample',
@@ -764,3 +785,18 @@ test.each(['source', 'target'] as const)('requires the %s terminal observation',
   Reflect.deleteProperty(f.snapshot[side], 'terminal');
   expect(() => inspect(f)).toThrow(/^promotion_host_invalid$/u);
 });
+
+test.each(['/synthetic_private_path_sentinel', '/synthetic_private_path\nforged=line'])(
+  'promotion diagnostics never reflect a record key %j',
+  (key) => {
+    const f = fixture();
+    Object.assign(f.snapshot.job.tmpfs, { [key]: 'x'.repeat(2049) });
+    try {
+      inspect(f);
+      throw new Error('synthetic_expected_refusal');
+    } catch (error) {
+      expect(error).toBeInstanceOf(PromotionHostValidationError);
+      expect((error as PromotionHostValidationError).diagnosticCode).toBe('samples.tmpfs');
+    }
+  },
+);

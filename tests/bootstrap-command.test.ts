@@ -1,5 +1,8 @@
 import { expect, test } from 'vitest';
-import { parseBootstrapCommand } from '../src/operations/bootstrap-main.js';
+import {
+  normalizeBootstrapConnectionString,
+  parseBootstrapCommand,
+} from '../src/operations/bootstrap-main.js';
 
 test('bootstrap settlement inspection accepts only an operation reference and physical cluster identity', () => {
   expect(
@@ -52,4 +55,19 @@ test.each(
   ].map((args) => ({ args })),
 )('bootstrap refuses ambiguous command %# before any secret or database access', ({ args }) => {
   expect(() => parseBootstrapCommand(args)).toThrow(/^runtime_bootstrap_invalid$/u);
+});
+
+test('normalizes restored target alias to runtime postgres hostname', () => {
+  expect(
+    normalizeBootstrapConnectionString(
+      'postgresql://postgres:secret@fcd-support-restore-postgres:5432/fcd_support_test',
+    ),
+  ).toBe('postgresql://postgres:secret@postgres:5432/fcd_support_test');
+  expect(
+    normalizeBootstrapConnectionString(
+      'postgresql://postgres:secret@postgres:5432/fcd_support_test',
+    ),
+  ).toBe('postgresql://postgres:secret@postgres:5432/fcd_support_test');
+  expect(normalizeBootstrapConnectionString(undefined)).toBeUndefined();
+  expect(normalizeBootstrapConnectionString('invalid-uri')).toBe('invalid-uri');
 });

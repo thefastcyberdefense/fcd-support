@@ -1,8 +1,35 @@
 # Project Context
 
-Last reviewed: 2026-10-29 (Asia/Dhaka)
+Last reviewed: 2026-10-30 (Asia/Dhaka)
 
-Current blocker: the later PostgreSQL stop/remove proof still compares raw
+Current state: PR #2 is reviewed, corrected and held draft/unmerged at
+`c185c7d572b0b2ab6c91fa94a7c9f83dc630717b`. Full Windows check passed
+1,907 tests/433 skips across 128 files, 251.04 seconds. Exact-source general CI,
+CodeQL and PostgreSQL/native passed. Both public private-runtime CI modes now
+complete restore, then the interactive promotion job and selection become
+uncertain at the job call before the later PostgreSQL capture/retirement guard.
+The exact handshake/internal job cause is unknown. No promotion/rollback/cleanup
+success is claimed, and Task 11/Task 15/P6-GATE remain open.
+
+Codex corrected missing checkpoint admission, the restore-record path,
+cleanup ownership/failure handling, source-only tests and hidden diagnostic
+reports; complete raw mount order is normalized without dropping fields or
+observations. The CI-only fixture has an explicit 600,000 ms checkpoint window;
+the standard fixture and configurable runtime policy remain unchanged. The
+2026-10-30 independent review records exact counts, skips, durations and links.
+
+The owner requested a new AGY development package. Codex returns bounded local/
+CI ownership of PR #2 to AGY: first complete the real promotion proof, then map
+remaining coverage and implement Task 15 only after Task 11's dependencies clear.
+The new handoff and plan include checkboxes and acceptance criteria. Codex keeps
+primary tracking, integration, actual server actions and fresh whole-phase review.
+Server source remains `6faff8b`; all old uncertain scopes are preserved. Only
+hermetic Linux observer tests and a read-only saved-baseline audit ran over SSH
+in this review; no application deployment or operation attempt occurred.
+
+The following entries retain earlier checkpoints and their evidence.
+
+Historical blocker at the prior checkpoint: the later PostgreSQL stop/remove proof still compares raw
 `.Mounts` order. Its controller is unchanged between `6faff8b` and `70f8e70`.
 Ten actual-template reads each of the preserved source/target showed two raw
 changes each; every complete projection matched after sorting full mount
