@@ -1998,3 +1998,25 @@ and during audits. Keep the selected restored identity and both volumes.
 Further restart, pending job, missing acknowledgement or drift stops continuation.
 See `docs/reviews/2026-10-31-server-reboot-recovery.md` for actual evidence and
 limits. This proposal has not executed and does not close Task 11 or P6-GATE.
+
+### Separate inert canary recovery after successful socket repair
+
+The committed `4c51898` socket action recovered the stale entry, restarted the
+same admin and reached healthy readiness. Final public verify refused because
+the reboot stopped the synthetic ingress canary (restart `no`). The action
+stopped without its completion marker; never rerun it or fill in that marker.
+All four runtime services are healthy, and saved baseline/policy/binding checks
+match. Rollback remains unattempted.
+
+Use the separately reviewed
+`docs/operations/actions/2026-10-31-peer-recovery-67a4a4b.py` only after its
+commit/push and read-only `--inspect`. Run `--recover` once to start only the
+configured exact same inert, mount-free, credential-free canary under lock,
+then require unchanged public verification and preserved baselines/bindings.
+Its actual two network identities/static definitions and hardening are pinned.
+A new `peer-recovery/runtime-completed` is required for its separate one-use
+`--rollback`; successful public rollback/verify and `--audit` must preserve the
+restored physical identity and both volumes. Original failed records remain
+immutable. Any refusal or restart stops continuation. No old scope is retried.
+The concrete proposal passes 11 hermetic methods and scoped independent review;
+no canary action has executed at this record point. Application remains `67a4a4b`.

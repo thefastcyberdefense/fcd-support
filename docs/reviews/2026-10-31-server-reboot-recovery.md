@@ -100,3 +100,38 @@ The reviewer independently passed all 11 hermetic methods and diff checks.
 All four workflows for unchanged application source `67a4a4b` already pass.
 The corrected action's fresh read-only admission passed before this commit.
 Recovery and rollback remain unexecuted at this record's commit point.
+
+## Actual socket recovery and separate canary continuation
+
+The reviewed `4c51898` action ran once. Exact admin stop, public stale-socket
+recovery acknowledgement, same-container restart and bounded healthy readiness
+passed. Final public runtime verification refused; the action stopped without
+`recovery-completed`, and no rollback ran. Preserve this failed attempt as-is.
+
+Read-only diagnosis found the configured synthetic ingress canary stopped by
+the reboot with restart policy `no`. Its ID/image/revision, inert Node interval
+command, hardening and exact two networks match. It has no mounts or injected
+credentials. The runtime verifier requires this peer. All four actual runtime
+services are now healthy; saved baselines, old restart policies, fresh bindings
+and the same admin definition still match. No database/job state was repaired.
+
+The new standalone `2026-10-31-peer-recovery-67a4a4b.py` preserves the reviewed
+prelude and creates a separate `peer-recovery` action directory. It binds the
+original baseline file, exact peer definition, actual network identities and
+static network configuration, hardening, no mounts/ports, and environment equal
+to the pinned image defaults. Under the fresh deployment lock it starts only
+that same inert canary once. Full preservation and fresh bindings remain checked;
+unchanged public verification must pass before a new `runtime-completed` record.
+It never reruns socket recovery or writes the old failed attempt's markers.
+Only the new successful verification permits its separately gated, unattempted
+same-revision rollback and subsequent public verification/preservation audit.
+
+Read-only admission passed. Eleven pure/hermetic methods passed, including
+reused strict reboot/policy tests, canary secret/mount/privilege/network/image
+rejection, exact start/verify order, boot/binding refusal and one-use/gated
+rollback. Counts overlap the earlier guard tests. Independent scoped review found
+no Important/Critical finding and independently passed those 11 methods/diff
+checks. Reviewed action SHA256:
+`07b311ecea011e789cacba1bc60ef505859d480783af730090992314be1f8c9f`.
+The new action remains unexecuted pending this commit/push. Unchanged application
+source is still exact `67a4a4b`; all its four workflows pass. Task 11 stays open.

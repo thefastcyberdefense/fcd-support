@@ -16,14 +16,18 @@ endpoint metadata/default bridge identity changed. The original baseline remains
 unchanged, and the original action stopped before rollback.
 
 Fresh selected restored volume/physical identity and completed promotion record
-match, both volumes remain, and no active job exists. API/reply/PostgreSQL are
-healthy; admin is restarting with a protected stale socket refusing connections.
-Persisted READY does not replace current runtime verification. A separate one-use
-public socket-recovery/rollback proposal passes read-only admission and 11 pure/
-hermetic methods after reproduced review corrections. Final review and commit/
-push are required before execution. No manual unlink, old-job settlement,
-baseline overwrite, promotion retry or old-target restart is allowed. See
-`docs/reviews/2026-10-31-server-reboot-recovery.md`.
+match, both volumes remain, and no active job exists. The reviewed `4c51898`
+action recovered the stale admin socket and restarted the same admin; all four
+runtime services are healthy. Final public verify refused the stopped synthetic
+ingress canary, whose restart policy is `no`. The failed attempt remains without
+a completion marker, and rollback is unattempted.
+
+A separate exact-canary recovery/rollback action passed read-only admission,
+11 pure/hermetic methods and independent review. Commit/push precede execution.
+It starts only the existing inert mount-free canary, requires current public
+verify and full baseline/binding checks, and writes a new completion record;
+it never reruns socket recovery or repairs the old record. Old jobs, baselines,
+volumes and stopped targets remain untouched. See the reboot recovery review.
 
 Task 11/P6-004, Task 15 and P6-GATE remain open. AGY's matrix branch is
 synchronized at `ac6e7c0`; the next checklist is
