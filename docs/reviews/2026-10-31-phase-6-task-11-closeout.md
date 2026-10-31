@@ -67,9 +67,12 @@ units are not installed as part of local validation.
 
 A later read-only snapshot found another clean sudo-requested guest reboot and
 seven previously stopped protected actors absent, including three old restore
-targets. Their volumes and protected state files remain; current admin is
-unhealthy and the inert canary is stopped. Current preservation/readiness does
-not pass. See
+targets. Their volumes and protected state files remain; admin was unhealthy
+and the inert canary stopped at that later inspection. The original preservation
+proof does not pass. Separately reviewed action `d96382d` subsequently restored
+current private readiness, with successful public verify/current-inventory audit
+and independent admin HTTP 200/private ingress 403/404/401. The actor-loss
+incident remains open; this repair does not restore the original actor set. See
 `docs/operations/incidents/2026-10-31-test-server-restart-and-actor-loss.md`.
 Do not overwrite baselines, recreate uncertain actors, infer SQL outcomes or
 rerun completed operations. Server changes remain confined to the fcd-support

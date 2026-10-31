@@ -63,6 +63,15 @@ Codex retains server execution and the independent whole-phase gate review.
 - [ ] Run focused checks, then final `VITEST_MAX_WORKERS=4 npm run check`.
       Run native/grants/restore and affected Docker/network lanes sequentially,
       including the existing multihomed ordinary-egress isolation proof.
+- [ ] Confirm the existing CI runs these hermetic standard-library test files;
+      if absent, add an explicit step without changing token permissions,
+      secrets or current lanes: `2026-10-29-promotion-observer-test.py`,
+      `2026-10-31-reboot-recovery-test.py`, `2026-10-31-peer-recovery-test.py`,
+      `2026-10-31-rollback-after-reboot-test.py`, and
+      `2026-10-31-current-runtime-recovery-test.py`, all under
+      `docs/operations/actions/`. Run only the test files, never an action driver.
+      No SSH or real Docker call belongs in this hermetic step. Linux signal
+      cases must run there; report each suite separately without summed totals.
 - [ ] Verify exact ownership/sole consumers before scoped cleanup. Never prune
       globally or delete any old server scope or unknown resource.
 - [ ] Force-format changed Markdown with `--ignore-path .gitignore`; run shell/

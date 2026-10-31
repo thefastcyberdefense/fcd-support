@@ -1,9 +1,9 @@
 # Test server restart and missing stopped actors
 
 Date: 2026-10-31 (Asia/Dhaka).
-Status: **OPEN — current preservation/readiness refuses; no old-scope repair.**
+Status: **OPEN for older actor loss/attribution. Current private fcd-support readiness is restored; original preservation is not restored.**
 
-## Confirmed observations
+## Post-reboot observations before scoped repair
 
 The historical `3f22344` rollback-only execution and its separate full audit
 passed on exact application `67a4a4b`. A subsequent additional check did not run
@@ -92,3 +92,27 @@ passed all five methods/diff checks. Reviewed action SHA256:
 Commit/push precedes execution. The proposal has not executed at this record.
 Even a successful new audit covers the surviving/current inventory and recorded
 missing set; it does not restore original preservation or resolve actor loss/SQL.
+
+## Verified current readiness after scoped repair
+
+The reviewed action was committed/pushed as `d96382d` before execution. It ran
+once and exited 0 with `current_fcd_private_readiness_verified=true`. Its separate
+`--audit` exited 0 with `current_fcd_recovery_audit_passed=true`.
+Independent read-only checks then passed:
+
+- All four pinned non-root/read-only private runtime services are healthy.
+- Protected owner-only Unix admin login returns HTTP 200.
+- Actual private ingress canary requests return 403 (unverified challenge),
+  404 (private health route absent) and 401 (unsigned synthetic event).
+- Actual PostgreSQL control identity matches the selected restored database;
+  source/restored volumes remain. No restore/promotion/rollback was repeated.
+- No owned operation or socket-recovery helper actor remains.
+- Unrelated-project container/network metadata digests and global volume
+  inventory match before/after. No command targeted another project or changed
+  shared Docker-daemon/VM/tunnel configuration.
+- Historical evidence and the seven-actor missing set remain unchanged.
+
+The new audit proves preservation of the current surviving inventory during this
+scoped repair. It does not restore the original actor set, attribute prior cleanup
+or settle uncertain SQL. Keep this incident OPEN for that separate disposition.
+Task 11's bounded closeout stands; aggregate Phase 6 gates remain unfinished.

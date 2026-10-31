@@ -2080,3 +2080,19 @@ Docker-daemon/VM/shared-infrastructure change, global cleanup, old actor
 reconstruction or repeated restore/promotion/rollback is allowed. The actor-loss
 incident remains open independently of current readiness. Read-only admission,
 five hermetic methods and independent scoped review pass; execution is pending.
+
+### Current private readiness restored (recorded action d96382d)
+
+The one-use current-stack repair exited 0, followed by its successful separate
+`--audit`. Independent checks passed four healthy private roles, Unix admin login
+200, actual private ingress 403/404/401, restored PostgreSQL control identity and
+retained volumes. No operation/socket-helper actor remains. Other-project
+container/network metadata digests/global volume inventory and historical
+records/missing set match. Only the exact current admin/canary changed; no
+restore, promotion, rollback, Docker-daemon/VM/shared/tunnel action was repeated.
+
+This establishes current readiness at that bounded observation. It does not
+restore original preservation, attribute the seven older missing actors or
+settle any SQL uncertainty. Keep the actor-loss incident open separately. The
+application source remains clean `67a4a4b`; Phase 6 local failure-matrix/gate work
+continues through the published AGY checklist.
