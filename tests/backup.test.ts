@@ -264,15 +264,136 @@ test('manifest output contains no plaintext dump or connection material', async 
   expect(text).not.toContain('synthetic_private_identity');
 });
 test.skipIf(process.platform === 'win32')(
-  'readonly archive root fails before spawning a dump',
+  'read-only archive destination preserves existing valid archives and leaves no partial files',
   async () => {
     const f = await fixture();
+
+    // 1. Writable control: First create an authentic, valid backup in the writable destination
+    const baselineManifest = await createEncryptedBackup(f.options);
+    expect(baselineManifest.state).toBe('created');
+    const verified = await verifyEncryptedBackup({
+      ...f.options,
+      identityFile: f.identityFile,
+      expectedManifest: baselineManifest,
+    });
+    expect(verified.status).toBe('verified');
+    const baselineDir = join(f.options.archiveDirectory, baselineManifest.backupRef);
+    expect(await readdir(baselineDir)).toEqual(['archive.age', 'manifest.json']);
+    const baselineCipher = await readFile(join(baselineDir, 'archive.age'));
+    const baselineManifestBody = await readFile(join(baselineDir, 'manifest.json'));
+
+    // 2. Guard the destination as read-only
     await chmod(f.options.archiveDirectory, 0o500);
-    await expect(createEncryptedBackup(f.options)).rejects.toThrow('backup_failed');
-    expect(f.calls).toHaveLength(0);
-    await chmod(f.options.archiveDirectory, 0o700);
+    try {
+      // 3. Attempt a backup against the guarded read-only archive destination
+      await expect(
+        createEncryptedBackup({
+          ...f.options,
+          now: new Date('2030-01-02T00:00:00.000Z'),
+        }),
+      ).rejects.toThrow('backup_failed');
+    } finally {
+      // Restore permissions for assertions and fixture cleanup
+      await chmod(f.options.archiveDirectory, 0o700);
+    }
+
+    // 4. Assert no false archive publication: archive directory contains ONLY the baseline backup
+    const entries = await readdir(f.options.archiveDirectory);
+    expect(entries).toEqual([baselineManifest.backupRef]);
+
+    // 5. Assert baseline valid archive is completely preserved and unaltered
+    expect(await readFile(join(baselineDir, 'archive.age'))).toEqual(baselineCipher);
+    expect(await readFile(join(baselineDir, 'manifest.json'))).toEqual(baselineManifestBody);
+    await expect(
+      verifyEncryptedBackup({
+        ...f.options,
+        identityFile: f.identityFile,
+        expectedManifest: baselineManifest,
+      }),
+    ).resolves.toEqual({ status: 'verified' });
+
+    // 6. Assert zero newly owned partial ciphertext or temporary plaintext is left behind
+    expect(await readdir(baselineDir)).toEqual(['archive.age', 'manifest.json']);
+    expect(await readdir(f.options.temporaryDirectory)).toEqual([]);
+
+    // 7. Assert absence of synthetic sensitive sentinels in captured output or calls
+    for (const call of f.calls) {
+      const callData = JSON.stringify(call);
+      expect(callData).not.toContain('synthetic_password');
+      expect(callData).not.toContain('synthetic_dump');
+      expect(callData).not.toContain('synthetic_private_identity');
+    }
+
+    // 8. Writable success control after restoring write permissions
+    const nextManifest = await createEncryptedBackup({
+      ...f.options,
+      now: new Date('2030-01-03T00:00:00.000Z'),
+    });
+    expect(nextManifest.state).toBe('created');
+    const updatedEntries = await readdir(f.options.archiveDirectory);
+    expect(updatedEntries).toEqual(
+      expect.arrayContaining([baselineManifest.backupRef, nextManifest.backupRef]),
+    );
+    expect(updatedEntries).toHaveLength(2);
   },
 );
+test('read-only destination error (EROFS) during publish cleans partial files and preserves existing archives', async () => {
+  const f = await fixture();
+  // 1. Writable control: create baseline backup
+  const baselineManifest = await createEncryptedBackup(f.options);
+  const baselineDir = join(f.options.archiveDirectory, baselineManifest.backupRef);
+  const baselineCipher = await readFile(join(baselineDir, 'archive.age'));
+  const baselineManifestJson = await readFile(join(baselineDir, 'manifest.json'));
+
+  // 2. Publish failure with EROFS error
+  await expect(
+    createEncryptedBackup({
+      ...f.options,
+      now: new Date('2030-01-02T00:00:00.000Z'),
+      publish: () =>
+        Promise.reject(
+          Object.assign(new Error('EROFS: read-only file system, rename'), { code: 'EROFS' }),
+        ),
+    }),
+  ).rejects.toThrow('backup_failed');
+
+  // 3. Verify no false publication: archive directory contains only baseline backup
+  const entries = await readdir(f.options.archiveDirectory);
+  expect(entries).toEqual([baselineManifest.backupRef]);
+
+  // 4. Verify existing valid archive is preserved and verified
+  expect(await readFile(join(baselineDir, 'archive.age'))).toEqual(baselineCipher);
+  expect(await readFile(join(baselineDir, 'manifest.json'))).toEqual(baselineManifestJson);
+  await expect(
+    verifyEncryptedBackup({
+      ...f.options,
+      identityFile: f.identityFile,
+      expectedManifest: baselineManifest,
+    }),
+  ).resolves.toEqual({ status: 'verified' });
+
+  // 5. Zero newly owned partial ciphertext or temporary plaintext left behind
+  expect(await readdir(baselineDir)).toEqual(['archive.age', 'manifest.json']);
+  expect(await readdir(f.options.temporaryDirectory)).toEqual([]);
+
+  // 6. Assert absence of synthetic sensitive sentinels in calls
+  for (const call of f.calls) {
+    const callData = JSON.stringify(call);
+    expect(callData).not.toContain('synthetic_password');
+    expect(callData).not.toContain('synthetic_dump');
+    expect(callData).not.toContain('synthetic_private_identity');
+  }
+
+  // 7. Writable success control
+  const nextManifest = await createEncryptedBackup({
+    ...f.options,
+    now: new Date('2030-01-03T00:00:00.000Z'),
+  });
+  expect(nextManifest.state).toBe('created');
+  expect(await readdir(f.options.archiveDirectory)).toEqual(
+    expect.arrayContaining([baselineManifest.backupRef, nextManifest.backupRef]),
+  );
+});
 test('pruning refuses a missing latest archive and never deletes an older one', async () => {
   const f = await fixture();
   const manifest = await createEncryptedBackup(f.options);

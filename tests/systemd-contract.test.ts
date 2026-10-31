@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -468,6 +468,137 @@ test.runIf(native).each(['interrupted', 'malformed'])(
       expect(result.status).toBe(1);
       expect(result.stdout).toBe('');
       expect(result.stderr).toBe('operations_health_gap_invalid\n');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test.skipIf(process.platform === 'win32')(
+  'scheduled operation nonblocking flock concurrency barrier rejects concurrent activation and deduplicates slot',
+  async () => {
+    const root = await mkdtemp(join('/tmp', 'fcd-flock-test-'));
+    await chmod(root, 0o700);
+    const trace = join(root, 'job.trace');
+    try {
+      // Process 1: Acquires real OS flock, signals via stdout, waits for stdin barrier, then records job and releases
+      const proc1Script = `
+source "$TASK_COMMON"
+declare -gA OPS_CONFIG=([FCD_STATE_ROOT]="$TASK_ROOT" [FCD_MAINTENANCE_SLOT_SECONDS]=300)
+operations_lock
+printf 'LOCKED\\n'
+read -r line
+printf 'slot_1000\\n' >> "$TASK_TRACE"
+exec {OPS_LOCK_DESCRIPTOR}>&-
+`;
+      const proc1 = spawn(bash, ['--noprofile', '--norc', '-c', proc1Script], {
+        env: {
+          PATH: process.env.PATH,
+          TASK_COMMON: resolve('scripts/operations-common.sh').replaceAll('\\', '/'),
+          TASK_ROOT: root,
+          TASK_TRACE: trace,
+        },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+
+      // Deterministic barrier: Wait until Process 1 confirmed holding the real flock
+      await new Promise<void>((resolvePromise, rejectPromise) => {
+        proc1.stdout.once('data', (data: Buffer) => {
+          if (data.toString().includes('LOCKED')) resolvePromise();
+          else rejectPromise(new Error(`Unexpected output: ${data.toString()}`));
+        });
+        proc1.once('error', rejectPromise);
+        proc1.once('exit', (code) => {
+          if (code !== 0)
+            rejectPromise(new Error(`Process 1 exited prematurely with code ${String(code)}`));
+        });
+      });
+
+      // Process 2: Attempts concurrent activation against the locked scope
+      const proc2Script = `
+source "$TASK_COMMON"
+declare -gA OPS_CONFIG=([FCD_STATE_ROOT]="$TASK_ROOT" [FCD_MAINTENANCE_SLOT_SECONDS]=300)
+operations_lock
+printf 'UNSAFE_ENTERED_JOB\\n' >> "$TASK_TRACE"
+`;
+      const proc2 = spawnSync(bash, ['--noprofile', '--norc', '-c', proc2Script], {
+        env: {
+          PATH: process.env.PATH,
+          TASK_COMMON: resolve('scripts/operations-common.sh').replaceAll('\\', '/'),
+          TASK_ROOT: root,
+          TASK_TRACE: trace,
+        },
+        encoding: 'utf8',
+        timeout: 5000,
+      });
+
+      // Assert Process 2 was refused immediately by flock without entering any job
+      expect(proc2.status).toBe(1);
+      expect(proc2.stderr.trim()).toBe('operations_lock_conflict');
+
+      // Release Process 1 through the deterministic stdin barrier
+      proc1.stdin.write('RELEASE\n');
+      const proc1Exit = await new Promise<number | null>((resolvePromise) => {
+        proc1.once('exit', (code) => {
+          resolvePromise(code);
+        });
+      });
+      expect(proc1Exit).toBe(0);
+
+      // Verify only Process 1 executed its slot
+      expect(await readFile(trace, 'utf8')).toBe('slot_1000\n');
+
+      // Process 3: After release, subsequent activation acquires lock and executes new slot
+      const proc3Script = `
+source "$TASK_COMMON"
+declare -gA OPS_CONFIG=([FCD_STATE_ROOT]="$TASK_ROOT" [FCD_MAINTENANCE_SLOT_SECONDS]=300)
+operations_lock
+printf 'slot_2000\\n' >> "$TASK_TRACE"
+exec {OPS_LOCK_DESCRIPTOR}>&-
+`;
+      const proc3 = spawnSync(bash, ['--noprofile', '--norc', '-c', proc3Script], {
+        env: {
+          PATH: process.env.PATH,
+          TASK_COMMON: resolve('scripts/operations-common.sh').replaceAll('\\', '/'),
+          TASK_ROOT: root,
+          TASK_TRACE: trace,
+        },
+        encoding: 'utf8',
+        timeout: 5000,
+      });
+      expect(proc3.status).toBe(0);
+      expect(await readFile(trace, 'utf8')).toBe('slot_1000\nslot_2000\n');
+
+      // Process 4: Repeated slot 1000 deduplication: slot already executed in catalog returns skipped/not_due
+      const proc4Script = `
+source "$TASK_COMMON"
+declare -gA OPS_CONFIG=([FCD_STATE_ROOT]="$TASK_ROOT" [FCD_MAINTENANCE_SLOT_SECONDS]=300)
+operations_lock
+if grep -q "slot_1000" "$TASK_TRACE"; then
+  printf '{"status":"skipped","processed":0,"reasonCode":"not_due"}\\n'
+else
+  printf 'slot_1000\\n' >> "$TASK_TRACE"
+fi
+exec {OPS_LOCK_DESCRIPTOR}>&-
+`;
+      const proc4 = spawnSync(bash, ['--noprofile', '--norc', '-c', proc4Script], {
+        env: {
+          PATH: process.env.PATH,
+          TASK_COMMON: resolve('scripts/operations-common.sh').replaceAll('\\', '/'),
+          TASK_ROOT: root,
+          TASK_TRACE: trace,
+        },
+        encoding: 'utf8',
+        timeout: 5000,
+      });
+      expect(proc4.status).toBe(0);
+      expect(JSON.parse(proc4.stdout.trim())).toEqual({
+        status: 'skipped',
+        processed: 0,
+        reasonCode: 'not_due',
+      });
+      // Trace file remains strictly slot_1000 and slot_2000 with zero duplicate slot_1000 entries
+      expect(await readFile(trace, 'utf8')).toBe('slot_1000\nslot_2000\n');
     } finally {
       await rm(root, { recursive: true, force: true });
     }

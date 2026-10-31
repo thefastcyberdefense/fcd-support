@@ -21,6 +21,8 @@ import { PostgresOutboundPolicy } from '../../src/persistence/postgres-outbound-
 import { PostgresOutboundTemplate } from '../../src/persistence/postgres-outbound-template.js';
 import { PostgresOutboundWorkStore } from '../../src/persistence/postgres-outbound-work-store.js';
 import { insertSyntheticAppliedCustomerEvent, syntheticPrivacyKeyring } from './policy-fixtures.js';
+import { PostgresRestoreFence } from '../../src/persistence/postgres-restore-fence.js';
+import { seedReviewedRestore } from './restore-fixtures.js';
 import { createIsolatedTestDatabase } from './test-database.js';
 import { createOutboundRuntime } from '../../src/operations/outbound-runtime.js';
 import { noopSafeLogger } from '../../src/logging.js';
@@ -833,5 +835,124 @@ describe('PostgreSQL outbound worker flow', () => {
         [fixture.intentRef],
       ),
     ).resolves.toMatchObject({ rows: [{ attempts: 0, terminal_reason: 'template_required' }] });
+  });
+
+  test('restored outbox with quarantine fence makes zero provider sends across repeated worker runs with eligible send-once control', async () => {
+    await seedPolicy();
+
+    // 1. Snapshot state:
+    // Intent 1: Accepted prior to snapshot
+    const acceptedFixture = await seedIntent('prior_accepted');
+    const fakeAccepted = providerFrom([accepted('prior_accepted')]);
+    await worker(fakeAccepted.provider).runBatch({
+      evaluatedAt: workAt,
+      workerRef: 'WORKER_TEST_initial',
+    });
+    expect(fakeAccepted.contexts).toHaveLength(1);
+
+    // Intent 2: In-flight / pending work in the snapshot predating recovery
+    const pendingFixture = await seedIntent('snapshot_pending', {
+      evaluatedAt: new Date(workAt.getTime() + 1000),
+    });
+
+    // 2. Perform restore quarantine fence
+    const restoreRef = 'RESTORE_TEST_outbox_zero_send';
+    const restoreAt = new Date(workAt.getTime() + 5000);
+    const fenceResult = await new PostgresRestoreFence(pool).quarantine({
+      restoreRef,
+      evaluatedAt: restoreAt,
+    });
+    expect(fenceResult.quarantined).toBeGreaterThanOrEqual(1);
+
+    // Verify recovery hold is active in PostgreSQL
+    expect(
+      (await pool.query<{ held: boolean }>('select runtime_recovery_held() as held')).rows[0]?.held,
+    ).toBe(true);
+
+    // 3. Injected provider spy to prove zero calls
+    const sendSpy = vi.fn();
+    const mockProvider: OutboundWorkerProvider = { send: sendSpy };
+    const outboxWorker = worker(mockProvider);
+
+    // 4. Repeated worker activations must make zero provider sends and not clear the hold
+    const batch1 = await outboxWorker.runBatch({
+      evaluatedAt: new Date(restoreAt.getTime() + 1000),
+      workerRef: 'WORKER_TEST_restored_1',
+    });
+    expect(batch1).toMatchObject({ accepted: 0, claimed: 0 });
+    expect(sendSpy).not.toHaveBeenCalled();
+
+    const batch2 = await outboxWorker.runBatch({
+      evaluatedAt: new Date(restoreAt.getTime() + 2000),
+      workerRef: 'WORKER_TEST_restored_2',
+    });
+    expect(batch2).toMatchObject({ accepted: 0, claimed: 0 });
+    expect(sendSpy).not.toHaveBeenCalled();
+
+    // The hold remains active
+    expect(
+      (await pool.query<{ held: boolean }>('select runtime_recovery_held() as held')).rows[0]?.held,
+    ).toBe(true);
+
+    // Verify exact persisted states in PostgreSQL
+    const acceptedRow = (
+      await pool.query<{ state: string; terminal_reason: string | null }>(
+        'select state, terminal_reason from outbound_intents where intent_ref = $1',
+        [acceptedFixture.intentRef],
+      )
+    ).rows[0];
+    expect(acceptedRow).toEqual({ state: 'provider_accepted', terminal_reason: null });
+
+    const pendingRow = (
+      await pool.query<{ state: string; terminal_reason: string | null }>(
+        'select state, terminal_reason from outbound_intents where intent_ref = $1',
+        [pendingFixture.intentRef],
+      )
+    ).rows[0];
+    expect(pendingRow).toEqual({ state: 'canceled', terminal_reason: 'restore_quarantined' });
+
+    // 5. Eligible control: Once recovery is formally reviewed, a newly created intent sends exactly once
+    const reviewAt = new Date(restoreAt.getTime() + 3000);
+    await seedReviewedRestore(pool, restoreRef, reviewAt);
+
+    // Recovery hold is now lifted
+    expect(
+      (await pool.query<{ held: boolean }>('select runtime_recovery_held() as held')).rows[0]?.held,
+    ).toBe(false);
+
+    // Seed a new eligible post-recovery intent
+    const controlAt = new Date(reviewAt.getTime() + 1000);
+    const controlFixture = await seedIntent('post_recovery_control', { evaluatedAt: controlAt });
+
+    // Setup provider to accept the control intent
+    const controlSendSpy = vi.fn(() => Promise.resolve(accepted('post_recovery_control')));
+    const controlWorker = worker({ send: controlSendSpy });
+
+    const controlBatch = await controlWorker.runBatch({
+      evaluatedAt: controlAt,
+      workerRef: 'WORKER_TEST_control',
+    });
+    expect(controlBatch).toMatchObject({ accepted: 1, claimed: 1 });
+    expect(controlSendSpy).toHaveBeenCalledTimes(1);
+
+    const controlRow = (
+      await pool.query<{ state: string; terminal_reason: string | null }>(
+        'select state, terminal_reason from outbound_intents where intent_ref = $1',
+        [controlFixture.intentRef],
+      )
+    ).rows[0];
+    expect(controlRow).toEqual({ state: 'provider_accepted', terminal_reason: null });
+
+    // The quarantined intent was NOT resent
+    const quarantinedStillCanceled = (
+      await pool.query<{ state: string; terminal_reason: string | null }>(
+        'select state, terminal_reason from outbound_intents where intent_ref = $1',
+        [pendingFixture.intentRef],
+      )
+    ).rows[0];
+    expect(quarantinedStillCanceled).toEqual({
+      state: 'canceled',
+      terminal_reason: 'restore_quarantined',
+    });
   });
 });
