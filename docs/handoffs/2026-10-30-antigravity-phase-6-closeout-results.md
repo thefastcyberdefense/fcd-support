@@ -85,7 +85,24 @@ Total hermetic Python tests across 5 suites: **65 passed, 1 platform skip on Win
 
 ---
 
-## 4. Scoped Cleanup Verification
+## 4. GitHub Actions CI Matrix (PR #3)
+
+All 4 application-revision workflows on draft PR [#3](https://github.com/thefastcyberdefense/fcd-support/pull/3) passed completely on commit `39dc67090c5fb04165ff19078d2f2930ecdb5c8d`:
+
+| Workflow | Run ID | Conclusion | Duration | Run URL |
+|---|---|---|---|---|
+| **CodeQL Advanced** | `41218705507` | **SUCCESS** | 1m 13s | https://github.com/thefastcyberdefense/fcd-support/actions/runs/41218705507 |
+| **ci** | `41218705680` | **SUCCESS** | 4m 36s | https://github.com/thefastcyberdefense/fcd-support/actions/runs/41218705680 |
+| **Private runtime controller** | `41218705717` | **SUCCESS** | 10m 14s | https://github.com/thefastcyberdefense/fcd-support/actions/runs/41218705717 |
+| **PostgreSQL and native operations** | `41218705495` | **SUCCESS** | 13m 17s | https://github.com/thefastcyberdefense/fcd-support/actions/runs/41218705495 |
+
+Suite breakdown in `PostgreSQL and native operations`:
+- `postgres` job: **620 passed, 52 skipped** across 56 test files (132.37s)
+- `native-operations` job: **1,295 passed, 0 failed** across 55 test files (454.72s), including the real 2-process `flock` concurrency barrier and slot deduplication test.
+
+---
+
+## 5. Scoped Cleanup Verification
 
 - Zero container leftovers from test executions.
 - Zero untracked files or leftover files in `/tmp` or test scratch.
@@ -94,7 +111,7 @@ Total hermetic Python tests across 5 suites: **65 passed, 1 platform skip on Win
 
 ---
 
-## 5. Remaining Scopes & Next Actions for Codex
+## 6. Remaining Scopes & Next Actions for Codex
 
 1. **Independent P6-GATE Review:**
    - Codex retains authoritative review of the failure matrix coverage and final Phase 6 gate decision.
