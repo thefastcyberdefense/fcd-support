@@ -189,6 +189,7 @@ test('prioritizes trusted transport failure frames displaced by common or state 
         'synthetic_sentinel_file.sh:1:previous=1\n' +
         'operationRef=operation_0123456789abcdef0123456789abcdef\n' +
         'challenge=0123456789abcdef0123456789abcdef\n' +
+        'runtime_host_diagnostic=samples.networks\n'.repeat(80) +
         noise,
     );
     const result = spawnSync(
@@ -219,6 +220,9 @@ test('prioritizes trusted transport failure frames displaced by common or state 
     expect(result.stderr).not.toContain('operationRef');
     expect(result.stderr).not.toContain('challenge');
     const lines = result.stderr.trim().split('\n');
+    expect(
+      lines.filter((line) => line === 'runtime_host_diagnostic=samples.networks'),
+    ).toHaveLength(1);
     expect(lines.length).toBeLessThanOrEqual(70);
   } finally {
     await rm(root, { recursive: true, force: true });

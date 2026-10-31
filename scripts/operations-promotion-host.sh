@@ -118,6 +118,21 @@ operations_promotion_host_secrets() {
   done
 }
 
+# Optional diagnostics are one exact closed line, never validator payloads or logs.
+operations_promotion_host_diagnostic() {
+  [[ "${FCD_RUNTIME_HOST_DIAGNOSTICS:-}" == closed-v1 && "$#" == 1 && ${#1} -le 128 ]] || return 0
+  case "$1" in
+    runtime_host_diagnostic=arguments|runtime_host_diagnostic=input|runtime_host_diagnostic=validation|runtime_host_diagnostic=samples) ;;
+    runtime_host_diagnostic=samples.*)
+      case "${1#runtime_host_diagnostic=samples.}" in
+        capAdd|capDrop|securityOpt|groupAdd|volumesFrom|extraHosts|sysctls|nanoCpus|memory|pidsLimit|stopTimeout|environmentNames|mounts|tmpfs|service|healthy|user|restartPolicy|command|entrypoint|volume|id|systemIdentifier|project|revision|imageId|reference|projectActors|users|name|createdAt|logicalName|networks|hostBinds|stability|target) ;;
+        *) return 0 ;;
+      esac ;;
+    *) return 0 ;;
+  esac
+  { printf '%s\n' "$1" >&3; } 2>/dev/null || true
+}
+
 operations_inspect_promotion_host() (
   local bound="${1:-}" field before after result image volume_project volume_logical options payload
   [[ "$#" == 7 && ${#bound} -ge 2 && ${#bound} -le 2048 && "$2" =~ ^[a-f0-9]{64}$ && "$3" =~ ^fcd-support[-a-z0-9_]{1,100}$ && "$4" =~ ^[1-9][0-9]{0,19}$ && "$5" =~ ^selection_[a-f0-9]{32}$ && "$6" =~ ^[a-f0-9]{40}$ && "$7" =~ ^sha256:[a-f0-9]{64}$ ]] || operations_fail promotion_host_invalid
@@ -142,20 +157,18 @@ operations_inspect_promotion_host() (
   payload="$(printf '{"options":%s,"samples":{"before":%s,"after":%s}}' "$options" "$before" "$after")"
   (( ${#payload} <= 524288 )) || operations_fail promotion_host_invalid
   local -a diag_flags=()
-  [[ -z "${FCD_RUNTIME_HOST_DIAGNOSTICS:-}" ]] || diag_flags+=(--env "FCD_RUNTIME_HOST_DIAGNOSTICS=$FCD_RUNTIME_HOST_DIAGNOSTICS")
+  [[ "${FCD_RUNTIME_HOST_DIAGNOSTICS:-}" != closed-v1 ]] || diag_flags+=(--env FCD_RUNTIME_HOST_DIAGNOSTICS=closed-v1)
   result="$({ printf '%s' "$payload" | operations_docker run --rm --interactive --pull never --network none --read-only --user 1000:1000 \
     --label "fcd-support.promotion-inspection=${OPS_CONFIG[FCD_RESTORE_PROJECT]}" --cap-drop ALL --security-opt no-new-privileges \
     "${diag_flags[@]}" \
     --cpus "${OPS_CONFIG[FCD_RESTORE_CPUS]}" --memory "${OPS_CONFIG[FCD_RESTORE_MEMORY_MIB]}m" --pids-limit "${OPS_CONFIG[FCD_RESTORE_PIDS]}" \
     --entrypoint node "$OPS_JOB_IMAGE" dist/operations/promotion-host-main.js; } 2>/dev/null)" || {
-      if [[ "$result" =~ ^runtime_host_diagnostic= ]]; then
-        printf '%s\n' "$result" >&3 2>/dev/null || true
-      fi
+      operations_promotion_host_diagnostic "$result"
       operations_fail promotion_host_invalid
     }
   operations_promotion_host_context || operations_fail promotion_host_invalid
   if [[ "$result" =~ ^runtime_host_diagnostic= ]]; then
-    printf '%s\n' "$result" >&3 2>/dev/null || true
+    operations_promotion_host_diagnostic "$result"
     operations_fail promotion_host_invalid
   fi
   [[ "$result" == "$bound" ]] || operations_fail promotion_host_invalid

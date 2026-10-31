@@ -244,10 +244,31 @@ const benignEnvironment = new Set([
   'RESTORE_STALE_LEASE_MS',
   'RESTORE_MAX_CHECKPOINT_AGE_MS',
 ]);
+// Only schema-owned names may describe a refusal; map keys and values are private.
+const diagnosticFields = new Set([
+  ...Object.keys(container.shape),
+  ...Object.keys(mount.shape),
+  ...Object.keys(image.shape),
+  ...Object.keys(network.shape),
+  ...Object.keys(volume.shape),
+  ...Object.keys(snapshot.shape),
+  ...Object.keys(snapshot.shape.source.shape),
+  ...Object.keys(snapshot.shape.target.shape),
+  ...Object.keys(snapshot.shape.jobLabels.shape),
+  ...Object.keys(promotionHostOptionsSchema.shape),
+  ...Object.keys(promotionHostOptionsSchema.shape.job.shape),
+  'stability',
+]);
 export class PromotionHostValidationError extends Error {
-  public constructor(public readonly diagnosticCode: string) {
+  readonly diagnosticCode: string;
+  public constructor(code: string) {
     super('promotion_host_invalid');
     this.name = 'PromotionHostValidationError';
+    this.diagnosticCode =
+      ['arguments', 'input', 'validation', 'samples'].includes(code) ||
+      (code.startsWith('samples.') && diagnosticFields.has(code.slice('samples.'.length)))
+        ? code
+        : 'validation';
   }
 }
 function invalid(code = 'validation'): never {
@@ -682,8 +703,10 @@ export function inspectPromotionHostSamples(
   } catch (error) {
     if (error instanceof z.ZodError) {
       const issue = error.issues[0];
-      const prop = issue !== undefined ? issue.path[issue.path.length - 1] : undefined;
-      invalid(prop !== undefined ? `samples.${String(prop)}` : 'input');
+      const prop = issue?.path.findLast(
+        (part): part is string => typeof part === 'string' && diagnosticFields.has(part),
+      );
+      invalid(prop !== undefined ? `samples.${prop}` : 'input');
     }
     invalid('input');
   }
@@ -693,8 +716,10 @@ export function inspectPromotionHostSamples(
   } catch (error) {
     if (error instanceof z.ZodError) {
       const issue = error.issues[0];
-      const prop = issue !== undefined ? issue.path[issue.path.length - 1] : undefined;
-      invalid(prop !== undefined ? `samples.${String(prop)}` : 'samples');
+      const prop = issue?.path.findLast(
+        (part): part is string => typeof part === 'string' && diagnosticFields.has(part),
+      );
+      invalid(prop !== undefined ? `samples.${prop}` : 'samples');
     }
     invalid('samples');
   }

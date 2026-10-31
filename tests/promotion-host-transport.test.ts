@@ -11,6 +11,7 @@ test.each([
   'extra',
   'bad-json',
   'host-refused',
+  'host-refused-diagnostics',
   'incomplete',
   'bad-final',
 ])(
@@ -31,6 +32,11 @@ OPS_JOB_REFERENCE=operation_${'a'.repeat(32)}; OPS_JOB_CONTAINER=${'b'.repeat(64
 operations_promotion_host_check() { printf '%s\\n' checked >>"$TASK_ROOT/checks"; [[ "$TASK_FAULT" != host-refused ]]; }
 operations_docker() {
   local sequence challenge actual expected reference="$OPS_JOB_REFERENCE" line
+  if [[ "$1/$2" == container/logs ]]; then
+    printf 'synthetic_sensitive_job_log\\n'
+    printf 'logs-requested\\n' >>"$TASK_ROOT/reads"
+    return 0
+  fi
   [[ "$TASK_FAULT" != wrong-reference ]] || reference=operation_${'c'.repeat(32)}
   for sequence in 1 2; do
     challenge=${'d'.repeat(32)}; [[ "$sequence" == 1 || "$TASK_FAULT" == replay ]] || challenge=${'e'.repeat(32)}
@@ -45,6 +51,7 @@ operations_docker() {
   done
   if [[ "$TASK_FAULT" == bad-final ]]; then printf '%s\\n' '{"status":"completed","processed":0,"reasonCode":"ok"}'; else printf '%s\\n' '{"status":"completed","processed":1,"reasonCode":"ok"}'; fi
 }
+exec 3>"$TASK_ROOT/diagnostics"
 operations_job_start; printf '%s' "$OPS_PROMOTION_ACK"
 `,
         ],
@@ -54,13 +61,17 @@ operations_job_start; printf '%s' "$OPS_PROMOTION_ACK"
           env: {
             PATH: process.env.PATH,
             SystemRoot: process.env.SystemRoot,
-            TASK_FAULT: fault,
+            TASK_FAULT: fault === 'host-refused-diagnostics' ? 'host-refused' : fault,
+            FCD_RUNTIME_HOST_DIAGNOSTICS:
+              fault === 'host-refused-diagnostics' ? 'closed-v1' : undefined,
             TASK_ROOT: root.replaceAll('\\', '/'),
             TASK_COMMON: resolve('scripts/operations-common.sh').replaceAll('\\', '/'),
             TASK_JOBS: resolve('scripts/operations-job-lifecycle.sh').replaceAll('\\', '/'),
           },
         },
       );
+      expect(await readFile(join(root, 'diagnostics'), 'utf8')).toBe('');
+      expect(await readFile(join(root, 'reads'), 'utf8').catch(() => '')).toBe('');
       if (fault === 'ok') {
         expect({ code: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
           code: 0,

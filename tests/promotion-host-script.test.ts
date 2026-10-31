@@ -306,3 +306,41 @@ test('operations_promotion_host_environment generates valid Go template syntax w
   expect(result.stdout).toBe('{"NODE_ENV":"production"}');
   expect(result.stderr).toBe('');
 });
+
+test.each([
+  [
+    'closed-v1',
+    'runtime_host_diagnostic=samples.networks',
+    'runtime_host_diagnostic=samples.networks\n',
+  ],
+  ['', 'runtime_host_diagnostic=samples.networks', ''],
+  ['synthetic_unknown_flag', 'runtime_host_diagnostic=samples.networks', ''],
+  ['closed-v1', 'runtime_host_diagnostic=samples.synthetic_private_sentinel', ''],
+  ['closed-v1', 'runtime_host_diagnostic=samples.networks\nsynthetic_private_sentinel', ''],
+])('host diagnostic sink accepts only exact closed codes for %s', (flag, value, expected) => {
+  const result = spawnSync(
+    process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash',
+    [
+      '--noprofile',
+      '--norc',
+      '-c',
+      `source ./scripts/operations-common.sh
+source ./scripts/operations-promotion-host.sh
+exec 3>&1
+operations_promotion_host_diagnostic "$TASK_DIAGNOSTIC"
+`,
+    ],
+    {
+      encoding: 'utf8',
+      env: {
+        PATH: process.env.PATH,
+        SystemRoot: process.env.SystemRoot,
+        FCD_RUNTIME_HOST_DIAGNOSTICS: flag,
+        TASK_DIAGNOSTIC: value,
+      },
+    },
+  );
+  expect(result.status).toBe(0);
+  expect(result.stdout).toBe(expected);
+  expect(result.stderr).toBe('');
+});

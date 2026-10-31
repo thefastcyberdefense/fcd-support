@@ -47,11 +47,15 @@ synthetic_host_report_failure() {
   [[ -f "$file" && ! -L "$file" ]] || return 0
   local -a transport_frames=() trace_frames=() diagnostics=()
   local script diagnostic frame
-  local -i i start=0 count=0
+  local -i i start=0 count=0 budget=0
+  local -A seen_diagnostics=()
   while IFS= read -r line; do
     diagnostic="$(synthetic_host_runtime_diagnostic "$line")"
     if [[ -n "$diagnostic" ]]; then
-      diagnostics+=("$diagnostic")
+      if (( ${#diagnostics[@]} < 16 )) && [[ -z "${seen_diagnostics[$diagnostic]:-}" ]]; then
+        diagnostics+=("$diagnostic")
+        seen_diagnostics[$diagnostic]=yes
+      fi
     elif [[ "$line" =~ ^([a-z-]+\.sh):[0-9]{1,6}:previous=[1-9][0-9]{0,2}$ ]]; then
       script="${BASH_REMATCH[1]}"
       case "$script" in
@@ -65,6 +69,7 @@ synthetic_host_report_failure() {
           trace_frames+=("$line") ;;
       esac
     fi
+    if (( ${#trace_frames[@]} > 48 )); then trace_frames=("${trace_frames[@]:1}"); fi
   done < <(head -c 8388608 -- "$file" 2>/dev/null)
   local -A seen=()
   for frame in "${transport_frames[@]}"; do
@@ -75,8 +80,9 @@ synthetic_host_report_failure() {
     printf '%s\n' "$frame" >&2
   done
   count="${#trace_frames[@]}"
-  if (( count > 48 )); then
-    (( start = count - 48 ))
+  (( budget = 64 - ${#transport_frames[@]} - ${#diagnostics[@]} ))
+  if (( count > budget )); then
+    (( start = count - budget ))
   fi
   for (( i = start; i < count; i++ )); do
     frame="${trace_frames[i]}"
