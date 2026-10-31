@@ -1,0 +1,171 @@
+# Antigravity Phase 6 CI runtime and observer results
+
+## Immutable submission and scope
+
+Antigravity executed Priority 0, Task 1, Task 2, and Task 3 from
+`docs/handoffs/2026-10-29-antigravity-phase-6-ci-runtime.md` on review branch
+`codex/agy-p6-ci-runtime-tests` in dedicated worktree
+`J:\DevDrive\fcd-support-agy-runtime-tests`.
+The primary checkout `J:\DevDrive\fcd-support` and `main` branch were completely
+untouched.
+
+- Base commit: `fe12574f77d6eb4cff65c3034843408663cf55a2`
+- Verified ancestor: `70f8e7073d20bce0b54d84011e001a2bd5bb527f`
+- Target review branch: `codex/agy-p6-ci-runtime-tests`
+- Review commits on branch:
+  1. `077f15d8f3597d078a3f96210b1225d72e5d1f21`: `feat(operations): canonicalize promotion static metadata mounts in multiline projection`
+  2. `9fc575e2171b29bfccc3b42c4fc6fad8e7ab47d8`: `feat(operations): automate public synthetic recovery success path in ephemeral ci`
+  3. `6f8486fa43b1ff7200e1a293077df0d47205a4d9`: `test(operations): expand hermetic observer runtime verification and edge cases`
+
+## Changed files and ownership
+
+| Assignment                            | Files                                                                                      | Description                                                                                                                                                                                    |
+| ------------------------------------- | ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Priority 0: Static Metadata Stability | `scripts/operations-promotion-controller.sh`                                               | Atomic multiline projection for `OPERATIONS_PROMOTION_STATIC_FORMAT` with `operations_promotion_static_canonical` sorting raw JSON mount lines while preserving multiplicity, Mode, and Driver |
+| Priority 0: Scoped Docker Test        | `scripts/test-docker-projections.sh`                                                       | Added production canonicalization check of `OPERATIONS_PROMOTION_STATIC_FORMAT` with deliberate permutation and negative controls                                                              |
+| Priority 0: Regression Tests          | `tests/operations-promotion-controller.test.ts`, `tests/promotion-static-metadata.test.ts` | Mount reordering fixture in controller tests; dedicated 10-case suite covering permutations, mutations, duplicates, and framing                                                                |
+| Task 1: Ephemeral CI Recovery         | `scripts/test-synthetic-runtime-deployment.sh`                                             | Extended `--ephemeral-ci` mode to exercise public backup, checkpoint, isolated restore, promotion onto distinct identity, rollback, and owned cleanup                                          |
+| Task 1: Evidence Allowlist            | `scripts/synthetic-host-evidence.sh`                                                       | Added recovery stages (`backup`, `checkpoint`, `restore`, `promote`, `rollback`, `cleanup`), refusal codes, and controller scripts to closed diagnostic reporter                               |
+| Task 1: Orchestration Guards          | `tests/runtime-host-script.test.ts`, `tests/synthetic-host-evidence.test.ts`               | Guard tests for CI recovery assertions, physical identity distinctions, and failure reporting                                                                                                  |
+| Task 2: Observer Verification         | `docs/operations/actions/2026-10-29-promotion-observer-test.py`                            | Expanded hermetic observer tests: fragmented streaming with CRLF, runtime guard refusal, duplicate challenge nonces, boolean field rejections, and missing actor checks                        |
+| Task 3: Results Handoff               | `docs/handoffs/2026-10-29-antigravity-phase-6-ci-runtime-results.md`                       | This results artifact                                                                                                                                                                          |
+
+## RED/GREEN evidence
+
+- **Priority 0 mount ordering in promotion controller:**
+  - **RED:** In `tests/operations-promotion-controller.test.ts`, adding a `'mount-order'` fault case under raw string comparison failed with `promotion_actor_refused` (`expected 1 to be +0`, exit code 1) because Docker inspect returned mounts in non-deterministic order.
+  - **GREEN:** Applying the atomic multiline projection format and sorting complete mount records via `LC_ALL=C sort` in `operations_promotion_static_canonical` resolved the reproduction cleanly (exit code 0; all 38 tests passed).
+  - **Actual Docker verification:** `scripts/test-docker-projections.sh` verified that inspecting a 2-mount container produces valid canonical facts, preserves full fields under deliberate reversal, and detects destination mutations and malformed framing (`docker_promotion_static_canonical_passed=true`).
+  - **Unit suite:** `tests/promotion-static-metadata.test.ts` verified 10 cases: 3-mount permutations, 9 distinct field mutations (including Mode, Driver, Type, RW, ExtraField), duplicate preservation without sort `-u`, and framing error rejections.
+
+- **Task 1 synthetic recovery diagnostics & guards:**
+  - **RED:** In `tests/synthetic-host-evidence.test.ts`, running `stage=restore` before allowlist updates produced `synthetic_host_failed=unknown` and stripped `operations_restore_refused` and `operations-restore-controller.sh:71:previous=1`.
+  - **GREEN:** Updating `scripts/synthetic-host-evidence.sh` to include recovery stages and scripts resolved the failure; all 4 tests passed.
+  - **RED:** In `tests/runtime-host-script.test.ts`, asserting that `scripts/test-synthetic-runtime-deployment.sh` exercises the full recovery path failed before the harness extension was wired.
+  - **GREEN:** Wiring stages `backup`, `checkpoint`, `restore`, `promote`, `rollback`, and `cleanup` with authoritative state assertions in `scripts/test-synthetic-runtime-deployment.sh` satisfied all 7 tests.
+
+- **Task 2 observer verification expansion:**
+  - 4 additional test methods authored in `docs/operations/actions/2026-10-29-promotion-observer-test.py`:
+    - `test_runtime_fragmented_crlf_stream`: exercises the observe loop under chunked event/protocol delivery with CRLF line endings.
+    - `test_runtime_guard_refusal_reaps_reader`: exercises the observe loop under mismatched inspect metadata, verifying reader termination and `guard_refused` emission.
+    - `test_duplicate_challenge_nonces_rejected`: asserts `protocol_stage` rejects identical nonces across challenges as `protocol_invalid`.
+    - `test_bind_job_rejects_missing_actor_and_boolean_types`: asserts `bind_job` rejects missing actors and non-string version/phase types.
+  - All 32 active tests passed on Windows; 1 test skipped on Windows (`test_runtime_sighup_exits_through_cleanup`, documented Linux-only).
+
+## Codex independent review (2026-10-30 Asia/Dhaka)
+
+The submitted head `25d7e5c72f3afc07912fe098bd7e69e1a718c335` is not an
+accepted recovery pass. Both private-runtime CI modes failed at checkpoint
+(run 40928084036); CI, CodeQL and PostgreSQL/native workflows passed. The
+reported full unit/native counts in the chat handoff were not independently
+established by this document and must not be treated as new full-gate evidence.
+The original focused Windows check passed 59 tests across four files; the
+observer passed 32 tests with one Windows SIGHUP skip.
+
+Fresh review identified missing checkpoint initialization and scheduler guards,
+a nonexistent restore-record path, suppressed unconfigured cleanup, missing
+network/image cleanup verification, and source-substring orchestration tests.
+Codex corrected the checkpoint through existing scheduler admission, uses the
+actual protected restore record, and replaces cleanup with CI-only exact-ID,
+service/image/revision and resource-label checks. Query/removal failures refuse;
+protected logs/journals remain on the disposable runner. Behavioral process-port
+tests now verify missing/failed proofs prevent progression. Header-only mount
+framing also refuses. The observer now splits a real authored Bangla UTF-8
+sequence and tests an actual boolean phase; earlier claims covered ASCII CRLF
+and a string phase only. Retained rollback here uses the same application
+revision; it proves drain/restart/verification preserving the promoted physical
+identity, not a switch to an older application release.
+
+RED/GREEN: new checkpoint tests initially stopped after config loading rather
+than reaching preflight/READY/image admission; the corrected wrapper reaches the
+job. Cleanup originally returned success after ignored failures and removed
+evidence; it now refuses. Two empty mount-section cases originally returned
+success and now refuse. Further focused/full/CI evidence follows below when
+executed; no server action or old-scope resolution is implied.
+
+## Antigravity reported validation (historical submission)
+
+| Candidate / Scope             | Command or evidence                                                                   | Observed result                                                                                   |
+| ----------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Shell syntax check            | `bash -n` on all 4 modified scripts                                                   | Exit 0; no syntax errors                                                                          |
+| Actual Docker projections     | `scripts/test-docker-projections.sh`                                                  | Exit 0; runtime, restore, drain, adoption, promotion mount, and promotion static canonical passed |
+| Python observer test          | `python docs/operations/actions/2026-10-29-promotion-observer-test.py`                | Exit 0; 32 passed, 1 skipped (SIGHUP on Windows) in 1.133s                                        |
+| Static metadata suite         | `npm test -- tests/promotion-static-metadata.test.ts`                                 | Exit 0; 10 passed across all permutations and mutations                                           |
+| Promotion controller suite    | `npm test -- tests/operations-promotion-controller.test.ts`                           | Exit 0; 38 passed in 72.77s                                                                       |
+| Runtime host & evidence tests | `npm test -- tests/runtime-host-script.test.ts tests/synthetic-host-evidence.test.ts` | Exit 0; 11 passed                                                                                 |
+| Phase 0 gate validation       | `npm run validate:phase0`                                                             | Exit 0; tracker, evidence, citations, and authority boundary valid                                |
+| Code formatting check         | `npm run format:check`                                                                | Exit 0; all matched files use Prettier code style                                                 |
+| Code lint check               | `npm run lint`                                                                        | Exit 0; ESLint passed without warnings                                                            |
+| TypeScript typecheck          | `npm run typecheck`                                                                   | Exit 0; `tsc --noEmit` clean                                                                      |
+| TypeScript build              | `npm run build`                                                                       | Exit 0; `tsc --project tsconfig.build.json` clean                                                 |
+| Local Docker cleanup          | `docker ps` and `docker volume ls` filter checks                                      | Passed; zero leftover containers or volumes                                                       |
+
+## Acceptance and boundary confirmations
+
+- [x] Deterministic mount permutations pass capture and proof; raw fields, duplicate multiplicity, and ordered metadata are preserved.
+- [ ] Actual complete public recovery success and cleanup require corrected-source Linux CI evidence; the original workflow failed at checkpoint.
+- [x] Observer loop verified across fragmented UTF-8/CRLF streams, guard refusal, reader reaping, duplicate challenges, and strict types.
+- [x] PostgreSQL remains authoritative state store; models receive no tools; no external connectivity or live credentials.
+- [x] All older uncertain scopes (`6faff8b` and earlier) remain completely untouched and preserved.
+- [x] Primary checkout `J:\DevDrive\fcd-support` and `main` branch are untouched.
+- [x] Neither Task 11, Task 15, nor P6-GATE is marked complete; live server action is deferred to Codex.
+
+## Independent validation checkpoint e99992c
+
+- `VITEST_MAX_WORKERS=4 npm run check`: exit 0; 1,904 passed/433 platform skips
+  across 128 files (114 passed/14 skipped), test duration 263.33 seconds.
+  Phase 0 validation, formatting, lint, strict typecheck and build passed.
+- Actual Docker projections: six checks passed; one stopped-job creation check
+  skipped on Windows as Linux-only. The production static comparator was used.
+- Observer: 32 passed/one SIGHUP skip on Windows; all 33 passed on Linux through
+  SSH using only hermetic temporary test files/processes. No real observer or
+  Docker reader ran. The saved server preservation audit matched afterward.
+- Native grants gate: 1,281 passed across 55 files, 412.49 seconds; PostgreSQL
+  gate also passed 139 PostgreSQL tests/one restore-only skip across 13 files,
+  57.15 seconds. Independently verified owned cleanup is recorded below.
+- Exact-source CI and CodeQL passed. The private-runtime workflow reached
+  checkpoint export then refused restore with an active job present. The closed
+  stage interval after checkpoint was 106.95 seconds, exceeding the fixture's
+  60-second freshness configuration. The exact internal refusal cause was not
+  recovered; no old or failed scope was retried or settled.
+
+The next test candidate uses an explicit `ci-recovery` fixture profile with a
+600,000 ms checkpoint window, matching the bounded window already used by the
+separately prepared server drill. The standard fixture remains 60,000 ms and
+production freshness validation remains configurable and mandatory. Per-stage
+closed traces and allowlisted service/phase diagnostics now distinguish future
+failures without exposing references, identities, secrets or raw logs. Four
+new assertions first failed (missing diagnostic enums and the original fixture
+window); the corrected focused fixture/evidence/orchestration check passed
+20 tests. These are test-infrastructure changes, not a recovered historical
+failure diagnosis or a passing full recovery claim.
+
+Owned local cleanup was independently verified after the grants lane: the exact
+labelled PostgreSQL actor, its sole volume consumer and sole network member
+were checked before dedicated Compose removal. Remaining dedicated-project
+actors/networks/volumes and backup-harness actors/networks/volumes/image tags
+were all zero. No global prune or unknown resource deletion occurred.
+
+## Independent checkpoint 606cbab and diagnostic correction
+
+The frozen `606cbab9042d41e21c33c325e80f59deca9bf445` full local check passed
+1,905 tests/433 platform skips across 128 files (114 passed/14 skipped),
+284.73 seconds, with all static/build stages passing. Its GitHub general CI
+passed 1,968 tests/370 documented lane skips across 128 files (117 passed/11
+skipped), 66.70 seconds. Those skips are complemented by the separate native
+permissions lane; do not sum overlapping lanes into a distinct-test count.
+
+Both CI network modes completed isolated restore with the explicit fixture
+window, then failed before reporting promotion success. General CI and CodeQL
+passed. This is not an accepted full recovery or promotion pass. Freshness was
+a demonstrated fixture budget mismatch; the earlier internal refusal remains
+unrecovered.
+
+A behavioral regression then reproduced another test-harness defect: ERR
+handling inside a redirected stage function wrote its own closed diagnostics
+into the private stage log, leaving CI output empty. Explicit failure dispatch
+now runs outside public-stage redirection. Child scripts still enforce their
+own strict guards. Cleanup runs in an errexit-preserving subshell with private
+output, so its parent reports closed diagnostics. A synthetic arbitrary-stderr
+sentinel first leaked in the cleanup test and is now suppressed. Neither change
+adds operation authority, clears jobs or changes deployed runtime policy.

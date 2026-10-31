@@ -66,6 +66,8 @@ job={'JOB_VERSION':'1','JOB_PARENT':module.PROJECT,'JOB_PHASE':'started','JOB_SE
      'JOB_IMAGE':image,'JOB_COMMAND_SHA256':command}
 module.read_job=lambda:(job,(1,2,100,3,4))
 projection=[actor,image,reference,module.PROJECT,'promote',command,module.REVISION]
+if mode=='guard-refusal':
+ projection[1]='sha256:'+'0'*64
 module.subprocess.run=lambda *args,**kwargs:types.SimpleNamespace(returncode=0,stdout=json.dumps(projection).encode())
 clock=[0.0]; module.time.monotonic=lambda:clock[0]
 readers=[]; delivered=[False]; pending={}; counter=[0]
@@ -75,7 +77,8 @@ attributes={'fcd-support.operation.parent':module.PROJECT,'fcd-support.operation
 def lifecycle(action):
  attrs=dict(attributes)
  if action=='die': attrs['exitCode']='0'
- return json.dumps({'Type':'container','Action':action,'Actor':{'ID':actor,'Attributes':attrs}}).encode()+b'\n'
+ if mode=='fragmented': attrs['synthetic_unknown']='synthetic_বাংলা'
+ return json.dumps({'Type':'container','Action':action,'Actor':{'ID':actor,'Attributes':attrs}},ensure_ascii=False).encode()+b'\n'
 def protocol(sequence,nonce):
  return json.dumps({'event':'promotion_host_check','operationRef':reference,'sequence':sequence,'challenge':nonce}).encode()+b'\n'
 class Stream:
@@ -110,6 +113,14 @@ class Selector:
   if mode in ('timeout','kill-fallback'): clock[0]=11.0; return []
   kind='events' if step in (0,2) else 'logs'
   if mode=='eof': kind='events'; data=b''
+  elif mode=='fragmented':
+   if step==0: kind='events'; data=lifecycle('start').replace(b'\n',b'\r\n')[:lifecycle('start').index('ব'.encode())+1]
+   elif step==1: kind='events'; data=lifecycle('start').replace(b'\n',b'\r\n')[lifecycle('start').index('ব'.encode())+1:]
+   elif step==2: kind='logs'; data=(protocol(1,'e'*32).replace(b'\n',b'\r\n'))[:20]
+   elif step==3: kind='logs'; data=(protocol(1,'e'*32).replace(b'\n',b'\r\n'))[20:]+(protocol(2,'f'*32)+b'{"status":"completed","processed":1,"reasonCode":"ok"}\r\n')
+   elif step==4: kind='events'; data=(lifecycle('die')+lifecycle('destroy')).replace(b'\n',b'\r\n')
+   elif step==5: kind='logs'; data=b''
+   else: clock[0]=2.0; return []
   elif step==0: data=lifecycle('start')
   elif step==1: data=protocol(1,'e'*32)+protocol(2,'f'*32)+b'{"status":"completed","processed":1,"reasonCode":"ok"}\n'
   elif step==2: data=lifecycle('die')+lifecycle('destroy')
@@ -124,7 +135,7 @@ raw=module.OUTPUT.read_text()
 print(json.dumps({'result':result,'delivered':delivered[0],'stages':stages,'selectorClosed':selector.closed,
  'readers':[{'terminated':p.terminated,'killed':p.killed,'closed':p.stdout.closed,'waits':p.waits,
              'bounded':'--until' in p.args} for p in readers],
- 'contentFree':not any(value in raw for value in [actor,reference,command,'e'*32,'f'*32,'synthetic_sensitive_sentinel'])}))
+ 'contentFree':not any(value in raw for value in [actor,reference,command,'e'*32,'f'*32,'synthetic_sensitive_sentinel','synthetic_unknown','synthetic_বাংলা'])}))
 '''
 
 
@@ -190,11 +201,32 @@ class ObserverTests(unittest.TestCase):
         self.assertEqual(value['result'], 1)
         self.assertNotIn('observer_ready', value['stages'])
 
+    def test_runtime_fragmented_crlf_stream(self):
+        value = self.runtime('fragmented')
+        self.assertEqual(value['result'], 0)
+        self.assertEqual(len(value['readers']), 2)
+        for stage in ['challenge_1', 'challenge_2', 'command_completed', 'container_die',
+                      'container_destroy', 'observer_finished']:
+            self.assertIn(stage, value['stages'])
+
+    def test_runtime_guard_refusal_reaps_reader(self):
+        value = self.runtime('guard-refusal')
+        self.assertEqual(value['result'], 1)
+        self.assertEqual(len(value['readers']), 1)
+        self.assertTrue(value['readers'][0]['terminated'])
+        self.assertIn('guard_refused', value['stages'])
+
     def test_two_fresh_protocol_challenges(self):
         one = observer.protocol_stage(challenge(), REFERENCE)
         self.assertEqual(one, ('challenge_1', 2, 'e' * 32))
         self.assertEqual(observer.protocol_stage(challenge(2, nonce='f' * 32), REFERENCE, *one[1:]),
                          ('challenge_2', 3, 'f' * 32))
+
+    def test_duplicate_challenge_nonces_rejected(self):
+        one = observer.protocol_stage(challenge(), REFERENCE)
+        self.assertEqual(one[0], 'challenge_1')
+        duplicate = observer.protocol_stage(challenge(2, nonce='e' * 32), REFERENCE, *one[1:])
+        self.assertEqual(duplicate[0], 'protocol_invalid')
 
     def test_replayed_or_out_of_order_challenge(self):
         self.assertEqual(observer.protocol_stage(challenge(2), REFERENCE)[0], 'protocol_invalid')
@@ -289,6 +321,11 @@ class ObserverTests(unittest.TestCase):
                       {**job(), 'JOB_SERVICE': 'backup'}, {**job(), 'JOB_REVISION': 'e' * 40}]:
             self.assertFalse(observer.bind_job((ACTOR, REFERENCE, COMMAND), value,
                                                projection(), PROJECT, REVISION))
+
+    def test_bind_job_rejects_missing_actor_and_boolean_types(self):
+        self.assertFalse(observer.bind_job(('', REFERENCE, COMMAND), job(), projection(), PROJECT, REVISION))
+        self.assertFalse(observer.bind_job((ACTOR, REFERENCE, COMMAND), {**job(), 'JOB_VERSION': True}, projection(), PROJECT, REVISION))
+        self.assertFalse(observer.bind_job((ACTOR, REFERENCE, COMMAND), {**job(), 'JOB_PHASE': True}, projection(), PROJECT, REVISION))
 
     def test_follow_starts_only_after_actual_identity_and_journal_match(self):
         calls = []

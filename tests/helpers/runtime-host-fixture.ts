@@ -43,9 +43,11 @@ export async function writeRuntimeHostFixture(
   root: string,
   project: string,
   revision: string,
+  profile = 'standard',
 ): Promise<void> {
   try {
     if (
+      (profile !== 'standard' && profile !== 'ci-recovery') ||
       !isAbsolute(root) ||
       resolve(root) !== root ||
       basename(root) !== project ||
@@ -111,7 +113,7 @@ export async function writeRuntimeHostFixture(
       checkpoint,
       restore: {
         ...checkpointBounds,
-        CHECKPOINT_MAX_AGE_MS: '60000',
+        CHECKPOINT_MAX_AGE_MS: profile === 'ci-recovery' ? '600000' : '60000',
         RESTORE_BATCH_LIMIT: '10',
         RESTORE_MAX_BATCHES: '100',
         PROMOTION_HOST_CHECK_TIMEOUT_MS: '10000',
@@ -246,13 +248,14 @@ if (
   process.argv[1] !== undefined &&
   import.meta.url === pathToFileURL(resolve(process.argv[1])).href
 ) {
-  const [root, project, revision] = process.argv.slice(2);
+  const [root, project, revision, profile = 'standard'] = process.argv.slice(2);
   if (
-    process.argv.length !== 5 ||
+    (process.argv.length !== 5 && process.argv.length !== 6) ||
     root === undefined ||
     project === undefined ||
-    revision === undefined
+    revision === undefined ||
+    (profile !== 'standard' && profile !== 'ci-recovery')
   )
     throw new Error('synthetic_host_fixture_invalid');
-  await writeRuntimeHostFixture(root, project, revision);
+  await writeRuntimeHostFixture(root, project, revision, profile);
 }

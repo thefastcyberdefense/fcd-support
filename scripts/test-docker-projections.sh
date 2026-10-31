@@ -8,6 +8,7 @@ source "$root/scripts/operations-runtime-host.sh"
 source "$root/scripts/operations-restore-host.sh"
 source "$root/scripts/operations-common.sh"
 source "$root/scripts/operations-job-lifecycle.sh"
+source "$root/scripts/operations-promotion-controller.sh"
 scope="fcd-support-projection-test-$$-$RANDOM"
 fixture=''
 projection_volume=''
@@ -93,6 +94,24 @@ docker container inspect --format "$OPERATIONS_RUNTIME_CONTAINER_FORMAT" "$scope
     if(original===canonical(c.mounts.slice(1)))process.exit(1);
   ' "$native_root/dist/operations/promotion-mounts.js"
 printf 'docker_promotion_mount_projection_passed=true\n'
+raw_static="$(docker container inspect --format "$OPERATIONS_PROMOTION_STATIC_FORMAT" "$scope")"
+canonical_static="$(operations_promotion_static_canonical "$raw_static")"
+IFS= read -r static_header <<<"$canonical_static"
+static_mounts="${canonical_static#*"$static_header"$'\n'}"
+static_mount1="${static_mounts%%$'\n'*}"
+static_mount2="${static_mounts#*"$static_mount1"$'\n'}"
+static_mount2="${static_mount2%$'\n'}"
+[[ -n "$static_header" && -n "$static_mount1" && -n "$static_mount2" ]] || exit 1
+[[ "$static_mount1" =~ ^\{.*\}$ && "$static_mount2" =~ ^\{.*\}$ ]] || exit 1
+static_reversed="$(printf '%s\n%s\n%s\n' "$static_header" "$static_mount2" "$static_mount1")"
+canonical_reversed="$(operations_promotion_static_canonical "$static_reversed")"
+[[ "$canonical_static" == "$canonical_reversed" ]] || exit 1
+static_mutated="$(printf '%s\n%s\n%s\n' "$static_header" "${static_mount1/\"Destination\":\"/\"Destination\":\"/mutated-}" "$static_mount2")"
+canonical_mutated="$(operations_promotion_static_canonical "$static_mutated")"
+[[ "$canonical_static" != "$canonical_mutated" ]] || exit 1
+! operations_promotion_static_canonical "$(printf '%s\n%s\nnot_json\n' "$static_header" "$static_mount1")" >/dev/null 2>&1 || exit 1
+! operations_promotion_static_canonical "" >/dev/null 2>&1 || exit 1
+printf 'docker_promotion_static_canonical_passed=true\n'
 cleanup
 if [[ "$(uname -s)" != Linux ]]; then
   printf 'docker_single_job_create_skipped=linux-only\n'
