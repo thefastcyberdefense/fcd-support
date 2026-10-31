@@ -17,6 +17,12 @@
   server changes must stay confined to fcd-support and protect other projects.
   See `docs/operations/incidents/2026-10-31-test-server-restart-and-actor-loss.md`.
 
+- A fresh current-stack-only recovery proposal passes read-only admission,
+  five hermetic methods and independent review. It may repair only the current
+  admin/canary after commit/push, while checking other-project metadata and
+  preserving all historical evidence/uncertainty. The actor-loss incident stays
+  open even if current readiness is restored; no other project is changed.
+
 ## Historical checkpoints
 
 - Fresh canary start checkpoint (2026-10-31 Asia/Dhaka): committed `626f411`

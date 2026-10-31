@@ -57,3 +57,38 @@ is inferred.
 - Continue independent approved local failure tests on an isolated review branch.
   Historical Task 11 closes for its bounded proof; P6-004/005/006 and P6-GATE
   remain open. Current readiness must be verified separately before later use.
+
+## Scoped current-readiness recovery proposal
+
+After the owner reaffirmed delegated decisions and required protecting other
+projects, Codex prepared a new one-use record:
+`docs/operations/actions/2026-10-31-current-runtime-recovery-67a4a4b.py`.
+Read-only admission passed. The required pinned operations image remains present;
+no old network was missing or replaced, and all seven missing actors were
+historically exited. No old actor is reconstructed or treated as settled.
+
+The new record preserves original evidence and records the missing set separately.
+It admits the current surviving inventory only after strict restart comparison,
+unchanged old files/volume metadata, remaining restart policies, actual restored
+PostgreSQL identity, immutable fresh bindings and the successful historical
+rollback marker. It pins the current boot/daemon. It captures digests of
+unrelated containers/network metadata and global volume inventory, omitting
+other projects' environment, command arguments, opaque labels and driver secrets.
+These are checked throughout; no operation targets another project.
+
+Its only mutations are exact current admin stop, unchanged public inode-bound
+socket recovery, same admin start and exact same inert canary start. Configured
+bounded health and unchanged public runtime verification must pass. A new private
+completion marker is written only after all checks. There is no restore,
+promotion, rollback, old-scope reconstruction, global prune or Docker-daemon/VM
+change. Another refusal/restart/drift stops this one-use attempt.
+
+Five pure/hermetic methods pass, including nine quarantine rejection cases,
+12 runner fault cases, exact permitted actor/order checks and single-use refusal.
+The initial valid quarantine case was RED before its implementation, then GREEN.
+Independent scoped review found no Important/Critical issue and independently
+passed all five methods/diff checks. Reviewed action SHA256:
+`7c5d7e53b4445472904c1e9a15e7cfbf62818f85f41392870c83f955bb9cfa0e`.
+Commit/push precedes execution. The proposal has not executed at this record.
+Even a successful new audit covers the surviving/current inventory and recorded
+missing set; it does not restore original preservation or resolve actor loss/SQL.

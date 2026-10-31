@@ -28,6 +28,13 @@ shared-project or production changes. The current incident stays OPEN in
 Task 11's bounded closure and limitations are recorded in
 `docs/reviews/2026-10-31-phase-6-task-11-closeout.md`.
 
+A new current-stack-only recovery record passed read-only admission, five
+hermetic methods and independent review. After commit/push it may repair only
+the exact current admin/canary with unchanged public commands, checking unrelated
+project metadata/global volume inventory throughout. It records the missing set
+without reconstructing old actors or resolving SQL; historical baselines stay
+immutable. The actor-loss incident remains open even if current readiness passes.
+
 P6-004/005/006 remain IN PROGRESS because they include Task 15; P6-GATE remains
 BLOCKED. AGY's approved local failure-matrix work is now unblocked. Current
 handoff: `docs/handoffs/2026-10-31-antigravity-phase-6-next.md`, with its linked
