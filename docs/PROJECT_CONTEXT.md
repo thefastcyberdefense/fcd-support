@@ -2,33 +2,35 @@
 
 Last reviewed: 2026-10-31 (Asia/Dhaka)
 
-Current state: PR #2 is squash-merged at
-`67a4a4bede6d3252dc936a6e410f4b90c1359ac3`. Its application tree exactly matches
-reviewed `9c6ffc5`, whose Windows gate passed 1,922 tests/433 skips and all four
-exact-source workflows passed. Both runtime CI modes completed the full public
-synthetic recovery/compatible same-revision rollback/cleanup path. New privacy
-regressions cover raw job logs, arbitrary diagnostic map keys and bounded output.
-All four exact merged-source workflows passed before the new server action.
+Current source: PR #2 merged as `67a4a4bede6d3252dc936a6e410f4b90c1359ac3`;
+all four exact merged-source workflows pass. The reviewed application matches
+`9c6ffc5` (Windows 1,922 passed/433 skips; both full recovery CI modes pass).
+Action records `7afffd5` were committed/pushed before fresh server execution.
 
-Server source remains clean `6faff8b`. Direct read-only SSH diagnosis confirmed
-Docker initialization/default-bridge recreation; custom network identities,
-configurations, membership, protected files and volumes match. The historical
-baseline is preserved and refuses changed actor start/network metadata. A new
-separately captured stable current baseline cannot settle any old uncertain job.
-The latest old target is now stopped with restart disabled; leave it stopped.
+Actual server drill: deploy/private verify, three signed archives/replay,
+isolated restore and public promote/verify passed. Full preservation audits
+matched through immediately before promotion, then refused old start/network
+drift. Direct SSH diagnosis proves a host reboot during the drill. Old protected
+files/volumes/actor identities/other definitions match; running-actor start and
+endpoint metadata/default bridge identity changed. The original baseline remains
+unchanged, and the original action stopped before rollback.
 
-Fresh `67a4a4b` deployment/backup/restore/promotion/rollback action records and
-observer pins passed independent review, syntax checks and read-only admission.
-No new server scope or operation exists yet. Commit/push the records after merged
-CI, deploy once, audit preservation between stages, and stop on any refusal.
-Task 11/P6-004 and P6-GATE remain open until their remaining evidence is verified.
+Fresh selected restored volume/physical identity and completed promotion record
+match, both volumes remain, and no active job exists. API/reply/PostgreSQL are
+healthy; admin is restarting with a protected stale socket refusing connections.
+Persisted READY does not replace current runtime verification. A separate one-use
+public socket-recovery/rollback proposal passes read-only admission and 11 pure/
+hermetic methods after reproduced review corrections. Final review and commit/
+push are required before execution. No manual unlink, old-job settlement,
+baseline overwrite, promotion retry or old-target restart is allowed. See
+`docs/reviews/2026-10-31-server-reboot-recovery.md`.
 
-AGY's `codex/agy-p6-failure-matrix` is synchronized at `ac6e7c0`; its application
-tree equals reviewed main and only the gap-map document differs. Task 15 test
-implementation waits for Codex to record Task 11 complete. Avoid duplicating the
-existing ENOSPC, restored-work quarantine and fake-lock tests; the next handoff
-will identify precise missing assertions. Codex retains server actions, trackers
-and fresh whole-phase review. No live provider, tunnel or production change ran.
+Task 11/P6-004, Task 15 and P6-GATE remain open. AGY's matrix branch is
+synchronized at `ac6e7c0`; the next checklist is
+`docs/handoffs/2026-10-31-antigravity-phase-6-next.md`. Evidence-map corrections
+may proceed, but implementation waits for Codex's Task 11 completion. Codex owns
+server actions, trackers and independent whole-phase review. No provider,
+tunnel, Meta or production resource change ran.
 
 The following entries retain earlier checkpoints and their evidence.
 

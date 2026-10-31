@@ -1967,3 +1967,34 @@ Before committing this action, all four merged-source workflows passed:
 CI `41167434851`, CodeQL `41167434819`, PostgreSQL/native `41167435035` and
 private runtime `41167434856`. The action stays pinned to the tested `67a4a4b`
 application source even when later documentation commits advance main.
+
+### Observed reboot and separately gated fresh admin recovery
+
+The `7afffd5` recorded action deployed exact `67a4a4b`, verified backup/replay,
+completed isolated restore and passed public promotion/verify. Audits matched
+through pre-promotion. The post-promotion audit refused old start/endpoint drift;
+stop the original action and do not invoke its rollback stage.
+
+Read-only diagnosis proves a host reboot during the drill. Old protected files,
+volumes, actor identities and other definitions remain exact; custom network
+identities/configuration/member identities match. Seven running actors restarted
+and the default bridge was recreated. The old baseline remains immutable.
+Fresh admin has a protected refused stale socket; API, reply and PostgreSQL are
+healthy. Current public verification is required after recovery.
+
+The separately reviewed record
+`docs/operations/actions/2026-10-31-reboot-recovery-67a4a4b.py` admits only the
+strict reboot delta, captures a separate current baseline, pins boot/daemon and
+old restart policies, and requires all old targets stopped/restart-disabled.
+After final review, read-only inspect and commit/push, run `--recover` once:
+exact fresh admin stop under lock, unchanged public inode-bound socket recovery,
+then same admin start under lock and configured bounded health/public verify.
+Public commands acquire their own deployment lock; never nest them under the
+outer stop/start lock. No manual unlink, chmod, recreation or retry.
+Only a successful recorded recovery and current verification permit its separate
+one-use `--rollback`, followed by public verify and `--audit`. Immutable fresh
+configuration/secret metadata/restore evidence/bundle stay bound after rollback
+and during audits. Keep the selected restored identity and both volumes.
+Further restart, pending job, missing acknowledgement or drift stops continuation.
+See `docs/reviews/2026-10-31-server-reboot-recovery.md` for actual evidence and
+limits. This proposal has not executed and does not close Task 11 or P6-GATE.
