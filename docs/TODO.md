@@ -11,10 +11,12 @@
 - AGY's approved local Task 15 work is unblocked: precise read-only backup,
   restored-outbox zero-send and actual flock assertions, then full local/native/
   PostgreSQL/network validation. Codex retains integration and gate review.
-- A later guest reboot and removal of seven older stopped actors leave current
-  server preservation/readiness failing. Volumes/state files remain; admin is
-  unhealthy and the canary stopped. Preserve all evidence and old uncertainty;
-  server changes must stay confined to fcd-support and protect other projects.
+- After a later guest reboot, seven older stopped actors were found missing;
+  volumes/state files remain. The actor-loss incident stays OPEN without reconstruction or SQL
+  settlement. Reviewed action `d96382d` restored current private readiness:
+  four healthy roles, protected admin HTTP 200, private ingress 403/404/401,
+  actual restored control identity and full current-inventory audit pass.
+  Other-project metadata/volume inventory and historical evidence are unchanged.
   See `docs/operations/incidents/2026-10-31-test-server-restart-and-actor-loss.md`.
 
 ## Historical checkpoints

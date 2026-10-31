@@ -39,6 +39,12 @@ approval covers this scope; no new routine owner approval is required.
       current slot remains deduplicated. Preserve existing nonblocking policy.
 - [ ] Genuine defects require RED then minimal GREEN; already-correct behavior
       is coverage-only and must not receive fabricated RED claims.
+- [ ] Check whether CI executes the five hermetic operator-helper test files.
+      If missing, add an explicit read-only CI step for those test files only
+      (observer, reboot recovery, peer recovery, rollback-only and current
+      runtime recovery). Never execute their action drivers or SSH/Docker flags.
+      Preserve workflow token permissions and existing lanes. Report per-file
+      counts/platform skips; overlapping suites are not distinct-test totals.
 - [ ] Run all verification and scoped cleanup from the linked plan. Deliver a
       separate draft PR with full SHAs and all four exact-source workflows.
 - [ ] Write `docs/handoffs/2026-10-30-antigravity-phase-6-closeout-results.md`

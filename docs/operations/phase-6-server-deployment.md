@@ -2061,3 +2061,38 @@ Source remains clean `67a4a4b`; actual PostgreSQL control identity and API-local
 The owner permits decisions but requires protecting every other server project.
 No Docker-daemon/VM/shared-infrastructure/tunnel change or global cleanup is authorized here.
 AGY's local Task 15 work may proceed; aggregate P6 rows and P6-GATE remain open.
+
+### Current-stack-only recovery after the later reboot
+
+The owner reaffirmed scoped decisions while explicitly requiring protection of
+other projects. Use the separately reviewed
+`docs/operations/actions/2026-10-31-current-runtime-recovery-67a4a4b.py` only
+after commit/push and fresh read-only `--inspect`. Run `--execute` once, then
+`--audit` only after success. Its new `second-boot-recovery` baseline retains
+current surviving resources and records the already missing old actors; every
+original baseline/failed record remains unchanged. This does not settle old SQL
+or restore the original actor-preservation proof.
+
+Only the current exact admin and inert canary may be stopped/recovered/started
+through unchanged public socket recovery and runtime verification. Capture/check
+unrelated-project metadata digests/global volume inventory throughout. No
+Docker-daemon/VM/shared-infrastructure change, global cleanup, old actor
+reconstruction or repeated restore/promotion/rollback is allowed. The actor-loss
+incident remains open independently of current readiness. Read-only admission,
+five hermetic methods and independent scoped review pass; execution is pending.
+
+### Current private readiness restored (recorded action d96382d)
+
+The one-use current-stack repair exited 0, followed by its successful separate
+`--audit`. Independent checks passed four healthy private roles, Unix admin login
+200, actual private ingress 403/404/401, restored PostgreSQL control identity and
+retained volumes. No operation/socket-helper actor remains. Other-project
+container/network metadata digests/global volume inventory and historical
+records/missing set match. Only the exact current admin/canary changed; no
+restore, promotion, rollback, Docker-daemon/VM/shared/tunnel action was repeated.
+
+This establishes current readiness at that bounded observation. It does not
+restore original preservation, attribute the seven older missing actors or
+settle any SQL uncertainty. Keep the actor-loss incident open separately. The
+application source remains clean `67a4a4b`; Phase 6 local failure-matrix/gate work
+continues through the published AGY checklist.

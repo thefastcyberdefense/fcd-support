@@ -14,19 +14,24 @@ remain failed; no prior completion marker or baseline was repaired.
 
 The extra independent post-rollback HTTP probe did not run at that checkpoint
 due to approval-service usage limits. After a much later owner continuation,
-read-only inspection found another guest reboot and seven old stopped actors
-absent. Their volumes/state-file metadata remain. Current admin is unhealthy,
-canary stopped, and current preservation/readiness refuses. Actual PostgreSQL
-control identity and API-local 403/404/401 still match; this is not a current
-admin/private-ingress pass. Current source is clean `67a4a4b`. No new recovery,
-old actor reconstruction, journal settlement or rollback has run.
+read-only inspection found another clean guest reboot and seven older stopped
+actors absent. Their volumes/state files remain. The new audit never replaces
+the original preservation proof or settles old SQL. The actor-loss incident stays
+OPEN for separate attribution/disposition.
 
-The owner reaffirmed delegated decisions and required protecting other projects.
-Any server change stays within the fcd-support test stack; no Docker-daemon/VM/shared-infrastructure/tunnel,
-shared-project or production changes. The current incident stays OPEN in
-`docs/operations/incidents/2026-10-31-test-server-restart-and-actor-loss.md`.
-Task 11's bounded closure and limitations are recorded in
-`docs/reviews/2026-10-31-phase-6-task-11-closeout.md`.
+Current private readiness is restored by separately reviewed, committed action
+`d96382d`, executed once. All four runtime services are healthy. Its public verify,
+current-inventory audit and independent checks pass: admin Unix login HTTP 200,
+private ingress 403/404/401, actual restored PostgreSQL control identity, retained
+volumes and no operation/socket-helper actor. Other-project container/network
+metadata and volume inventory, plus all historical evidence, are unchanged.
+No restore/promotion/rollback was repeated. Source remains clean `67a4a4b`.
+
+The owner requires protecting other projects. Mutations were confined to the
+exact current fcd-support admin and inert canary; no Docker-daemon, VM, shared
+infrastructure, tunnel, production or other-project change ran. See
+`docs/operations/incidents/2026-10-31-test-server-restart-and-actor-loss.md` and
+`docs/reviews/2026-10-31-phase-6-task-11-closeout.md` for scope and limitations.
 
 P6-004/005/006 remain IN PROGRESS because they include Task 15; P6-GATE remains
 BLOCKED. AGY's approved local failure-matrix work is now unblocked. Current
