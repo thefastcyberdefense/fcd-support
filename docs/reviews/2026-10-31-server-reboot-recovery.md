@@ -1,0 +1,175 @@
+# Fresh server drill and post-reboot recovery action
+
+Date: 2026-10-31 (Asia/Dhaka).
+Source: `67a4a4bede6d3252dc936a6e410f4b90c1359ac3`.
+Action records were committed/pushed at `7afffd5` before execution.
+
+## Actual server results
+
+- The new deployment passed its final verification and saved-baseline audit.
+  Independent checks confirmed READY/no job, four healthy non-root/read-only
+  actors, no published ports and the fresh restore target absent.
+- Backup/replay verified three signed archives and unchanged authenticated
+  metadata after replay. Public runtime verification and full audits passed.
+- Protected synthetic restore preparation and isolated restore completed.
+  The source became quiescent with one completed restore record and no job;
+  the full preservation audit still matched immediately before promotion.
+- Public promotion and runtime verification passed. The selected target volume
+  and distinct physical identity match the saved promoted selection; both
+  source/restored volumes remain. No new active job exists.
+- The passive observer exited 0. Its protected file contains eight schema-valid
+  records: ready, container start, challenge 1, challenge 2, command completed,
+  container die, container destroy and observer finished. These are diagnostic
+  observations, not independent SQL-outcome authority.
+- The post-promotion preservation audit refused changed start/network metadata.
+  The original drill stopped before rollback. No old job or new stage was retried.
+
+## Direct read-only diagnosis
+
+A host reboot occurred during the drill: the captured baseline predates current
+boot and the bounded Docker journal spans two boot identities with a current
+initialization. Seven of 14 protected actors have new start/endpoint metadata.
+Actor identities, all other actor definitions, protected files and volumes match.
+Only the default bridge identity/creation changed; custom network identities,
+definitions and member identities match. Two current observations are stable.
+Original admission properties pass. The reboot initiator is not established;
+missing clean-shutdown/automatic-reboot messages do not establish its cause.
+
+The fresh API, reply and PostgreSQL are healthy. The fresh admin is restarting/
+unhealthy, with closed `admin_service_start_failed` output and a protected
+1000:1000:0600 socket under a 0700 root that refuses connections. The application
+correctly preserves the stale socket. Persisted READY is not current verification.
+The original saved baseline and completed promotion evidence remain untouched.
+
+## Separately reviewed continuation proposal
+
+`docs/operations/actions/2026-10-31-reboot-recovery-67a4a4b.py` is a new one-use
+recovery action under the owner's standing private synthetic-server authority.
+It does not resume the refused original action, rerun promotion, settle a job,
+change application guards or switch to an old volume.
+
+Read-only `--inspect` passed. The strict reboot comparator permits only the
+observed running-actor start/endpoint and default-bridge changes. Unknown fields,
+mounts, ports, static address requests, custom network identities, membership,
+stopped actors, protected files and volumes must remain exact. The cross-boot
+journal is required; current boot and Docker invocation are pinned. A separate
+protected current baseline is written only after admission, preserving the old.
+
+`--recover` records a one-use intent, stops only the exact fresh admin under the
+deployment lock, requires exited/non-restarting identity, invokes the unchanged
+public `recover-admin-socket.sh` outside that outer lock, requires its exact
+acknowledgement, then starts the same unchanged admin under the lock. No manual
+unlink, permission change, container replacement or retry is allowed. Existing
+public guards independently require the exact inode and refused connection.
+After configured bounded health readiness, current public verify and full
+preservation/binding checks must pass before recovery is marked complete.
+
+`--rollback` is a separate one-use stage requiring that completion, unchanged
+boot/daemon, current public verification, exact fresh selection/configuration/
+restore record/retained bundle and no pending job. It invokes unchanged
+same-revision compatible rollback once, verifies the public runtime and requires
+the restored volume/physical identity plus both retained volumes. Every refusal,
+lost acknowledgement, further restart or preservation drift stops continuation.
+`--audit` retains full strict comparison against the separate current baseline.
+
+The tests run only authored synthetic fixtures and temporary files. The positive
+reboot case failed with the initial rejecting stub, then passed after the strict
+comparator implementation. Eleven test methods pass, including gateway/prefix and
+unknown-field rejections, eight runner failure subcases, exact stop/recovery/
+start/verify order, missing completion acknowledgement, one-use recovery/rollback
+and immutable-binding rejection after successful rollback/verify. Python syntax
+and `git diff --check` pass. Independent review and committing/pushing these
+concrete records are required before execution. No recovery/rollback has run yet.
+
+Task 11/P6-004, Task 15 and P6-GATE remain open. AGY may correct its evidence map
+but implementation remains dependency-gated until Codex records Task 11 complete.
+
+Independent review found three Important omissions: gateway/prefix fields were
+too broadly exempted, immutable fresh bindings were not rechecked after rollback/
+audit, and old restart policies were not pinned. Nine new negative assertions
+reproduced the routing/binding defects RED, then passed after correction. The
+new guard keeps gateway/prefix exact, compares every immutable binding after
+rollback and in audits, and separately requires all three old targets exited/
+restart-disabled while pinning every protected actor policy. The legacy baseline
+projection remains unchanged. Corrected read-only admission passed again.
+
+Final scoped independent review: all three Important findings addressed; no
+remaining Important/Critical finding. Reviewed action SHA256 is
+`6e930af71dc755a8cab72f7ddb0ebeef2694e7fda1cb8220b7165a6f0f11a897`.
+The reviewer independently passed all 11 hermetic methods and diff checks.
+All four workflows for unchanged application source `67a4a4b` already pass.
+The corrected action's fresh read-only admission passed before this commit.
+Recovery and rollback remain unexecuted at this record's commit point.
+
+## Actual socket recovery and separate canary continuation
+
+The reviewed `4c51898` action ran once. Exact admin stop, public stale-socket
+recovery acknowledgement, same-container restart and bounded healthy readiness
+passed. Final public runtime verification refused; the action stopped without
+`recovery-completed`, and no rollback ran. Preserve this failed attempt as-is.
+
+Read-only diagnosis found the configured synthetic ingress canary stopped by
+the reboot with restart policy `no`. Its ID/image/revision, inert Node interval
+command, hardening and exact two networks match. It has no mounts or injected
+credentials. The runtime verifier requires this peer. All four actual runtime
+services are now healthy; saved baselines, old restart policies, fresh bindings
+and the same admin definition still match. No database/job state was repaired.
+
+The new standalone `2026-10-31-peer-recovery-67a4a4b.py` preserves the reviewed
+prelude and creates a separate `peer-recovery` action directory. It binds the
+original baseline file, exact peer definition, actual network identities and
+static network configuration, hardening, no mounts/ports, and environment equal
+to the pinned image defaults. Under the fresh deployment lock it starts only
+that same inert canary once. Full preservation and fresh bindings remain checked;
+unchanged public verification must pass before a new `runtime-completed` record.
+It never reruns socket recovery or writes the old failed attempt's markers.
+Only the new successful verification permits its separately gated, unattempted
+same-revision rollback and subsequent public verification/preservation audit.
+
+Read-only admission passed. Eleven pure/hermetic methods passed, including
+reused strict reboot/policy tests, canary secret/mount/privilege/network/image
+rejection, exact start/verify order, boot/binding refusal and one-use/gated
+rollback. Counts overlap the earlier guard tests. Independent scoped review found
+no Important/Critical finding and independently passed those 11 methods/diff
+checks. Reviewed action SHA256:
+`07b311ecea011e789cacba1bc60ef505859d480783af730090992314be1f8c9f`.
+The new action remains unexecuted pending this commit/push. Unchanged application
+source is still exact `67a4a4b`; all its four workflows pass. Task 11 stays open.
+
+## Actual canary start and corrected rollback-only proposal
+
+The committed `626f411` canary action ran once. Docker acknowledged starting the
+exact same inert canary, which is running. The action then refused before public
+verification because its full network projection included Docker's live `Status`
+allocation counters. It remains failed without its completion marker. Do not
+rerun either recovery action or declare either failed attempt successful.
+
+Read-only comparison found every peer/network field unchanged except `Status`
+on both exact networks. The schema is `Status.IPAM.Subnets[existing subnet]`
+with integer `IPsInUse` and `DynamicIPsAvailable`; the exact deltas are +1/-1
+on each network. Old baseline/policies, full fresh bindings and healthy runtime/
+admin definition still match. No rollback has been attempted.
+
+The separate `2026-10-31-rollback-after-reboot-67a4a4b.py` is rollback-only. It
+requires that exact known two-network allocation transition, rejects unknown
+fields/types/other changes, binds the protected successful peer start ack and all
+failed recovery evidence, and captures a new private proof without altering old
+records. Current unchanged public verify must pass before recording its one-use
+rollback intent. It then invokes unchanged same-revision compatible rollback
+once, verifies publicly, and audits preserved old scopes/policies, immutable
+fresh configuration/secret metadata/restore evidence, the selected restored
+physical identity and both volumes. No recovery/start/stop path is invoked.
+
+The counter test was RED with the initial rejecting stub, then GREEN. Six
+pure/hermetic methods pass: exact counter transition with 11 rejection subcases,
+immutable proof checks, actual runner verification/intent/rollback ordering,
+six refusal/changed-boot/binding cases and single-use execution. Read-only
+`--inspect` passed. Python syntax and diff checks pass. Final independent review
+and commit/push are required before execution; Task 11 remains open.
+
+Final rollback-only scoped review: no Important/Critical findings. The reviewer
+independently passed all six updated hermetic methods and diff checks. Exact
+reviewed action SHA256:
+`3653dc8c32ed58b2ae5747d6cff15170442a11e2061e7970ed6f4a5b055c8da5`.
+The action's read-only admission passed; committing/pushing precedes execution.
+Application source remains unchanged `67a4a4b` with four passing workflows.

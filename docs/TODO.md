@@ -1,5 +1,64 @@
 # Fast Cyber Defense Support Task Tracker
 
+## Current Phase 6 checkpoint
+
+- **Task 11 COMPLETE** for implementation and the bounded successful server
+  drill at application `67a4a4b`: public restore/promotion/verify, compatible
+  same-revision retained rollback/verify, and the separate `3f22344` action audit
+  all passed. See `docs/reviews/2026-10-31-phase-6-task-11-closeout.md`.
+- **P6-004/P6-005/P6-006 remain IN PROGRESS; P6-GATE remains BLOCKED.** The
+  approved mapping includes Task 15 in these aggregate tracker rows.
+- AGY's approved local Task 15 work is unblocked: precise read-only backup,
+  restored-outbox zero-send and actual flock assertions, then full local/native/
+  PostgreSQL/network validation. Codex retains integration and gate review.
+- A later guest reboot and removal of seven older stopped actors leave current
+  server preservation/readiness failing. Volumes/state files remain; admin is
+  unhealthy and the canary stopped. Preserve all evidence and old uncertainty;
+  server changes must stay confined to fcd-support and protect other projects.
+  See `docs/operations/incidents/2026-10-31-test-server-restart-and-actor-loss.md`.
+
+## Historical checkpoints
+
+- Fresh canary start checkpoint (2026-10-31 Asia/Dhaka): committed `626f411`
+  started the exact canary, then its guard refused dynamic Docker allocation
+  counters before runtime verify. The running canary and four healthy services
+  remain; prior attempts stay failed and no rollback has run. A new rollback-only
+  proposal accepts only the exact observed +1/-1 counter transition, preserves
+  all static/evidence bindings and requires public verify before rollback intent.
+  Read-only admission and six pure/hermetic methods pass; final review/commit/
+  push precede execution. Task 11/P6-GATE remain open; no recovery/start replay.
+
+- Post-reboot recovery checkpoint (2026-10-31 Asia/Dhaka): the reviewed action
+  `4c51898` recovered the exact stale admin socket and restarted the same admin;
+  all four services are healthy. Final runtime verify refused because the inert
+  synthetic ingress canary was stopped by reboot. The attempt remains failed
+  without a completion marker; no rollback. A separate exact-canary action
+  passed read-only admission, 11 pure/hermetic methods and independent review.
+  Commit/push precede execution; no socket recovery replay or old-state change.
+  Task 11/P6-GATE remain open; see the 2026-10-31 reboot recovery review.
+
+- Real fresh server drill (2026-10-31 Asia/Dhaka): exact `67a4a4b` passed
+  deployment, signed backup/replay, isolated restore and public promotion/verify.
+  Audits matched through pre-promotion, then refused start/network drift. Direct
+  SSH diagnosis proves a host reboot; old files, volumes, identities and other
+  definitions remain unchanged. Fresh admin has a stale refused socket and is
+  restarting; current verification and rollback are incomplete. Original action
+  stopped. A separate guarded proposal passes read-only admission and 11 pure/
+  hermetic methods after reproduced review corrections. Final review/commit/push
+  precede execution. No old journal/baseline/stopped target changes. Task 11,
+  Task 15 and P6-GATE remain open. See the 2026-10-31 server reboot review.
+
+- PR #2 integrated (2026-10-31 Asia/Dhaka): reviewed correction `9c6ffc5`
+  passes the full Windows gate (1,922 passed/433 platform skips) and all four
+  exact-source workflows, including full public recovery in both CI modes.
+  Squash merge `67a4a4b` has the identical tested application tree. All four exact merged-source
+  workflows also passed. Fresh server action records passed independent
+  review and read-only preflight; no new server operation has run. A separate
+  current baseline is required after confirmed Docker default-bridge recreation;
+  all old uncertain scopes and stopped targets stay preserved. Task 11/P6-004,
+  Task 15 and P6-GATE remain open. AGY's matrix branch is synchronized at `ac6e7c0`.
+  See `docs/reviews/2026-10-31-pr-2-integration.md` and the server runbook.
+
 - PR #2 independent review (2026-10-30 Asia/Dhaka): five important submission
   findings and follow-up diagnostic/privacy regressions are corrected on
   `c185c7d`. Full Windows check passed 1,907 tests/433 skips; exact-source CI,
@@ -322,15 +381,15 @@ integration; Task 15 failure-matrix/gate review and Task 16
 concrete server handoff remain open.
 Validation is recorded in `docs/operations/runtime-deployment-safety.md`.
 
-| ID      | Task                                                                                        | Depends On            | Owner                 | Status      | Evidence / Completion Rule                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Approval Boundary                                                             |
-| ------- | ------------------------------------------------------------------------------------------- | --------------------- | --------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| P6-001  | Write and approve the Phase 6 implementation plan                                           | P5-GATE               | Codex + project owner | COMPLETE    | Written specification approved 2026-10-04: `docs/superpowers/specs/2026-09-21-phase-6-hardened-local-operations-design.md`; 16-task plan `docs/superpowers/plans/2026-10-04-phase-6-hardened-local-operations.md` approved for sequential implementation on 2026-10-18                                                                                                                                                                                                                                  | Local implementation approved; exact external actions remain separately gated |
-| P6-002  | Create pinned, non-root, read-only-compatible container images and Compose services         | P6-001                | Codex                 | COMPLETE    | Tasks 1–8 complete locally at c9a904b. Socket-only admin, strict mounted paths/secrets/resources, four rendered definitions, 9 allowed/20 denied probes and UID/negative controls pass. Full code gate 861 passed/19 Linux-only skips; Linux 47/47; PostgreSQL 484/484 across 41 files. Clean-revision task-done passes; no deployment. See docs/operations/runtime-compose-contract.md                                                                                                                 | Local Docker only                                                             |
-| P6-003  | Implement least-privilege ingress, data, and Manifest network attachments                   | P6-002, P0-013        | Codex                 | COMPLETE    | Clean-revision realistic topology passes at c9a904b: exact per-role internal database bridges, explicit model overlay, ordinary provider/tunnel egress, admin Unix-only access with no TCP/management/host port, 9 allowed/20 denied probes and UID separation. Failed TCP checkpoint retained; no existing server network inspected or changed. Actual Ubuntu/SSH verification and deployment remain gated                                                                                             | Local Docker only                                                             |
-| P6-004  | Implement migration, rollback, encrypted backup, retention, and isolated restore procedures | P6-002, P3-006        | Codex                 | IN PROGRESS | Fresh `6faff8b` server deployment, signed backup/replay and isolated restore pass. Promotion refused; selection/job are uncertain with possible writes, both databases and evidence preserved, and no rollback. Actual Docker proves mount-order instability can trigger raw comparison refusal. Implement the metadata-stability specification/plan locally before a separately recorded fresh drill; no existing scope may be replayed or resolved. See docs/operations/phase-6-server-deployment.md. | Approved synthetic local-server validation; production remains outside scope  |
-| P6-005  | Implement private health checks and privacy-safe alerts independent of n8n                  | P6-002                | Codex                 | IN PROGRESS | Task 13 collector, authenticated operations dashboard, incident acknowledgement and bounded host-metadata input are implemented. Real PostgreSQL/socket authorization and synthetic outage/recovery checks pass; final aggregate failure-matrix/gate review remains. External alert adapters remain deferred.                                                                                                                                                                                           | None                                                                          |
-| P6-006  | Implement authenticated, idempotent private n8n notification integration                    | P6-005, P0-015        | Codex                 | IN PROGRESS | Task 14 signed private client/daemon, stable retries, DNS/peer isolation, minimized envelope and transaction-bound deletion cancellation pass local fake/PostgreSQL checks. Consumer runbook written; no live n8n workflow, credentials, connection or enablement changed. Final aggregate gate remains.                                                                                                                                                                                                | None                                                                          |
-| P6-GATE | Review Phase 6 evidence                                                                     | P6-002 through P6-006 | Project owner         | BLOCKED     | Phase 6 exit gate passes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Explicit review                                                               |
+| ID      | Task                                                                                        | Depends On            | Owner                 | Status      | Evidence / Completion Rule                                                                                                                                                                                                                                                                                                                                                                                                                | Approval Boundary                                                             |
+| ------- | ------------------------------------------------------------------------------------------- | --------------------- | --------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| P6-001  | Write and approve the Phase 6 implementation plan                                           | P5-GATE               | Codex + project owner | COMPLETE    | Written specification approved 2026-10-04: `docs/superpowers/specs/2026-09-21-phase-6-hardened-local-operations-design.md`; 16-task plan `docs/superpowers/plans/2026-10-04-phase-6-hardened-local-operations.md` approved for sequential implementation on 2026-10-18                                                                                                                                                                    | Local implementation approved; exact external actions remain separately gated |
+| P6-002  | Create pinned, non-root, read-only-compatible container images and Compose services         | P6-001                | Codex                 | COMPLETE    | Tasks 1–8 complete locally at c9a904b. Socket-only admin, strict mounted paths/secrets/resources, four rendered definitions, 9 allowed/20 denied probes and UID/negative controls pass. Full code gate 861 passed/19 Linux-only skips; Linux 47/47; PostgreSQL 484/484 across 41 files. Clean-revision task-done passes; no deployment. See docs/operations/runtime-compose-contract.md                                                   | Local Docker only                                                             |
+| P6-003  | Implement least-privilege ingress, data, and Manifest network attachments                   | P6-002, P0-013        | Codex                 | COMPLETE    | Clean-revision realistic topology passes at c9a904b: exact per-role internal database bridges, explicit model overlay, ordinary provider/tunnel egress, admin Unix-only access with no TCP/management/host port, 9 allowed/20 denied probes and UID separation. Failed TCP checkpoint retained; no existing server network inspected or changed. Actual Ubuntu/SSH verification and deployment remain gated                               | Local Docker only                                                             |
+| P6-004  | Implement migration, rollback, encrypted backup, retention, and isolated restore procedures | P6-002, P3-006        | Codex                 | IN PROGRESS | Tasks 9–11 locally complete; Task 11 bounded actual server restore/promotion/compatible same-revision rollback and full audit passed at application `67a4a4b` under committed `3f22344`. Aggregate row includes Tasks 12 and 15 and stays IN PROGRESS. A later reboot/old stopped-actor loss is a separate open current-readiness incident, not a passing preservation result. See `docs/reviews/2026-10-31-phase-6-task-11-closeout.md`. | Approved synthetic local-server validation; production remains outside scope  |
+| P6-005  | Implement private health checks and privacy-safe alerts independent of n8n                  | P6-002                | Codex                 | IN PROGRESS | Task 13 collector, authenticated operations dashboard, incident acknowledgement and bounded host-metadata input are implemented. Real PostgreSQL/socket authorization and synthetic outage/recovery checks pass; final aggregate failure-matrix/gate review remains. External alert adapters remain deferred.                                                                                                                             | None                                                                          |
+| P6-006  | Implement authenticated, idempotent private n8n notification integration                    | P6-005, P0-015        | Codex                 | IN PROGRESS | Task 14 signed private client/daemon, stable retries, DNS/peer isolation, minimized envelope and transaction-bound deletion cancellation pass local fake/PostgreSQL checks. Consumer runbook written; no live n8n workflow, credentials, connection or enablement changed. Final aggregate gate remains.                                                                                                                                  | None                                                                          |
+| P6-GATE | Review Phase 6 evidence                                                                     | P6-002 through P6-006 | Project owner         | BLOCKED     | Phase 6 exit gate passes                                                                                                                                                                                                                                                                                                                                                                                                                  | Explicit review                                                               |
 
 ## Phase 7 — Test Assets
 

@@ -1917,3 +1917,147 @@ and the 64-record output limit remain finite. All output is fixed stage/time and
 optional numeric exit status. No actual observer has been started. AGY's new
 handoff prioritizes the static-guard fix, then automated CI recovery and genuinely
 additional observer runtime coverage. Task 11/Task 15/P6-GATE remain open.
+
+### Fresh reviewed 67a4a4b action (2026-10-31)
+
+PR #2 is merged as `67a4a4bede6d3252dc936a6e410f4b90c1359ac3` with the exact
+application tree tested at `9c6ffc5`. The corrected-source four workflows pass;
+all four exact merged-source workflows must also pass before execution. See
+`docs/reviews/2026-10-31-pr-2-integration.md` for independent evidence.
+
+Read-only SSH diagnosis found only the default bridge was recreated, coinciding
+with Docker daemon initialization. Custom network identities/configurations and
+actor memberships by network name match; protected files and volumes match.
+The old baseline remains immutable and refuses actor start/endpoint drift. Two
+current observations are stable. Capture a separate current baseline in the new
+action directory; do not replace or claim a match against the old baseline.
+Old uncertain jobs retain unknown SQL outcomes. All old targets, including
+`6faff8b`, are stopped/restart-disabled and must remain so.
+
+The following single-use records are pinned to the merged source, the clean old
+`6faff8b` checkout and fresh private `67a4a4b` namespaces:
+
+- `docs/operations/actions/2026-10-31-deploy-67a4a4b.py`
+- `docs/operations/actions/2026-10-31-backup-replay-67a4a4b.sh`
+- `docs/operations/actions/2026-10-31-prepare-restore-67a4a4b.py`
+- `docs/operations/actions/2026-10-31-restore-drill-67a4a4b.sh`
+
+Fresh independent review found no Important/Critical issue. `--inspect` passed
+read-only admission, preservation/absent-scope checks and capacity. Syntax and
+repinned observer pure tests passed (32/one Windows SIGHUP skip). These records
+have not executed. Commit/push them before server mutation.
+
+Execute deployment once; require final verification and full `--audit`. Run
+backup/replay once and audit. Prepare only the fresh protected fixture's isolated
+`198.19.8.0/24` target subnet and explicit synthetic 600,000 ms checkpoint window;
+the eight fresh source bridges occupy `198.19.0.0/24` through `198.19.7.0/24`.
+Run isolated restore once and audit. Start the repinned passive observer in a
+separate SSH session, require its launch marker, then promote once. Its marker
+is not a subscription acknowledgement and observations never settle SQL jobs.
+Only successful public promotion and verification permit compatible retained
+same-revision rollback, followed by public verify and full preservation audit.
+Both source/restored volumes must remain. Stop on any refusal, uncertainty,
+missing acknowledgement or preservation failure; never retry or repair a scope.
+
+No provider call, Meta asset, tunnel/public ingress, production resource, old
+selection/job or old target is changed by this action. Task 11 and P6-GATE remain
+open pending actual proof, remaining interruption coverage and independent review.
+
+Before committing this action, all four merged-source workflows passed:
+CI `41167434851`, CodeQL `41167434819`, PostgreSQL/native `41167435035` and
+private runtime `41167434856`. The action stays pinned to the tested `67a4a4b`
+application source even when later documentation commits advance main.
+
+### Observed reboot and separately gated fresh admin recovery
+
+The `7afffd5` recorded action deployed exact `67a4a4b`, verified backup/replay,
+completed isolated restore and passed public promotion/verify. Audits matched
+through pre-promotion. The post-promotion audit refused old start/endpoint drift;
+stop the original action and do not invoke its rollback stage.
+
+Read-only diagnosis proves a host reboot during the drill. Old protected files,
+volumes, actor identities and other definitions remain exact; custom network
+identities/configuration/member identities match. Seven running actors restarted
+and the default bridge was recreated. The old baseline remains immutable.
+Fresh admin has a protected refused stale socket; API, reply and PostgreSQL are
+healthy. Current public verification is required after recovery.
+
+The separately reviewed record
+`docs/operations/actions/2026-10-31-reboot-recovery-67a4a4b.py` admits only the
+strict reboot delta, captures a separate current baseline, pins boot/daemon and
+old restart policies, and requires all old targets stopped/restart-disabled.
+After final review, read-only inspect and commit/push, run `--recover` once:
+exact fresh admin stop under lock, unchanged public inode-bound socket recovery,
+then same admin start under lock and configured bounded health/public verify.
+Public commands acquire their own deployment lock; never nest them under the
+outer stop/start lock. No manual unlink, chmod, recreation or retry.
+Only a successful recorded recovery and current verification permit its separate
+one-use `--rollback`, followed by public verify and `--audit`. Immutable fresh
+configuration/secret metadata/restore evidence/bundle stay bound after rollback
+and during audits. Keep the selected restored identity and both volumes.
+Further restart, pending job, missing acknowledgement or drift stops continuation.
+See `docs/reviews/2026-10-31-server-reboot-recovery.md` for actual evidence and
+limits. This proposal has not executed and does not close Task 11 or P6-GATE.
+
+### Separate inert canary recovery after successful socket repair
+
+The committed `4c51898` socket action recovered the stale entry, restarted the
+same admin and reached healthy readiness. Final public verify refused because
+the reboot stopped the synthetic ingress canary (restart `no`). The action
+stopped without its completion marker; never rerun it or fill in that marker.
+All four runtime services are healthy, and saved baseline/policy/binding checks
+match. Rollback remains unattempted.
+
+Use the separately reviewed
+`docs/operations/actions/2026-10-31-peer-recovery-67a4a4b.py` only after its
+commit/push and read-only `--inspect`. Run `--recover` once to start only the
+configured exact same inert, mount-free, credential-free canary under lock,
+then require unchanged public verification and preserved baselines/bindings.
+Its actual two network identities/static definitions and hardening are pinned.
+A new `peer-recovery/runtime-completed` is required for its separate one-use
+`--rollback`; successful public rollback/verify and `--audit` must preserve the
+restored physical identity and both volumes. Original failed records remain
+immutable. Any refusal or restart stops continuation. No old scope is retried.
+The concrete proposal passes 11 hermetic methods and scoped independent review;
+no canary action has executed at this record point. Application remains `67a4a4b`.
+
+### Rollback-only continuation after acknowledged canary start
+
+The `626f411` canary start was acknowledged and the same peer is running. The
+post-start guard refused before verification: only each network's live `Status`
+allocation counters changed (+1 IP in use/-1 available). Every static field and
+preservation/binding check matched. Preserve that failed attempt and its absent
+completion marker; never rerun the canary or socket-recovery stages.
+
+The separate
+`docs/operations/actions/2026-10-31-rollback-after-reboot-67a4a4b.py` admits only
+the exact known counter schema/transition while pinning all other peer/network
+fields and failed evidence. After review/commit/push and read-only `--inspect`,
+run `--execute` once. Current public verify precedes the one-use rollback intent;
+only then run unchanged same-revision rollback and public verify. Its new
+`rollback-after-reboot` proof/markers never modify prior records. Require
+`--audit`, healthy private runtime, unchanged selected restored identity and both
+volumes, exact old baseline/restart policies and immutable fresh bindings.
+Any refusal, restart, missing acknowledgement or drift stops continuation.
+Six hermetic methods and read-only admission pass; execution remains pending.
+
+### Bounded Task 11 completion and later current-host incident
+
+The committed `3f22344` rollback-only action passed current public verify, the
+first compatible retained same-revision rollback, post-rollback public verify
+and the separate full `--audit`. Task 11 closes for that bounded implementation/
+actual drill, preserving restored identity and both volumes. The extra independent
+HTTP probe did not run then because approval review hit a usage limit. No result
+is invented for that probe. See the Task 11 closeout review.
+
+After owner continuation many hours later, current read-only checks found another
+clean guest reboot and seven older stopped actors missing. Volumes/state files
+remain; current admin is unhealthy and canary exited. Boot/preservation admission
+now refuses. Do not replay completed actions or replace the old baseline. This
+is a separate open incident in
+`docs/operations/incidents/2026-10-31-test-server-restart-and-actor-loss.md`.
+Source remains clean `67a4a4b`; actual PostgreSQL control identity and API-local
+403/404/401 pass, without claiming current admin/private-ingress readiness.
+The owner permits decisions but requires protecting every other server project.
+No Docker-daemon/VM/shared-infrastructure/tunnel change or global cleanup is authorized here.
+AGY's local Task 15 work may proceed; aggregate P6 rows and P6-GATE remain open.

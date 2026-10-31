@@ -1,31 +1,38 @@
 # Project Context
 
-Last reviewed: 2026-10-30 (Asia/Dhaka)
+Last reviewed: 2026-10-31 (Asia/Dhaka)
 
-Current state: PR #2 is reviewed, corrected and held draft/unmerged at
-`c185c7d572b0b2ab6c91fa94a7c9f83dc630717b`. Full Windows check passed
-1,907 tests/433 skips across 128 files, 251.04 seconds. Exact-source general CI,
-CodeQL and PostgreSQL/native passed. Both public private-runtime CI modes now
-complete restore, then the interactive promotion job and selection become
-uncertain at the job call before the later PostgreSQL capture/retirement guard.
-The exact handshake/internal job cause is unknown. No promotion/rollback/cleanup
-success is claimed, and Task 11/Task 15/P6-GATE remain open.
+**Task 11 is COMPLETE for implementation and its bounded historical server drill.**
+Exact application `67a4a4bede6d3252dc936a6e410f4b90c1359ac3` passed all four
+merged-source workflows and matches the validated `9c6ffc5` application tree
+(Windows 1,922 tests/433 platform skips). Both real ephemeral CI recovery modes
+pass. The actual private server completed deploy, signed backup/replay, isolated
+restore, promotion/verify, then the first compatible same-revision retained
+rollback/verify and full audit through committed action `3f22344`. The restored
+physical identity and both volumes were preserved. Failed intermediate attempts
+remain failed; no prior completion marker or baseline was repaired.
 
-Codex corrected missing checkpoint admission, the restore-record path,
-cleanup ownership/failure handling, source-only tests and hidden diagnostic
-reports; complete raw mount order is normalized without dropping fields or
-observations. The CI-only fixture has an explicit 600,000 ms checkpoint window;
-the standard fixture and configurable runtime policy remain unchanged. The
-2026-10-30 independent review records exact counts, skips, durations and links.
+The extra independent post-rollback HTTP probe did not run at that checkpoint
+due to approval-service usage limits. After a much later owner continuation,
+read-only inspection found another guest reboot and seven old stopped actors
+absent. Their volumes/state-file metadata remain. Current admin is unhealthy,
+canary stopped, and current preservation/readiness refuses. Actual PostgreSQL
+control identity and API-local 403/404/401 still match; this is not a current
+admin/private-ingress pass. Current source is clean `67a4a4b`. No new recovery,
+old actor reconstruction, journal settlement or rollback has run.
 
-The owner requested a new AGY development package. Codex returns bounded local/
-CI ownership of PR #2 to AGY: first complete the real promotion proof, then map
-remaining coverage and implement Task 15 only after Task 11's dependencies clear.
-The new handoff and plan include checkboxes and acceptance criteria. Codex keeps
-primary tracking, integration, actual server actions and fresh whole-phase review.
-Server source remains `6faff8b`; all old uncertain scopes are preserved. Only
-hermetic Linux observer tests and a read-only saved-baseline audit ran over SSH
-in this review; no application deployment or operation attempt occurred.
+The owner reaffirmed delegated decisions and required protecting other projects.
+Any server change stays within the fcd-support test stack; no Docker-daemon/VM/shared-infrastructure/tunnel,
+shared-project or production changes. The current incident stays OPEN in
+`docs/operations/incidents/2026-10-31-test-server-restart-and-actor-loss.md`.
+Task 11's bounded closure and limitations are recorded in
+`docs/reviews/2026-10-31-phase-6-task-11-closeout.md`.
+
+P6-004/005/006 remain IN PROGRESS because they include Task 15; P6-GATE remains
+BLOCKED. AGY's approved local failure-matrix work is now unblocked. Current
+handoff: `docs/handoffs/2026-10-31-antigravity-phase-6-next.md`, with its linked
+focused plan. Codex owns server recovery, trackers, integration and independent
+whole-phase review. No live provider, Meta, tunnel or production change ran.
 
 The following entries retain earlier checkpoints and their evidence.
 
