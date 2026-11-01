@@ -9,9 +9,13 @@ import {
 
 describe('process-lifecycle helper', () => {
   it('resolves when barrier is emitted in a single chunk', async () => {
-    const child = spawn(process.execPath, ['-e', 'process.stdout.write("READY\\n"); setInterval(() => {}, 1000);'], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    const child = spawn(
+      process.execPath,
+      ['-e', 'process.stdout.write("READY\\n"); setInterval(() => {}, 1000);'],
+      {
+        stdio: ['pipe', 'pipe', 'pipe'],
+      },
+    );
     try {
       await waitForBarrier(child, 'READY\n', { timeoutMs: 2000 });
       expect(child.exitCode).toBeNull();
@@ -70,9 +74,13 @@ describe('process-lifecycle helper', () => {
   });
 
   it('rejects when child exits prematurely with error code before barrier', async () => {
-    const child = spawn(process.execPath, ['-e', 'console.error("fatal failure"); process.exit(42);'], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    const child = spawn(
+      process.execPath,
+      ['-e', 'console.error("fatal failure"); process.exit(42);'],
+      {
+        stdio: ['pipe', 'pipe', 'pipe'],
+      },
+    );
     try {
       await expect(waitForBarrier(child, 'READY\n', { timeoutMs: 2000 })).rejects.toThrow(
         /Process exited prematurely with code 42/i,
@@ -135,8 +143,12 @@ describe('process-lifecycle helper', () => {
 
   it('reapChildProcesses reaps multiple children in parallel', async () => {
     const children: ChildProcess[] = [
-      spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000);'], { stdio: ['pipe', 'pipe', 'pipe'] }),
-      spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000);'], { stdio: ['pipe', 'pipe', 'pipe'] }),
+      spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000);'], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }),
+      spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000);'], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }),
     ];
     await reapChildProcesses(children, { termTimeoutMs: 300, killTimeoutMs: 300 });
     for (const child of children) {

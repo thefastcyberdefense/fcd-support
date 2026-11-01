@@ -133,20 +133,16 @@ describe('test-encrypted-backup harness containment', () => {
     await writeFile(join(bin, 'docker'), createMockDocker(), { mode: 0o700 });
 
     const scriptPath = resolve('scripts/test-encrypted-backup.sh').replaceAll('\\', '/');
-    const result = spawnSync(
-      bash,
-      ['--noprofile', '--norc', scriptPath, 'unit'],
-      {
-        encoding: 'utf8',
-        timeout: 10000,
-        env: {
-          PATH: bin + delimiter + (process.env.PATH ?? ''),
-          SystemRoot: process.env.SystemRoot,
-          TASK_TRACE: trace.replaceAll('\\', '/'),
-          SIMULATE_COLLISION: '1',
-        },
+    const result = spawnSync(bash, ['--noprofile', '--norc', scriptPath, 'unit'], {
+      encoding: 'utf8',
+      timeout: 10000,
+      env: {
+        PATH: bin + delimiter + (process.env.PATH ?? ''),
+        SystemRoot: process.env.SystemRoot,
+        TASK_TRACE: trace.replaceAll('\\', '/'),
+        SIMULATE_COLLISION: '1',
       },
-    );
+    });
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('ro_backup_volume_collision');
@@ -162,20 +158,16 @@ describe('test-encrypted-backup harness containment', () => {
     await writeFile(join(bin, 'docker'), createMockDocker(), { mode: 0o700 });
 
     const scriptPath = resolve('scripts/test-encrypted-backup.sh').replaceAll('\\', '/');
-    const result = spawnSync(
-      bash,
-      ['--noprofile', '--norc', scriptPath, 'unit'],
-      {
-        encoding: 'utf8',
-        timeout: 10000,
-        env: {
-          PATH: bin + delimiter + (process.env.PATH ?? ''),
-          SystemRoot: process.env.SystemRoot,
-          TASK_TRACE: trace.replaceAll('\\', '/'),
-          SIMULATE_CONSUMER: '1',
-        },
+    const result = spawnSync(bash, ['--noprofile', '--norc', scriptPath, 'unit'], {
+      encoding: 'utf8',
+      timeout: 10000,
+      env: {
+        PATH: bin + delimiter + (process.env.PATH ?? ''),
+        SystemRoot: process.env.SystemRoot,
+        TASK_TRACE: trace.replaceAll('\\', '/'),
+        SIMULATE_CONSUMER: '1',
       },
-    );
+    });
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('ro_backup_volume_foreign_consumer');
@@ -191,20 +183,16 @@ describe('test-encrypted-backup harness containment', () => {
     await writeFile(join(bin, 'docker'), createMockDocker(), { mode: 0o700 });
 
     const scriptPath = resolve('scripts/test-encrypted-backup.sh').replaceAll('\\', '/');
-    const result = spawnSync(
-      bash,
-      ['--noprofile', '--norc', scriptPath, 'unit'],
-      {
-        encoding: 'utf8',
-        timeout: 10000,
-        env: {
-          PATH: bin + delimiter + (process.env.PATH ?? ''),
-          SystemRoot: process.env.SystemRoot,
-          TASK_TRACE: trace.replaceAll('\\', '/'),
-          SIMULATE_INITIALIZER_COLLISION: '1',
-        },
+    const result = spawnSync(bash, ['--noprofile', '--norc', scriptPath, 'unit'], {
+      encoding: 'utf8',
+      timeout: 10000,
+      env: {
+        PATH: bin + delimiter + (process.env.PATH ?? ''),
+        SystemRoot: process.env.SystemRoot,
+        TASK_TRACE: trace.replaceAll('\\', '/'),
+        SIMULATE_INITIALIZER_COLLISION: '1',
       },
-    );
+    });
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('ro_initializer_collision');
@@ -220,20 +208,16 @@ describe('test-encrypted-backup harness containment', () => {
     await writeFile(join(bin, 'docker'), createMockDocker(), { mode: 0o700 });
 
     const scriptPath = resolve('scripts/test-encrypted-backup.sh').replaceAll('\\', '/');
-    const result = spawnSync(
-      bash,
-      ['--noprofile', '--norc', scriptPath, 'unit'],
-      {
-        encoding: 'utf8',
-        timeout: 10000,
-        env: {
-          PATH: bin + delimiter + (process.env.PATH ?? ''),
-          SystemRoot: process.env.SystemRoot,
-          TASK_TRACE: trace.replaceAll('\\', '/'),
-          SIMULATE_BAD_METADATA: '1',
-        },
+    const result = spawnSync(bash, ['--noprofile', '--norc', scriptPath, 'unit'], {
+      encoding: 'utf8',
+      timeout: 10000,
+      env: {
+        PATH: bin + delimiter + (process.env.PATH ?? ''),
+        SystemRoot: process.env.SystemRoot,
+        TASK_TRACE: trace.replaceAll('\\', '/'),
+        SIMULATE_BAD_METADATA: '1',
       },
-    );
+    });
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('ro_backup_volume_metadata_invalid');
@@ -249,19 +233,15 @@ describe('test-encrypted-backup harness containment', () => {
     await writeFile(join(bin, 'docker'), createMockDocker(), { mode: 0o700 });
 
     const scriptPath = resolve('scripts/test-encrypted-backup.sh').replaceAll('\\', '/');
-    spawnSync(
-      bash,
-      ['--noprofile', '--norc', scriptPath, 'unit'],
-      {
-        encoding: 'utf8',
-        timeout: 10000,
-        env: {
-          PATH: bin + delimiter + (process.env.PATH ?? ''),
-          SystemRoot: process.env.SystemRoot,
-          TASK_TRACE: trace.replaceAll('\\', '/'),
-        },
+    spawnSync(bash, ['--noprofile', '--norc', scriptPath, 'unit'], {
+      encoding: 'utf8',
+      timeout: 10000,
+      env: {
+        PATH: bin + delimiter + (process.env.PATH ?? ''),
+        SystemRoot: process.env.SystemRoot,
+        TASK_TRACE: trace.replaceAll('\\', '/'),
       },
-    );
+    });
 
     const log = await readFile(trace, 'utf8');
     const initializerLine = log.split('\n').find((l) => l.startsWith('INITIALIZER_RUN:'));
@@ -289,20 +269,16 @@ describe('test-encrypted-backup harness containment', () => {
     await writeFile(join(bin, 'docker'), createMockDocker(), { mode: 0o700 });
 
     const scriptPath = resolve('scripts/test-encrypted-backup.sh').replaceAll('\\', '/');
-    const result = spawnSync(
-      bash,
-      ['--noprofile', '--norc', scriptPath, 'unit'],
-      {
-        encoding: 'utf8',
-        timeout: 10000,
-        env: {
-          PATH: bin + delimiter + (process.env.PATH ?? ''),
-          SystemRoot: process.env.SystemRoot,
-          TASK_TRACE: trace.replaceAll('\\', '/'),
-          SIMULATE_CLEANUP_FAILURE: '1',
-        },
+    const result = spawnSync(bash, ['--noprofile', '--norc', scriptPath, 'unit'], {
+      encoding: 'utf8',
+      timeout: 10000,
+      env: {
+        PATH: bin + delimiter + (process.env.PATH ?? ''),
+        SystemRoot: process.env.SystemRoot,
+        TASK_TRACE: trace.replaceAll('\\', '/'),
+        SIMULATE_CLEANUP_FAILURE: '1',
       },
-    );
+    });
 
     // Gate must exit non-zero when cleanup fails due to leftover consumers
     expect(result.status).toBe(1);

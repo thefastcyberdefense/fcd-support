@@ -175,10 +175,7 @@ export async function waitForExit(
  * Handles never-spawned children, graceful SIGTERM, SIGKILL escalation,
  * and confirms stdio closure.
  */
-export async function reapChildProcess(
-  child: ChildProcess,
-  options?: ReapOptions,
-): Promise<void> {
+export async function reapChildProcess(child: ChildProcess, options?: ReapOptions): Promise<void> {
   const termTimeoutMs = options?.termTimeoutMs ?? 1500;
   const killTimeoutMs = options?.killTimeoutMs ?? 1500;
 

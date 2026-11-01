@@ -3,11 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { expect, test } from 'vitest';
-import {
-  reapChildProcesses,
-  waitForBarrier,
-  waitForExit,
-} from './helpers/process-lifecycle.js';
+import { reapChildProcesses, waitForBarrier, waitForExit } from './helpers/process-lifecycle.js';
 
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash';
 const revision = 'a'.repeat(40);
@@ -760,9 +756,9 @@ operations_scheduled_main maintenance "$TASK_REVISION" "$TASK_CONFIG_FILE"
       children.push(proc1);
 
       // Silent child wait should reject within 1000ms, well under the 30s test timeout
-      await expect(
-        waitForBarrier(proc1, 'LOCKED\n', { timeoutMs: 1000 }),
-      ).rejects.toThrow(/Process barrier timed out/i);
+      await expect(waitForBarrier(proc1, 'LOCKED\n', { timeoutMs: 1000 })).rejects.toThrow(
+        /Process barrier timed out/i,
+      );
       expect(Date.now() - testStart).toBeLessThan(4000);
     } finally {
       // Cleanup must reap proc1 and release the flock
@@ -805,16 +801,14 @@ test.skipIf(process.platform === 'win32')(
       });
       children.push(proc1);
 
-      await expect(
-        waitForBarrier(proc1, 'LOCKED\n', { timeoutMs: 2000 }),
-      ).rejects.toThrow(/Process exited prematurely with code 42/i);
+      await expect(waitForBarrier(proc1, 'LOCKED\n', { timeoutMs: 2000 })).rejects.toThrow(
+        /Process exited prematurely with code 42/i,
+      );
 
       // Failed spawn
       const procBad = spawn('synthetic-bad-command-does-not-exist-xyz');
       children.push(procBad);
-      await expect(
-        waitForBarrier(procBad, 'LOCKED\n', { timeoutMs: 500 }),
-      ).rejects.toThrow();
+      await expect(waitForBarrier(procBad, 'LOCKED\n', { timeoutMs: 500 })).rejects.toThrow();
     } finally {
       const reapStart = Date.now();
       await reapChildProcesses(children);
