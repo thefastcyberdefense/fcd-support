@@ -293,7 +293,7 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
       const programmaticArchives = (await readdir(archiveDirectory)).filter((name) =>
         name.startsWith('backup_'),
       );
-      expect(programmaticArchives).toHaveLength(1);
+      expect(programmaticArchives).toHaveLength(2); // exactly initial manual backup + 1 daily scheduled backup (zero duplicate dump)
       const databaseFile = join(root, 'database');
       await writeFile(databaseFile, base, { mode: 0o600 });
       const config = operationsEnvironment();
