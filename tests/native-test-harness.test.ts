@@ -20,20 +20,37 @@ docker() {
   case "$1/$2" in
     build/*) printf '%s\\n' "build:$*" >>"$TASK_TRACE"; return 0 ;;
     compose/*) printf '%s\\n' "compose:$*" >>"$TASK_TRACE"; return 0 ;;
-    volume/create) return 0 ;;
-    volume/ls|ps/*|rm/*) return 0 ;;
+    volume/create)
+      eval "last=\\$$#"
+      printf '%s\\n' "$last"
+      return 0 ;;
+    volume/inspect)
+      if [[ "$*" == *Name*Driver*Scope* ]]; then
+        eval "vol=\\$$#"
+        scope="\${vol%-ro-backups}"
+        scope="\${scope%-backups}"
+        scope="\${scope%-postgres}"
+        printf '%s/local/local/%s\\n' "$vol" "$scope"
+        return 0
+      fi
+      return 1 ;;
+    volume/ls|volume/rm|ps/*|rm/*) return 0 ;;
     image/inspect) printf no; return 0 ;;
     create/*)
       printf '%s\\n' "create:$*" >>"$TASK_TRACE"
       if [[ "$*" == *-validator* ]]; then printf '%s' '${'a'.repeat(64)}'; else printf '%s' '${'b'.repeat(64)}'; fi
       return 0 ;;
     inspect/*)
+      if [[ "$*" == *ro-initializer* ]]; then return 1; fi
+      if [[ "$*" == *Config.Labels* ]]; then return 0; fi
       if [[ "$*" == *'{{len .Mounts}}'* ]]; then
         if [[ "$*" == *'${'a'.repeat(64)}'* ]]; then printf 0; else printf 1; fi
       else printf 'volume/%s/false' "$volume"; fi
       return 0 ;;
     network/inspect)
-      if [[ "$*" == *'.Internal'* ]]; then printf true; elif [[ "$*" == *'com.docker.compose.project'* ]]; then printf '%s' "$FCD_SYNTHETIC_TEST_PROJECT"; fi; return 0 ;;
+      if [[ "$*" == *'.Internal'* ]]; then printf true; return 0; fi
+      if [[ "$*" == *'com.docker.compose.project'* ]]; then printf '%s' "$FCD_SYNTHETIC_TEST_PROJECT"; return 0; fi
+      return 1 ;;
     run/*) printf '%s\\n' "run:$*" >>"$TASK_TRACE"; return 0 ;;
     *) return 1 ;;
   esac
