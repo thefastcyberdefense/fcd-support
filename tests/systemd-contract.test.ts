@@ -691,10 +691,14 @@ operations_socket_root() { :; }
 operations_docker() {
   case "$*" in
     *context\\ inspect*) printf 'unix:///var/run/docker.sock\\n' ;;
-    *Config.Labels*revision*) printf '%s\\n' "$OPS_REVISION" ;;
+    *Config.Labels*revision*)
+      if [[ "$*" == *Id* ]]; then printf '%s/%s/linux/amd64\\n' "${image}" "$OPS_REVISION";
+      else printf '%s\\n' "$OPS_REVISION"; fi ;;
     *Os*Architecture*) printf 'linux/amd64\\n' ;;
     *image\\ inspect*) printf '%s/%s/linux/amd64\\n' "${image}" "$OPS_REVISION" ;;
-    *volume\\ inspect*) printf 'local/local/default\\n' ;;
+    *volume\\ inspect*)
+      if [[ "$*" == *Mountpoint* ]]; then printf '/var/lib/docker/volumes/fake/_data\\n';
+      else printf 'local/local/default\\n'; fi ;;
     *) : ;;
   esac
 }
@@ -720,10 +724,14 @@ operations_socket_root() { :; }
 operations_docker() {
   case "$*" in
     *context\\ inspect*) printf 'unix:///var/run/docker.sock\\n' ;;
-    *Config.Labels*revision*) printf '%s\\n' "$OPS_REVISION" ;;
+    *Config.Labels*revision*)
+      if [[ "$*" == *Id* ]]; then printf '%s/%s/linux/amd64\\n' "${image}" "$OPS_REVISION";
+      else printf '%s\\n' "$OPS_REVISION"; fi ;;
     *Os*Architecture*) printf 'linux/amd64\\n' ;;
     *image\\ inspect*) printf '%s/%s/linux/amd64\\n' "${image}" "$OPS_REVISION" ;;
-    *volume\\ inspect*) printf 'local/local/default\\n' ;;
+    *volume\\ inspect*)
+      if [[ "$*" == *Mountpoint* ]]; then printf '/var/lib/docker/volumes/fake/_data\\n';
+      else printf 'local/local/default\\n'; fi ;;
     *) : ;;
   esac
 }

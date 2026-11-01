@@ -122,15 +122,22 @@ esac
 `;
 }
 
+async function setupBin(bin: string) {
+  await mkdir(bin, { recursive: true });
+  await writeFile(join(bin, 'docker'), createMockDocker(), { mode: 0o700 });
+  await writeFile(join(bin, 'git'), `#!/usr/bin/env bash\nprintf '%s\\n' "${'a'.repeat(40)}"\n`, {
+    mode: 0o700,
+  });
+}
+
 describe('test-encrypted-backup harness containment', () => {
   it('refuses before root writes when ro volume name already exists', async () => {
     const root = await mkdtemp(join(tmpdir(), 'fcd-backup-harness-'));
     roots.push(root);
     const bin = join(root, 'bin');
-    await mkdir(bin);
     const trace = join(root, 'trace');
 
-    await writeFile(join(bin, 'docker'), createMockDocker(), { mode: 0o700 });
+    await setupBin(bin);
 
     const scriptPath = resolve('scripts/test-encrypted-backup.sh').replaceAll('\\', '/');
     const result = spawnSync(bash, ['--noprofile', '--norc', scriptPath, 'unit'], {
@@ -152,10 +159,9 @@ describe('test-encrypted-backup harness containment', () => {
     const root = await mkdtemp(join(tmpdir(), 'fcd-backup-harness-'));
     roots.push(root);
     const bin = join(root, 'bin');
-    await mkdir(bin);
     const trace = join(root, 'trace');
 
-    await writeFile(join(bin, 'docker'), createMockDocker(), { mode: 0o700 });
+    await setupBin(bin);
 
     const scriptPath = resolve('scripts/test-encrypted-backup.sh').replaceAll('\\', '/');
     const result = spawnSync(bash, ['--noprofile', '--norc', scriptPath, 'unit'], {
@@ -177,10 +183,9 @@ describe('test-encrypted-backup harness containment', () => {
     const root = await mkdtemp(join(tmpdir(), 'fcd-backup-harness-'));
     roots.push(root);
     const bin = join(root, 'bin');
-    await mkdir(bin);
     const trace = join(root, 'trace');
 
-    await writeFile(join(bin, 'docker'), createMockDocker(), { mode: 0o700 });
+    await setupBin(bin);
 
     const scriptPath = resolve('scripts/test-encrypted-backup.sh').replaceAll('\\', '/');
     const result = spawnSync(bash, ['--noprofile', '--norc', scriptPath, 'unit'], {
@@ -202,10 +207,9 @@ describe('test-encrypted-backup harness containment', () => {
     const root = await mkdtemp(join(tmpdir(), 'fcd-backup-harness-'));
     roots.push(root);
     const bin = join(root, 'bin');
-    await mkdir(bin);
     const trace = join(root, 'trace');
 
-    await writeFile(join(bin, 'docker'), createMockDocker(), { mode: 0o700 });
+    await setupBin(bin);
 
     const scriptPath = resolve('scripts/test-encrypted-backup.sh').replaceAll('\\', '/');
     const result = spawnSync(bash, ['--noprofile', '--norc', scriptPath, 'unit'], {
@@ -227,10 +231,9 @@ describe('test-encrypted-backup harness containment', () => {
     const root = await mkdtemp(join(tmpdir(), 'fcd-backup-harness-'));
     roots.push(root);
     const bin = join(root, 'bin');
-    await mkdir(bin);
     const trace = join(root, 'trace');
 
-    await writeFile(join(bin, 'docker'), createMockDocker(), { mode: 0o700 });
+    await setupBin(bin);
 
     const scriptPath = resolve('scripts/test-encrypted-backup.sh').replaceAll('\\', '/');
     spawnSync(bash, ['--noprofile', '--norc', scriptPath, 'unit'], {
@@ -263,10 +266,9 @@ describe('test-encrypted-backup harness containment', () => {
     const root = await mkdtemp(join(tmpdir(), 'fcd-backup-harness-'));
     roots.push(root);
     const bin = join(root, 'bin');
-    await mkdir(bin);
     const trace = join(root, 'trace');
 
-    await writeFile(join(bin, 'docker'), createMockDocker(), { mode: 0o700 });
+    await setupBin(bin);
 
     const scriptPath = resolve('scripts/test-encrypted-backup.sh').replaceAll('\\', '/');
     const result = spawnSync(bash, ['--noprofile', '--norc', scriptPath, 'unit'], {
