@@ -710,7 +710,7 @@ operations_retained_read() {
 }
 operations_execute_job() {
   # Silent child: acquires flock through real operations_preflight but never prints barrier
-  sleep 60
+  read -r barrier
 }
 operations_scheduled_main maintenance "$TASK_REVISION" "$TASK_CONFIG_FILE"
 `;
@@ -751,26 +751,29 @@ operations_scheduled_main maintenance "$TASK_REVISION" "$TASK_CONFIG_FILE"
     const children: ChildProcess[] = [];
     const testStart = Date.now();
     try {
-      const proc1 = spawn(bash, ['--noprofile', '--norc', '-c', silentScript], {
-        env: {
-          PATH: process.env.PATH,
-          TASK_RUN_OPERATION: resolve('scripts/run-operation.sh').replaceAll('\\', '/'),
-          TASK_REVISION: revision,
-          TASK_CONFIG_FILE: configFile,
-          TASK_TRACE: trace,
-        },
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-      children.push(proc1);
+      try {
+        const proc1 = spawn(bash, ['--noprofile', '--norc', '-c', silentScript], {
+          env: {
+            PATH: process.env.PATH,
+            TASK_RUN_OPERATION: resolve('scripts/run-operation.sh').replaceAll('\\', '/'),
+            TASK_REVISION: revision,
+            TASK_CONFIG_FILE: configFile,
+            TASK_TRACE: trace,
+          },
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+        children.push(proc1);
 
-      // Silent child wait should reject within 1000ms, well under the 30s test timeout
-      await expect(waitForBarrier(proc1, 'LOCKED\n', { timeoutMs: 1000 })).rejects.toThrow(
-        /Process barrier timed out/i,
-      );
-      expect(Date.now() - testStart).toBeLessThan(4000);
-    } finally {
-      // Cleanup must reap proc1 and release the flock
-      await reapChildProcesses(children);
+        // Silent child wait should reject within 1000ms, well under the 30s test timeout
+        await expect(waitForBarrier(proc1, 'LOCKED\n', { timeoutMs: 1000 })).rejects.toThrow(
+          /Process barrier timed out/i,
+        );
+        expect(Date.now() - testStart).toBeLessThan(4000);
+      } finally {
+        // Cleanup must reap proc1 and release the flock
+        await reapChildProcesses(children);
+      }
+
       for (const child of children) {
         expect(child.exitCode !== null || child.signalCode !== null).toBe(true);
       }
@@ -787,10 +790,13 @@ operations_scheduled_main maintenance "$TASK_REVISION" "$TASK_CONFIG_FILE"
         encoding: 'utf8',
         timeout: 5000,
       });
-      expect(proc2.status).toBe(0);
+      expect({ status: proc2.status, stderr: proc2.stderr }).toEqual({
+        status: 0,
+        stderr: '',
+      });
       const jobs = (await readFile(trace, 'utf8')).trim().split('\n');
       expect(jobs).toHaveLength(4);
-
+    } finally {
       await rm(root, { recursive: true, force: true });
     }
   },
