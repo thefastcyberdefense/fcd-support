@@ -24,9 +24,15 @@ only test harnesses, tests, CI and evidence changed. No SSH, server, provider,
 Meta, tunnel or production action ran. This is no fresh server-readiness claim.
 Task 11 remains complete; P6-004/005/006 and P6-GATE remain open for the original
 Task 15 documentation consolidation and independent review, then Task 16.
-AGY can start `docs/handoffs/2026-11-01-antigravity-phase-6-evidence-pack.md`
-under existing approval on a fresh branch from main. No recovery-policy or
-Phase 7 implementation work is assigned.
+GitHub's subsequent push response reported medium runtime-transitive glob #42
+and minimatch #43 alerts under node-pg-migrate. Static triage confirms affected
+versions but leaves application-boundary applicability needs_review: the
+inspected migration caller uses a fixed directory and no glob/AbortSignal
+opt-in. No public exploit is established. AGY should first use
+`docs/handoffs/2026-11-01-antigravity-dependency-followup.md` for a compatible
+minimal correction or concrete reviewed disposition, then the final evidence
+pack. No dependency was changed during triage; no new routine owner approval
+is required. No recovery-policy or Phase 7 implementation work is assigned.
 
 **Task 11 is COMPLETE for implementation and its bounded historical server drill.**
 Exact application `67a4a4bede6d3252dc936a6e410f4b90c1359ac3` passed all four
@@ -60,8 +66,8 @@ infrastructure, tunnel, production or other-project change ran. See
 `docs/reviews/2026-10-31-phase-6-task-11-closeout.md` for scope and limitations.
 
 P6-004/005/006 remain IN PROGRESS because they include Task 15; P6-GATE remains
-BLOCKED. AGY's approved documentation closeout is now unblocked. Current
-handoff: `docs/handoffs/2026-11-01-antigravity-phase-6-evidence-pack.md`, with
+BLOCKED. AGY's approved dependency follow-up precedes final documentation closeout. Current
+handoff: `docs/handoffs/2026-11-01-antigravity-dependency-followup.md`, with
 its linked plan. Codex owns server recovery, trackers, integration and independent
 whole-phase review. No live provider, Meta, tunnel or production change ran.
 

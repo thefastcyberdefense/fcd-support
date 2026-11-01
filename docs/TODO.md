@@ -14,10 +14,16 @@
   restored zero-send and fail-closed scoped cleanup coverage are accepted.
   See `docs/reviews/2026-11-01-pr-3-integration.md` for exact evidence and the
   retained failed intermediate validations.
+- GitHub reported two medium runtime-transitive dependency alerts after push:
+  glob #42 and minimatch #43 under node-pg-migrate. A public exploit path is not
+  established. AGY should first follow
+  `docs/handoffs/2026-11-01-antigravity-dependency-followup.md` for compatibility
+  review/minimal correction or a concrete Codex-reviewed disposition.
 - Task 15 still needs operator-guide/acceptance/threat-model consolidation and
   the independent aggregate gate; Task 16's final server handoff follows.
-  AGY can start `docs/handoffs/2026-11-01-antigravity-phase-6-evidence-pack.md`
-  now on a fresh branch from synchronized main. No new routine approval is
+  The subsequent assignment is
+  `docs/handoffs/2026-11-01-antigravity-phase-6-evidence-pack.md`
+  on a fresh branch from synchronized main. No new routine approval is
   needed. No SSH, server, live-provider or production action ran this turn.
 - After a later guest reboot, seven older stopped actors were found missing;
   volumes/state files remain. The actor-loss incident stays OPEN without reconstruction or SQL

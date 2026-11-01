@@ -23,6 +23,8 @@ Steps 4–6 and Task 16; current `docs/TODO.md` and `docs/PROJECT_CONTEXT.md`.
 - Start only after PR #3 is merged. Fetch main and verify its actual merged
   source and current integration review; do not rely on an abbreviated handoff
   SHA. P6-GATE completion is not an entry dependency for its evidence pack.
+- Complete the separately assigned runtime-dependency follow-up or obtain
+  Codex's documented disposition before freezing the final source/counts.
 - Create `codex/agy-p6-gate-evidence` from synchronized main in the existing AGY
   isolated worktree, preserving any changes. Do not rewrite history or reuse
   the merged PR #3 as an open delivery branch.
