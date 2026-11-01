@@ -77,32 +77,33 @@ In an unedited single-worker focused rerun (`VITEST_MAX_WORKERS=1 npx vitest run
 
 ### Verification Results on Corrected Head
 
-| Command                                                                                   | Suite / Target                                  | Result                                   | Duration | Notes                                            |
-| ----------------------------------------------------------------------------------------- | ----------------------------------------------- | ---------------------------------------- | -------- | ------------------------------------------------ |
-| `npm run validate:phase0`                                                                 | Phase 0 gate validation                         | **PASSED** (code 0)                      | ~1.5s    | Trackers, evidence, and authority boundary valid |
-| `npm run format:check`                                                                    | Prettier code style                             | **PASSED** (code 0)                      | ~6.5s    | All matched files use Prettier style             |
-| `npm run lint`                                                                            | ESLint strict rules                             | **PASSED** (code 0)                      | ~25.0s   | Zero errors, zero warnings                       |
-| `npm run typecheck`                                                                       | TypeScript (`tsc --noEmit`)                     | **PASSED** (code 0)                      | ~10.0s   | Zero type errors                                 |
-| `npm run build`                                                                           | TypeScript build (`tsc -p tsconfig.build.json`) | **PASSED** (code 0)                      | ~9.5s    | Build output updated cleanly                     |
-| `npx vitest run tests/process-lifecycle.test.ts tests/systemd-contract.test.ts`           | Bounded child lifecycle & scheduler contract    | **71 passed / 7 platform skips**         | 10.23s   | 2 test files, 10 helper unit tests               |
-| `npx vitest run tests/backup-harness-containment.test.ts`                                 | RO backup harness containment & cleanup         | **6 passed**                             | 12.17s   | 1 test file                                      |
-| `VITEST_MAX_WORKERS=4 npx vitest run tests/backup.test.ts tests/systemd-contract.test.ts` | Focused Task 1 & Task 2 unit tests              | **89 passed / 9 platform skips**         | 10.49s   | Two test files                                   |
-| `python -B docs/operations/actions/2026-10-29-promotion-observer-test.py`                 | Promotion observer                              | **32 passed / 1 platform skip** (SIGHUP) | 1.155s   | Hermetic stdlib tests                            |
-| `python -B docs/operations/actions/2026-10-31-reboot-recovery-test.py`                    | Reboot recovery helper                          | **11 passed / 0 skips**                  | 0.074s   | Hermetic stdlib tests                            |
-| `python -B docs/operations/actions/2026-10-31-peer-recovery-test.py`                      | Peer recovery helper                            | **11 passed / 0 skips**                  | 0.043s   | Hermetic stdlib tests                            |
-| `python -B docs/operations/actions/2026-10-31-rollback-after-reboot-test.py`              | Rollback helper                                 | **6 passed / 0 skips**                   | 0.036s   | Hermetic stdlib tests                            |
-| `python -B docs/operations/actions/2026-10-31-current-runtime-recovery-test.py`           | Current runtime recovery helper                 | **5 passed / 0 skips**                   | 0.259s   | Hermetic stdlib tests                            |
-| `bash scripts/test-docker-projections.sh`                                                 | Docker projection canonicalizer                 | **PASSED** (code 0)                      | ~8.0s    | All 6 projection tests passed                    |
+| Command                                                                         | Suite / Target                                  | Result                                             | Duration | Notes                                            |
+| ------------------------------------------------------------------------------- | ----------------------------------------------- | -------------------------------------------------- | -------- | ------------------------------------------------ |
+| `npm run validate:phase0`                                                       | Phase 0 gate validation                         | **PASSED** (code 0)                                | ~1.5s    | Trackers, evidence, and authority boundary valid |
+| `npm run format:check`                                                          | Prettier code style                             | **PASSED** (code 0)                                | ~6.5s    | All matched files use Prettier style             |
+| `npm run lint`                                                                  | ESLint strict rules                             | **PASSED** (code 0)                                | ~25.0s   | Zero errors, zero warnings                       |
+| `npm run typecheck`                                                             | TypeScript (`tsc --noEmit`)                     | **PASSED** (code 0)                                | ~10.0s   | Zero type errors                                 |
+| `npm run build`                                                                 | TypeScript build (`tsc -p tsconfig.build.json`) | **PASSED** (code 0)                                | ~9.5s    | Build output updated cleanly                     |
+| `npm audit --omit=dev --audit-level=high`                                       | Production dependency audit                     | **PASSED** (code 0)                                | ~2.5s    | Zero high/critical vulnerabilities               |
+| `VITEST_MAX_WORKERS=4 npm run check`                                            | Full local gate (validate, lint, test, build)   | **1,939 passed / 437 platform skips / 0 timeouts** | 254.60s  | 116 passed files, 14 integration skips (130)     |
+| `npx vitest run tests/process-lifecycle.test.ts tests/systemd-contract.test.ts` | Bounded child lifecycle & scheduler contract    | **71 passed / 7 platform skips**                   | 10.45s   | 2 test files, 10 helper unit tests               |
+| `npx vitest run tests/backup-harness-containment.test.ts`                       | RO backup harness containment & cleanup         | **6 passed**                                       | 12.87s   | 1 test file, strict flags & cleanup gate         |
+| `python -B docs/operations/actions/2026-10-29-promotion-observer-test.py`       | Promotion observer                              | **32 passed / 1 platform skip** (Windows symlink)  | 1.163s   | Hermetic stdlib tests                            |
+| `python -B docs/operations/actions/2026-10-31-reboot-recovery-test.py`          | Reboot recovery helper                          | **11 passed / 0 skips**                            | 0.071s   | Hermetic stdlib tests                            |
+| `python -B docs/operations/actions/2026-10-31-peer-recovery-test.py`            | Peer recovery helper                            | **11 passed / 0 skips**                            | 0.041s   | Hermetic stdlib tests                            |
+| `python -B docs/operations/actions/2026-10-31-rollback-after-reboot-test.py`    | Rollback helper                                 | **6 passed / 0 skips**                             | 0.034s   | Hermetic stdlib tests                            |
+| `python -B docs/operations/actions/2026-10-31-current-runtime-recovery-test.py` | Current runtime recovery helper                 | **5 passed / 0 skips**                             | 0.265s   | Hermetic stdlib tests                            |
+| `bash scripts/test-docker-projections.sh`                                       | Docker projection canonicalizer                 | **PASSED** (code 0)                                | ~8.0s    | All 6 projection tests passed                    |
 
 ### Hermetic Python Suites Breakdown
 
 Each Python suite is executed independently and reported individually:
 
-- Observer: **32 passed / 1 Windows SIGHUP skip** (1.155s)
-- Reboot: **11 passed / 0 skips** (0.074s)
-- Peer: **11 passed / 0 skips** (0.043s)
-- Rollback: **6 passed / 0 skips** (0.036s)
-- Current Runtime: **5 passed / 0 skips** (0.259s)
+- Observer: **32 passed / 1 Windows symlink skip** (1.163s)
+- Reboot: **11 passed / 0 skips** (0.071s)
+- Peer: **11 passed / 0 skips** (0.041s)
+- Rollback: **6 passed / 0 skips** (0.034s)
+- Current Runtime: **5 passed / 0 skips** (0.265s)
 
 Overlapping counts across different suites must not be summed as independent coverage.
 
@@ -125,7 +126,11 @@ Overlapping counts across different suites must not be summed as independent cov
     - Full PG: 621 passed / 52 lane skips, 56 files (140.63s).
   - `Private runtime controller`: Run [`41280784100`](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41280784100) passed in 19m37s.
 
-- **Final Head Workflow Runs:** (Recorded upon push of corrected submission).
+- **Final Head Workflow Runs (Commit `fd60612401f808796855146c2d1b8e40f8078044`):**
+  - `ci`: Run [`41293350626`](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41293350626) passed in 3m59s (`validate` in 3m59s: static validation, build, dependency audit, unit tests with pinned UID and memory-backed scratch, Docker metadata projections, hermetic operator-helpers).
+  - `CodeQL Advanced`: Run [`41293350632`](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41293350632) passed in 1m0s (`Analyze (actions)` in 38s, `Analyze (javascript-typescript)` in 1m0s).
+  - `PostgreSQL and native operations`: Run [`41293350623`](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41293350623) passed in 11m37s (`postgres` in 2m59s, `native-operations` in 11m37s: grants, two-cluster restore, promotion, synthetic cleanup).
+  - `Private runtime controller`: Run [`41293350625`](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41293350625) passed in 9m18s (`private-runtime (fresh)` in 9m13s, `private-runtime (precreated)` in 9m18s: pinned compose 5.5.1, non-root user 1000:1000, private controller lifecycle).
 
 ---
 
