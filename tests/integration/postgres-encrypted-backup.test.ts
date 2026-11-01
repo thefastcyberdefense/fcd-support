@@ -448,6 +448,9 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
         ...commonEnvironment,
         BACKUP_ENCRYPTION_RECIPIENT_FILE: recipientFile,
       };
+      const archivesBeforeScheduled = (await readdir(archiveDirectory)).filter((name) =>
+        name.startsWith('backup_'),
+      );
       const scheduledRef = await cli(
         ['scheduled-backup', 'daily', '2001-01-03T00:00:00.000Z'],
         scheduledEnvironment,
@@ -478,7 +481,9 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
       const cliArchives = (await readdir(archiveDirectory)).filter((name) =>
         name.startsWith('backup_'),
       );
-      expect(cliArchives).toHaveLength(2); // bootstrap backup + 1 daily backup (zero duplicate dump)
+      // Exactly 1 new archive added for the daily slot, zero duplicates created on repeated call
+      expect(cliArchives).toHaveLength(archivesBeforeScheduled.length + 1);
+      expect(cliArchives).toContain(scheduledRef);
     } finally {
       await chmod(identityFile, 0o600).catch(() => undefined);
       await chmod(wrongIdentityFile, 0o600).catch(() => undefined);
