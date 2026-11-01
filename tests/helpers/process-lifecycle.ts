@@ -11,6 +11,8 @@ export interface ExitOptions {
 export interface ReapOptions {
   termTimeoutMs?: number;
   killTimeoutMs?: number;
+  /** Only for a test child spawned with detached: true on Unix. */
+  processGroup?: boolean;
 }
 
 export interface ProcessExitResult {
@@ -178,97 +180,74 @@ export async function waitForExit(
 export async function reapChildProcess(child: ChildProcess, options?: ReapOptions): Promise<void> {
   const termTimeoutMs = options?.termTimeoutMs ?? 1500;
   const killTimeoutMs = options?.killTimeoutMs ?? 1500;
-
+  const processGroup = options?.processGroup === true && process.platform !== 'win32';
   const closeStdio = () => {
-    try {
-      child.stdin?.destroy();
-    } catch {
-      // ignore
-    }
-    try {
-      child.stdout?.destroy();
-    } catch {
-      // ignore
-    }
-    try {
-      child.stderr?.destroy();
-    } catch {
-      // ignore
-    }
+    child.stdin?.destroy();
+    child.stdout?.destroy();
+    child.stderr?.destroy();
   };
-
-  // If process never successfully spawned (e.g. invalid binary, EACCES, ENOENT)
-  if (child.pid === undefined) {
+  const pid = child.pid;
+  if (pid === undefined) {
+    // Failed spawn has no OS actor and never emits exit. Consume a pending
+    // spawn error when cleanup was called before the caller observed it.
+    const ignoreError = () => undefined;
+    child.once('error', ignoreError);
+    child.once('close', () => child.off('error', ignoreError));
     closeStdio();
     return;
   }
-
-  // If process has already exited
-  if (child.exitCode !== null || child.signalCode !== null) {
-    closeStdio();
-    return;
-  }
-
-  // Helper to wait boundedly for exit
-  const waitForTermination = (timeoutMs: number): Promise<boolean> => {
-    return new Promise<boolean>((resolve) => {
-      if (child.exitCode !== null || child.signalCode !== null) {
+  const closed = () =>
+    (child.exitCode !== null || child.signalCode !== null) &&
+    [child.stdin, child.stdout, child.stderr].every((stream) => stream === null || stream.closed);
+  const waitForClosure = (timeoutMs: number) =>
+    new Promise<boolean>((resolve) => {
+      if (closed()) {
         resolve(true);
         return;
       }
-
-      let timer: NodeJS.Timeout | null = null;
-      const onExit = () => {
-        cleanup();
+      const onClose = () => {
+        clearTimeout(timer);
         resolve(true);
       };
-
-      const cleanup = () => {
-        if (timer !== null) {
-          clearTimeout(timer);
-          timer = null;
-        }
-        child.off('exit', onExit);
-        child.off('close', onExit);
-      };
-
-      timer = setTimeout(() => {
-        cleanup();
-        resolve(child.exitCode !== null || child.signalCode !== null);
+      const timer = setTimeout(() => {
+        child.off('close', onClose);
+        resolve(closed());
       }, timeoutMs);
-
-      child.once('exit', onExit);
-      child.once('close', onExit);
+      child.once('close', onClose);
     });
-  };
-
-  // Step 1: Send SIGTERM
-  try {
-    child.kill('SIGTERM');
-  } catch {
-    // Process may have already exited
-  }
-
-  const termExited = await waitForTermination(termTimeoutMs);
-  if (!termExited) {
-    // Step 2: Escalate to SIGKILL if SIGTERM did not reap child
+  const signal = (value: NodeJS.Signals): boolean => {
     try {
-      child.kill('SIGKILL');
-    } catch {
-      // ignore
+      if (processGroup) {
+        process.kill(-pid, value);
+        return true;
+      }
+      return child.kill(value);
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code === 'ESRCH';
     }
-    await waitForTermination(killTimeoutMs);
+  };
+  if (!processGroup && closed()) return;
+  signal('SIGTERM');
+  let confirmed = await waitForClosure(termTimeoutMs);
+  // A group member can retain the lock even after its shell exits or closes
+  // stdio. Kill only the explicitly detached, test-owned process group.
+  if (processGroup || !confirmed) {
+    const signaled = signal('SIGKILL');
+    confirmed = await waitForClosure(killTimeoutMs);
+    if (processGroup && !signaled) confirmed = false;
   }
-
+  if (!confirmed) throw new Error('test_child_reap_unconfirmed');
   closeStdio();
 }
 
-/**
- * Reap multiple children in parallel with bounded timeouts.
- */
+/** Attempt every owned cleanup, then propagate any unresolved child. */
 export async function reapChildProcesses(
   children: ChildProcess[],
   options?: ReapOptions,
 ): Promise<void> {
-  await Promise.allSettled(children.map((child) => reapChildProcess(child, options)));
+  const results = await Promise.allSettled(
+    children.map((child) => reapChildProcess(child, options)),
+  );
+  if (results.some((result) => result.status === 'rejected'))
+    throw new Error('test_child_reap_unconfirmed');
 }

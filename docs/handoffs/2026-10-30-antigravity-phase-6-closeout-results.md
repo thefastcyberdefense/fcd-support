@@ -6,8 +6,8 @@ Worktree: `J:\DevDrive\fcd-support-agy-failure-matrix`.
 Branch: `codex/agy-p6-failure-matrix`.
 PR: <https://github.com/thefastcyberdefense/fcd-support/pull/3> (Draft).
 Base Revision: `2772d624c37411ebc75959407cd8416d098e732c`.
-Merged Latest Main: `0a37a63d91ea1d07c3be053075677dca7e387062`.
-Primary Checkout Untouched: `J:\DevDrive\fcd-support` on `main` at `0a37a63d91ea1d07c3be053075677dca7e387062`.
+Merged Latest Main: `0a37a637aa63d33ea0cba30b540ea02a8a25cd48`.
+Primary Checkout Untouched: `J:\DevDrive\fcd-support` on `main` at `0a37a637aa63d33ea0cba30b540ea02a8a25cd48`.
 
 ---
 
@@ -45,7 +45,7 @@ All assigned Phase 6 Task 15 review corrections and harness closeout items have 
      - Corrected admin identity revocation to `tests/integration/postgres-admin-identity.test.ts:333` (`expires, revokes, and bulk-revokes active sessions`); removed claims that these database tests close TCP/socket connections.
      - Replaced nonexistent `operations_lock` title with `tests/operations-scripts.test.ts#L236` (`host preflight handles %s without repairs or data mutation` with `lock-conflict`) and `tests/systemd-contract.test.ts#L482-L690`.
      - Narrowed checkpoint claims to verified manifest age, watermark epoch/sequence, signature HMAC, and completeness verification (`tests/deletion-checkpoint.test.ts#L28-L80`, `tests/integration/postgres-deletion-checkpoint.test.ts#L217-L272`).
-     - Aligned provenance metadata: base `2772d624c37411ebc75959407cd8416d098e732c`, merged latest main `0a37a63d91ea1d07c3be053075677dca7e387062`.
+     - Aligned provenance metadata: base `2772d624c37411ebc75959407cd8416d098e732c`, merged latest main `0a37a637aa63d33ea0cba30b540ea02a8a25cd48`.
 
 ---
 
@@ -88,7 +88,7 @@ In an unedited single-worker focused rerun (`VITEST_MAX_WORKERS=1 npx vitest run
 | `VITEST_MAX_WORKERS=4 npm run check`                                            | Full local gate (validate, lint, test, build)   | **1,939 passed / 437 platform skips / 0 timeouts** | 254.60s  | 116 passed files, 14 integration skips (130)     |
 | `npx vitest run tests/process-lifecycle.test.ts tests/systemd-contract.test.ts` | Bounded child lifecycle & scheduler contract    | **71 passed / 7 platform skips**                   | 10.45s   | 2 test files, 10 helper unit tests               |
 | `npx vitest run tests/backup-harness-containment.test.ts`                       | RO backup harness containment & cleanup         | **6 passed**                                       | 12.87s   | 1 test file, strict flags & cleanup gate         |
-| `python -B docs/operations/actions/2026-10-29-promotion-observer-test.py`       | Promotion observer                              | **32 passed / 1 platform skip** (Windows symlink)  | 1.163s   | Hermetic stdlib tests                            |
+| `python -B docs/operations/actions/2026-10-29-promotion-observer-test.py`       | Promotion observer                              | **32 passed / 1 platform skip** (Windows SIGHUP)   | 1.163s   | Hermetic stdlib tests                            |
 | `python -B docs/operations/actions/2026-10-31-reboot-recovery-test.py`          | Reboot recovery helper                          | **11 passed / 0 skips**                            | 0.071s   | Hermetic stdlib tests                            |
 | `python -B docs/operations/actions/2026-10-31-peer-recovery-test.py`            | Peer recovery helper                            | **11 passed / 0 skips**                            | 0.041s   | Hermetic stdlib tests                            |
 | `python -B docs/operations/actions/2026-10-31-rollback-after-reboot-test.py`    | Rollback helper                                 | **6 passed / 0 skips**                             | 0.034s   | Hermetic stdlib tests                            |
@@ -99,7 +99,7 @@ In an unedited single-worker focused rerun (`VITEST_MAX_WORKERS=1 npx vitest run
 
 Each Python suite is executed independently and reported individually:
 
-- Observer: **32 passed / 1 Windows symlink skip** (1.163s)
+- Observer: **32 passed / 1 Windows SIGHUP skip** (1.163s)
 - Reboot: **11 passed / 0 skips** (0.071s)
 - Peer: **11 passed / 0 skips** (0.041s)
 - Rollback: **6 passed / 0 skips** (0.034s)
@@ -140,7 +140,7 @@ Overlapping counts across different suites must not be summed as independent cov
 - Exact owned test volumes (`$RO_VOLUME`, `$VOLUME`, `$RESTORE_VOLUME`) checked for zero consumers and removed.
 - Zero leftover files or orphan scratch directories.
 - Preserved historical server state, uncertain scopes (`6faff8b` and earlier), and actor-loss incident evidence untouched.
-- Primary checkout `J:\DevDrive\fcd-support` on `main` at `0a37a63d91ea1d07c3be053075677dca7e387062` remains completely untouched.
+- Primary checkout `J:\DevDrive\fcd-support` on `main` at `0a37a637aa63d33ea0cba30b540ea02a8a25cd48` remains completely untouched.
 
 ---
 
@@ -153,3 +153,29 @@ Overlapping counts across different suites must not be summed as independent cov
 2. **Server Deployment & Incidents:**
    - Live test server restart and actor-loss incident remains open under Codex ownership.
    - All server-side actions, SSH, and production migrations remain excluded from AGY scope.
+
+## Codex follow-up corrections after review of 938981c
+
+The reviewed AGY head independently passed the full Windows gate: 1,939 passed /
+437 platform skips, 130 files, 258.59 s, including build. Codex then reproduced
+two false-success child cleanup cases (both RED) and nine shell admission/
+cleanup regression failures. The corrected focused suites pass: 32 passed /
+one Unix-only descendant skip across four files. The shell suite now reaches
+initialization before injecting cleanup failure, asserts no initializer on
+admission refusal, and tests exact failed-initializer removal.
+
+Unconfirmed child reaping now fails, cleanup waits for stream closure, and
+explicitly detached Unix groups cover descendants retaining the lock. Docker
+cleanup requires successful inventories, default volume options, retained
+initializer ID/image/mount identity and acknowledged owned-resource removal.
+No application, retention, consent or recovery-policy change was made.
+
+A separate review found no Important/Critical issue in these corrections. Final
+exact-source native and CI evidence remains required before integration; this
+checkpoint is not a Phase 6 gate decision. Git-generated provenance replaces
+the incorrect full main SHA, and the observer platform skip is SIGHUP.
+
+Local Docker Desktop focused native scheduler validation passed 68 tests in
+3.01 s. Post-run audits found zero backup-test actors, volumes and networks.
+This used the reviewed working correction tree; the final committed-source
+workflows remain the integration authority. No server command ran.

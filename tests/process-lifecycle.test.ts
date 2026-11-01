@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import { describe, expect, it } from 'vitest';
 import {
   reapChildProcess,
@@ -156,3 +157,54 @@ describe('process-lifecycle helper', () => {
     }
   });
 });
+
+function unreapableChild(): ChildProcess {
+  return Object.assign(new EventEmitter(), {
+    pid: 99999999,
+    exitCode: null,
+    signalCode: null,
+    kill: () => false,
+    stdin: { destroy: () => undefined },
+    stdout: { destroy: () => undefined },
+    stderr: { destroy: () => undefined },
+  }) as unknown as ChildProcess;
+}
+
+it('refuses cleanup success when the owned child survives both termination deadlines', async () => {
+  await expect(
+    reapChildProcess(unreapableChild(), { termTimeoutMs: 1, killTimeoutMs: 1 }),
+  ).rejects.toThrow('test_child_reap_unconfirmed');
+});
+
+it('propagates a failed reap after attempting every owned child', async () => {
+  await expect(
+    reapChildProcesses([unreapableChild(), unreapableChild()], {
+      termTimeoutMs: 1,
+      killTimeoutMs: 1,
+    }),
+  ).rejects.toThrow('test_child_reap_unconfirmed');
+});
+
+it.skipIf(process.platform === 'win32')(
+  'reaps an owned descendant retaining stdio after its parent exits',
+  async () => {
+    const code = `const {spawn}=require('node:child_process');
+    spawn(process.execPath,['-e','process.on("SIGTERM",()=>{});process.stdout.write("DESCENDANT_READY\\n");setInterval(()=>{},1000)'],{stdio:['ignore','inherit','inherit']});
+    process.on('SIGTERM',()=>process.exit(0));setInterval(()=>{},1000);`;
+    const child = spawn(process.execPath, ['-e', code], {
+      detached: true,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    try {
+      await waitForBarrier(child, 'DESCENDANT_READY\n', { timeoutMs: 2000 });
+    } finally {
+      await reapChildProcess(child, {
+        termTimeoutMs: 100,
+        killTimeoutMs: 1000,
+        processGroup: true,
+      });
+    }
+    expect(child.stdout.closed).toBe(true);
+    expect(child.stderr.closed).toBe(true);
+  },
+);

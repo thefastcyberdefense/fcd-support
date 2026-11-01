@@ -6,6 +6,7 @@ export MSYS_NO_PATHCONV=1
 fixture_image="$1"; REVISION="$2"; root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 SCOPE="fcd-support-cleanup-proof-$$-$RANDOM"; VOLUME="$SCOPE-backups"; RO_VOLUME="$SCOPE-ro-backups"; RO_INITIALIZER="$SCOPE-ro-initializer"; RESTORE_VOLUME="$SCOPE-restore"; RESTORE_NETWORK="$SCOPE-network"
 OPS="$SCOPE-unused-ops:$REVISION"; RUNNER="$SCOPE-unused-runner:$REVISION"; APP="$SCOPE-unused-app:$REVISION"
+CREATED_VOLUMES=()
 actor="$SCOPE-unit"; anonymous=''
 cleanup_fixture() {
   local identity users

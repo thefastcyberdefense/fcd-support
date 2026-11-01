@@ -572,6 +572,7 @@ operations_scheduled_main maintenance "$TASK_REVISION" "$TASK_CONFIG_FILE"
           TASK_BARRIER: '1',
         },
         stdio: ['pipe', 'pipe', 'pipe'],
+        detached: true,
       });
       children.push(proc1);
 
@@ -629,7 +630,7 @@ operations_scheduled_main maintenance "$TASK_REVISION" "$TASK_CONFIG_FILE"
       const jobsAfterProc3 = (await readFile(trace, 'utf8')).trim().split('\n');
       expect(jobsAfterProc3).toHaveLength(8);
     } finally {
-      await reapChildProcesses(children);
+      await reapChildProcesses(children, { processGroup: true });
       await rm(root, { recursive: true, force: true });
     }
   },
@@ -709,8 +710,8 @@ operations_retained_read() {
   declare -gA OPS_RETAINED=([BUNDLE_SCHEMA_REVISION]="\${OPS_CONFIG[FCD_SCHEMA_REVISION]}" [BUNDLE_APPLICATION_IMAGE]="\${OPS_CONFIG[FCD_SUPPORT_IMAGE]}" [BUNDLE_OPERATIONS_IMAGE]="\${OPS_CONFIG[FCD_OPERATIONS_IMAGE]}" [BUNDLE_POSTGRES_IMAGE]="\${OPS_CONFIG[FCD_POSTGRES_IMAGE]}")
 }
 operations_execute_job() {
-  # Silent child: acquires flock through real operations_preflight but never prints barrier
-  read -r barrier
+  # A real descendant inherits the deployment lock; cleanup must reap its group.
+  sleep 60
 }
 operations_scheduled_main maintenance "$TASK_REVISION" "$TASK_CONFIG_FILE"
 `;
@@ -761,6 +762,7 @@ operations_scheduled_main maintenance "$TASK_REVISION" "$TASK_CONFIG_FILE"
             TASK_TRACE: trace,
           },
           stdio: ['pipe', 'pipe', 'pipe'],
+          detached: true,
         });
         children.push(proc1);
 
@@ -771,7 +773,7 @@ operations_scheduled_main maintenance "$TASK_REVISION" "$TASK_CONFIG_FILE"
         expect(Date.now() - testStart).toBeLessThan(4000);
       } finally {
         // Cleanup must reap proc1 and release the flock
-        await reapChildProcesses(children);
+        await reapChildProcesses(children, { processGroup: true });
       }
 
       for (const child of children) {
@@ -812,6 +814,7 @@ test.skipIf(process.platform === 'win32')(
       const proc1 = spawn(bash, ['--noprofile', '--norc', '-c', prematureScript], {
         env: { PATH: process.env.PATH },
         stdio: ['pipe', 'pipe', 'pipe'],
+        detached: true,
       });
       children.push(proc1);
 
@@ -825,7 +828,7 @@ test.skipIf(process.platform === 'win32')(
       await expect(waitForBarrier(procBad, 'LOCKED\n', { timeoutMs: 500 })).rejects.toThrow();
     } finally {
       const reapStart = Date.now();
-      await reapChildProcesses(children);
+      await reapChildProcesses(children, { processGroup: true });
       expect(Date.now() - reapStart).toBeLessThan(2000);
     }
   },

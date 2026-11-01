@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { createMockDocker } from './helpers/backup-harness-fixture.js';
 
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash';
 const roots: string[] = [];
@@ -12,115 +13,6 @@ afterEach(async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
-
-function createMockDocker() {
-  return `#!/usr/bin/env bash
-printf '%s\\n' "$*" >> "$TASK_TRACE"
-case "$1" in
-  build)
-    exit 0 ;;
-  image)
-    if [[ "$*" == *Config.Volumes* ]]; then
-      printf 'no\\n'
-      exit 0
-    fi
-    if [[ "$*" == *revision* ]]; then
-      printf 'a%.0s' {1..40}
-      printf '\\n'
-      exit 0
-    fi
-    exit 0 ;;
-  create)
-    if [[ "$*" == *validator* ]]; then
-      printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\n'
-      exit 0
-    fi
-    if [[ "$*" == *job* ]]; then
-      printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\n'
-      exit 0
-    fi
-    printf 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\\n'
-    exit 0 ;;
-  inspect)
-    if [[ "$*" == *ro-initializer* ]]; then
-      if [[ "\${SIMULATE_INITIALIZER_COLLISION:-0}" == 1 ]]; then
-        exit 0
-      fi
-      exit 1
-    fi
-    if [[ "$*" == *len\\ .Mounts* ]]; then
-      if [[ "$*" == *bbbbbbbb* ]]; then printf '1\\n'; else printf '0\\n'; fi
-      exit 0
-    fi
-    if [[ "$*" == *range\\ .Mounts* ]]; then
-      last_vol="$(grep -E '^volume create .* fcd-support-operations-mount-proof' "$TASK_TRACE" | tail -n 1 | awk '{print $NF}')"
-      printf 'volume/%s/false\\n' "$last_vol"
-      exit 0
-    fi
-    if [[ "$*" == *fcd-support.operations-mount-proof* ]]; then
-      printf 'fcd-support-operations-mount-proof\\n'
-      exit 0
-    fi
-    if [[ "$*" == *Config.Labels* ]]; then
-      exit 0
-    fi
-    exit 0 ;;
-  volume)
-    case "$2" in
-      ls)
-        if [[ "\${SIMULATE_COLLISION:-0}" == 1 && "$*" == *ro-backups* ]]; then
-          printf 'collision-ro-volume\\n'
-          exit 0
-        fi
-        exit 0 ;;
-      inspect)
-        if [[ "\${SIMULATE_COLLISION:-0}" == 1 && "$*" == *ro-backups* ]]; then
-          printf 'existing\\n'
-          exit 0
-        fi
-        if [[ "$*" == *Name*Driver*Scope* ]]; then
-          if [[ "\${SIMULATE_BAD_METADATA:-0}" == 1 && "$*" == *ro-backups* ]]; then
-            printf 'wrong-scope/driver/none/none\\n'
-            exit 0
-          fi
-          eval "vol=\\$$#"
-          scope="\${vol%-ro-backups}"
-          scope="\${scope%-backups}"
-          scope="\${scope%-postgres}"
-          printf '%s/local/local/%s\\n' "$vol" "$scope"
-          exit 0
-        fi
-        exit 1 ;;
-      create)
-        eval "last=\\$$#"
-        printf '%s\\n' "$last"
-        exit 0 ;;
-      rm)
-        exit 0 ;;
-    esac ;;
-  ps)
-    if [[ "\${SIMULATE_CONSUMER:-0}" == 1 && "$*" == *ro-backups* ]]; then
-      printf 'foreign-container-123\\n'
-      exit 0
-    fi
-    if [[ "\${SIMULATE_CLEANUP_FAILURE:-0}" == 1 && "$*" == *volume=* ]]; then
-      printf 'active-leaked-consumer-999\\n'
-      exit 0
-    fi
-    exit 0 ;;
-  run)
-    if [[ "$*" == *ro-backups* ]]; then
-      printf 'INITIALIZER_RUN:%s\\n' "$*" >> "$TASK_TRACE"
-      exit 0
-    fi
-    exit 0 ;;
-  rm)
-    exit 0 ;;
-  *)
-    exit 0 ;;
-esac
-`;
-}
 
 async function setupBin(bin: string) {
   await mkdir(bin, { recursive: true });
@@ -153,6 +45,8 @@ describe('test-encrypted-backup harness containment', () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('ro_backup_volume_collision');
+    expect(await readFile(trace, 'utf8')).not.toContain('INITIALIZER_CREATE:');
+    expect(await readFile(trace, 'utf8')).not.toContain('INITIALIZER_START');
   });
 
   it('refuses before root writes when ro volume has a foreign consumer', async () => {
@@ -177,6 +71,8 @@ describe('test-encrypted-backup harness containment', () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('ro_backup_volume_foreign_consumer');
+    expect(await readFile(trace, 'utf8')).not.toContain('INITIALIZER_CREATE:');
+    expect(await readFile(trace, 'utf8')).not.toContain('INITIALIZER_START');
   });
 
   it('refuses before root writes when ro initializer container name collision occurs', async () => {
@@ -201,6 +97,8 @@ describe('test-encrypted-backup harness containment', () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('ro_initializer_collision');
+    expect(await readFile(trace, 'utf8')).not.toContain('INITIALIZER_CREATE:');
+    expect(await readFile(trace, 'utf8')).not.toContain('INITIALIZER_START');
   });
 
   it('refuses before root writes when volume has invalid metadata', async () => {
@@ -225,6 +123,8 @@ describe('test-encrypted-backup harness containment', () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('ro_backup_volume_metadata_invalid');
+    expect(await readFile(trace, 'utf8')).not.toContain('INITIALIZER_CREATE:');
+    expect(await readFile(trace, 'utf8')).not.toContain('INITIALIZER_START');
   });
 
   it('verifies that the ro initializer container uses strict containment flags', async () => {
@@ -247,7 +147,7 @@ describe('test-encrypted-backup harness containment', () => {
     });
 
     const log = await readFile(trace, 'utf8');
-    const initializerLine = log.split('\n').find((l) => l.startsWith('INITIALIZER_RUN:'));
+    const initializerLine = log.split('\n').find((l) => l.startsWith('INITIALIZER_CREATE:'));
     expect(initializerLine).toBeDefined();
     expect(initializerLine).toContain('--network none');
     expect(initializerLine).toContain('--read-only');
@@ -282,7 +182,44 @@ describe('test-encrypted-backup harness containment', () => {
       },
     });
 
-    // Gate must exit non-zero when cleanup fails due to leftover consumers
+    // Admission and initialization succeeded; only cleanup now sees a consumer.
+    expect(result.stderr).not.toContain('volume_foreign_consumer');
+    expect(await readFile(trace, 'utf8')).toContain('INITIALIZER_START');
     expect(result.status).toBe(1);
   });
+});
+
+it('failed initializer is removed by its exact ID before owned volume cleanup', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'fcd-backup-harness-failed-'));
+  roots.push(root);
+  const bin = join(root, 'bin');
+  const trace = join(root, 'trace');
+  await setupBin(bin);
+  const result = spawnSync(
+    bash,
+    [
+      '--noprofile',
+      '--norc',
+      resolve('scripts/test-encrypted-backup.sh').replaceAll('\\', '/'),
+      'unit',
+    ],
+    {
+      encoding: 'utf8',
+      timeout: 10000,
+      env: {
+        PATH: bin + delimiter + (process.env.PATH ?? ''),
+        SystemRoot: process.env.SystemRoot,
+        TASK_TRACE: trace.replaceAll('\\', '/'),
+        SIMULATE_INITIALIZER_FAILURE: '1',
+      },
+    },
+  );
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain('ro_initializer_failed');
+  const log = await readFile(trace, 'utf8');
+  expect(log).toContain('INITIALIZER_START');
+  expect(log).toContain(
+    'rm --force --volumes cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+  );
+  expect(log).toMatch(/^volume rm .*ro-backups$/mu);
 });

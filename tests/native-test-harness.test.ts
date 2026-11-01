@@ -1,71 +1,36 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { delimiter, join, resolve } from 'node:path';
 import { expect, test } from 'vitest';
+import { createMockDocker } from './helpers/backup-harness-fixture.js';
 
 test.each(['unit', 'checkpoint', 'invalid-project'])(
   'native harness %s builds its dependencies and keeps test project scope explicit',
   async (mode) => {
     const root = await mkdtemp(join(tmpdir(), 'fcd-native-harness-'));
     try {
+      const bin = join(root, 'bin');
+      await mkdir(bin);
+      await writeFile(join(bin, 'docker'), createMockDocker(), { mode: 0o700 });
+      await writeFile(
+        join(bin, 'git'),
+        '#!/usr/bin/env bash\nprintf aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n',
+        { mode: 0o700 },
+      );
       const result = spawnSync(
         process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash',
         [
           '--noprofile',
           '--norc',
-          '-c',
-          `
-docker() {
-  case "$1/$2" in
-    build/*) printf '%s\\n' "build:$*" >>"$TASK_TRACE"; return 0 ;;
-    compose/*) printf '%s\\n' "compose:$*" >>"$TASK_TRACE"; return 0 ;;
-    volume/create)
-      eval "last=\\$$#"
-      printf '%s\\n' "$last"
-      return 0 ;;
-    volume/inspect)
-      if [[ "$*" == *Name*Driver*Scope* ]]; then
-        eval "vol=\\$$#"
-        scope="\${vol%-ro-backups}"
-        scope="\${scope%-backups}"
-        scope="\${scope%-postgres}"
-        printf '%s/local/local/%s\\n' "$vol" "$scope"
-        return 0
-      fi
-      return 1 ;;
-    volume/ls|volume/rm|ps/*|rm/*) return 0 ;;
-    image/inspect) printf no; return 0 ;;
-    create/*)
-      printf '%s\\n' "create:$*" >>"$TASK_TRACE"
-      if [[ "$*" == *-validator* ]]; then printf '%s' '${'a'.repeat(64)}'; else printf '%s' '${'b'.repeat(64)}'; fi
-      return 0 ;;
-    inspect/*)
-      if [[ "$*" == *ro-initializer* ]]; then return 1; fi
-      if [[ "$*" == *Config.Labels* ]]; then return 0; fi
-      if [[ "$*" == *'{{len .Mounts}}'* ]]; then
-        if [[ "$*" == *'${'a'.repeat(64)}'* ]]; then printf 0; else printf 1; fi
-      else printf 'volume/%s/false' "$volume"; fi
-      return 0 ;;
-    network/inspect)
-      if [[ "$*" == *'.Internal'* ]]; then printf true; return 0; fi
-      if [[ "$*" == *'com.docker.compose.project'* ]]; then printf '%s' "$FCD_SYNTHETIC_TEST_PROJECT"; return 0; fi
-      return 1 ;;
-    run/*) printf '%s\\n' "run:$*" >>"$TASK_TRACE"; return 0 ;;
-    *) return 1 ;;
-  esac
-}
-export -f docker
-git() { printf '%s' '${'a'.repeat(40)}'; }
-export -f git
-bash "$TASK_SCRIPT" "$TASK_MODE"
-`,
+          resolve('scripts/test-encrypted-backup.sh').replaceAll('\\', '/'),
+          mode === 'invalid-project' ? 'unit' : mode,
         ],
         {
           encoding: 'utf8',
           timeout: 20000,
           env: {
-            PATH: process.env.PATH,
+            PATH: bin + delimiter + (process.env.PATH ?? ''),
             SystemRoot: process.env.SystemRoot,
             TASK_MODE: mode === 'invalid-project' ? 'unit' : mode,
             TASK_SCRIPT: resolve('scripts/test-encrypted-backup.sh').replaceAll('\\', '/'),
