@@ -149,7 +149,7 @@ docker volume create --label "fcd-support.backup-test=$SCOPE" "$VOLUME" >/dev/nu
 docker volume create --label "fcd-support.backup-test=$SCOPE" "$RO_VOLUME" >/dev/null
 docker run --rm --label "fcd-support.backup-test=$SCOPE" \
   --mount "type=volume,src=$RO_VOLUME,dst=/var/lib/fcd-support/ro-backups" \
-  --user 1000:1000 \
+  --user 0:0 \
   --entrypoint node \
   "$RUNNER" -e '
     const fs = require("node:fs");
@@ -179,7 +179,13 @@ docker run --rm --label "fcd-support.backup-test=$SCOPE" \
       .digest("hex");
     const manifest = { ...unsigned, signature: hmac };
     fs.writeFileSync(path.join(dir, "manifest.json"), JSON.stringify(manifest) + "\n", { mode: 0o600 });
+    fs.chownSync(path.join(dir, "archive.age"), 1000, 1000);
+    fs.chownSync(path.join(dir, "manifest.json"), 1000, 1000);
+    fs.chmodSync(path.join(dir, "archive.age"), 0o600);
+    fs.chmodSync(path.join(dir, "manifest.json"), 0o600);
+    fs.chownSync(dir, 1000, 1000);
     fs.chmodSync(dir, 0o700);
+    fs.chownSync(roRoot, 1000, 1000);
     fs.chmodSync(roRoot, 0o700);
   ' >/dev/null
 if [[ "$MODE" == restore ]]; then

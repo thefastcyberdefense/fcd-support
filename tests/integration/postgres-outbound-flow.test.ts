@@ -72,6 +72,27 @@ beforeAll(async () => {
   dispose = database.dispose;
 });
 
+async function seedAdministrator(targetPool: pg.Pool = pool): Promise<void> {
+  const account = await targetPool.query<{ readonly id: string }>(
+    `insert into admin_accounts
+       (account_ref, login_name, password_algorithm, password_cost,
+        password_block_size, password_parallelization, password_key_length,
+        password_salt, password_hash, state, created_at, updated_at,
+        password_changed_at)
+     values ($1, 'synthetic.outbound.flow', 'scrypt_v1', 16384,
+             8, 1, 32, $2, $3, 'active', $4, $4, $4)
+     returning id`,
+    [administrator.reviewerRef, Buffer.alloc(16, 0x79), Buffer.alloc(32, 0x7a), baseAt],
+  );
+  await targetPool.query(
+    `insert into admin_role_assignments
+       (account_id, role, action, actor_account_id, effective_at, request_key)
+     values ($1, 'administrator', 'assign', $1, $2,
+             'REQUEST_TEST_outbound_flow_admin_role')`,
+    [account.rows[0]?.id, baseAt],
+  );
+}
+
 beforeEach(async () => {
   await pool.query(`
     truncate table
@@ -83,24 +104,7 @@ beforeEach(async () => {
       outbound_policy_versions, knowledge_sources, knowledge_items, admin_accounts
     restart identity cascade
   `);
-  const account = await pool.query<{ readonly id: string }>(
-    `insert into admin_accounts
-       (account_ref, login_name, password_algorithm, password_cost,
-        password_block_size, password_parallelization, password_key_length,
-        password_salt, password_hash, state, created_at, updated_at,
-        password_changed_at)
-     values ($1, 'synthetic.outbound.flow', 'scrypt_v1', 16384,
-             8, 1, 32, $2, $3, 'active', $4, $4, $4)
-     returning id`,
-    [administrator.reviewerRef, Buffer.alloc(16, 0x79), Buffer.alloc(32, 0x7a), baseAt],
-  );
-  await pool.query(
-    `insert into admin_role_assignments
-       (account_id, role, action, actor_account_id, effective_at, request_key)
-     values ($1, 'administrator', 'assign', $1, $2,
-             'REQUEST_TEST_outbound_flow_admin_role')`,
-    [account.rows[0]?.id, baseAt],
-  );
+  await seedAdministrator(pool);
 });
 
 afterAll(async () => {
@@ -950,6 +954,7 @@ describe('PostgreSQL outbound worker flow', () => {
     const controlDb = await createIsolatedTestDatabase('outbound_unfenced_control');
     let controlFixtureRef: string | undefined;
     try {
+      await seedAdministrator(controlDb.pool);
       await seedPolicy(generous, controlDb.pool);
       // Unfenced: recovery hold is false
       expect(
