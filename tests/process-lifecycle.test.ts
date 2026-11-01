@@ -189,7 +189,7 @@ it.skipIf(process.platform === 'win32')(
   'reaps an owned descendant retaining stdio after its parent exits',
   async () => {
     const code = `const {spawn}=require('node:child_process');
-    spawn(process.execPath,['-e','process.on("SIGTERM",()=>{});process.stdout.write("DESCENDANT_READY\\n");setInterval(()=>{},1000)'],{stdio:['ignore','inherit','inherit']});
+    spawn(process.execPath,['-e','process.on("SIGTERM",()=>{});process.stdout.write("DESCENDANT_READY"+String.fromCharCode(10));setInterval(()=>{},1000)'],{stdio:['ignore','inherit','inherit']});
     process.on('SIGTERM',()=>process.exit(0));setInterval(()=>{},1000);`;
     const child = spawn(process.execPath, ['-e', code], {
       detached: true,

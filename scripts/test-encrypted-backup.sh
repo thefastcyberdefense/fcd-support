@@ -71,6 +71,7 @@ fi
 if [[ "$MODE" == state ]]; then
   UNIT_FILES=(tests/operations-job-state.test.ts tests/operations-job-lifecycle.test.ts tests/operations-scripts.test.ts tests/operations-bootstrap-script.test.ts tests/operations-deployment-state.test.ts tests/operations-drain-script.test.ts tests/operations-adoption-script.test.ts tests/operations-postgres-converge.test.ts tests/operations-compose-environment.test.ts tests/operations-startup-script.test.ts tests/operations-containment.test.ts tests/operations-orphan-containment.test.ts tests/operations-initial-intent.test.ts tests/operations-first-boot.test.ts tests/systemd-contract.test.ts tests/operations-scheduled-job.test.ts)
   INTEGRATION_FILES=()
+  UNIT_FILES+=(tests/process-lifecycle.test.ts)
   # Focused native filesystem iteration, restricted to the fixed state suite.
   UNIT_FILES+=(tests/operations-health-host.test.ts)
   UNIT_FILES+=(tests/operations-restore-state.test.ts)
