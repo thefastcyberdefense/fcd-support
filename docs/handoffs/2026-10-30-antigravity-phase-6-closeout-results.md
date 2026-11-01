@@ -126,7 +126,7 @@ Overlapping counts across different suites must not be summed as independent cov
     - Full PG: 621 passed / 52 lane skips, 56 files (140.63s).
   - `Private runtime controller`: Run [`41280784100`](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41280784100) passed in 19m37s.
 
-- **Final Head Workflow Runs (Commit `fd60612401f808796855146c2d1b8e40f8078044`):**
+- **Final Head Workflow Runs (Commit `fd60612ad1736e20b10650e06ca7a78ca80f83a7`):**
   - `ci`: Run [`41293350626`](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41293350626) passed in 3m59s (`validate` in 3m59s: static validation, build, dependency audit, unit tests with pinned UID and memory-backed scratch, Docker metadata projections, hermetic operator-helpers).
   - `CodeQL Advanced`: Run [`41293350632`](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41293350632) passed in 1m0s (`Analyze (actions)` in 38s, `Analyze (javascript-typescript)` in 1m0s).
   - `PostgreSQL and native operations`: Run [`41293350623`](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41293350623) passed in 11m37s (`postgres` in 2m59s, `native-operations` in 11m37s: grants, two-cluster restore, promotion, synthetic cleanup).

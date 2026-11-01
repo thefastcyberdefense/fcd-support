@@ -2,21 +2,31 @@
 
 Last reviewed: 2026-11-01 (Asia/Dhaka)
 
-**Task 15 delivery is under review, not complete.** AGY PR #3 corrected head
-`b3831b07024e5c7b7e6fde121062fce07bf2a256` passes all four exact-head workflows.
-Real kernel-EROFS, owning scheduler/preflight and catalog, and seeded older-
-snapshot/same-provider coverage are present. The restored fixture's hold stays
-active; its eligible control uses a separate unfenced database fixture.
-Independent review still found unbounded child waits/failed-spawn cleanup, an
-uncontained/unverified root initializer, and false evidence citations/claims.
-Full Windows check exited 1: 1,921 passed / 435 platform skips / two 5,000 ms
-timeouts in 278.79 s. Both exact assertions then passed without edits using
-one worker (two passed / 51 selection skips, 4.32 s); this does not make the
-full gate pass. Python suites and forced evidence formatting pass. No server
-action ran. Keep PR #3 draft and Phase 6 open. Review:
-`docs/reviews/2026-11-01-pr-3-correction-review.md`. AGY can start
-`docs/handoffs/2026-11-01-antigravity-task-15-harness-closeout.md` now under
-existing approval. No recovery policy change or Phase 7 work is assigned.
+**PR #3 is accepted and merged; Task 15's final evidence pack remains.**
+Squash merge `df8e52dbe59e0013ab28a5790b21c9785324b2f0` has the identical
+tracked tree to validated `78013148751a493a6f8859bc6d3ee9628cb954d6`.
+Final Windows full check passed 1,952 tests / 438 platform skips across 131
+files in 259.95 s, including build. All four exact correction-source workflows
+pass: Linux units 2,020 / 370 skips; native 1,298; full PostgreSQL 621 / 52
+skips; grants 139 / one restore-only skip; restore units 252; two-cluster 47.
+Lanes overlap and are not summed. Both disposable private-runtime modes pass.
+
+Codex repaired the remaining false-success child/Docker cleanup paths with
+genuine regressions. Reaping confirms closure and handles owned Unix groups;
+Docker cleanup verifies inventories and exact initializer ID/image/mount.
+Local Desktop scheduler and lifecycle suites passed 68 and 13 tests; backup-
+test actor/volume/network audit counts are zero. Independent final review has
+no Important/Critical findings. Failed intermediate runs remain documented in
+`docs/reviews/2026-11-01-pr-3-integration.md` and the correction reviews.
+
+The src/infra/package runtime tree still equals deployed application `67a4a4b`;
+only test harnesses, tests, CI and evidence changed. No SSH, server, provider,
+Meta, tunnel or production action ran. This is no fresh server-readiness claim.
+Task 11 remains complete; P6-004/005/006 and P6-GATE remain open for the original
+Task 15 documentation consolidation and independent review, then Task 16.
+AGY can start `docs/handoffs/2026-11-01-antigravity-phase-6-evidence-pack.md`
+under existing approval on a fresh branch from main. No recovery-policy or
+Phase 7 implementation work is assigned.
 
 **Task 11 is COMPLETE for implementation and its bounded historical server drill.**
 Exact application `67a4a4bede6d3252dc936a6e410f4b90c1359ac3` passed all four
@@ -50,8 +60,8 @@ infrastructure, tunnel, production or other-project change ran. See
 `docs/reviews/2026-10-31-phase-6-task-11-closeout.md` for scope and limitations.
 
 P6-004/005/006 remain IN PROGRESS because they include Task 15; P6-GATE remains
-BLOCKED. AGY's approved local failure-matrix work is now unblocked. Current
-handoff: `docs/handoffs/2026-11-01-antigravity-task-15-harness-closeout.md`, with
+BLOCKED. AGY's approved documentation closeout is now unblocked. Current
+handoff: `docs/handoffs/2026-11-01-antigravity-phase-6-evidence-pack.md`, with
 its linked plan. Codex owns server recovery, trackers, integration and independent
 whole-phase review. No live provider, Meta, tunnel or production change ran.
 
