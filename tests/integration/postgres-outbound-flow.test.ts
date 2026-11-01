@@ -21,6 +21,7 @@ import { PostgresOutboundPolicy } from '../../src/persistence/postgres-outbound-
 import { PostgresOutboundTemplate } from '../../src/persistence/postgres-outbound-template.js';
 import { PostgresOutboundWorkStore } from '../../src/persistence/postgres-outbound-work-store.js';
 import { insertSyntheticAppliedCustomerEvent, syntheticPrivacyKeyring } from './policy-fixtures.js';
+import { PostgresRestoreFence } from '../../src/persistence/postgres-restore-fence.js';
 import { createIsolatedTestDatabase } from './test-database.js';
 import { createOutboundRuntime } from '../../src/operations/outbound-runtime.js';
 import { noopSafeLogger } from '../../src/logging.js';
@@ -71,6 +72,27 @@ beforeAll(async () => {
   dispose = database.dispose;
 });
 
+async function seedAdministrator(targetPool: pg.Pool = pool): Promise<void> {
+  const account = await targetPool.query<{ readonly id: string }>(
+    `insert into admin_accounts
+       (account_ref, login_name, password_algorithm, password_cost,
+        password_block_size, password_parallelization, password_key_length,
+        password_salt, password_hash, state, created_at, updated_at,
+        password_changed_at)
+     values ($1, 'synthetic.outbound.flow', 'scrypt_v1', 16384,
+             8, 1, 32, $2, $3, 'active', $4, $4, $4)
+     returning id`,
+    [administrator.reviewerRef, Buffer.alloc(16, 0x79), Buffer.alloc(32, 0x7a), baseAt],
+  );
+  await targetPool.query(
+    `insert into admin_role_assignments
+       (account_id, role, action, actor_account_id, effective_at, request_key)
+     values ($1, 'administrator', 'assign', $1, $2,
+             'REQUEST_TEST_outbound_flow_admin_role')`,
+    [account.rows[0]?.id, baseAt],
+  );
+}
+
 beforeEach(async () => {
   await pool.query(`
     truncate table
@@ -82,32 +104,18 @@ beforeEach(async () => {
       outbound_policy_versions, knowledge_sources, knowledge_items, admin_accounts
     restart identity cascade
   `);
-  const account = await pool.query<{ readonly id: string }>(
-    `insert into admin_accounts
-       (account_ref, login_name, password_algorithm, password_cost,
-        password_block_size, password_parallelization, password_key_length,
-        password_salt, password_hash, state, created_at, updated_at,
-        password_changed_at)
-     values ($1, 'synthetic.outbound.flow', 'scrypt_v1', 16384,
-             8, 1, 32, $2, $3, 'active', $4, $4, $4)
-     returning id`,
-    [administrator.reviewerRef, Buffer.alloc(16, 0x79), Buffer.alloc(32, 0x7a), baseAt],
-  );
-  await pool.query(
-    `insert into admin_role_assignments
-       (account_id, role, action, actor_account_id, effective_at, request_key)
-     values ($1, 'administrator', 'assign', $1, $2,
-             'REQUEST_TEST_outbound_flow_admin_role')`,
-    [account.rows[0]?.id, baseAt],
-  );
+  await seedAdministrator(pool);
 });
 
 afterAll(async () => {
   await dispose?.();
 });
 
-async function seedPolicy(values: OutboundPolicyValues = generous): Promise<void> {
-  const policies = new PostgresOutboundPolicy(pool);
+async function seedPolicy(
+  values: OutboundPolicyValues = generous,
+  targetPool: pg.Pool = pool,
+): Promise<void> {
+  const policies = new PostgresOutboundPolicy(targetPool);
   await policies.createVersion(
     {
       createdAt: new Date(baseAt.getTime() + 1000),
@@ -140,6 +148,7 @@ async function seedIntent(
     readonly decisionType?: 'faq' | 'model' | 'safe_failure';
     readonly evaluatedAt?: Date;
   } = {},
+  targetPool: pg.Pool = pool,
 ): Promise<FlowFixture> {
   const evaluatedAt = options.evaluatedAt ?? workAt;
   const channel = options.channel ?? 'whatsapp';
@@ -149,7 +158,7 @@ async function seedIntent(
       channel === 'whatsapp' ? 'PHONE_TEST_outbound_flow' : 'PAGE_TEST_outbound_flow',
     externalContactId: `CONTACT_TEST_outbound_flow_${key}`,
   } as const;
-  const source = await insertSyntheticAppliedCustomerEvent(pool, {
+  const source = await insertSyntheticAppliedCustomerEvent(targetPool, {
     fixtureKey: `outbound_flow_${key}`,
     identity,
     messageText: 'Synthetic customer source excluded from outbound flow evidence.',
@@ -158,7 +167,7 @@ async function seedIntent(
   const knowledgeVersionId =
     options.decisionType === 'faq' ? await seedPublishedFaqVersion(key) : null;
   const draftRef = `DRAFT_TEST_outbound_flow_${key}`;
-  await pool.query(
+  await targetPool.query(
     `insert into support_reply_drafts
        (draft_ref, source_webhook_event_id, conversation_id, decision_type,
         language, answer_text, knowledge_version_id, state, retention_deadline,
@@ -177,7 +186,7 @@ async function seedIntent(
     ],
   );
   const created = await new PostgresOutboundIntentStore(
-    pool,
+    targetPool,
     syntheticPrivacyKeyring,
     generous,
   ).createSupportIntent({
@@ -187,7 +196,7 @@ async function seedIntent(
   });
   if (created.status !== 'created')
     throw new Error('Synthetic outbound flow intent was not created');
-  const authority = await pool.query<{ readonly contact_id: string }>(
+  const authority = await targetPool.query<{ readonly contact_id: string }>(
     `select identity.contact_id
      from outbound_intents as intent
      join channel_identities as identity on identity.id = intent.channel_identity_id
@@ -833,5 +842,190 @@ describe('PostgreSQL outbound worker flow', () => {
         [fixture.intentRef],
       ),
     ).resolves.toMatchObject({ rows: [{ attempts: 0, terminal_reason: 'template_required' }] });
+  });
+
+  test('restored outbox with quarantine fence makes zero provider sends across repeated worker runs with eligible send-once control', async () => {
+    await seedPolicy();
+
+    // 1. Snapshot state and synthetic provider ledger:
+    // Intent 1: Accepted prior to snapshot
+    const acceptedFixture = await seedIntent('prior_accepted');
+    const fakeAccepted = providerFrom([accepted('prior_accepted')]);
+    await worker(fakeAccepted.provider).runBatch({
+      evaluatedAt: workAt,
+      workerRef: 'WORKER_TEST_initial',
+    });
+    expect(fakeAccepted.contexts).toHaveLength(1);
+
+    // Intent 2: In the older snapshot, intent was pending.
+    // Provider acceptance ledger is ahead of PostgreSQL: provider recorded acceptance after snapshot was captured.
+    const snapshotTime = new Date(workAt.getTime() + 1000);
+    const divergentFixture = await seedIntent('snapshot_divergent', {
+      evaluatedAt: snapshotTime,
+    });
+
+    const providerAcceptedLedger = new Set<string>();
+    providerAcceptedLedger.add(acceptedFixture.intentRef);
+    // Explicit provider acceptance ahead of PostgreSQL snapshot:
+    providerAcceptedLedger.add(divergentFixture.intentRef);
+
+    // Establish divergence through assertions before quarantine fence
+    const snapshotPendingRow = (
+      await pool.query<{ state: string }>(
+        'select state from outbound_intents where intent_ref = $1',
+        [divergentFixture.intentRef],
+      )
+    ).rows[0];
+    expect(snapshotPendingRow?.state).toBe('pending');
+    expect(providerAcceptedLedger.has(divergentFixture.intentRef)).toBe(true);
+
+    // 2. Perform restore quarantine fence
+    const restoreRef = 'RESTORE_TEST_outbox_divergent_snapshot';
+    const restoreAt = new Date(workAt.getTime() + 5000);
+    const fenceResult = await new PostgresRestoreFence(pool).quarantine({
+      restoreRef,
+      evaluatedAt: restoreAt,
+    });
+    expect(fenceResult.quarantined).toBeGreaterThanOrEqual(1);
+
+    // Verify recovery hold is active in PostgreSQL
+    expect(
+      (await pool.query<{ held: boolean }>('select runtime_recovery_held() as held')).rows[0]?.held,
+    ).toBe(true);
+
+    // 3. Single synthetic provider instance with captured send count throughout
+    let providerSendCalls = 0;
+    const sentIntentRefs: string[] = [];
+    const sharedProvider: OutboundWorkerProvider = {
+      send: vi.fn(({ request }) => {
+        providerSendCalls++;
+        const parsed = readPreparedOutboundRequest(request);
+        if (!parsed) throw new Error('Unparseable outbound request');
+        sentIntentRefs.push(parsed.intentRef);
+        providerAcceptedLedger.add(parsed.intentRef);
+        return Promise.resolve({
+          providerMessageId: `META_MESSAGE_TEST_shared_${parsed.intentRef}`,
+          status: 'accepted' as const,
+        });
+      }),
+    };
+    const restoredWorker = worker(sharedProvider);
+
+    // 4. Repeated worker activations on restored fixture send zero times; hold remains active
+    const batch1 = await restoredWorker.runBatch({
+      evaluatedAt: new Date(restoreAt.getTime() + 1000),
+      workerRef: 'WORKER_TEST_restored_1',
+    });
+    expect(batch1).toMatchObject({ accepted: 0, claimed: 0 });
+    expect(providerSendCalls).toBe(0);
+    expect(sentIntentRefs).toHaveLength(0);
+
+    const batch2 = await restoredWorker.runBatch({
+      evaluatedAt: new Date(restoreAt.getTime() + 2000),
+      workerRef: 'WORKER_TEST_restored_2',
+    });
+    expect(batch2).toMatchObject({ accepted: 0, claimed: 0 });
+    expect(providerSendCalls).toBe(0);
+    expect(sentIntentRefs).toHaveLength(0);
+
+    // The hold remains active in the restored fixture
+    expect(
+      (await pool.query<{ held: boolean }>('select runtime_recovery_held() as held')).rows[0]?.held,
+    ).toBe(true);
+
+    // Verify exact persisted states in restored PostgreSQL
+    const acceptedRow = (
+      await pool.query<{ state: string; terminal_reason: string | null }>(
+        'select state, terminal_reason from outbound_intents where intent_ref = $1',
+        [acceptedFixture.intentRef],
+      )
+    ).rows[0];
+    expect(acceptedRow).toEqual({ state: 'provider_accepted', terminal_reason: null });
+
+    const divergentRow = (
+      await pool.query<{ state: string; terminal_reason: string | null }>(
+        'select state, terminal_reason from outbound_intents where intent_ref = $1',
+        [divergentFixture.intentRef],
+      )
+    ).rows[0];
+    expect(divergentRow).toEqual({ state: 'canceled', terminal_reason: 'restore_quarantined' });
+
+    // 5. Eligible control: Separate unfenced synthetic PostgreSQL database fixture using the SAME provider instance
+    const controlDb = await createIsolatedTestDatabase('outbound_unfenced_control');
+    let controlFixtureRef: string | undefined;
+    try {
+      await seedAdministrator(controlDb.pool);
+      await seedPolicy(generous, controlDb.pool);
+      // Unfenced: recovery hold is false
+      expect(
+        (await controlDb.pool.query<{ held: boolean }>('select runtime_recovery_held() as held'))
+          .rows[0]?.held,
+      ).toBe(false);
+
+      const controlFixture = await seedIntent(
+        'unfenced_control',
+        { evaluatedAt: new Date(restoreAt.getTime() + 3000) },
+        controlDb.pool,
+      );
+      controlFixtureRef = controlFixture.intentRef;
+
+      const controlWorker = worker(
+        sharedProvider,
+        new PostgresOutboundWorkStore(controlDb.pool, syntheticPrivacyKeyring, generous),
+      );
+
+      // Runs through same provider: sends exactly once
+      const controlBatch1 = await controlWorker.runBatch({
+        evaluatedAt: new Date(restoreAt.getTime() + 3000),
+        workerRef: 'WORKER_TEST_control_1',
+      });
+      expect(controlBatch1).toMatchObject({ accepted: 1, claimed: 1 });
+      expect(providerSendCalls).toBe(1);
+      expect(sentIntentRefs).toEqual([controlFixtureRef]);
+
+      const controlRow = (
+        await controlDb.pool.query<{ state: string; terminal_reason: string | null }>(
+          'select state, terminal_reason from outbound_intents where intent_ref = $1',
+          [controlFixtureRef],
+        )
+      ).rows[0];
+      expect(controlRow).toEqual({ state: 'provider_accepted', terminal_reason: null });
+
+      // Repeated control run sends zero additional times
+      const controlBatch2 = await controlWorker.runBatch({
+        evaluatedAt: new Date(restoreAt.getTime() + 4000),
+        workerRef: 'WORKER_TEST_control_2',
+      });
+      expect(controlBatch2).toMatchObject({ accepted: 0, claimed: 0 });
+      expect(providerSendCalls).toBe(1);
+    } finally {
+      await controlDb.dispose();
+    }
+
+    // 6. Re-run restored worker after the control run: zero added sends, unchanged inherited states, hold unchanged
+    const postControlBatch = await restoredWorker.runBatch({
+      evaluatedAt: new Date(restoreAt.getTime() + 5000),
+      workerRef: 'WORKER_TEST_restored_post_control',
+    });
+    expect(postControlBatch).toMatchObject({ accepted: 0, claimed: 0 });
+    // Zero added sends! Provider send calls remains strictly 1 from the control run
+    expect(providerSendCalls).toBe(1);
+    expect(sentIntentRefs).toEqual([controlFixtureRef]);
+
+    // Restored fixture's recovery hold remains active and unchanged; never lifted
+    expect(
+      (await pool.query<{ held: boolean }>('select runtime_recovery_held() as held')).rows[0]?.held,
+    ).toBe(true);
+
+    const divergentStillQuarantined = (
+      await pool.query<{ state: string; terminal_reason: string | null }>(
+        'select state, terminal_reason from outbound_intents where intent_ref = $1',
+        [divergentFixture.intentRef],
+      )
+    ).rows[0];
+    expect(divergentStillQuarantined).toEqual({
+      state: 'canceled',
+      terminal_reason: 'restore_quarantined',
+    });
   });
 });

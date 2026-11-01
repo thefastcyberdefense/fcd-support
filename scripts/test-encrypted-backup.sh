@@ -71,6 +71,7 @@ fi
 if [[ "$MODE" == state ]]; then
   UNIT_FILES=(tests/operations-job-state.test.ts tests/operations-job-lifecycle.test.ts tests/operations-scripts.test.ts tests/operations-bootstrap-script.test.ts tests/operations-deployment-state.test.ts tests/operations-drain-script.test.ts tests/operations-adoption-script.test.ts tests/operations-postgres-converge.test.ts tests/operations-compose-environment.test.ts tests/operations-startup-script.test.ts tests/operations-containment.test.ts tests/operations-orphan-containment.test.ts tests/operations-initial-intent.test.ts tests/operations-first-boot.test.ts tests/systemd-contract.test.ts tests/operations-scheduled-job.test.ts)
   INTEGRATION_FILES=()
+  UNIT_FILES+=(tests/process-lifecycle.test.ts)
   # Focused native filesystem iteration, restricted to the fixed state suite.
   UNIT_FILES+=(tests/operations-health-host.test.ts)
   UNIT_FILES+=(tests/operations-restore-state.test.ts)
@@ -100,30 +101,60 @@ OPS="$SCOPE-operations:$REVISION"
 APP="$SCOPE-application:$REVISION"
 RUNNER="$SCOPE-runner:$REVISION"
 VOLUME="$SCOPE-backups"
+RO_VOLUME="$SCOPE-ro-backups"
+RO_INITIALIZER="$SCOPE-ro-initializer"
+RO_INITIALIZER_ID=''; RO_INITIALIZER_IMAGE=''
+CREATED_VOLUMES=()
 RESTORE_NETWORK="$SCOPE-restore"
 RESTORE_VOLUME="$SCOPE-postgres"
 cleanup() {
-  for container in "$SCOPE-unit" "$SCOPE-integration" "$SCOPE-postgres"; do
-    if [[ "$(docker inspect --format '{{index .Config.Labels "fcd-support.backup-test"}}' "$container" 2>/dev/null || true)" == "$SCOPE" ]]; then
-      docker rm --force --volumes "$container" >/dev/null 2>&1 || true
+  local cleanup_status=0 containers volumes networks images container info id users vol observed image
+  # Successful inventories establish absence. Failed inspection never does.
+  containers="$(docker ps --all --format '{{.Names}}' 2>/dev/null)" || return 1
+  volumes="$(docker volume ls --quiet 2>/dev/null)" || return 1
+  networks="$(docker network ls --format '{{.Name}}' 2>/dev/null)" || return 1
+  images="$(docker image ls --format '{{.Repository}}:{{.Tag}}' 2>/dev/null)" || return 1
+  for container in "$SCOPE-unit" "$SCOPE-integration" "$SCOPE-postgres" "$RO_INITIALIZER"; do
+    [[ $'\n'"$containers"$'\n' == *$'\n'"$container"$'\n'* ]] || continue
+    if [[ "$container" == "$RO_INITIALIZER" ]]; then
+      [[ "${RO_INITIALIZER_ID:-}" =~ ^[a-f0-9]{64}$ && "${RO_INITIALIZER_IMAGE:-}" =~ ^sha256:[a-f0-9]{64}$ ]] || { cleanup_status=1; continue; }
+      info="$(docker inspect --format '{{.Id}}/{{.Name}}/{{.Image}}/{{index .Config.Labels "fcd-support.backup-test"}}/{{.HostConfig.NetworkMode}}/{{.HostConfig.ReadonlyRootfs}}/{{len .Mounts}}/{{range .Mounts}}{{.Type}}/{{.Name}}/{{.Destination}}/{{.RW}}{{end}}' "$container" 2>/dev/null)" || { cleanup_status=1; continue; }
+      [[ "$info" == "$RO_INITIALIZER_ID//$RO_INITIALIZER/$RO_INITIALIZER_IMAGE/$SCOPE/none/true/1/volume/$RO_VOLUME//var/lib/fcd-support/ro-backups/true" ]] || { cleanup_status=1; continue; }
+      id="$RO_INITIALIZER_ID"
+    else
+      info="$(docker inspect --format '{{.Id}}/{{index .Config.Labels "fcd-support.backup-test"}}' "$container" 2>/dev/null)" || { cleanup_status=1; continue; }
+      id="${info%%/*}"
+      [[ "$id" =~ ^[a-f0-9]{64}$ && "$info" == "$id/$SCOPE" ]] || { cleanup_status=1; continue; }
     fi
+    docker rm --force --volumes "$id" >/dev/null 2>&1 || { cleanup_status=1; continue; }
+    observed="$(docker ps --all --quiet --no-trunc --filter "id=$id" 2>/dev/null)" || { cleanup_status=1; continue; }
+    [[ -z "$observed" ]] || cleanup_status=1
   done
-  if [[ "$(docker volume inspect --format '{{index .Labels "fcd-support.backup-test"}}' "$VOLUME" 2>/dev/null || true)" == "$SCOPE" ]]; then
-    docker volume rm "$VOLUME" >/dev/null 2>&1 || true
-  fi
-  if [[ "$(docker volume inspect --format '{{index .Labels "fcd-support.backup-test"}}' "$RESTORE_VOLUME" 2>/dev/null || true)" == "$SCOPE" ]]; then
-    docker volume rm "$RESTORE_VOLUME" >/dev/null 2>&1 || true
-  fi
-  if [[ "$(docker network inspect --format '{{index .Labels "fcd-support.backup-test"}}' "$RESTORE_NETWORK" 2>/dev/null || true)" == "$SCOPE" ]]; then
-    docker network rm "$RESTORE_NETWORK" >/dev/null 2>&1 || true
+  (( cleanup_status == 0 )) || return 1
+  for vol in "${CREATED_VOLUMES[@]}"; do
+    [[ $'\n'"$volumes"$'\n' == *$'\n'"$vol"$'\n'* ]] || continue
+    info="$(docker volume inspect --format '{{.Name}}/{{.Driver}}/{{.Scope}}/{{if .Options}}custom{{else}}default{{end}}/{{index .Labels "fcd-support.backup-test"}}' "$vol" 2>/dev/null)" || { cleanup_status=1; continue; }
+    [[ "$info" == "$vol/local/local/default/$SCOPE" ]] || { cleanup_status=1; continue; }
+    users="$(docker ps --all --quiet --filter "volume=$vol" 2>/dev/null)" || { cleanup_status=1; continue; }
+    [[ -z "$users" ]] || { cleanup_status=1; continue; }
+    docker volume rm "$vol" >/dev/null 2>&1 || { cleanup_status=1; continue; }
+    observed="$(docker volume ls --quiet --filter "name=^$vol$" 2>/dev/null)" || { cleanup_status=1; continue; }
+    [[ -z "$observed" ]] || cleanup_status=1
+  done
+  if [[ $'\n'"$networks"$'\n' == *$'\n'"$RESTORE_NETWORK"$'\n'* ]]; then
+    info="$(docker network inspect --format '{{index .Labels "fcd-support.backup-test"}}' "$RESTORE_NETWORK" 2>/dev/null)" || return 1
+    [[ "$info" == "$SCOPE" ]] || return 1
+    docker network rm "$RESTORE_NETWORK" >/dev/null 2>&1 || cleanup_status=1
   fi
   for image in "$RUNNER" "$OPS" "$APP"; do
-    if [[ "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image" 2>/dev/null || true)" == "$REVISION" ]]; then
-      docker image rm "$image" >/dev/null 2>&1 || true
-    fi
+    [[ $'\n'"$images"$'\n' == *$'\n'"$image"$'\n'* ]] || continue
+    info="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image" 2>/dev/null)" || { cleanup_status=1; continue; }
+    [[ "$info" == "$REVISION" ]] || { cleanup_status=1; continue; }
+    docker image rm "$image" >/dev/null 2>&1 || cleanup_status=1
   done
+  return "$cleanup_status"
 }
-trap cleanup EXIT
+trap 'result=$?; cleanup || result=1; exit "$result"' EXIT
 if [[ "$MODE" != state && "$MODE" != unit ]]; then
 docker compose --file "$NATIVE_ROOT/infra/compose.test.yml" --project-name "$TEST_PROJECT" up --detach --wait postgres >/dev/null
 # This is the repository's isolated trust-auth synthetic DB, never a server network.
@@ -141,10 +172,76 @@ if [[ "$MODE" == grants ]]; then bash "$ROOT/scripts/test-restore-subnet-docker.
 if [[ "$MODE" == restore ]]; then bash "$ROOT/scripts/test-restore-alias-docker.sh" "$OPS"; fi
 docker build --platform linux/amd64 --file "$NATIVE_ROOT/infra/Dockerfile.integration" --tag fcd-support-integration-test:local "$NATIVE_ROOT" >/dev/null 2>&1 || { echo backup_dependencies_build_failed >&2; exit 1; }
 docker build --platform linux/amd64 --build-arg "OPERATIONS_IMAGE=$OPS" --file "$NATIVE_ROOT/infra/Dockerfile.backup-test" --tag "$RUNNER" "$NATIVE_ROOT" >/dev/null 2>&1 || { echo backup_runner_build_failed >&2; exit 1; }
-docker volume create --label "fcd-support.backup-test=$SCOPE" "$VOLUME" >/dev/null
+# Backup fixture admission.
+for vol in "$VOLUME" "$RO_VOLUME"; do
+  prefix=backup; [[ "$vol" != "$RO_VOLUME" ]] || prefix=ro_backup
+  observed="$(docker volume ls --quiet --filter "name=^$vol$" 2>/dev/null)" || { echo "${prefix}_volume_inventory_failed" >&2; exit 1; }
+  [[ -z "$observed" ]] || { echo "${prefix}_volume_collision" >&2; exit 1; }
+  created="$(docker volume create --label "fcd-support.backup-test=$SCOPE" "$vol")" || { echo "${prefix}_volume_create_failed" >&2; exit 1; }
+  [[ "$created" == "$vol" ]] || { echo "${prefix}_volume_create_failed" >&2; exit 1; }
+  CREATED_VOLUMES+=("$vol")
+  observed="$(docker volume inspect --format '{{.Name}}/{{.Driver}}/{{.Scope}}/{{if .Options}}custom{{else}}default{{end}}/{{index .Labels "fcd-support.backup-test"}}' "$vol" 2>/dev/null)" || { echo "${prefix}_volume_inspect_failed" >&2; exit 1; }
+  [[ "$observed" == "$vol/local/local/default/$SCOPE" ]] || { echo "${prefix}_volume_metadata_invalid" >&2; exit 1; }
+  users="$(docker ps --all --quiet --filter "volume=$vol" 2>/dev/null)" || { echo "${prefix}_volume_inspect_failed" >&2; exit 1; }
+  [[ -z "$users" ]] || { echo "${prefix}_volume_foreign_consumer" >&2; exit 1; }
+done
+observed="$(docker ps --all --format '{{.Names}}' --filter "name=^/$RO_INITIALIZER$" 2>/dev/null)" || { echo ro_initializer_inventory_failed >&2; exit 1; }
+[[ -z "$observed" ]] || { echo ro_initializer_collision >&2; exit 1; }
+RO_INITIALIZER_IMAGE="$(docker image inspect --format '{{.Id}}' "$RUNNER" 2>/dev/null)" || { echo ro_initializer_image_invalid >&2; exit 1; }
+[[ "$RO_INITIALIZER_IMAGE" =~ ^sha256:[a-f0-9]{64}$ ]] || { echo ro_initializer_image_invalid >&2; exit 1; }
+created_initializer="$(docker create --name "$RO_INITIALIZER" \
+  --network none --read-only --user 0:0 \
+  --cap-drop ALL --cap-add CHOWN --cap-add FOWNER --cap-add DAC_OVERRIDE \
+  --security-opt no-new-privileges --cpus 0.25 --memory 128m --pids-limit 32 \
+  --label "fcd-support.backup-test=$SCOPE" \
+  --mount "type=volume,src=$RO_VOLUME,dst=/var/lib/fcd-support/ro-backups" \
+  --entrypoint node \
+  "$RO_INITIALIZER_IMAGE" -e '
+    const fs = require("node:fs");
+    const path = require("node:path");
+    const crypto = require("node:crypto");
+    const roRoot = "/var/lib/fcd-support/ro-backups";
+    const backupRef = "backup_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const dir = path.join(roRoot, backupRef);
+    fs.mkdirSync(dir, { mode: 0o700, recursive: true });
+    const dump = Buffer.from("synthetic_dump");
+    fs.writeFileSync(path.join(dir, "archive.age"), dump, { mode: 0o600 });
+    const ciphertextSha256 = crypto.createHash("sha256").update(dump).digest("hex");
+    const unsigned = {
+      backupRef,
+      createdAt: "2030-01-01T00:00:00.000Z",
+      class: "daily",
+      gitRevision: "a".repeat(40),
+      schemaRevision: "000014",
+      ciphertextBytes: dump.length,
+      ciphertextSha256,
+      state: "created"
+    };
+    const key = Buffer.from("synthetic_manifest_hmac_".repeat(3));
+    const hmac = crypto.createHmac("sha256", key)
+      .update("fcd-support:backup:v1\n")
+      .update(JSON.stringify(unsigned))
+      .digest("hex");
+    const manifest = { ...unsigned, signature: hmac };
+    fs.writeFileSync(path.join(dir, "manifest.json"), JSON.stringify(manifest) + "\n", { mode: 0o600 });
+    fs.chownSync(path.join(dir, "archive.age"), 1000, 1000);
+    fs.chownSync(path.join(dir, "manifest.json"), 1000, 1000);
+    fs.chmodSync(path.join(dir, "archive.age"), 0o600);
+    fs.chmodSync(path.join(dir, "manifest.json"), 0o600);
+    fs.chownSync(dir, 1000, 1000);
+    fs.chmodSync(dir, 0o700);
+    fs.chownSync(roRoot, 1000, 1000);
+    fs.chmodSync(roRoot, 0o700);
+  ')"
+[[ "$created_initializer" =~ ^[a-f0-9]{64}$ ]] || { echo ro_initializer_create_invalid >&2; exit 1; }
+RO_INITIALIZER_ID="$created_initializer"
+observed="$(docker inspect --format '{{.Id}}/{{.Name}}/{{.Image}}/{{index .Config.Labels "fcd-support.backup-test"}}/{{.HostConfig.NetworkMode}}/{{.HostConfig.ReadonlyRootfs}}/{{len .Mounts}}/{{range .Mounts}}{{.Type}}/{{.Name}}/{{.Destination}}/{{.RW}}{{end}}' "$RO_INITIALIZER_ID" 2>/dev/null)" || { echo ro_initializer_binding_invalid >&2; exit 1; }
+[[ "$observed" == "$RO_INITIALIZER_ID//$RO_INITIALIZER/$RO_INITIALIZER_IMAGE/$SCOPE/none/true/1/volume/$RO_VOLUME//var/lib/fcd-support/ro-backups/true" ]] || { echo ro_initializer_binding_invalid >&2; exit 1; }
+docker start --attach "$RO_INITIALIZER_ID" >/dev/null 2>&1 || { echo ro_initializer_failed >&2; exit 1; }
 if [[ "$MODE" == restore ]]; then
   docker network create --internal --label "fcd-support.backup-test=$SCOPE" "$RESTORE_NETWORK" >/dev/null
   docker volume create --label "fcd-support.backup-test=$SCOPE" "$RESTORE_VOLUME" >/dev/null
+  CREATED_VOLUMES+=("$RESTORE_VOLUME")
   docker run --detach --name "$SCOPE-postgres" --label "fcd-support.backup-test=$SCOPE" \
     --network "$RESTORE_NETWORK" --network-alias restore-postgres --network-alias fcd-support-restore-postgres --security-opt no-new-privileges \
     --cpus 1 --memory 1g --pids-limit 128 --mount "type=volume,src=$RESTORE_VOLUME,dst=/var/lib/postgresql" \
@@ -180,6 +277,7 @@ docker "${launch[@]}" --name "$SCOPE-$job" --label "fcd-support.backup-test=$SCO
   --tmpfs "$temporary_mount" \
   --tmpfs /workspace/node_modules/.vite-temp:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0700,size=16m \
   --mount "type=volume,src=$VOLUME,dst=/var/lib/fcd-support/backups" \
+  --mount "type=volume,src=$RO_VOLUME,dst=/var/lib/fcd-support/ro-backups,readonly" \
   --mount "type=bind,src=$NATIVE_ROOT/src,dst=/workspace/src,readonly" \
   --mount "type=bind,src=$NATIVE_ROOT/scripts,dst=/workspace/scripts,readonly" \
   --mount "type=bind,src=$NATIVE_ROOT/infra,dst=/workspace/infra,readonly" \
@@ -195,6 +293,7 @@ docker "${launch[@]}" --name "$SCOPE-$job" --label "fcd-support.backup-test=$SCO
   --env "RUN_ISOLATED_RESTORE_TESTS=$([[ "$MODE" == restore ]] && echo synthetic-isolated-cluster-only || true)" \
   --env RESTORE_TEST_DATABASE_URL=postgresql://fcd_support_test@restore-postgres:5432/postgres \
   --env BACKUP_TEST_ARCHIVE_ROOT=/var/lib/fcd-support/backups \
+  --env BACKUP_TEST_READONLY_ARCHIVE_ROOT=/var/lib/fcd-support/ro-backups \
   "${extra_environment[@]}" \
   "$RUNNER" "$@"
 if [[ "$MODE" == restore && "$job" == integration ]]; then

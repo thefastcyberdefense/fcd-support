@@ -290,6 +290,10 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
       expect(
         (await runScheduledBackup(database.pool, { ...options, backupClass: 'daily' })).status,
       ).toBe('skipped');
+      const programmaticArchives = (await readdir(archiveDirectory)).filter((name) =>
+        name.startsWith('backup_'),
+      );
+      expect(programmaticArchives).toHaveLength(2); // exactly initial manual backup + 1 daily scheduled backup (zero duplicate dump)
       const databaseFile = join(root, 'database');
       await writeFile(databaseFile, base, { mode: 0o600 });
       const config = operationsEnvironment();
@@ -444,6 +448,9 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
         ...commonEnvironment,
         BACKUP_ENCRYPTION_RECIPIENT_FILE: recipientFile,
       };
+      const archivesBeforeScheduled = (await readdir(archiveDirectory)).filter((name) =>
+        name.startsWith('backup_'),
+      );
       const scheduledRef = await cli(
         ['scheduled-backup', 'daily', '2001-01-03T00:00:00.000Z'],
         scheduledEnvironment,
@@ -471,6 +478,12 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
           ])
         ).rows,
       ).toEqual([{ state: 'verified' }]);
+      const cliArchives = (await readdir(archiveDirectory)).filter((name) =>
+        name.startsWith('backup_'),
+      );
+      // Exactly 1 new archive added for the daily slot, zero duplicates created on repeated call
+      expect(cliArchives).toHaveLength(archivesBeforeScheduled.length + 1);
+      expect(cliArchives).toContain(scheduledRef);
     } finally {
       await chmod(identityFile, 0o600).catch(() => undefined);
       await chmod(wrongIdentityFile, 0o600).catch(() => undefined);

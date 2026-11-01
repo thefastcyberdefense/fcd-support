@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { createHash, createHmac } from 'node:crypto';
 import {
   chmod,
+  lstat,
   mkdtemp,
   mkdir,
   readFile,
@@ -18,6 +19,7 @@ import {
   createEncryptedBackup,
   verifyEncryptedBackup,
   readBackupManifest,
+  type BackupManifest,
   type BackupOptions,
   type BackupProcessPort,
 } from '../src/operations/backup.js';
@@ -264,13 +266,256 @@ test('manifest output contains no plaintext dump or connection material', async 
   expect(text).not.toContain('synthetic_private_identity');
 });
 test.skipIf(process.platform === 'win32')(
-  'readonly archive root fails before spawning a dump',
+  'directory with mode 0500 refuses admission before backup write',
   async () => {
     const f = await fixture();
+
+    // 1. Writable control: First create an authentic, valid backup in the writable destination
+    const baselineManifest = await createEncryptedBackup(f.options);
+    expect(baselineManifest.state).toBe('created');
+    const verified = await verifyEncryptedBackup({
+      ...f.options,
+      identityFile: f.identityFile,
+      expectedManifest: baselineManifest,
+    });
+    expect(verified.status).toBe('verified');
+    const baselineDir = join(f.options.archiveDirectory, baselineManifest.backupRef);
+    expect(await readdir(baselineDir)).toEqual(['archive.age', 'manifest.json']);
+    const baselineCipher = await readFile(join(baselineDir, 'archive.age'));
+    const baselineManifestBody = await readFile(join(baselineDir, 'manifest.json'));
+
+    // 2. Guard the destination with 0500 permissions (fails 0700 admission check)
     await chmod(f.options.archiveDirectory, 0o500);
-    await expect(createEncryptedBackup(f.options)).rejects.toThrow('backup_failed');
-    expect(f.calls).toHaveLength(0);
-    await chmod(f.options.archiveDirectory, 0o700);
+
+    const stdoutChunks: string[] = [];
+    const stderrChunks: string[] = [];
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+      stdoutChunks.push(String(chunk));
+      return true;
+    });
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      stderrChunks.push(String(chunk));
+      return true;
+    });
+
+    let backupError: Error | undefined;
+    try {
+      // 3. Attempt a backup against the guarded 0500 archive destination
+      await createEncryptedBackup({
+        ...f.options,
+        now: new Date('2030-01-02T00:00:00.000Z'),
+      });
+    } catch (err) {
+      backupError = err as Error;
+    } finally {
+      stdoutSpy.mockRestore();
+      stderrSpy.mockRestore();
+      // Restore permissions for assertions and fixture cleanup
+      await chmod(f.options.archiveDirectory, 0o700);
+    }
+
+    expect(backupError).toBeDefined();
+    expect(backupError?.message).toBe('backup_failed');
+
+    // 4. Assert no false archive publication: archive directory contains ONLY the baseline backup
+    const entries = await readdir(f.options.archiveDirectory);
+    expect(entries).toEqual([baselineManifest.backupRef]);
+
+    // 5. Assert baseline valid archive is completely preserved and unaltered
+    expect(await readFile(join(baselineDir, 'archive.age'))).toEqual(baselineCipher);
+    expect(await readFile(join(baselineDir, 'manifest.json'))).toEqual(baselineManifestBody);
+    await expect(
+      verifyEncryptedBackup({
+        ...f.options,
+        identityFile: f.identityFile,
+        expectedManifest: baselineManifest,
+      }),
+    ).resolves.toEqual({ status: 'verified' });
+
+    // 6. Assert zero newly owned partial ciphertext or temporary plaintext is left behind
+    expect(await readdir(baselineDir)).toEqual(['archive.age', 'manifest.json']);
+    expect(await readdir(f.options.temporaryDirectory)).toEqual([]);
+
+    // 7. Assert absence of synthetic sensitive sentinels in captured emitted output and error surfaces
+    const captured = stdoutChunks.join('') + stderrChunks.join('') + (backupError?.stack ?? '');
+    expect(captured).not.toContain('synthetic_password');
+    expect(captured).not.toContain('synthetic_dump');
+    expect(captured).not.toContain('synthetic_private_identity');
+
+    // 8. Writable success control after restoring write permissions
+    const nextManifest = await createEncryptedBackup({
+      ...f.options,
+      now: new Date('2030-01-03T00:00:00.000Z'),
+    });
+    expect(nextManifest.state).toBe('created');
+    const updatedEntries = await readdir(f.options.archiveDirectory);
+    expect(updatedEntries).toEqual(
+      expect.arrayContaining([baselineManifest.backupRef, nextManifest.backupRef]),
+    );
+    expect(updatedEntries).toHaveLength(2);
+  },
+);
+
+test('injected publish failure (EROFS) cleans partial files and preserves existing archives', async () => {
+  const f = await fixture();
+  // 1. Writable control: create baseline backup
+  const baselineManifest = await createEncryptedBackup(f.options);
+  const baselineDir = join(f.options.archiveDirectory, baselineManifest.backupRef);
+  const baselineCipher = await readFile(join(baselineDir, 'archive.age'));
+  const baselineManifestJson = await readFile(join(baselineDir, 'manifest.json'));
+
+  const stdoutChunks: string[] = [];
+  const stderrChunks: string[] = [];
+  const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+    stdoutChunks.push(String(chunk));
+    return true;
+  });
+  const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+    stderrChunks.push(String(chunk));
+    return true;
+  });
+
+  let backupError: Error | undefined;
+  try {
+    // 2. Publish failure with EROFS error
+    await createEncryptedBackup({
+      ...f.options,
+      now: new Date('2030-01-02T00:00:00.000Z'),
+      publish: () =>
+        Promise.reject(
+          Object.assign(new Error('EROFS: read-only file system, rename'), { code: 'EROFS' }),
+        ),
+    });
+  } catch (err) {
+    backupError = err as Error;
+  } finally {
+    stdoutSpy.mockRestore();
+    stderrSpy.mockRestore();
+  }
+
+  expect(backupError).toBeDefined();
+  expect(backupError?.message).toBe('backup_failed');
+
+  // 3. Verify no false publication: archive directory contains only baseline backup
+  const entries = await readdir(f.options.archiveDirectory);
+  expect(entries).toEqual([baselineManifest.backupRef]);
+
+  // 4. Verify existing valid archive is preserved and verified
+  expect(await readFile(join(baselineDir, 'archive.age'))).toEqual(baselineCipher);
+  expect(await readFile(join(baselineDir, 'manifest.json'))).toEqual(baselineManifestJson);
+  await expect(
+    verifyEncryptedBackup({
+      ...f.options,
+      identityFile: f.identityFile,
+      expectedManifest: baselineManifest,
+    }),
+  ).resolves.toEqual({ status: 'verified' });
+
+  // 5. Zero newly owned partial ciphertext or temporary plaintext left behind
+  expect(await readdir(baselineDir)).toEqual(['archive.age', 'manifest.json']);
+  expect(await readdir(f.options.temporaryDirectory)).toEqual([]);
+
+  // 6. Assert absence of synthetic sensitive sentinels in captured emitted output and error surfaces
+  const captured = stdoutChunks.join('') + stderrChunks.join('') + (backupError?.stack ?? '');
+  expect(captured).not.toContain('synthetic_password');
+  expect(captured).not.toContain('synthetic_dump');
+  expect(captured).not.toContain('synthetic_private_identity');
+
+  // 7. Writable success control
+  const nextManifest = await createEncryptedBackup({
+    ...f.options,
+    now: new Date('2030-01-03T00:00:00.000Z'),
+  });
+  expect(nextManifest.state).toBe('created');
+  expect(await readdir(f.options.archiveDirectory)).toEqual(
+    expect.arrayContaining([baselineManifest.backupRef, nextManifest.backupRef]),
+  );
+});
+
+test.skipIf(process.platform !== 'linux' || !process.env.BACKUP_TEST_READONLY_ARCHIVE_ROOT)(
+  'real read-only filesystem mount (EROFS) refuses backup write and leaves existing archives intact',
+  async () => {
+    const roRoot = process.env.BACKUP_TEST_READONLY_ARCHIVE_ROOT;
+    if (!roRoot) throw new Error('synthetic_ro_root_missing');
+    // 1. Verify filesystem admission: mode 0700 and current numeric uid/gid
+    const info = await lstat(roRoot);
+    expect(info.isDirectory()).toBe(true);
+    expect(info.mode & 0o777).toBe(0o700);
+    expect(info.uid).toBe(process.geteuid?.());
+    expect(info.gid).toBe(process.getegid?.());
+
+    // 2. Direct write receives actual OS EROFS from kernel
+    await expect(writeFile(join(roRoot, 'probe'), 'test')).rejects.toThrow(/EROFS/u);
+
+    // 3. Verify preexisting valid baseline archive is present and passes verification
+    const existingEntries = await readdir(roRoot);
+    const baselineRef = 'backup_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    expect(existingEntries).toContain(baselineRef);
+    const baselineDir = join(roRoot, baselineRef);
+    const baselineCipher = await readFile(join(baselineDir, 'archive.age'));
+    const baselineManifestJson = await readFile(join(baselineDir, 'manifest.json'));
+
+    const f = await fixture();
+    const verified = await verifyEncryptedBackup({
+      ...f.options,
+      archiveDirectory: roRoot,
+      identityFile: f.identityFile,
+      expectedManifest: JSON.parse(baselineManifestJson.toString('utf8')) as BackupManifest,
+    });
+    expect(verified.status).toBe('verified');
+
+    // 4. Capture output and error surfaces
+    const stdoutChunks: string[] = [];
+    const stderrChunks: string[] = [];
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+      stdoutChunks.push(String(chunk));
+      return true;
+    });
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      stderrChunks.push(String(chunk));
+      return true;
+    });
+
+    let backupError: Error | undefined;
+    try {
+      // 5. Execute createEncryptedBackup against the admitted read-only mount without mocking filesystem calls
+      await createEncryptedBackup({
+        ...f.options,
+        archiveDirectory: roRoot,
+        now: new Date('2030-01-02T00:00:00.000Z'),
+      });
+    } catch (err) {
+      backupError = err as Error;
+    } finally {
+      stdoutSpy.mockRestore();
+      stderrSpy.mockRestore();
+    }
+
+    // Fails closed with backup_failed
+    expect(backupError).toBeDefined();
+    expect(backupError?.message).toBe('backup_failed');
+
+    // 6. Assert no newly owned archive or partial file was published to read-only mount
+    expect(await readdir(roRoot)).toEqual(existingEntries);
+    expect(await readFile(join(baselineDir, 'archive.age'))).toEqual(baselineCipher);
+    expect(await readFile(join(baselineDir, 'manifest.json'))).toEqual(baselineManifestJson);
+
+    // 7. Temporary directory has zero files left behind
+    expect(await readdir(f.options.temporaryDirectory)).toEqual([]);
+
+    // 8. Assert absence of synthetic sensitive sentinels in emitted output and error surfaces
+    const captured = stdoutChunks.join('') + stderrChunks.join('') + (backupError?.stack ?? '');
+    expect(captured).not.toContain('synthetic_password');
+    expect(captured).not.toContain('synthetic_dump');
+    expect(captured).not.toContain('synthetic_private_identity');
+
+    // 9. Writable control under equivalent ownership and permissions succeeds
+    const writableManifest = await createEncryptedBackup({
+      ...f.options,
+      now: new Date('2030-01-03T00:00:00.000Z'),
+    });
+    expect(writableManifest.state).toBe('created');
+    expect(await readdir(f.options.archiveDirectory)).toEqual([writableManifest.backupRef]);
   },
 );
 test('pruning refuses a missing latest archive and never deletes an older one', async () => {

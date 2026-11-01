@@ -27,7 +27,7 @@ export async function seedReviewedRestore(
     [account.id, at],
   );
   await pool.query(
-    'insert into runtime_recovery_holds(restore_ref,created_at,quarantined_count) values($1,$2,0)',
+    'insert into runtime_recovery_holds(restore_ref,created_at,quarantined_count) values($1,$2,0) on conflict(restore_ref) do nothing',
     [restoreRef, at],
   );
   await pool.query(
