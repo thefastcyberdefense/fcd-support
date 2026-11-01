@@ -1,12 +1,13 @@
 # Antigravity next assignment: Phase 6 final evidence pack
 
-Sequence update: first complete the dependency follow-up in
-`docs/handoffs/2026-11-01-antigravity-dependency-followup.md`. Prepare this final
-pack after Codex accepts that fix or a documented disposition, so its evidence
-describes the reviewed dependency chain.
+**Start now:** the dependency entry gate is satisfied. Codex accepted PR #4 as
+`c74b6f4` after validating submitted `9f76455`; read
+`docs/reviews/2026-11-01-pr-4-integration.md`. Cite the accepted patched runtime
+chain, keep remaining dev-tooling advisories distinct, and make no claim that
+the owner's server has received that update.
 
-Start after Codex merges PR #3. Fetch synchronized main, preserve local work and
-create `codex/agy-p6-gate-evidence` from that main in the existing isolated AGY
+Fetch synchronized main, preserve local work and create
+`codex/agy-p6-gate-evidence` from that main in the existing isolated AGY
 worktree. Read fresh AGENTS, TODO, PROJECT_CONTEXT, SYNTHETIC_FIXTURE_POLICY,
 the PR #3 integration review and:
 

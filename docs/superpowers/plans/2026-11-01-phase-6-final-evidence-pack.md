@@ -25,6 +25,8 @@ Steps 4–6 and Task 16; current `docs/TODO.md` and `docs/PROJECT_CONTEXT.md`.
   SHA. P6-GATE completion is not an entry dependency for its evidence pack.
 - Complete the separately assigned runtime-dependency follow-up or obtain
   Codex's documented disposition before freezing the final source/counts.
+  This condition is satisfied by PR #4 merge `c74b6f4`; use its integration
+  review and actual source `9f76455` rather than pre-update dependency evidence.
 - Create `codex/agy-p6-gate-evidence` from synchronized main in the existing AGY
   isolated worktree, preserving any changes. Do not rewrite history or reuse
   the merged PR #3 as an open delivery branch.

@@ -2,6 +2,30 @@
 
 Last reviewed: 2026-11-01 (Asia/Dhaka)
 
+**PR #4 is accepted and merged; final Phase 6 evidence work is unblocked.**
+Merge `c74b6f4314e17fe707ba5e3f02a183d1ebe9b9fd` has the same complete tree as
+validated `9f76455be443a527ce58725fa574e7324631fd4d`. The exact migration-scoped
+overrides use glob 14.0.3/minimatch 11.0.3, outside the parent's declared glob
+range. Codex accepted this project-owned compatibility override after a fresh
+locked install, matching 16-file discovery in both modes, full Windows check
+(1,952 passed / 438 platform skips, 131 files, 261.62 s) and all four exact-source
+workflows. Independent review has no Important/Critical source issue.
+
+Production npm audit reports zero vulnerabilities. The dev-inclusive install
+still reports 11 moderate advisories, including the retained dev-only dependency
+scope. Post-merge read-only GitHub inspection observes #42 fixed/runtime and
+#43 open/development; those development findings are not resolved or dismissed.
+Runtime dependencies have changed since the last server deployment `67a4a4b`;
+no SSH or patched-server deployment ran. Task 16 retains that exact action scope.
+
+AGY can start `docs/handoffs/2026-11-01-antigravity-phase-6-evidence-pack.md` now
+on a fresh branch from synchronized main. The dependency entry condition is
+satisfied. Task 15's evidence consolidation, P6-GATE and Task 16 remain open.
+Review: `docs/reviews/2026-11-01-pr-4-integration.md`. No recovery-policy change,
+live provider/Meta/tunnel/production action or Phase 7 implementation is assigned.
+
+### Earlier PR #3 checkpoint
+
 **PR #3 is accepted and merged; Task 15's final evidence pack remains.**
 Squash merge `df8e52dbe59e0013ab28a5790b21c9785324b2f0` has the identical
 tracked tree to validated `78013148751a493a6f8859bc6d3ee9628cb954d6`.
@@ -19,20 +43,17 @@ test actor/volume/network audit counts are zero. Independent final review has
 no Important/Critical findings. Failed intermediate runs remain documented in
 `docs/reviews/2026-11-01-pr-3-integration.md` and the correction reviews.
 
-The src/infra/package runtime tree still equals deployed application `67a4a4b`;
-only test harnesses, tests, CI and evidence changed. No SSH, server, provider,
+At the PR #3 checkpoint, the src/infra/package runtime tree matched deployed
+application `67a4a4b`; that equality precedes the PR #4 dependency update.
+Only test harnesses, tests, CI and evidence had changed. No SSH, server, provider,
 Meta, tunnel or production action ran. This is no fresh server-readiness claim.
 Task 11 remains complete; P6-004/005/006 and P6-GATE remain open for the original
 Task 15 documentation consolidation and independent review, then Task 16.
-GitHub's subsequent push response reported medium runtime-transitive glob #42
-and minimatch #43 alerts under node-pg-migrate. Static triage confirms affected
-versions but leaves application-boundary applicability needs_review: the
-inspected migration caller uses a fixed directory and no glob/AbortSignal
-opt-in. No public exploit is established. AGY should first use
-`docs/handoffs/2026-11-01-antigravity-dependency-followup.md` for a compatible
-minimal correction or concrete reviewed disposition, then the final evidence
-pack. No dependency was changed during triage; no new routine owner approval
-is required. No recovery-policy or Phase 7 implementation work is assigned.
+The subsequent runtime-transitive alerts led to the PR #4 correction described
+above. The original static triage established no public exploit path; the
+migration caller uses a fixed directory and no glob/AbortSignal opt-in. No
+dependency changed during that static triage. The later compatibility update
+does not change recovery authority or authorize Phase 7 implementation.
 
 **Task 11 is COMPLETE for implementation and its bounded historical server drill.**
 Exact application `67a4a4bede6d3252dc936a6e410f4b90c1359ac3` passed all four
@@ -66,8 +87,8 @@ infrastructure, tunnel, production or other-project change ran. See
 `docs/reviews/2026-10-31-phase-6-task-11-closeout.md` for scope and limitations.
 
 P6-004/005/006 remain IN PROGRESS because they include Task 15; P6-GATE remains
-BLOCKED. AGY's approved dependency follow-up precedes final documentation closeout. Current
-handoff: `docs/handoffs/2026-11-01-antigravity-dependency-followup.md`, with
+BLOCKED. AGY's approved final documentation closeout is now unblocked. Current
+handoff: `docs/handoffs/2026-11-01-antigravity-phase-6-evidence-pack.md`, with
 its linked plan. Codex owns server recovery, trackers, integration and independent
 whole-phase review. No live provider, Meta, tunnel or production change ran.
 

@@ -14,14 +14,16 @@
   restored zero-send and fail-closed scoped cleanup coverage are accepted.
   See `docs/reviews/2026-11-01-pr-3-integration.md` for exact evidence and the
   retained failed intermediate validations.
-- GitHub reported two medium runtime-transitive dependency alerts after push:
-  glob #42 and minimatch #43 under node-pg-migrate. A public exploit path is not
-  established. AGY should first follow
-  `docs/handoffs/2026-11-01-antigravity-dependency-followup.md` for compatibility
-  review/minimal correction or a concrete Codex-reviewed disposition.
+- **PR #4 merged as `c74b6f4`** after the full independent gate and all four
+  workflows on `9f76455`. The exact scoped migration overrides use glob 14.0.3
+  and minimatch 11.0.3; the production audit is clean. Dev-only tooling findings
+  remain separate (#42 fixed/runtime; #43 open/development after merge). The
+  parent-range override is accepted with bounded migration/
+  restore compatibility evidence, not an upstream-support guarantee. See
+  `docs/reviews/2026-11-01-pr-4-integration.md`. No server patch was deployed.
 - Task 15 still needs operator-guide/acceptance/threat-model consolidation and
   the independent aggregate gate; Task 16's final server handoff follows.
-  The subsequent assignment is
+  AGY can start now with
   `docs/handoffs/2026-11-01-antigravity-phase-6-evidence-pack.md`
   on a fresh branch from synchronized main. No new routine approval is
   needed. No SSH, server, live-provider or production action ran this turn.
