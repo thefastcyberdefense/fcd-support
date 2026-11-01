@@ -8,13 +8,14 @@
   all passed. See `docs/reviews/2026-10-31-phase-6-task-11-closeout.md`.
 - **P6-004/P6-005/P6-006 remain IN PROGRESS; P6-GATE remains BLOCKED.** The
   approved mapping includes Task 15 in these aggregate tracker rows.
-- AGY PR #3 at `9a4fc61` remains draft after independent review on 2026-11-01.
-  Its four exact-head workflows pass, but Task 15 is not accepted: actual
-  read-only mount, owning scheduler/catalog and older-snapshot/same-provider
-  proofs plus evidence-citation corrections remain. Continue with
-  `docs/handoffs/2026-11-01-antigravity-task-15-review-fixes.md` under existing
-  approval. Codex retains integration and gate review; no server action ran
-  during this review.
+- AGY PR #3 at `b3831b0` remains draft after the correction review on 2026-11-01.
+  Real EROFS, owning preflight locking/catalog and seeded older-snapshot shared-
+  provider coverage are accepted. Remaining defects: unbounded child waits,
+  an uncontained/unverified root fixture initializer and false evidence
+  citations. All four exact-head workflows pass; independent full Windows
+  check had two timeouts, whose exact focused reruns passed without edits.
+  Continue with `docs/handoffs/2026-11-01-antigravity-task-15-harness-closeout.md`
+  under existing approval. Task 15/gate remain open; no server action ran.
 - After a later guest reboot, seven older stopped actors were found missing;
   volumes/state files remain. The actor-loss incident stays OPEN without reconstruction or SQL
   settlement. Reviewed action `d96382d` restored current private readiness:
