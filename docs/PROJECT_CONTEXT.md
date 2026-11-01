@@ -1,6 +1,18 @@
 # Project Context
 
-Last reviewed: 2026-10-31 (Asia/Dhaka)
+Last reviewed: 2026-11-01 (Asia/Dhaka)
+
+**Task 15 delivery is under review, not complete.** AGY PR #3 final head
+`9a4fc61ddd80f8f36bdfc28db6da305968945f0e` passes all four exact-head workflows.
+Independent review found missing actual read-only filesystem, owning scheduler/
+catalog and older-snapshot/same-provider proofs, plus inaccurate evidence
+citations/provenance. Focused Windows checks passed 89 tests / 8 platform skips;
+the five hermetic Python suites passed with one observer SIGHUP platform skip.
+No full gate or server action was repeated. Keep PR #3 draft and Phase 6 open.
+Review: `docs/reviews/2026-11-01-pr-3-task-15-review.md`. AGY can start the
+corrections in `docs/handoffs/2026-11-01-antigravity-task-15-review-fixes.md`;
+the restored fixture's hold must remain active, with a separate unfenced
+eligible control. No recovery policy change or Phase 7 work is assigned.
 
 **Task 11 is COMPLETE for implementation and its bounded historical server drill.**
 Exact application `67a4a4bede6d3252dc936a6e410f4b90c1359ac3` passed all four
@@ -35,8 +47,8 @@ infrastructure, tunnel, production or other-project change ran. See
 
 P6-004/005/006 remain IN PROGRESS because they include Task 15; P6-GATE remains
 BLOCKED. AGY's approved local failure-matrix work is now unblocked. Current
-handoff: `docs/handoffs/2026-10-31-antigravity-phase-6-next.md`, with its linked
-focused plan. Codex owns server recovery, trackers, integration and independent
+handoff: `docs/handoffs/2026-11-01-antigravity-task-15-review-fixes.md`, with its
+linked correction plan. Codex owns server recovery, trackers, integration and independent
 whole-phase review. No live provider, Meta, tunnel or production change ran.
 
 The following entries retain earlier checkpoints and their evidence.
