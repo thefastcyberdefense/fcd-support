@@ -685,4 +685,5 @@ operations_scheduled_main maintenance "$TASK_REVISION" "$TASK_CONFIG_FILE"
       await rm(root, { recursive: true, force: true });
     }
   },
+  30_000,
 );
