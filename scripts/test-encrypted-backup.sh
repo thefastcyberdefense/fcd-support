@@ -106,12 +106,12 @@ RESTORE_NETWORK="$SCOPE-restore"
 RESTORE_VOLUME="$SCOPE-postgres"
 cleanup() {
   local cleanup_status=0
-  for container in "$SCOPE-unit" "$SCOPE-integration" "$SCOPE-postgres" "$RO_INITIALIZER"; do
+  for container in "$SCOPE-unit" "$SCOPE-integration" "$SCOPE-postgres" "${RO_INITIALIZER:-$SCOPE-ro-initializer}"; do
     if [[ "$(docker inspect --format '{{index .Config.Labels "fcd-support.backup-test"}}' "$container" 2>/dev/null || true)" == "$SCOPE" ]]; then
       docker rm --force --volumes "$container" >/dev/null 2>&1 || cleanup_status=1
     fi
   done
-  for vol in "$VOLUME" "$RO_VOLUME" "$RESTORE_VOLUME"; do
+  for vol in "${VOLUME:-$SCOPE-backups}" "${RO_VOLUME:-$SCOPE-ro-backups}" "${RESTORE_VOLUME:-$SCOPE-postgres}"; do
     if docker volume inspect "$vol" >/dev/null 2>&1; then
       if [[ "$(docker volume inspect --format '{{.Name}}/{{.Driver}}/{{.Scope}}/{{index .Labels "fcd-support.backup-test"}}' "$vol" 2>/dev/null || true)" == "$vol/local/local/$SCOPE" ]]; then
         local users
@@ -126,14 +126,15 @@ cleanup() {
       fi
     fi
   done
-  if docker network inspect "$RESTORE_NETWORK" >/dev/null 2>&1; then
-    if [[ "$(docker network inspect --format '{{index .Labels "fcd-support.backup-test"}}' "$RESTORE_NETWORK" 2>/dev/null || true)" == "$SCOPE" ]]; then
-      docker network rm "$RESTORE_NETWORK" >/dev/null 2>&1 || cleanup_status=1
+  if docker network inspect "${RESTORE_NETWORK:-$SCOPE-restore}" >/dev/null 2>&1; then
+    if [[ "$(docker network inspect --format '{{index .Labels "fcd-support.backup-test"}}' "${RESTORE_NETWORK:-$SCOPE-restore}" 2>/dev/null || true)" == "$SCOPE" ]]; then
+      docker network rm "${RESTORE_NETWORK:-$SCOPE-restore}" >/dev/null 2>&1 || cleanup_status=1
     else
       cleanup_status=1
     fi
   fi
-  for image in "$RUNNER" "$OPS" "$APP"; do
+  for image in "${RUNNER:-}" "${OPS:-}" "${APP:-}"; do
+    [[ -n "$image" ]] || continue
     if [[ "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image" 2>/dev/null || true)" == "$REVISION" ]]; then
       docker image rm "$image" >/dev/null 2>&1 || cleanup_status=1
     fi
