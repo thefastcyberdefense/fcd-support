@@ -27,7 +27,7 @@ All assigned Phase 6 Task 15 review corrections have been implemented and verifi
 2. **Actual Read-Only Destination & Closed Output (Task 2):**
    - Retained the directory mode 0500 permission-admission check under an accurate name (`directory with mode 0500 refuses admission before backup write`) in [`tests/backup.test.ts`](file:///J:/DevDrive/fcd-support-agy-failure-matrix/tests/backup.test.ts).
    - Retained the injected publish error test under an accurate name (`injected publish failure (EROFS) cleans partial files and preserves existing archives`).
-   - Retained native Linux `ENOSPC` proof at `tests/backup.test.ts#L522-L545`.
+   - Retained native Linux `ENOSPC` proof at `tests/backup.test.ts#L594-L615`.
    - Provisioned a dedicated test-owned read-only Docker volume (`$RO_VOLUME`) in [`scripts/test-encrypted-backup.sh`](file:///J:/DevDrive/fcd-support-agy-failure-matrix/scripts/test-encrypted-backup.sh) mounted `:readonly` at `/var/lib/fcd-support/ro-backups`, pre-populated with mode 0700, 1000:1000 ownership, and a valid signed baseline archive.
    - Added `real read-only filesystem mount (EROFS) refuses backup write and leaves existing archives intact`: verifies direct write receives kernel `EROFS`, executes `createEncryptedBackup` against the admitted filesystem without replacing filesystem calls, fails closed with `backup_failed`, preserves prior baseline archives, and cleans partial files.
    - Captured actual emitted output and error surfaces via stdout/stderr spies and the thrown error stack; asserted absence of sensitive sentinels (`synthetic_password`, `synthetic_dump`, `synthetic_private_identity`).
@@ -46,7 +46,7 @@ All assigned Phase 6 Task 15 review corrections have been implemented and verifi
    - Audited every citation in [`docs/testing/phase-6-failure-matrix-gap-map.md`](file:///J:/DevDrive/fcd-support-agy-failure-matrix/docs/testing/phase-6-failure-matrix-gap-map.md):
      - Stale-event citation corrected to `tests/integration/postgres-receipt-store.test.ts:290-320`.
      - Admin identity revocation citation corrected to `tests/integration/postgres-admin-identity.test.ts:333-375` (connection closure claims separated from session revocation).
-     - Native ENOSPC citation corrected to `tests/backup.test.ts#L522-L545`.
+     - Native ENOSPC citation corrected to `tests/backup.test.ts#L594-L615`.
      - Confirmed Task 15 gaps marked closed with exact test file and line citations.
    - Base and merged revisions aligned with Git provenance: base `c6b7c01c8facd63fbd722dfcc0bb24ffddab5238`, merged latest main `2772d624c37411ebc75959407cd8416d098e732c`.
 
@@ -62,7 +62,7 @@ All assigned Phase 6 Task 15 review corrections have been implemented and verifi
 - [x] Explicit older-snapshot divergence where provider acceptance ledger is ahead of PostgreSQL.
 - [x] Single synthetic provider instance with captured send count across held and eligible-control runs.
 - [x] Separate unfenced synthetic PostgreSQL fixture for eligible control; restored worker re-run before and after control proves zero added sends and unchanged active hold.
-- [x] Audit all citations in gap map (`postgres-receipt-store.test.ts:290`, `postgres-admin-identity.test.ts:333`, `backup.test.ts:522`).
+- [x] Audit all citations in gap map (`postgres-receipt-store.test.ts:290`, `postgres-admin-identity.test.ts:333`, `backup.test.ts:594`).
 - [x] Verify forced Prettier formatting, ESLint strict rules, TypeScript build, and hermetic Python suites.
 - [x] Push updated PR #3 and verify all four workflows on its final head.
 
@@ -86,6 +86,17 @@ All assigned Phase 6 Task 15 review corrections have been implemented and verifi
 | `bash scripts/test-docker-projections.sh`                                                 | Docker projection canonicalizer                 | **PASSED** (code 0)              | ~8.0s    | All 6 projection tests passed                    |
 
 Total hermetic Python tests across 5 suites: **65 passed, 1 platform skip on Windows** (suites overlap and are not distinct non-overlapping coverage).
+
+### PR #3 CI Workflows Verification
+
+All four GitHub Actions workflows passed on PR #3:
+
+| Workflow                           | Run ID        | Status     | Duration | Jobs Verified                                                             | URL                                                                           |
+| ---------------------------------- | ------------- | ---------- | -------- | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `ci`                               | `41279632419` | **PASSED** | 4m35s    | `validate` passed                                                         | <https://github.com/thefastcyberdefense/fcd-support/actions/runs/41279632419> |
+| `CodeQL Advanced`                  | `41279632463` | **PASSED** | 1m27s    | `Analyze (actions)` (37s), `Analyze (javascript-typescript)` (50s)        | <https://github.com/thefastcyberdefense/fcd-support/actions/runs/41279632463> |
+| `PostgreSQL and native operations` | `41279632399` | **PASSED** | 11m5s    | `postgres` (3m15s), `native-operations` (11m5s)                           | <https://github.com/thefastcyberdefense/fcd-support/actions/runs/41279632399> |
+| `Private runtime controller`       | `41279632446` | **PASSED** | 7m29s    | `private-runtime (fresh)` (7m20s), `private-runtime (precreated)` (7m29s) | <https://github.com/thefastcyberdefense/fcd-support/actions/runs/41279632446> |
 
 ---
 
