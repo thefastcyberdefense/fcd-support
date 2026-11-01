@@ -521,6 +521,7 @@ test.skipIf(process.platform === 'win32')(
     await writeFile(configFile, confContent, { mode: 0o600 });
 
     const runnerScript = `
+exec 3>&1
 source "$TASK_RUN_OPERATION"
 uname() { printf 'Linux\\n'; }
 operations_exact_revision() { :; }
@@ -547,7 +548,7 @@ operations_retained_read() {
 }
 operations_execute_job() {
   if [[ "\${TASK_BARRIER:-0}" == 1 ]]; then
-    printf 'LOCKED\\n'
+    printf 'LOCKED\\n' >&3
     read -r barrier
     unset TASK_BARRIER
   fi
@@ -618,6 +619,7 @@ operations_scheduled_main maintenance "$TASK_REVISION" "$TASK_CONFIG_FILE"
 
       // Release Process 1 through the deterministic stdin barrier
       proc1.stdin.write('RELEASE\n');
+      proc1.stdin.end();
       const proc1Exit = await new Promise<number | null>((resolvePromise) => {
         proc1.once('exit', (code) => {
           resolvePromise(code);
