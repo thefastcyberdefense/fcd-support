@@ -3,6 +3,11 @@ import { existsSync, readFileSync } from 'node:fs';
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { expect, test } from 'vitest';
+import {
+  reapChildProcesses,
+  waitForBarrier,
+  waitForExit,
+} from './helpers/process-lifecycle.js';
 
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash';
 const revision = 'a'.repeat(40);
@@ -574,29 +579,8 @@ operations_scheduled_main maintenance "$TASK_REVISION" "$TASK_CONFIG_FILE"
       });
       children.push(proc1);
 
-      let proc1Stderr = '';
-      proc1.stderr.on('data', (data: Buffer) => {
-        proc1Stderr += data.toString();
-      });
-
-      // Deterministic barrier: Wait until Process 1 confirmed holding the real flock
-      await new Promise<void>((resolvePromise, rejectPromise) => {
-        let stdoutBuffer = '';
-        const onData = (data: Buffer) => {
-          stdoutBuffer += data.toString('utf8');
-          if (stdoutBuffer.includes('LOCKED\n')) {
-            proc1.stdout.off('data', onData);
-            resolvePromise();
-          }
-        };
-        proc1.stdout.on('data', onData);
-        proc1.once('error', rejectPromise);
-        proc1.once('exit', (code) => {
-          rejectPromise(
-            new Error(`Process 1 exited prematurely with code ${String(code)}: ${proc1Stderr}`),
-          );
-        });
-      });
+      // Deterministic barrier: Wait until Process 1 confirmed holding the real flock with internal bounded timeout
+      await waitForBarrier(proc1, 'LOCKED\n', { timeoutMs: 5000 });
 
       // Process 2: Real scheduler activation against the locked scope; flock rejects nonblocking
       const proc2 = spawnSync(bash, ['--noprofile', '--norc', '-c', runnerScript], {
@@ -620,12 +604,8 @@ operations_scheduled_main maintenance "$TASK_REVISION" "$TASK_CONFIG_FILE"
       // Release Process 1 through the deterministic stdin barrier
       proc1.stdin.write('RELEASE\n');
       proc1.stdin.end();
-      const proc1Exit = await new Promise<number | null>((resolvePromise) => {
-        proc1.once('exit', (code) => {
-          resolvePromise(code);
-        });
-      });
-      expect(proc1Exit).toBe(0);
+      const proc1Exit = await waitForExit(proc1, { timeoutMs: 5000 });
+      expect(proc1Exit.code).toBe(0);
 
       // Verify Process 1 completed its 4 maintenance tasks
       const jobsAfterProc1 = (await readFile(trace, 'utf8')).trim().split('\n');
@@ -653,39 +633,193 @@ operations_scheduled_main maintenance "$TASK_REVISION" "$TASK_CONFIG_FILE"
       const jobsAfterProc3 = (await readFile(trace, 'utf8')).trim().split('\n');
       expect(jobsAfterProc3).toHaveLength(8);
     } finally {
-      for (const child of children) {
-        if (child.exitCode === null && child.signalCode === null) {
-          try {
-            child.kill('SIGTERM');
-          } catch {
-            // ignore
-          }
-        }
-      }
-      await Promise.all(
-        children.map(
-          (child) =>
-            new Promise<void>((resolveChild) => {
-              if (child.exitCode !== null || child.signalCode !== null) {
-                resolveChild();
-                return;
-              }
-              const timer = setTimeout(() => {
-                try {
-                  child.kill('SIGKILL');
-                } catch {
-                  // ignore
-                }
-              }, 2000);
-              child.once('exit', () => {
-                clearTimeout(timer);
-                resolveChild();
-              });
-            }),
-        ),
-      );
+      await reapChildProcesses(children);
       await rm(root, { recursive: true, force: true });
     }
   },
   30_000,
+);
+
+test.skipIf(process.platform === 'win32')(
+  'scheduled operation child lifecycle reaps silent child and releases lock before outer timeout',
+  async () => {
+    const baseDir = existsSync('/run/fcd-support') ? '/run/fcd-support' : '/tmp';
+    const root = await mkdtemp(join(baseDir, 'fcd-flock-silent-'));
+    await chmod(root, 0o700);
+    const configRoot = join(root, 'config');
+    const secretRoot = join(root, 'secrets');
+    const stateRoot = join(root, 'state');
+    const socketRoot = join(root, 'socket');
+    await mkdir(configRoot, { mode: 0o700 });
+    await mkdir(secretRoot, { mode: 0o700 });
+    await mkdir(stateRoot, { mode: 0o700 });
+    await mkdir(socketRoot, { mode: 0o700 });
+    const trace = join(root, 'job.trace');
+    await writeFile(trace, '', { mode: 0o600 });
+    const lock = join(stateRoot, 'deployment.lock');
+    await writeFile(lock, '', { mode: 0o600 });
+    const configFile = join(configRoot, 'host.conf');
+    const confContent =
+      [
+        `FCD_SUPPORT_REVISION=${revision}`,
+        'FCD_SCHEMA_REVISION=000016',
+        `FCD_CONFIG_ROOT=${configRoot}`,
+        `FCD_SECRET_ROOT=${secretRoot}`,
+        `FCD_STATE_ROOT=${stateRoot}`,
+        `FCD_ADMIN_SOCKET_ROOT=${socketRoot}`,
+        'FCD_RUNTIME_PROJECT=fcd-support-test',
+        `FCD_SUPPORT_IMAGE=${image}`,
+        `FCD_OPERATIONS_IMAGE=${image}`,
+        `FCD_POSTGRES_IMAGE=${image}`,
+        'FCD_POSTGRES_DB=fcd_support_test',
+        'FCD_DATABASE_SCHEMA=public',
+        'FCD_DATABASE_ROLE_PREFIX=fcd_support',
+        'FCD_POSTGRES_VOLUME=fcd-support-test-db',
+        'FCD_BACKUP_VOLUME=fcd-support-test-backup',
+        'FCD_COMMAND_TIMEOUT_SECONDS=10',
+        'FCD_READY_TIMEOUT_SECONDS=10',
+        'FCD_STOP_GRACE_MS=1000',
+        'FCD_MAINTENANCE_SLOT_SECONDS=300',
+        'FCD_BACKUP_CALENDAR=*-*-* 02:00:00 UTC',
+        'FCD_MAINTENANCE_CALENDAR=*-*-* *:00/5:00 UTC',
+        'FCD_HEALTH_CALENDAR=*-*-* *:*:00 UTC',
+      ].join('\n') + '\n';
+    await writeFile(configFile, confContent, { mode: 0o600 });
+
+    const silentScript = `
+exec 3>&1
+source "$TASK_RUN_OPERATION"
+uname() { printf 'Linux\\n'; }
+operations_exact_revision() { :; }
+operations_socket_root() { :; }
+operations_docker() {
+  case "$*" in
+    *context\\ inspect*) printf 'unix:///var/run/docker.sock\\n' ;;
+    *Config.Labels*revision*) printf '%s\\n' "$OPS_REVISION" ;;
+    *Os*Architecture*) printf 'linux/amd64\\n' ;;
+    *image\\ inspect*) printf '%s/%s/linux/amd64\\n' "${image}" "$OPS_REVISION" ;;
+    *volume\\ inspect*) printf 'local/local/default\\n' ;;
+    *) : ;;
+  esac
+}
+operations_selection_apply() {
+  declare -gA OPS_SELECTION=([STATE_PHASE]=ready [STATE_REVISION]="$OPS_REVISION" [STATE_SCHEMA_REVISION]="\${OPS_CONFIG[FCD_SCHEMA_REVISION]}" [STATE_WRITES_POSSIBLE]=yes [STATE_SYSTEM_IDENTIFIER]=1111111111111111111)
+}
+operations_retained_read() {
+  declare -gA OPS_RETAINED=([BUNDLE_SCHEMA_REVISION]="\${OPS_CONFIG[FCD_SCHEMA_REVISION]}" [BUNDLE_APPLICATION_IMAGE]="\${OPS_CONFIG[FCD_SUPPORT_IMAGE]}" [BUNDLE_OPERATIONS_IMAGE]="\${OPS_CONFIG[FCD_OPERATIONS_IMAGE]}" [BUNDLE_POSTGRES_IMAGE]="\${OPS_CONFIG[FCD_POSTGRES_IMAGE]}")
+}
+operations_execute_job() {
+  # Silent child: acquires flock through real operations_preflight but never prints barrier
+  sleep 60
+}
+operations_scheduled_main maintenance "$TASK_REVISION" "$TASK_CONFIG_FILE"
+`;
+
+    const normalScript = `
+exec 3>&1
+source "$TASK_RUN_OPERATION"
+uname() { printf 'Linux\\n'; }
+operations_exact_revision() { :; }
+operations_socket_root() { :; }
+operations_docker() {
+  case "$*" in
+    *context\\ inspect*) printf 'unix:///var/run/docker.sock\\n' ;;
+    *Config.Labels*revision*) printf '%s\\n' "$OPS_REVISION" ;;
+    *Os*Architecture*) printf 'linux/amd64\\n' ;;
+    *image\\ inspect*) printf '%s/%s/linux/amd64\\n' "${image}" "$OPS_REVISION" ;;
+    *volume\\ inspect*) printf 'local/local/default\\n' ;;
+    *) : ;;
+  esac
+}
+operations_selection_apply() {
+  declare -gA OPS_SELECTION=([STATE_PHASE]=ready [STATE_REVISION]="$OPS_REVISION" [STATE_SCHEMA_REVISION]="\${OPS_CONFIG[FCD_SCHEMA_REVISION]}" [STATE_WRITES_POSSIBLE]=yes [STATE_SYSTEM_IDENTIFIER]=1111111111111111111)
+}
+operations_retained_read() {
+  declare -gA OPS_RETAINED=([BUNDLE_SCHEMA_REVISION]="\${OPS_CONFIG[FCD_SCHEMA_REVISION]}" [BUNDLE_APPLICATION_IMAGE]="\${OPS_CONFIG[FCD_SUPPORT_IMAGE]}" [BUNDLE_OPERATIONS_IMAGE]="\${OPS_CONFIG[FCD_OPERATIONS_IMAGE]}" [BUNDLE_POSTGRES_IMAGE]="\${OPS_CONFIG[FCD_POSTGRES_IMAGE]}")
+}
+operations_execute_job() {
+  printf '%s %s\\n' "$1" "$2" >> "$TASK_TRACE"
+  printf '{"status":"completed","processed":0,"reasonCode":"ok"}\\n'
+}
+operations_scheduled_main maintenance "$TASK_REVISION" "$TASK_CONFIG_FILE"
+`;
+
+    const children: ChildProcess[] = [];
+    const testStart = Date.now();
+    try {
+      const proc1 = spawn(bash, ['--noprofile', '--norc', '-c', silentScript], {
+        env: {
+          PATH: process.env.PATH,
+          TASK_RUN_OPERATION: resolve('scripts/run-operation.sh').replaceAll('\\', '/'),
+          TASK_REVISION: revision,
+          TASK_CONFIG_FILE: configFile,
+          TASK_TRACE: trace,
+        },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      children.push(proc1);
+
+      // Silent child wait should reject within 1000ms, well under the 30s test timeout
+      await expect(
+        waitForBarrier(proc1, 'LOCKED\n', { timeoutMs: 1000 }),
+      ).rejects.toThrow(/Process barrier timed out/i);
+      expect(Date.now() - testStart).toBeLessThan(4000);
+    } finally {
+      // Cleanup must reap proc1 and release the flock
+      await reapChildProcesses(children);
+      for (const child of children) {
+        expect(child.exitCode !== null || child.signalCode !== null).toBe(true);
+      }
+
+      // After reaping, the lock is released so a subsequent normal scheduler invocation succeeds
+      const proc2 = spawnSync(bash, ['--noprofile', '--norc', '-c', normalScript], {
+        env: {
+          PATH: process.env.PATH,
+          TASK_RUN_OPERATION: resolve('scripts/run-operation.sh').replaceAll('\\', '/'),
+          TASK_REVISION: revision,
+          TASK_CONFIG_FILE: configFile,
+          TASK_TRACE: trace,
+        },
+        encoding: 'utf8',
+        timeout: 5000,
+      });
+      expect(proc2.status).toBe(0);
+      const jobs = (await readFile(trace, 'utf8')).trim().split('\n');
+      expect(jobs).toHaveLength(4);
+
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+  10_000,
+);
+
+test.skipIf(process.platform === 'win32')(
+  'scheduled operation child lifecycle reaps child on premature exit and failed spawn',
+  async () => {
+    const prematureScript = `exit 42;`;
+    const children: ChildProcess[] = [];
+    try {
+      const proc1 = spawn(bash, ['--noprofile', '--norc', '-c', prematureScript], {
+        env: { PATH: process.env.PATH },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      children.push(proc1);
+
+      await expect(
+        waitForBarrier(proc1, 'LOCKED\n', { timeoutMs: 2000 }),
+      ).rejects.toThrow(/Process exited prematurely with code 42/i);
+
+      // Failed spawn
+      const procBad = spawn('synthetic-bad-command-does-not-exist-xyz');
+      children.push(procBad);
+      await expect(
+        waitForBarrier(procBad, 'LOCKED\n', { timeoutMs: 500 }),
+      ).rejects.toThrow();
+    } finally {
+      const reapStart = Date.now();
+      await reapChildProcesses(children);
+      expect(Date.now() - reapStart).toBeLessThan(2000);
+    }
+  },
+  5000,
 );
