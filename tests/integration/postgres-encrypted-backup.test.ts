@@ -290,6 +290,10 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
       expect(
         (await runScheduledBackup(database.pool, { ...options, backupClass: 'daily' })).status,
       ).toBe('skipped');
+      const programmaticArchives = (await readdir(archiveDirectory)).filter((name) =>
+        name.startsWith('backup_'),
+      );
+      expect(programmaticArchives).toHaveLength(1);
       const databaseFile = join(root, 'database');
       await writeFile(databaseFile, base, { mode: 0o600 });
       const config = operationsEnvironment();
@@ -471,6 +475,10 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
           ])
         ).rows,
       ).toEqual([{ state: 'verified' }]);
+      const cliArchives = (await readdir(archiveDirectory)).filter((name) =>
+        name.startsWith('backup_'),
+      );
+      expect(cliArchives).toHaveLength(2); // bootstrap backup + 1 daily backup (zero duplicate dump)
     } finally {
       await chmod(identityFile, 0o600).catch(() => undefined);
       await chmod(wrongIdentityFile, 0o600).catch(() => undefined);

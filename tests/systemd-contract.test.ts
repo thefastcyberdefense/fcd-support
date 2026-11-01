@@ -1,5 +1,5 @@
-import { spawn, spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { expect, test } from 'vitest';
@@ -475,35 +475,99 @@ test.runIf(native).each(['interrupted', 'malformed'])(
 );
 
 test.skipIf(process.platform === 'win32')(
-  'scheduled operation nonblocking flock concurrency barrier rejects concurrent activation and deduplicates slot',
+  'scheduled operation nonblocking flock concurrency barrier rejects concurrent activation through owning boundary',
   async () => {
-    const root = await mkdtemp(join('/tmp', 'fcd-flock-test-'));
+    const baseDir = existsSync('/run/fcd-support') ? '/run/fcd-support' : '/tmp';
+    const root = await mkdtemp(join(baseDir, 'fcd-flock-test-'));
     await chmod(root, 0o700);
+    const configRoot = join(root, 'config');
+    const secretRoot = join(root, 'secrets');
+    const stateRoot = join(root, 'state');
+    const socketRoot = join(root, 'socket');
+    await mkdir(configRoot, { mode: 0o700 });
+    await mkdir(secretRoot, { mode: 0o700 });
+    await mkdir(stateRoot, { mode: 0o700 });
+    await mkdir(socketRoot, { mode: 0o700 });
     const trace = join(root, 'job.trace');
-    const lock = join(root, 'deployment.lock');
+    await writeFile(trace, '', { mode: 0o600 });
+    const lock = join(stateRoot, 'deployment.lock');
     await writeFile(lock, '', { mode: 0o600 });
-    try {
-      // Process 1: Acquires real OS flock, signals via stdout, waits for stdin barrier, then records job and releases
-      const proc1Script = `
-source "$TASK_COMMON"
-declare -gA OPS_CONFIG=([FCD_STATE_ROOT]="$TASK_ROOT" [FCD_MAINTENANCE_SLOT_SECONDS]=300)
-lock="\${OPS_CONFIG[FCD_STATE_ROOT]}/deployment.lock"
-exec {OPS_LOCK_DESCRIPTOR}<>"$lock" || operations_fail operations_lock_invalid
-flock --nonblock "$OPS_LOCK_DESCRIPTOR" 2>/dev/null || operations_fail operations_lock_conflict
-printf 'LOCKED\\n'
-read -r line
-printf 'slot_1000\\n' >> "$TASK_TRACE"
-exec {OPS_LOCK_DESCRIPTOR}>&-
+    const configFile = join(configRoot, 'host.conf');
+    const confContent =
+      [
+        `FCD_SUPPORT_REVISION=${revision}`,
+        'FCD_SCHEMA_REVISION=000016',
+        `FCD_CONFIG_ROOT=${configRoot}`,
+        `FCD_SECRET_ROOT=${secretRoot}`,
+        `FCD_STATE_ROOT=${stateRoot}`,
+        `FCD_ADMIN_SOCKET_ROOT=${socketRoot}`,
+        'FCD_RUNTIME_PROJECT=fcd-support-test',
+        `FCD_SUPPORT_IMAGE=${image}`,
+        `FCD_OPERATIONS_IMAGE=${image}`,
+        `FCD_POSTGRES_IMAGE=${image}`,
+        'FCD_POSTGRES_DB=fcd_support_test',
+        'FCD_DATABASE_SCHEMA=public',
+        'FCD_DATABASE_ROLE_PREFIX=fcd_support',
+        'FCD_POSTGRES_VOLUME=fcd-support-test-db',
+        'FCD_BACKUP_VOLUME=fcd-support-test-backup',
+        'FCD_COMMAND_TIMEOUT_SECONDS=10',
+        'FCD_READY_TIMEOUT_SECONDS=10',
+        'FCD_STOP_GRACE_MS=1000',
+        'FCD_MAINTENANCE_SLOT_SECONDS=300',
+        'FCD_BACKUP_CALENDAR=*-*-* 02:00:00 UTC',
+        'FCD_MAINTENANCE_CALENDAR=*-*-* *:00/5:00 UTC',
+        'FCD_HEALTH_CALENDAR=*-*-* *:*:00 UTC',
+      ].join('\n') + '\n';
+    await writeFile(configFile, confContent, { mode: 0o600 });
+
+    const runnerScript = `
+source "$TASK_RUN_OPERATION"
+uname() { printf 'Linux\\n'; }
+operations_exact_revision() { :; }
+operations_socket_root() { :; }
+operations_docker() {
+  case "$*" in
+    *context\\ inspect*) printf 'unix:///var/run/docker.sock\\n' ;;
+    *image\\ inspect*) printf '%s/%s/linux/amd64\\n' "${image}" "$OPS_REVISION" ;;
+    *volume\\ inspect*)
+      if [[ "$*" == *Mountpoint* ]]; then printf '/var/lib/docker/volumes/fake/_data\\n';
+      else printf 'local/local/default\\n'; fi ;;
+    *) : ;;
+  esac
+}
+operations_selection_apply() {
+  declare -gA OPS_SELECTION=([STATE_PHASE]=ready [STATE_REVISION]="$OPS_REVISION" [STATE_SCHEMA_REVISION]="\${OPS_CONFIG[FCD_SCHEMA_REVISION]}" [STATE_WRITES_POSSIBLE]=yes [STATE_SYSTEM_IDENTIFIER]=1111111111111111111)
+}
+operations_retained_read() {
+  declare -gA OPS_RETAINED=([BUNDLE_SCHEMA_REVISION]="\${OPS_CONFIG[FCD_SCHEMA_REVISION]}" [BUNDLE_APPLICATION_IMAGE]="\${OPS_CONFIG[FCD_SUPPORT_IMAGE]}" [BUNDLE_OPERATIONS_IMAGE]="\${OPS_CONFIG[FCD_OPERATIONS_IMAGE]}" [BUNDLE_POSTGRES_IMAGE]="\${OPS_CONFIG[FCD_POSTGRES_IMAGE]}")
+}
+operations_execute_job() {
+  if [[ "\${TASK_BARRIER:-0}" == 1 ]]; then
+    printf 'LOCKED\\n'
+    read -r barrier
+    unset TASK_BARRIER
+  fi
+  printf '%s %s\\n' "$1" "$2" >> "$TASK_TRACE"
+  printf '{"status":"completed","processed":0,"reasonCode":"ok"}\\n'
+}
+operations_scheduled_main maintenance "$TASK_REVISION" "$TASK_CONFIG_FILE"
 `;
-      const proc1 = spawn(bash, ['--noprofile', '--norc', '-c', proc1Script], {
+
+    const children: ChildProcess[] = [];
+    try {
+      // Process 1: Real scheduler activation holding actual flock, signals via barrier
+      const proc1 = spawn(bash, ['--noprofile', '--norc', '-c', runnerScript], {
         env: {
           PATH: process.env.PATH,
-          TASK_COMMON: resolve('scripts/operations-common.sh').replaceAll('\\', '/'),
-          TASK_ROOT: root,
+          TASK_RUN_OPERATION: resolve('scripts/run-operation.sh').replaceAll('\\', '/'),
+          TASK_REVISION: revision,
+          TASK_CONFIG_FILE: configFile,
           TASK_TRACE: trace,
+          TASK_BARRIER: '1',
         },
         stdio: ['pipe', 'pipe', 'pipe'],
       });
+      children.push(proc1);
 
       let proc1Stderr = '';
       proc1.stderr.on('data', (data: Buffer) => {
@@ -512,34 +576,32 @@ exec {OPS_LOCK_DESCRIPTOR}>&-
 
       // Deterministic barrier: Wait until Process 1 confirmed holding the real flock
       await new Promise<void>((resolvePromise, rejectPromise) => {
-        proc1.stdout.once('data', (data: Buffer) => {
-          if (data.toString().includes('LOCKED')) resolvePromise();
-          else rejectPromise(new Error(`Unexpected output: ${data.toString()}`));
-        });
+        let stdoutBuffer = '';
+        const onData = (data: Buffer) => {
+          stdoutBuffer += data.toString('utf8');
+          if (stdoutBuffer.includes('LOCKED\n')) {
+            proc1.stdout.off('data', onData);
+            resolvePromise();
+          }
+        };
+        proc1.stdout.on('data', onData);
         proc1.once('error', rejectPromise);
         proc1.once('exit', (code) => {
-          if (code !== 0)
-            rejectPromise(
-              new Error(`Process 1 exited prematurely with code ${String(code)}: ${proc1Stderr}`),
-            );
+          rejectPromise(
+            new Error(`Process 1 exited prematurely with code ${String(code)}: ${proc1Stderr}`),
+          );
         });
       });
 
-      // Process 2: Attempts concurrent activation against the locked scope
-      const proc2Script = `
-source "$TASK_COMMON"
-declare -gA OPS_CONFIG=([FCD_STATE_ROOT]="$TASK_ROOT" [FCD_MAINTENANCE_SLOT_SECONDS]=300)
-lock="\${OPS_CONFIG[FCD_STATE_ROOT]}/deployment.lock"
-exec {OPS_LOCK_DESCRIPTOR}<>"$lock" || operations_fail operations_lock_invalid
-flock --nonblock "$OPS_LOCK_DESCRIPTOR" 2>/dev/null || operations_fail operations_lock_conflict
-printf 'UNSAFE_ENTERED_JOB\\n' >> "$TASK_TRACE"
-`;
-      const proc2 = spawnSync(bash, ['--noprofile', '--norc', '-c', proc2Script], {
+      // Process 2: Real scheduler activation against the locked scope; flock rejects nonblocking
+      const proc2 = spawnSync(bash, ['--noprofile', '--norc', '-c', runnerScript], {
         env: {
           PATH: process.env.PATH,
-          TASK_COMMON: resolve('scripts/operations-common.sh').replaceAll('\\', '/'),
-          TASK_ROOT: root,
+          TASK_RUN_OPERATION: resolve('scripts/run-operation.sh').replaceAll('\\', '/'),
+          TASK_REVISION: revision,
+          TASK_CONFIG_FILE: configFile,
           TASK_TRACE: trace,
+          TASK_BARRIER: '0',
         },
         encoding: 'utf8',
         timeout: 5000,
@@ -548,6 +610,7 @@ printf 'UNSAFE_ENTERED_JOB\\n' >> "$TASK_TRACE"
       // Assert Process 2 was refused immediately by flock without entering any job
       expect(proc2.status).toBe(1);
       expect(proc2.stderr.trim()).toBe('operations_lock_conflict');
+      expect(await readFile(trace, 'utf8')).toBe('');
 
       // Release Process 1 through the deterministic stdin barrier
       proc1.stdin.write('RELEASE\n');
@@ -558,65 +621,63 @@ printf 'UNSAFE_ENTERED_JOB\\n' >> "$TASK_TRACE"
       });
       expect(proc1Exit).toBe(0);
 
-      // Verify only Process 1 executed its slot
-      expect(await readFile(trace, 'utf8')).toBe('slot_1000\n');
+      // Verify Process 1 completed its 4 maintenance tasks
+      const jobsAfterProc1 = (await readFile(trace, 'utf8')).trim().split('\n');
+      expect(jobsAfterProc1).toEqual([
+        'maintenance retention',
+        'maintenance deletion',
+        'maintenance lease_recovery',
+        'maintenance learning',
+      ]);
 
-      // Process 3: After release, subsequent activation acquires lock and executes new slot
-      const proc3Script = `
-source "$TASK_COMMON"
-declare -gA OPS_CONFIG=([FCD_STATE_ROOT]="$TASK_ROOT" [FCD_MAINTENANCE_SLOT_SECONDS]=300)
-lock="\${OPS_CONFIG[FCD_STATE_ROOT]}/deployment.lock"
-exec {OPS_LOCK_DESCRIPTOR}<>"$lock" || operations_fail operations_lock_invalid
-flock --nonblock "$OPS_LOCK_DESCRIPTOR" 2>/dev/null || operations_fail operations_lock_conflict
-printf 'slot_2000\\n' >> "$TASK_TRACE"
-exec {OPS_LOCK_DESCRIPTOR}>&-
-`;
-      const proc3 = spawnSync(bash, ['--noprofile', '--norc', '-c', proc3Script], {
+      // Process 3: After release, subsequent scheduler activation acquires lock and succeeds
+      const proc3 = spawnSync(bash, ['--noprofile', '--norc', '-c', runnerScript], {
         env: {
           PATH: process.env.PATH,
-          TASK_COMMON: resolve('scripts/operations-common.sh').replaceAll('\\', '/'),
-          TASK_ROOT: root,
+          TASK_RUN_OPERATION: resolve('scripts/run-operation.sh').replaceAll('\\', '/'),
+          TASK_REVISION: revision,
+          TASK_CONFIG_FILE: configFile,
           TASK_TRACE: trace,
+          TASK_BARRIER: '0',
         },
         encoding: 'utf8',
         timeout: 5000,
       });
       expect(proc3.status).toBe(0);
-      expect(await readFile(trace, 'utf8')).toBe('slot_1000\nslot_2000\n');
-
-      // Process 4: Repeated slot 1000 deduplication: slot already executed in catalog returns skipped/not_due
-      const proc4Script = `
-source "$TASK_COMMON"
-declare -gA OPS_CONFIG=([FCD_STATE_ROOT]="$TASK_ROOT" [FCD_MAINTENANCE_SLOT_SECONDS]=300)
-lock="\${OPS_CONFIG[FCD_STATE_ROOT]}/deployment.lock"
-exec {OPS_LOCK_DESCRIPTOR}<>"$lock" || operations_fail operations_lock_invalid
-flock --nonblock "$OPS_LOCK_DESCRIPTOR" 2>/dev/null || operations_fail operations_lock_conflict
-if grep -q "slot_1000" "$TASK_TRACE"; then
-  printf '{"status":"skipped","processed":0,"reasonCode":"not_due"}\\n'
-else
-  printf 'slot_1000\\n' >> "$TASK_TRACE"
-fi
-exec {OPS_LOCK_DESCRIPTOR}>&-
-`;
-      const proc4 = spawnSync(bash, ['--noprofile', '--norc', '-c', proc4Script], {
-        env: {
-          PATH: process.env.PATH,
-          TASK_COMMON: resolve('scripts/operations-common.sh').replaceAll('\\', '/'),
-          TASK_ROOT: root,
-          TASK_TRACE: trace,
-        },
-        encoding: 'utf8',
-        timeout: 5000,
-      });
-      expect(proc4.status).toBe(0);
-      expect(JSON.parse(proc4.stdout.trim())).toEqual({
-        status: 'skipped',
-        processed: 0,
-        reasonCode: 'not_due',
-      });
-      // Trace file remains strictly slot_1000 and slot_2000 with zero duplicate slot_1000 entries
-      expect(await readFile(trace, 'utf8')).toBe('slot_1000\nslot_2000\n');
+      const jobsAfterProc3 = (await readFile(trace, 'utf8')).trim().split('\n');
+      expect(jobsAfterProc3).toHaveLength(8);
     } finally {
+      for (const child of children) {
+        if (child.exitCode === null && child.signalCode === null) {
+          try {
+            child.kill('SIGTERM');
+          } catch {
+            // ignore
+          }
+        }
+      }
+      await Promise.all(
+        children.map(
+          (child) =>
+            new Promise<void>((resolveChild) => {
+              if (child.exitCode !== null || child.signalCode !== null) {
+                resolveChild();
+                return;
+              }
+              const timer = setTimeout(() => {
+                try {
+                  child.kill('SIGKILL');
+                } catch {
+                  // ignore
+                }
+              }, 2000);
+              child.once('exit', () => {
+                clearTimeout(timer);
+                resolveChild();
+              });
+            }),
+        ),
+      );
       await rm(root, { recursive: true, force: true });
     }
   },

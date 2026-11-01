@@ -100,6 +100,7 @@ OPS="$SCOPE-operations:$REVISION"
 APP="$SCOPE-application:$REVISION"
 RUNNER="$SCOPE-runner:$REVISION"
 VOLUME="$SCOPE-backups"
+RO_VOLUME="$SCOPE-ro-backups"
 RESTORE_NETWORK="$SCOPE-restore"
 RESTORE_VOLUME="$SCOPE-postgres"
 cleanup() {
@@ -110,6 +111,9 @@ cleanup() {
   done
   if [[ "$(docker volume inspect --format '{{index .Labels "fcd-support.backup-test"}}' "$VOLUME" 2>/dev/null || true)" == "$SCOPE" ]]; then
     docker volume rm "$VOLUME" >/dev/null 2>&1 || true
+  fi
+  if [[ "$(docker volume inspect --format '{{index .Labels "fcd-support.backup-test"}}' "$RO_VOLUME" 2>/dev/null || true)" == "$SCOPE" ]]; then
+    docker volume rm "$RO_VOLUME" >/dev/null 2>&1 || true
   fi
   if [[ "$(docker volume inspect --format '{{index .Labels "fcd-support.backup-test"}}' "$RESTORE_VOLUME" 2>/dev/null || true)" == "$SCOPE" ]]; then
     docker volume rm "$RESTORE_VOLUME" >/dev/null 2>&1 || true
@@ -142,6 +146,42 @@ if [[ "$MODE" == restore ]]; then bash "$ROOT/scripts/test-restore-alias-docker.
 docker build --platform linux/amd64 --file "$NATIVE_ROOT/infra/Dockerfile.integration" --tag fcd-support-integration-test:local "$NATIVE_ROOT" >/dev/null 2>&1 || { echo backup_dependencies_build_failed >&2; exit 1; }
 docker build --platform linux/amd64 --build-arg "OPERATIONS_IMAGE=$OPS" --file "$NATIVE_ROOT/infra/Dockerfile.backup-test" --tag "$RUNNER" "$NATIVE_ROOT" >/dev/null 2>&1 || { echo backup_runner_build_failed >&2; exit 1; }
 docker volume create --label "fcd-support.backup-test=$SCOPE" "$VOLUME" >/dev/null
+docker volume create --label "fcd-support.backup-test=$SCOPE" "$RO_VOLUME" >/dev/null
+docker run --rm --label "fcd-support.backup-test=$SCOPE" \
+  --mount "type=volume,src=$RO_VOLUME,dst=/var/lib/fcd-support/ro-backups" \
+  --user 1000:1000 \
+  --entrypoint node \
+  "$RUNNER" -e '
+    const fs = require("node:fs");
+    const path = require("node:path");
+    const crypto = require("node:crypto");
+    const roRoot = "/var/lib/fcd-support/ro-backups";
+    const backupRef = "backup_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const dir = path.join(roRoot, backupRef);
+    fs.mkdirSync(dir, { mode: 0o700, recursive: true });
+    const dump = Buffer.from("synthetic_dump");
+    fs.writeFileSync(path.join(dir, "archive.age"), dump, { mode: 0o600 });
+    const ciphertextSha256 = crypto.createHash("sha256").update(dump).digest("hex");
+    const unsigned = {
+      backupRef,
+      createdAt: "2030-01-01T00:00:00.000Z",
+      class: "daily",
+      gitRevision: "a".repeat(40),
+      schemaRevision: "000014",
+      ciphertextBytes: dump.length,
+      ciphertextSha256,
+      state: "created"
+    };
+    const key = Buffer.from("synthetic_manifest_hmac_".repeat(3));
+    const hmac = crypto.createHmac("sha256", key)
+      .update("fcd-support:backup:v1\n")
+      .update(JSON.stringify(unsigned))
+      .digest("hex");
+    const manifest = { ...unsigned, signature: hmac };
+    fs.writeFileSync(path.join(dir, "manifest.json"), JSON.stringify(manifest) + "\n", { mode: 0o600 });
+    fs.chmodSync(dir, 0o700);
+    fs.chmodSync(roRoot, 0o700);
+  ' >/dev/null
 if [[ "$MODE" == restore ]]; then
   docker network create --internal --label "fcd-support.backup-test=$SCOPE" "$RESTORE_NETWORK" >/dev/null
   docker volume create --label "fcd-support.backup-test=$SCOPE" "$RESTORE_VOLUME" >/dev/null
@@ -180,6 +220,7 @@ docker "${launch[@]}" --name "$SCOPE-$job" --label "fcd-support.backup-test=$SCO
   --tmpfs "$temporary_mount" \
   --tmpfs /workspace/node_modules/.vite-temp:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0700,size=16m \
   --mount "type=volume,src=$VOLUME,dst=/var/lib/fcd-support/backups" \
+  --mount "type=volume,src=$RO_VOLUME,dst=/var/lib/fcd-support/ro-backups,readonly" \
   --mount "type=bind,src=$NATIVE_ROOT/src,dst=/workspace/src,readonly" \
   --mount "type=bind,src=$NATIVE_ROOT/scripts,dst=/workspace/scripts,readonly" \
   --mount "type=bind,src=$NATIVE_ROOT/infra,dst=/workspace/infra,readonly" \
@@ -195,6 +236,7 @@ docker "${launch[@]}" --name "$SCOPE-$job" --label "fcd-support.backup-test=$SCO
   --env "RUN_ISOLATED_RESTORE_TESTS=$([[ "$MODE" == restore ]] && echo synthetic-isolated-cluster-only || true)" \
   --env RESTORE_TEST_DATABASE_URL=postgresql://fcd_support_test@restore-postgres:5432/postgres \
   --env BACKUP_TEST_ARCHIVE_ROOT=/var/lib/fcd-support/backups \
+  --env BACKUP_TEST_READONLY_ARCHIVE_ROOT=/var/lib/fcd-support/ro-backups \
   "${extra_environment[@]}" \
   "$RUNNER" "$@"
 if [[ "$MODE" == restore && "$job" == integration ]]; then
