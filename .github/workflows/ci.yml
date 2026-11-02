@@ -38,3 +38,4 @@ jobs:
           python3 -B docs/operations/actions/2026-10-31-peer-recovery-test.py
           python3 -B docs/operations/actions/2026-10-31-rollback-after-reboot-test.py
           python3 -B docs/operations/actions/2026-10-31-current-runtime-recovery-test.py
+          python3 -B docs/operations/actions/2026-11-02-final-server-test.py

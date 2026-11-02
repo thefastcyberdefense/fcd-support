@@ -2096,3 +2096,78 @@ restore original preservation, attribute the seven older missing actors or
 settle any SQL uncertainty. Keep the actor-loss incident open separately. The
 application source remains clean `67a4a4b`; Phase 6 local failure-matrix/gate work
 continues through the published AGY checklist.
+
+### Task 16: final local-gate source, fresh isolated project (2026-11-02)
+
+The local P6 gate now passes; see `docs/reviews/phase-6-gate.md` and the PR #5
+integration review. The old deployment/readiness statements above remain
+historical. Fresh read-only checks find its API/reply/PostgreSQL healthy and
+admin restarting/unhealthy. Do not replay the completed old recovery action.
+
+The exact selected application source is
+`6d0210ddee6c333b6ce803370392a0818f5f3d29`. It has the tested implementation
+tree from `9f76455`, through mainline merge `c74b6f4`. The one-use action is
+`docs/operations/actions/2026-11-02-final-server.py`, reviewed in
+`docs/reviews/2026-11-02-task-16-action.md`. Its SHA256 is
+`78e4a6e8b8f6b2cf738779e4e95ece3ba14750fb9a6487d314002f3cb8181e87`.
+Commit/push this record and action before mutation.
+
+Owner authorization is the existing instruction to keep deploying/redeploying
+the isolated test project on this server, with delegated decisions and explicit
+protection of other projects. This concrete scope affects only new project
+`fcd-support-host-test-p6-6d0210d`, private fixture root
+`/home/redwan/fcd-support-host-test-p6-6d0210d` and action root
+`/home/redwan/fcd-support-p6-final-6d0210d`. It adds eight empty, exclusively
+labelled bridges (198.19.32.0/24 through 198.19.39.0/24), new pinned images,
+fresh database/backups and a private inert ingress peer. Existing admission,
+restored databases, uncertain scopes and all other projects remain untouched.
+
+The action checks all IPv4 route tables/interface/Docker subnets, source binds,
+capacity, unit/resource absence, old locks and preserved metadata. It fetches
+and checks out the selected source without editing/copying application code on
+Ubuntu, extracts a private Node 24.18.0 binary from the pinned official image,
+and invokes the existing synthetic-precreated deployment harness. System Node
+24.16.0 remains unchanged. Models/outbound/n8n remain disabled; no live provider
+credentials are provisioned or reused.
+
+After deploy it adds the already documented customizable scheduler settings to
+this new protected configuration, executes backup/replay, maintenance and health,
+renders/validates the four units and verifies the runtime. All long commands
+have bounded owned-process-group cleanup; logs stay private and are not pasted
+or committed. The review records 15 passing real-Linux hermetic tests and
+12 passing Windows guards/three Unix-only skips, including RED/GREEN fixes.
+
+From the clean local checkout, verify the hash, then run the exact committed
+action with host-key checking intact:
+
+```powershell
+$taskSource = '6d0210ddee6c333b6ce803370392a0818f5f3d29'
+$taskPath = 'docs/operations/actions/2026-11-02-final-server.py'
+if ((Get-FileHash -Algorithm SHA256 -LiteralPath $taskPath).Hash.ToLowerInvariant() -ne '78e4a6e8b8f6b2cf738779e4e95ece3ba14750fb9a6487d314002f3cb8181e87') { throw 'Action changed' }
+$taskAction = Get-Content -LiteralPath $taskPath -Raw
+$taskAction | ssh -T -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=yes redwan@192.168.10.40 "python3 - --inspect $taskSource"
+if ($LASTEXITCODE -ne 0) { throw 'Admission refused' }
+$taskAction | ssh -T -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=yes redwan@192.168.10.40 "python3 - --deploy $taskSource"
+if ($LASTEXITCODE -ne 0) { throw 'Deployment refused; preserve evidence and stop' }
+$taskAction | ssh -T -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=yes redwan@192.168.10.40 "python3 - --audit $taskSource"
+```
+
+No failed or interrupted deployment is automatically retried. The action root
+and fresh resources remain evidence; there is no old SQL settlement, VM/Docker
+restart or global cleanup. The old stack remains the retained fallback. A
+compatible ready-state rollback, if separately needed after review, uses only
+the public `rollback-runtime.sh` with the exact selected revision/configuration
+and `--confirm-schema-compatible`; it never switches to an old uncertain volume.
+
+Host timer installation is **not executed or claimed** by the non-privileged
+action. Noninteractive sudo is unavailable. After successful rendering, the
+operator must inspect the exact files under the action root's `units` directory
+and install only those absent template/timer names with root ownership/mode
+0644, then daemon-reload and enable the three timers. A collision or permission
+problem stops this step; do not overwrite another unit or weaken hardening.
+
+Task 16 also still requires real SSH loopback forwarding to this new fixture's
+`socket/admin.sock`, private login/origin verification and the consolidated
+handoff. A successful non-privileged deploy alone does not complete these steps,
+install timers, establish provider readiness or close the actor-loss incident.
+Execution evidence will be appended only after actual commands finish.
