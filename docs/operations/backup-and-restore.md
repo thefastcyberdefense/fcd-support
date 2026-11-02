@@ -16,7 +16,9 @@ Only a completed authenticated manifest makes an archive eligible. Verification
 uses a separate restricted role and private identity. Incomplete ciphertext,
 wrong keys, malformed manifests, full/read-only storage and timeouts fail closed.
 Pruning validates required replacements first and retains the configured daily
-and monthly copies independently. Never prune in response to a failed backup.
+and monthly copies independently using the source configuration settings
+`FCD_BACKUP_RETAIN_DAYS` and `FCD_BACKUP_RETAIN_MONTHS`. Never prune in response to
+a failed backup.
 
 Keep archive ownership, verification-identity availability and capacity under
 operator review. Record metadata-only restore drills at least quarterly, using
@@ -54,7 +56,8 @@ the existing mounted archive volume and tmpfs; policy limits stay configurable.
 
 Imported outbound work remains quarantined and restored conversations retain a
 recovery hold. Apply every unexpired tombstone, including deletions after the
-archive. Historical restore evidence is descriptive and does not select storage,
+archive, verified through the fresh deletion checkpoint (`tests/deletion-checkpoint.test.ts`).
+Historical restore evidence is descriptive and does not select storage,
 resume conversations or prove that promotion is currently safe.
 
 ## Promote only after fresh proof
@@ -73,8 +76,10 @@ be treated as fresh authorization.
 The controller records switching before replacing the exact verified database
 actors. It retains both volumes, starts the selected database privately and
 reruns role/schema/identity/runtime checks. Future bootstrap uses the distinct
-restored-owner URI. Failure preserves uncertainty and does not automatically
-switch back to the source volume after writes may have occurred.
+restored-owner URI. Compatible rollback is strictly limited: rollbacks verify that
+the recorded schema matches exactly, refusing to down-migrate or automatically
+switch back to the source volume after potential writes. Failure preserves uncertainty
+and does not automatically switch back to the source volume after writes may have occurred.
 
 ## Stop and investigate
 

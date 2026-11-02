@@ -76,7 +76,11 @@ gateway, expose a private service, weaken limits, or send customer traffic.
 
 ## Current status
 
-The repository proves the contracts locally with synthetic fakes and isolated
-PostgreSQL tests. It has not disabled live Manifest recording, attached the
-application to Manifest's network, deployed this Phase 4 worker/admin build, or
-made a live model/provider call.
+Phase 6 packaging, private controller, socket transport (`/run/fcd-support-admin/admin.sock`),
+and test suites are implemented and validated locally and in CI (PR #3 `df8e52d`,
+PR #4 `c74b6f4`). The repository proves all contracts with synthetic fakes,
+isolated PostgreSQL tests, and Linux socket permissions/preflight suites.
+However, live Manifest recording-off attestation, real Manifest network attachment,
+live n8n workflow deployment, and live LLM inference calls remain strictly
+deferred to Phase 7 (P7-005, P7-006). Models remain disabled in the private
+deployment (`--mode private-disabled`).

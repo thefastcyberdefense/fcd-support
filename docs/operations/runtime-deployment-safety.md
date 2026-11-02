@@ -2,7 +2,14 @@
 
 ## Implementation Status
 
-This is an intermediate Task 11 checkpoint, not a deployment or restore gate pass.
+Phase 6 runtime and operational failure controls are implemented and validated
+across local and CI suites (Task 11 complete; Tasks 12–15 complete via PR #3
+`df8e52d` and PR #4 `c74b6f4`). Main is clean and synchronized at `bd3a09a`.
+However, final server deployment (Task 16) and P6-GATE review remain open under
+Codex authority; local and CI passes do not constitute a live server deployment
+or restore gate pass. Historical server records (`67a4a4b`, `3f22344`, `d96382d`)
+represent bounded historical test drills on the isolated test project, not a claim
+that the production server is updated or healthy.
 
 ### Optional isolated restore subnet
 

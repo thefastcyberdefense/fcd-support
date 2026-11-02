@@ -81,7 +81,8 @@ The following items are explicitly excluded from AGY local implementation and re
 
 - **Documented By:** Antigravity (AGY)
 - **Worktree:** `J:\DevDrive\fcd-support-agy-failure-matrix`
-- **Branch:** `codex/agy-p6-failure-matrix`
-- **Base Revision:** `2772d624c37411ebc75959407cd8416d098e732c`
-- **Merged Latest Main:** `0a37a637aa63d33ea0cba30b540ea02a8a25cd48`
-- **Primary Checkout Untouched:** `J:\DevDrive\fcd-support` on `main` at `0a37a637aa63d33ea0cba30b540ea02a8a25cd48`.
+- **Branch:** `codex/agy-p6-gate-evidence`
+- **PR #3 Integration:** `df8e52dbe59e0013ab28a5790b21c9785324b2f0` (tested source `78013148751a493a6f8859bc6d3ee9628cb954d6`)
+- **PR #4 Integration:** `c74b6f4314e17fe707ba5e3f02a183d1ebe9b9fd` (tested source `9f76455be443a527ce58725fa574e7324631fd4d`)
+- **Synchronized Main Base:** `bd3a09a1f5ade5bdfa17a3df1e0fab6498f1538a`
+- **Primary Checkout Untouched:** `J:\DevDrive\fcd-support` on `main` at `bd3a09a1f5ade5bdfa17a3df1e0fab6498f1538a`.

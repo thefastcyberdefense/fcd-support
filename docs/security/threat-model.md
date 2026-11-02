@@ -42,8 +42,9 @@ audit or an Ubuntu deployment result.
   device/inode/type/owner causes dedicated-process termination without Node's
   pathname-unlink cleanup. CLI lifecycle tests prove a replacement survives.
   Evidence: `src/admin/admin-socket.ts:88`; `src/admin/admin-runtime.ts:79`;
-  `src/admin-main.ts`; `tests/admin-socket.test.ts`. Explicit stale recovery is
-  still Task 11 work; it is not currently implemented or server-authorized.
+  `src/admin-main.ts`; `tests/admin-socket.test.ts`; `tests/admin-socket-recovery.test.ts`.
+  Explicit stale recovery was implemented in Task 11 (`scripts/recover-admin-socket.sh`)
+  and verified in separately authorized historical drill `4c51898` / `d96382d`.
 - **Trust and proof limits:** root and the designated owning host UID remain
   trusted; no protection against those actors' concurrent mutation is claimed.
   Windows authoring TCP/legacy container mode remains supported but is not an
