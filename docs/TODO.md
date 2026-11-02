@@ -2,6 +2,19 @@
 
 ## Current Phase 6 checkpoint
 
+- **PR #5 requires corrections; draft remains unmerged.** Exact submitted
+  `d821b24` passes all four workflows, Phase 0 and diff checks, but independent
+  review finds false operator commands/settings, incorrect topology/task
+  mapping and evidence citations. Forced Markdown formatting fails three files.
+  AGY should now use
+  `docs/handoffs/2026-11-02-antigravity-pr-5-review-fixes.md`. No new routine
+  approval is needed. Review: `docs/reviews/2026-11-02-pr-5-evidence-review.md`.
+- **Fresh local topology PASS** on exact `bd3a09a`: full four-Compose-profile
+  harness, 9 allowed/20 denied including multihomed ordinary egress, Unix-only
+  admin/UID checks, exit 0 in 157.32 seconds and zero scoped Docker leftovers.
+  See `docs/testing/2026-11-02-phase-6-local-topology.md`. No shared-server,
+  live provider, Meta, tunnel or production action ran. The actor-loss incident
+  stays open and contained; no old SQL/state was settled or reconstructed.
 - **Task 11 COMPLETE** for implementation and the bounded successful server
   drill at application `67a4a4b`: public restore/promotion/verify, compatible
   same-revision retained rollback/verify, and the separate `3f22344` action audit
@@ -21,11 +34,12 @@
   parent-range override is accepted with bounded migration/
   restore compatibility evidence, not an upstream-support guarantee. See
   `docs/reviews/2026-11-01-pr-4-integration.md`. No server patch was deployed.
-- Task 15 still needs operator-guide/acceptance/threat-model consolidation and
-  the independent aggregate gate; Task 16's final server handoff follows.
-  AGY can start now with
-  `docs/handoffs/2026-11-01-antigravity-phase-6-evidence-pack.md`
-  on a fresh branch from synchronized main. No new routine approval is
+- Task 15 still needs acceptance of corrected operator-guide/acceptance/
+  threat-model consolidation and the independent aggregate gate; Task 16's
+  final server handoff follows. AGY can start corrections now with
+  `docs/handoffs/2026-11-02-antigravity-pr-5-review-fixes.md`
+  on the existing isolated `codex/agy-p6-gate-evidence` branch, merging current
+  synchronized main and updating PR #5. No new routine approval is
   needed. No SSH, server, live-provider or production action ran this turn.
 - After a later guest reboot, seven older stopped actors were found missing;
   volumes/state files remain. The actor-loss incident stays OPEN without reconstruction or SQL
