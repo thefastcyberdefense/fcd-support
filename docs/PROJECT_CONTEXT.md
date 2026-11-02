@@ -2,6 +2,34 @@
 
 Last reviewed: 2026-11-02 (Asia/Dhaka)
 
+**P6-GATE PASS for local implementation and validation; Task 16 remains open.**
+PR #5 is merged as `157e9e26fc62183fe6f6b859803d35d9b14aee51`, with the exact
+same tree as final reviewed `cbf3f2b6fddd7f87ec868a37e3d8753e964bf7a1`.
+Codex directly finished the remaining provenance/link/deferral/status fixes.
+All four exact-head workflows, forced formatting of eleven documents, Phase 0,
+Git/citation/link checks and targeted secret checks pass. Two independent
+reviews find no remaining local exit gap after the executed full topology
+matrix. Task 15 and P6-004/005/006 are COMPLETE under the owner's delegated
+local approval authority. See `docs/reviews/phase-6-gate.md` and
+`docs/reviews/2026-11-02-pr-5-integration.md`.
+
+Task 16 still owns final-source server deployment, private SSH/admin checks,
+health/timer installation and handoff. New read-only server checks find clean
+old source `67a4a4b`, API/reply/PostgreSQL healthy, admin restarting/unhealthy,
+19,366 MiB free disk and 11,028 MiB available memory. No timers are installed;
+passwordless sudo is unavailable. Host Node is 24.16.0. Plan a fresh isolated
+project and private pinned toolchain; preserve old databases, uncertain scopes,
+all other projects and the open actor-loss incident. No fresh SSH forwarding
+success or server deployment is claimed.
+
+AGY can independently automate the existing full topology harness in disposable
+GitHub Actions using `docs/handoffs/2026-11-02-antigravity-topology-ci.md`.
+That follow-up does not reopen the local gate or block Task 16. Codex retains
+server work and will fix remaining blockers directly. No provider, Meta,
+tunnel, production or shared-server service mutation ran during this review.
+
+### Earlier PR #5 correction checkpoint
+
 **PR #5 is reviewed; corrections are required before merge and P6-GATE.**
 Submitted `d821b246bad61ae3a23f923f7a491bbc8fd1964b` changes ten documents.
 All four exact-head workflows, Phase 0 and diff checks pass. Independent

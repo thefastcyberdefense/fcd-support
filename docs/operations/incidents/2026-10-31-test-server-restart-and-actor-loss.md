@@ -1,7 +1,9 @@
 # Test server restart and missing stopped actors
 
 Date: 2026-10-31 (Asia/Dhaka).
-Status: **OPEN for older actor loss/attribution. Current private fcd-support readiness is restored; original preservation is not restored.**
+Status: **OPEN for older actor loss/attribution. Readiness restored at d96382d
+is historical; the 2026-11-02 read-only preflight finds admin unhealthy again.
+Original preservation is not restored.**
 
 ## Post-reboot observations before scoped repair
 
@@ -116,3 +118,25 @@ The new audit proves preservation of the current surviving inventory during this
 scoped repair. It does not restore the original actor set, attribute prior cleanup
 or settle uncertain SQL. Keep this incident OPEN for that separate disposition.
 Task 11's bounded closeout stands; aggregate Phase 6 gates remain unfinished.
+
+## Later read-only observation: 2026-11-02
+
+Fresh checks find the retained `67a4a4b` checkout clean. API/reply/PostgreSQL
+are running and healthy; its admin is restarting/unhealthy (580 restarts at
+the first observation). All three retained admission actors are running.
+No previous completion marker is rewritten and no repair is replayed.
+These observations supersede the earlier readiness statement for current use;
+they do not invalidate the bounded historical execution.
+
+The independently reviewed local P6 gate now passes after PR #5 correction and
+the full local topology execution. That local result does not repair this
+server or resolve missing actors. The incident remains contained: retained
+volumes, journals, baselines, surviving actors and uncertain scopes are not
+reconstructed, cleared or settled. Attribution is not required for unrelated
+fresh isolated local validation.
+
+Task 16 preparation prefers a fresh synthetic project, preserving the retained
+stack and all unrelated projects. Any tolerance for the observed exact admin
+restart cycle must be explicit and bounded to that actor; it must not permit
+other state/topology changes or replace original preservation evidence. No
+new server mutation has run at this checkpoint.
