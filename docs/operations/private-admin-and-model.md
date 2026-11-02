@@ -12,11 +12,10 @@ The intended self-hosted layout is:
 
 - public edge to the exact webhook ingress network only;
 - API and tunnel on the dedicated ingress network;
-- API/worker and PostgreSQL on the private data network;
-- model worker and Manifest on a separate private model network;
-- fcd-support-admin bound to loopback or an explicitly approved private
-  management network only; and
-- no PostgreSQL or Manifest host port and no public admin route.
+- API, workers, admin, and PostgreSQL on dedicated per-role internal database bridges (`webhook_data`, `admin_data`, `reply_data`, `outbound_data`, `notification_data`, `operations_data`);
+- model worker attached to the separate private model overlay network (`infra/compose.model.yml`) only when explicitly enabled;
+- fcd-support-admin listening strictly on a private mode-`0600` Unix socket at `${FCD_ADMIN_SOCKET_ROOT}/admin.sock` (container mount `/run/fcd-support-admin/admin.sock`) with no TCP listener, no management network, and no host port; remote administrative access is via SSH loopback forward to that host socket path; and
+- zero PostgreSQL, admin, or Manifest host ports published to Docker or the host.
 
 The continuously exposed webhook does not make the dashboard or model gateway
 public. When the local server or tunnel is unavailable, Meta cannot deliver
@@ -76,11 +75,12 @@ gateway, expose a private service, weaken limits, or send customer traffic.
 
 ## Current status
 
-Phase 6 packaging, private controller, socket transport (`/run/fcd-support-admin/admin.sock`),
-and test suites are implemented and validated locally and in CI (PR #3 `df8e52d`,
-PR #4 `c74b6f4`). The repository proves all contracts with synthetic fakes,
-isolated PostgreSQL tests, and Linux socket permissions/preflight suites.
-However, live Manifest recording-off attestation, real Manifest network attachment,
-live n8n workflow deployment, and live LLM inference calls remain strictly
-deferred to Phase 7 (P7-005, P7-006). Models remain disabled in the private
-deployment (`--mode private-disabled`).
+Phase 6 packaging, private controller, socket transport, and test suites are
+implemented and validated locally and in CI (PR #3 `df8e52d`, PR #4 `c74b6f4`).
+The repository proves all contracts with synthetic fakes, isolated PostgreSQL
+tests, and Linux socket permissions/preflight suites. Packaged admin is Unix-only
+via `${FCD_ADMIN_SOCKET_ROOT}/admin.sock` (mounted in-container at
+`/run/fcd-support-admin/admin.sock`). Live Manifest recording-off attestation,
+real Manifest network attachment, and live LLM inference calls remain strictly
+deferred to Phase 7 (P7-005). Models remain disabled in the private deployment
+(`--mode private-disabled`).

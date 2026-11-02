@@ -36,17 +36,17 @@ Use these exact public interfaces with real approved parameters:
 bash scripts/deploy-runtime.sh FULL_REVISION --mode private-disabled CONFIG_PATH
 bash scripts/verify-runtime.sh FULL_REVISION CONFIG_PATH
 bash scripts/rollback-runtime.sh FULL_RETAINED_REVISION --confirm-schema-compatible CONFIG_PATH
-bash scripts/operations-drain.sh FULL_REVISION CONFIG_PATH
 ```
 
 The host flock serializes operations. Durable selection, immutable volume/image
 history and a separate job journal preserve uncertainty across interruption.
 Fresh initialization refuses pre-existing storage or interrupted intent.
 Updating an existing database verifies ownership/storage before stopping apps,
-drains only verified actors using the safe drain procedure (`scripts/operations-drain.sh`),
-verifies a pre-migration encrypted archive and applies forward transactional migrations.
-Startup checks physical identity, schema, roles, deployment metadata, socket and
-actual Docker topology.
+executes the internal controlled drain procedure (`scripts/operations-drain.sh`,
+sourced by the controller) to verify and drain only expected actors before container
+teardown, verifies a pre-migration encrypted archive and applies forward transactional
+migrations. Startup checks physical identity, schema, roles, deployment metadata,
+socket and actual Docker topology.
 
 Rollback uses retained images and the selected database only when the recorded
 schema exactly matches. It does not rebuild an old revision, down-migrate or
@@ -73,13 +73,14 @@ separately before it can be considered validated there.
 ## Private dashboard and socket recovery
 
 Admin listens only on the owned mode-`0600` Unix socket under its independently
-provisioned mode-`0700` directory (`/run/fcd-support-admin/admin.sock`). Runtime services
-publish no Docker host ports. Remote administration uses the separately verified SSH
-loopback-TCP-to-remote-Unix forward (e.g., forwarding `127.0.0.1:LOCAL_PORT` to
-`/run/fcd-support-admin/admin.sock`). The SSH client loopback forward does not publish
-or create a server Docker port. The browser port and origin must match the admin
-configuration; retaining host-key checks, authentication, MFA, session checks,
-CSRF and signed actions is required.
+provisioned mode-`0700` directory. Runtime services publish no Docker host ports.
+Remote administration uses the separately verified SSH loopback-TCP-to-remote-Unix
+forward to the configured host socket `${FCD_ADMIN_SOCKET_ROOT}/admin.sock` (which the
+container mounts at `/run/fcd-support-admin/admin.sock`). The SSH client loopback
+forward does not publish or create a server Docker port, and synthetic-forward
+proofs do not replace real SSH host forwarding checks. The browser port and origin
+must match the admin configuration; retaining host-key checks, authentication,
+MFA, session checks, CSRF and signed actions is required.
 
 A stale or substituted socket blocks startup. Only this separate command may
 remove a freshly verified stale socket belonging to the verified stopped actor:

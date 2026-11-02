@@ -1178,8 +1178,10 @@ permissions or deployment-lock preflight. No application attachment occurs.
 
 `restoreAndReconcile` is an internal operations-plane function, not a host handler.
 It returns historical `deletion_verified` evidence, never `ready`. The selected
-archive's catalog lifecycle remains unchanged. The public restore/promotion
-commands and operations CLI do not invoke this composition yet.
+archive's catalog lifecycle remains unchanged. (Historical prerequisite note: at this
+prerequisite stage, public restore/promotion commands were not yet wired; Task 11
+subsequently completed and wired them into `scripts/restore-runtime.sh` and
+`scripts/promote-restore.sh`).
 
 The function binds the stream destination URI, actual migration-owning PostgreSQL
 connection and reconciliation connection to the same expected cluster/database.
@@ -1236,9 +1238,11 @@ the binding and migration registry entry. No production down migration is enable
 `PostgresRestoreEvidence.load` returns historical evidence, including
 `recoveryHeldAtSeal`, not a claim that recovery remains held now. Neither loading
 nor copying that record authorizes attachment. The internal `verifyPromotion`
-prerequisite below now refreshes the database proof. Fresh host inspection and
-quiescence wiring, failure-safe switching and private-disabled startup remain unfinished. Human
-policy review is still required before external execution after a switch.
+prerequisite below now refreshes the database proof. (Historical prerequisite note:
+at this checkpoint, host inspection, quiescence wiring and switching were subsequent
+Task 11 deliverables, later completed in the bounded Task 11 server drill; Task 16
+server rollout remains open). Human policy review is still required before external
+execution after a switch.
 
 ### Fresh Promotion Verification
 
@@ -1271,9 +1275,10 @@ exhausted batch bound rolls back all fresh evidence/erasure.
 
 The returned `{status:'ready'}` is an internal result for that still-quiesced
 operation, not a transferable token, saved approval or Docker attachment.
-No public promotion controller invokes it yet. Docker inspection and the
-quiescence implementation must be wired and rechecked through failure-safe
-switching before any application attachment. No external-execution flag is
+(Historical prerequisite note: public promotion controller invocation was subsequently
+implemented in `scripts/promote-restore.sh` and validated during Task 11). Docker
+inspection and the quiescence implementation must be wired and rechecked through
+failure-safe switching before any application attachment. No external-execution flag is
 enabled by this function.
 
 ### Explicit Stale Socket Recovery Prerequisites
@@ -1300,10 +1305,11 @@ network, Docker socket or secrets, a read-only root filesystem, explicit resourc
 bounds and only the dedicated socket-directory bind. Ambiguous transport stdout
 is withheld. Native tests exercise the real compiled filesystem helper behind
 a fake external Docker transport; they do not establish real Ubuntu daemon,
-UID mapping or SSH behavior. Neither this library nor its helper is wired into
-the public recovery command yet. Cancellation/cleanup of ambiguous jobs, full
-runtime verification and the completed host controller remain required before
-enabling that command.
+UID mapping or SSH behavior. (Historical prerequisite note: stale socket recovery
+was subsequently wired into `scripts/recover-admin-socket.sh` and validated in
+`tests/admin-socket-recovery.test.ts` and authorized server drill `4c51898`). Cancellation/cleanup
+of ambiguous jobs, full runtime verification and the completed host controller remain
+required before enabling that command.
 
 ### Commands And Evidence
 

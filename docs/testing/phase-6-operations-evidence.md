@@ -32,7 +32,8 @@ records, and pending live integration distinctly categorized.
   vulnerabilities (#42 and #43). Production audit `npm audit --omit=dev` reports
   **zero vulnerabilities**. Development-only tooling advisories (11 moderate)
   remain distinct. See `docs/reviews/2026-11-01-pr-4-integration.md`.
-- **Current Synchronized Main:** Clean at `bd3a09a1f5ade5bdfa17a3df1e0fab6498f1538a`.
+- **Captured Base Revision:** `bd3a09a1f5ade5bdfa17a3df1e0fab6498f1538a`
+  (with review and fixes merged from `4aaddbcaf19eea76935c49ed0e3f9bbfac2cac0d`).
 - **Open Server Incident:** The guest reboot / actor-loss incident remains OPEN
   without reconstruction or SQL settlement (`docs/operations/incidents/2026-10-31-test-server-restart-and-actor-loss.md`).
   Preserved volumes and state files remain untouched.
@@ -44,25 +45,34 @@ records, and pending live integration distinctly categorized.
 ## 2. Tested Source Revisions and CI Execution Record
 
 ### Verified Revisions
+
 - PR #3 Squash Merge: `df8e52dbe59e0013ab28a5790b21c9785324b2f0` (tested source `78013148751a493a6f8859bc6d3ee9628cb954d6`)
 - PR #4 Squash Merge: `c74b6f4314e17fe707ba5e3f02a183d1ebe9b9fd` (tested source `9f76455be443a527ce58725fa574e7324631fd4d`)
-- Synchronized Main Tip: `bd3a09a1f5ade5bdfa17a3df1e0fab6498f1538a`
+- Captured Base Revisions: evaluated against `bd3a09a1f5ade5bdfa17a3df1e0fab6498f1538a`; review fixes merged from `4aaddbcaf19eea76935c49ed0e3f9bbfac2cac0d`
 
 ### Execution Counts and Skips by Lane (Source `9f76455` / `c74b6f4`)
 
-| Lane | Result | Files | Duration | Notes |
-| :--- | :--- | :--- | :--- | :--- |
-| Local Windows Full Gate | 1,952 passed / 438 platform skips / 0 failed | 131 | 238.05 s | `VITEST_MAX_WORKERS=4 npm run check` (build + test) |
-| Linux CI Unit Lane | 2,020 passed / 370 lane skips | 131 | 80.11 s | Ubuntu runner, pinned UID 1000, tmpfs scratch |
-| Native Operations Lane | 1,298 passed | 55 | 489.37 s | Host scripts, permissions, lifecycle, containment |
-| Full PostgreSQL Lane | 621 passed / 52 lane skips | 56 | 97.78 s | Authoritative state stores, flows, migrations |
-| Grants PostgreSQL Lane | 139 passed / one restore-only skip | 13 | 58.35 s | Restricted roles, bootstrap, migrator checks |
-| Restore Unit Lane | 252 passed | 12 | 62.08 s | Split capabilities, readers, reconcile, proof ports |
-| Two-Cluster Integration | 47 passed | 2 | 25.72 s | Real source/target PostgreSQL clusters, promotion |
+| Lane                    | Result                                       | Files | Duration | Notes                                                                                                |
+| :---------------------- | :------------------------------------------- | :---- | :------- | :--------------------------------------------------------------------------------------------------- |
+| Local Windows Full Gate | 1,952 passed / 438 platform skips / 0 failed | 131   | 238.05 s | `VITEST_MAX_WORKERS=4 npm run check` (AGY run; Codex independent run 261.62 s on `7801314`)          |
+| Linux CI Unit Lane      | 2,020 passed / 370 lane skips                | 131   | 80.11 s  | Ubuntu runner, pinned UID 1000, tmpfs scratch                                                        |
+| Native Operations Lane  | 1,298 passed                                 | 55    | 489.37 s | Host scripts, permissions, lifecycle, containment                                                    |
+| Full PostgreSQL Lane    | 621 passed / 52 lane skips                   | 56    | 97.78 s  | Authoritative state stores, flows, migrations                                                        |
+| Grants PostgreSQL Lane  | 139 passed / one restore-only skip           | 13    | 58.35 s  | Restricted roles, bootstrap, migrator checks                                                         |
+| Restore Unit Lane       | 252 passed                                   | 12    | 62.08 s  | Split capabilities, readers, reconcile, proof ports                                                  |
+| Two-Cluster Integration | 47 passed                                    | 2     | 25.72 s  | `tests/integration/postgres-isolated-restore.test.ts` via `scripts/test-encrypted-backup.sh restore` |
 
-*Note: Test lanes overlap and represent distinct capability scopes; counts must never be summed.*
+_Note: Test lanes overlap and represent distinct capability scopes; counts must never be summed._
+
+### Local Topology Execution (Codex on `bd3a09a`)
+
+- Executed by: Codex from primary checkout on local Docker Desktop Linux/amd64 (`docs/testing/2026-11-02-phase-6-local-topology.md`).
+- Result: Exit **0** in **157.32 seconds**.
+- Network paths: **9 allowed / 20 denied**, including multihomed ordinary-egress probe on ingress and `tunnel_egress`.
+- Scoped Docker leftovers: **zero** test-owned containers, networks, volumes, or scoped images.
 
 ### Hermetic Operator-Helper Suites (Reported Individually)
+
 - Observer: **32 passed / 1 Windows SIGHUP skip** (1.228 s local; 33 passed in 0.449 s CI)
 - Reboot Recovery: **11 passed / 0 skips** (0.069 s local; 0.012 s CI)
 - Peer Recovery: **11 passed / 0 skips** (0.039 s local; 0.010 s CI)
@@ -71,17 +81,19 @@ records, and pending live integration distinctly categorized.
 - Docker Projections: **6 passed / 1 skip** (`scripts/test-docker-projections.sh`)
 
 ### Production Dependency & Audit Status
+
 - Production `npm audit --omit=dev`: **0 vulnerabilities** (clean production runtime).
 - Development `npm audit`: **11 moderate advisories** (under `eslint@10.8.0` and `@typescript-eslint` dev tools, tracked separately).
 - GitHub Dependabot: Alert #42 closed (runtime); Alert #43 open (development-only).
 
 ### Immutable GitHub Actions Workflow Evidence (PR #4 Head `9f76455`)
+
 - [ci (validate)](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41324888931) (PASSED in 5m13s)
 - [CodeQL Advanced](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41324888940) (PASSED in 45s)
 - [PostgreSQL and native operations](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41324888969) (PASSED in 13m54s: `postgres` in 2m35s, `native-operations` in 13m54s)
 - [Private runtime controller](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41324888966) (PASSED in 10m09s: `fresh` in 10m07s, `precreated` in 10m09s)
 
-*(PR #3 workflows on head `7801314` also fully passed: [ci 41294398628](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41294398628), [CodeQL 41294398634](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41294398634), [Postgres/native 41294398684](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41294398684), [Private runtime 41294398631](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41294398631)).*
+_(PR #3 final-source workflows on head `7801314`: [ci 41320435620](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41320435620), [CodeQL 41320435609](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41320435609), [Postgres/native 41320435615](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41320435615), [Private runtime 41320435605](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41320435605); earlier runs 41294398628/41294398634/41294398684/41294398631 represent older PR #3 iterations)._
 
 ---
 
@@ -105,21 +117,21 @@ records, and pending live integration distinctly categorized.
 
 ## 4. Failure and Authority Coverage Matrix
 
-| Boundary | Executable Evidence | Current Limit |
-| :--- | :--- | :--- |
-| **PostgreSQL Authority & Worker Stop** | `tests/worker-loop.test.ts`, `tests/health-collector.test.ts`, `tests/operations-deployment-state.test.ts`, and runtime stores | Local and ephemeral CI pass; full host power outage/restart matrix is deferred P7/P8 |
-| **Manifest Privacy, Timeout & Tool Isolation** | `tests/manifest-client.test.ts`, `tests/model-reply-service.test.ts`, `tests/sensitive-data.test.ts`, `tests/faq-resolver.test.ts` | Local fakes and policy pass; live Manifest recording-off attestation and model quality are deferred P7 |
-| **Meta Ambiguous Outcome & Replay** | `tests/integration/postgres-outbound-flow.test.ts`, `tests/outbound-worker.test.ts`, `tests/meta-outbound-client.test.ts` | Outbound flow and eligibility tests pass; real test-device sends and live manual-echo correlation are deferred P7/P8 |
-| **Private n8n Boundary & Signed Retries** | `tests/n8n-client.test.ts`, `tests/integration/postgres-notification-flow.test.ts` | Fake peer and real PostgreSQL store pass; live n8n workflow deployment is deferred P7 |
-| **Health Observer & Outage Recording** | `tests/health-collector.test.ts:220`, `tests/operations-health-host.test.ts`, `tests/systemd-contract.test.ts:403` | Host observations and bounded gap recording pass; installed host timer execution remains open |
-| **Encrypted Backup Full (`ENOSPC`) & Read-Only (`EROFS`)** | `tests/backup.test.ts:268-615`, `tests/backup-harness-containment.test.ts`, `scripts/test-encrypted-backup.sh` | Verified via real Linux kernel RO mount, directory mode 0500, full tmpfs (`ENOSPC`), and contained RO initializer with verified cleanup gate |
-| **Ciphertext Verification & Malformed Detection** | `tests/backup.test.ts:170-195`, `tests/integration/postgres-isolated-restore.test.ts` | Bit-flipped ciphertext, truncated archives, and premature exit pass |
-| **Checkpoint Drift & Sequence Verification** | `tests/deletion-checkpoint.test.ts:28-80`, `tests/integration/postgres-deletion-checkpoint.test.ts:217-272` | Manifest age, watermark epoch/sequence, HMAC signature, and completeness pass; database schema drift covered by deployment state |
-| **Restored Outbox Resend Protection** | `tests/integration/postgres-outbound-flow.test.ts:844-1024`, `tests/integration/postgres-outbound-work-store.test.ts` | Seeded older-snapshot divergence (provider ledger ahead of PostgreSQL state) verified: recovery hold active, eligible control dispatches once, restored worker sends zero times |
-| **Deployment Lock Concurrency & Reaping** | `tests/systemd-contract.test.ts:482-690`, `tests/process-lifecycle.test.ts`, `tests/integration/postgres-encrypted-backup.test.ts:147-485` | Nonblocking flock execution on `deployment.lock` with deterministic barrier, bounded child exit/wait deadlines, verified reaping before timeout, and catalog slot deduplication pass |
-| **Admin Crash & Stale Socket Recovery** | `tests/admin-socket-recovery.test.ts`, `tests/admin-socket-recovery-script.test.ts`, `scripts/recover-admin-socket.sh` | Real Unix socket and compiled CLI pass; executed under authorized historical drill `4c51898` / `d96382d` |
-| **Admin Session Revocation & CSRF** | `tests/integration/postgres-admin-identity.test.ts:333-375`, `tests/admin-app.test.ts` | Session expiration, single-session revocation, bulk revocation, and CSRF pass (TCP/socket termination not claimed) |
-| **Runtime Mounts, Images, Non-Root & UID** | `tests/phase6-compose-contract.test.ts`, `tests/deployment-contract.test.ts`, `infra/compose.runtime.yml` | Strict non-root UID 1000:1000, read-only root, no Docker host ports, private network isolation pass |
+| Boundary                                                   | Executable Evidence                                                                                                                        | Current Limit                                                                                                                                                                        |
+| :--------------------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **PostgreSQL Authority & Worker Stop**                     | `tests/worker-loop.test.ts`, `tests/health-collector.test.ts`, `tests/operations-deployment-state.test.ts`, and runtime stores             | Local and ephemeral CI pass; full host power outage/restart matrix is deferred P7/P8                                                                                                 |
+| **Manifest Privacy, Timeout & Tool Isolation**             | `tests/manifest-client.test.ts`, `tests/model-reply-service.test.ts`, `tests/sensitive-data-gate.test.ts`, `tests/faq-resolver.test.ts`    | Local fakes and policy pass; live Manifest recording-off attestation and model quality are deferred P7                                                                               |
+| **Meta Ambiguous Outcome & Replay**                        | `tests/integration/postgres-outbound-flow.test.ts`, `tests/outbound-worker.test.ts`, `tests/meta-outbound-client.test.ts`                  | Outbound flow and eligibility tests pass; real test-device sends and live manual-echo correlation are deferred P7/P8                                                                 |
+| **Private n8n Boundary & Signed Retries**                  | `tests/n8n-client.test.ts`, `tests/integration/postgres-notification-flow.test.ts`                                                         | Fake peer and real PostgreSQL store pass; live n8n workflow deployment is deferred P7                                                                                                |
+| **Health Observer & Outage Recording**                     | `tests/health-collector.test.ts:220`, `tests/operations-health-host.test.ts`, `tests/systemd-contract.test.ts:403`                         | Host observations and bounded gap recording pass; installed host timer execution remains open                                                                                        |
+| **Encrypted Backup Full (`ENOSPC`) & Read-Only (`EROFS`)** | `tests/backup.test.ts:268-615`, `tests/backup-harness-containment.test.ts`, `scripts/test-encrypted-backup.sh`                             | Verified via real Linux kernel RO mount, directory mode 0500, full tmpfs (`ENOSPC`), and contained RO initializer with verified cleanup gate                                         |
+| **Ciphertext Verification & Malformed Detection**          | `tests/backup.test.ts:170-195`, `tests/integration/postgres-isolated-restore.test.ts`                                                      | Bit-flipped ciphertext, truncated archives, and premature exit pass                                                                                                                  |
+| **Checkpoint Drift & Sequence Verification**               | `tests/deletion-checkpoint.test.ts:28-80`, `tests/integration/postgres-deletion-checkpoint.test.ts:217-272`                                | Manifest age, watermark epoch/sequence, HMAC signature, and completeness pass; database schema drift covered by deployment state                                                     |
+| **Restored Outbox Resend Protection**                      | `tests/integration/postgres-outbound-flow.test.ts:844-1024`, `tests/integration/postgres-outbound-work-store.test.ts`                      | Seeded older-snapshot divergence (provider ledger ahead of PostgreSQL state) verified: recovery hold active, eligible control dispatches once, restored worker sends zero times      |
+| **Deployment Lock Concurrency & Reaping**                  | `tests/systemd-contract.test.ts:482-690`, `tests/process-lifecycle.test.ts`, `tests/integration/postgres-encrypted-backup.test.ts:147-485` | Nonblocking flock execution on `deployment.lock` with deterministic barrier, bounded child exit/wait deadlines, verified reaping before timeout, and catalog slot deduplication pass |
+| **Admin Crash & Stale Socket Recovery**                    | `tests/admin-socket-recovery.test.ts`, `tests/admin-socket-recovery-script.test.ts`, `scripts/recover-admin-socket.sh`                     | Real Unix socket and compiled CLI pass; executed under authorized historical drill `4c51898` / `d96382d`                                                                             |
+| **Admin Session Revocation & CSRF**                        | `tests/integration/postgres-admin-identity.test.ts:333-375`, `tests/admin-app.test.ts`                                                     | Session expiration, single-session revocation, bulk revocation, and CSRF pass (TCP/socket termination not claimed)                                                                   |
+| **Runtime Mounts, Images, Non-Root & UID**                 | `tests/phase6-compose-contract.test.ts`, `tests/deployment-contract.test.ts`, `infra/compose.runtime.yml`                                  | Strict non-root UID 1000:1000, read-only root, no Docker host ports, private network isolation pass                                                                                  |
 
 ---
 
@@ -128,21 +140,23 @@ records, and pending live integration distinctly categorized.
 - **AC-09 (Backup/Restore):** Real encrypted backup, isolated restore into a
   distinct target volume, split capabilities, post-restore deletion tombstone
   reapplication, promotion proof gates, and recovery hold are verified in local,
-  native, and two-cluster integration suites, as well as the historical server
+  native, and two-cluster restore integration suites (`tests/integration/postgres-isolated-restore.test.ts`
+  via `scripts/test-encrypted-backup.sh restore`), as well as the historical server
   drill `3f22344`. Complete deployed promotion and server-level failure recovery
   remain to be deployed under Task 16.
 - **AC-18 & AC-20 (Route Isolation & Runtime Contract):** Strict Compose
   contracts, pinned Dockerfiles, non-root users (`1000:1000`), `read_only: true`,
-  capability drop, resource limits, and no host ports verified. Verified zero
-  production dependency vulnerabilities (`npm audit --omit=dev`). Ingress
-  negatives (403/404/401) verified on historical server.
+  capability drop, resource limits, and zero host ports verified. Verified zero
+  production dependency vulnerabilities (`npm audit --omit=dev`). Full local topology
+  verified 9 allowed / 20 denied paths in 157.32s (`docs/testing/2026-11-02-phase-6-local-topology.md`).
+  Ingress negatives (403/404/401) verified on historical server.
 - **AC-21 & AC-25 (Manifest Privacy & Rate Limits):** Local client fakes and
   composition pass with `model: "auto"`, no tools, strict redaction, and bounded
   resource ceilings. Live Manifest recording-off attestation and real provider
   call testing are explicitly deferred to Phase 7 (P7-005).
 - **AC-26 (n8n Boundary):** Signed private notification adapter and PostgreSQL
   authority during outage pass automated tests. Live private n8n workflow
-  execution remains deferred to Phase 7.
+  connection remains an optional later integration subject to separate authorization (P8-005).
 
 Before P6-GATE approval, Codex performs independent review of this consolidated
 evidence pack. Host power outage, real Meta test device sends, live provider

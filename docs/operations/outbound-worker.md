@@ -20,18 +20,21 @@ Never print credentials or inspect their values for evidence.
 ## Start And Stop
 
 In Phase 6, the worker entrypoint is implemented in `dist/worker-main.js outbound`
-(along with `reply` and `notification` roles). The container runs as non-root
-user `1000:1000`, with a read-only root filesystem (`read_only: true`), all Linux
-capabilities dropped (`cap_drop: [ALL]`), `no-new-privileges: true`, explicit
-CPU/memory/PIDs limits, health checks, and connection to the private data network
-`fcd-support-private` only.
+(along with `reply` and `notification` roles). The worker container runs as non-root
+user `1000:1000` (while PostgreSQL uses dedicated user `999:999`), with a read-only
+root filesystem (`read_only: true`), all Linux capabilities dropped (`cap_drop: [ALL]`),
+`no-new-privileges: true`, explicit CPU/memory/PIDs limits, health checks, and
+attachment only to its dedicated internal database bridge `outbound_data` and ordinary
+NAT `provider_egress` in `infra/compose.runtime.yml`. It has no ingress network attachment,
+publishes no host ports, and joins neither the optional model overlay nor the
+notification network.
 
 The start procedure enables claiming only after PostgreSQL readiness checks pass.
-The stop procedure executes graceful worker drain (`scripts/operations-drain.sh`):
-it first stops new job claims, allows in-flight calls to complete within their
-configured timeout, and then terminates. Terminating after `dispatch_started`
-is safe from duplicate sending: lease recovery transitions the attempt to
-`delivery_unknown` rather than blindly re-dispatching.
+The stop procedure relies on the owning controllers' internal controlled drain
+(`scripts/operations-drain.sh`): it halts new job claims, allows in-flight calls
+to complete within their configured timeout, and then terminates. Terminating after
+`dispatch_started` is safe from duplicate sending: lease recovery transitions the
+attempt to `delivery_unknown` rather than blindly re-dispatching.
 
 ## Lease Recovery
 

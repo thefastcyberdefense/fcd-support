@@ -16,9 +16,9 @@ Only a completed authenticated manifest makes an archive eligible. Verification
 uses a separate restricted role and private identity. Incomplete ciphertext,
 wrong keys, malformed manifests, full/read-only storage and timeouts fail closed.
 Pruning validates required replacements first and retains the configured daily
-and monthly copies independently using the source configuration settings
-`FCD_BACKUP_RETAIN_DAYS` and `FCD_BACKUP_RETAIN_MONTHS`. Never prune in response to
-a failed backup.
+and monthly slot counts independently using the validated operations configuration
+settings `BACKUP_DAILY_RETENTION` (bounds 45–3650 slots) and `BACKUP_MONTHLY_RETENTION`
+(bounds 6–120 slots) in `common.env`. Never prune in response to a failed backup.
 
 Keep archive ownership, verification-identity availability and capacity under
 operator review. Record metadata-only restore drills at least quarterly, using

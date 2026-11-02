@@ -84,5 +84,5 @@ The following items are explicitly excluded from AGY local implementation and re
 - **Branch:** `codex/agy-p6-gate-evidence`
 - **PR #3 Integration:** `df8e52dbe59e0013ab28a5790b21c9785324b2f0` (tested source `78013148751a493a6f8859bc6d3ee9628cb954d6`)
 - **PR #4 Integration:** `c74b6f4314e17fe707ba5e3f02a183d1ebe9b9fd` (tested source `9f76455be443a527ce58725fa574e7324631fd4d`)
-- **Synchronized Main Base:** `bd3a09a1f5ade5bdfa17a3df1e0fab6498f1538a`
-- **Primary Checkout Untouched:** `J:\DevDrive\fcd-support` on `main` at `bd3a09a1f5ade5bdfa17a3df1e0fab6498f1538a`.
+- **Captured Base Revisions:** evaluated against `bd3a09a1f5ade5bdfa17a3df1e0fab6498f1538a`; review fixes merged from `4aaddbcaf19eea76935c49ed0e3f9bbfac2cac0d`
+- **Primary Checkout Untouched:** `J:\DevDrive\fcd-support` on `main`.
