@@ -62,6 +62,7 @@ bash() {
    case "$2" in
     maintenance) trace maintenance; [[ "$TASK_FAULT" != maintenance ]] ;;
     backup) trace backup; [[ "$TASK_FAULT" != backup ]] ;;
+    health) trace health; [[ "$TASK_FAULT" != health ]] ;;
     *) return 91 ;;
    esac ;;
   scripts/restore-runtime.sh)
@@ -136,6 +137,7 @@ test('checkpoint uses revision, managed READY selection and retained-image guard
   expect(result.trace).toEqual([
     'maintenance',
     'backup',
+    'health',
     'load',
     'preflight',
     'ready',
@@ -170,7 +172,7 @@ test('cleanup guard refusal preserves protected evidence', async () => {
   expect(result.stdout).not.toContain('synthetic_host_cleanup_passed');
 });
 
-test.each(['maintenance', 'backup', 'restore', 'missing-record'])(
+test.each(['maintenance', 'backup', 'health', 'restore', 'missing-record'])(
   'a failed or missing %s proof cannot reach promotion or cleanup',
   async (fault) => {
     const result = await recovery(fault);
@@ -179,7 +181,7 @@ test.each(['maintenance', 'backup', 'restore', 'missing-record'])(
     expect(result.trace).not.toContain('rollback');
     expect(result.trace).not.toContain('premature-evidence-removal');
     expect(result.stdout).not.toContain('synthetic_host_recovery_passed');
-    if (fault === 'backup') expect(result.trace).not.toContain('checkpoint');
+    if (fault === 'backup' || fault === 'health') expect(result.trace).not.toContain('checkpoint');
     if (fault === 'maintenance') expect(result.trace).toEqual(['maintenance']);
   },
 );

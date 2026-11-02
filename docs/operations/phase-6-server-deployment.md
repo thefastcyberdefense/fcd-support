@@ -2229,3 +2229,14 @@ external execution flags false. Successful completion still leaves actual SSH/
 login/origin proof, root-owned timer installation/enabling and consolidated
 handoff open. No automatic retry, old uncertain cleanup, host reboot, daemon
 restart, other-project mutation or global pruning is authorized by this action.
+
+### Follow-up execution stopped at health
+
+The committed `26ba72a` follow-up ran once at `7af70cc`. Fresh deployment,
+backup/replay and all four maintenance jobs passed. Health then left an
+uncertain journal; the actor is absent, selection ready and four runtime roles
+healthy. The saved surviving-inventory comparison passes. No completion marker,
+timer rendering/install or actual SSH/admin authentication ran. Do not execute
+the one-use action again or clear its journal. Current evidence and the local
+Compose stdin reproduction are in
+`docs/operations/incidents/2026-11-02-final-deployment-health.md`.

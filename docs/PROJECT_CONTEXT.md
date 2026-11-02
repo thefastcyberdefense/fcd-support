@@ -1,6 +1,20 @@
 # Project Context
 
-Last reviewed: 2026-11-02 (Asia/Dhaka)
+Last reviewed: 2026-11-03 (Asia/Dhaka)
+
+**Fresh `7af70cc` deployment stopped at health; direct correction is underway.**
+One-use action `26ba72a` passed deployment, backup/replay and all four maintenance
+jobs, then left an uncertain health journal with its actor absent. Four runtime
+roles are healthy; the saved surviving-inventory/state/evidence/pin comparison
+passes. Both failed November 2 scopes remain protected; no old SQL is settled.
+A local Docker comparison and held-open-stream regression reproduce the health
+EOF mismatch under Compose. The bounded reader/host framing correction passed the full Windows gate
+(1,961 passed / 438 skips, 283.78 s) and actual compiled local Compose transport.
+Corrected-source real health-before-recovery CI remains required before merge. See
+`docs/operations/incidents/2026-11-02-final-deployment-health.md`.
+No completion marker, timer generation/install, actual SSH login or synthetic
+verification account is claimed. The earlier preparation paragraphs below are
+historical checkpoints; Task 16 still owns completion.
 
 **Maintenance correction is accepted; fresh Task 16 follow-up is prepared.**
 PR #6 merged as `7af70cc`, exactly matching tested `e665249`. All four workflows

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { expect, test } from 'vitest';
 
-test.each(['deploy', 'restore', 'maintenance', 'untrusted_stage_value'])(
+test.each(['deploy', 'restore', 'maintenance', 'health', 'untrusted_stage_value'])(
   'synthetic host report emits only closed evidence for %s',
   async (stage) => {
     const root = await mkdtemp(join(tmpdir(), 'fcd-host-evidence-test-'));

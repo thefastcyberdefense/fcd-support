@@ -2,6 +2,17 @@
 
 ## Current Phase 6 checkpoint
 
+- **Latest Task 16 attempt stopped at health.** Reviewed action `26ba72a` ran once
+  on fresh `7af70cc`. Deployment, backup/replay and all four maintenance jobs
+  completed; health left `uncertain/health`, actor absent. Four runtime roles
+  remain healthy and the saved surviving-inventory comparison passes. Preserve
+  this journal and the earlier `6d0210d` journal; no rerun or SQL inference.
+  Codex reproduced Compose-open-stdin timeout. The framed-input correction
+  passed 1,961 Windows tests / 438 skips and actual compiled local Compose
+  transport; corrected-source real health CI is the remaining integration gate. See
+  `docs/operations/incidents/2026-11-02-final-deployment-health.md`.
+  Timers, actual SSH/auth proof and final handoff remain open.
+
 - **Maintenance correction accepted:** PR #6 merged as `7af70cc`, identical to
   validated `e665249`; all four workflows passed, including both real scheduled
   maintenance/recovery/cleanup lanes. Local full check: 1,955 passed / 438 skips;

@@ -1,4 +1,5 @@
 import { pathToFileURL } from 'node:url';
+import type { Readable } from 'node:stream';
 import pg from 'pg';
 import { z } from 'zod';
 import { PostgresOperationsStore } from '../persistence/postgres-operations-store.js';
@@ -265,22 +266,36 @@ export async function runHealthCommand(options: HealthCommandOptions): Promise<0
   if (status === 0 && acknowledgement !== undefined) options.write(JSON.stringify(acknowledgement));
   return status;
 }
-async function readInput(timeoutMilliseconds: number): Promise<unknown> {
-  if (process.stdin.isTTY) return {};
+export async function readHealthInput(
+  timeoutMilliseconds: number,
+  stream: Readable & { readonly isTTY?: boolean } = process.stdin,
+): Promise<unknown> {
+  if (stream.isTTY) return {};
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const input = await Promise.race([
       (async () => {
         let text = '';
-        for await (const chunk of process.stdin) {
+        for await (const chunk of stream) {
           text += String(chunk);
           if (Buffer.byteLength(text) > 16_384) throw new Error('health_input_invalid');
+          // Compose keeps stdin open after the attached writer disconnects.
+          // A complete JSON value terminated by newline is the one host frame;
+          // returning from the iterator closes our input without waiting for EOF.
+          if (text.endsWith('\n') && text.trim() !== '') {
+            try {
+              JSON.parse(text);
+              return text;
+            } catch {
+              // A pretty-printed or split frame may still be incomplete.
+            }
+          }
         }
         return text;
       })(),
       new Promise<never>((_resolve, reject) => {
         timer = setTimeout(() => {
-          process.stdin.destroy();
+          stream.destroy();
           reject(new Error('health_input_invalid'));
         }, timeoutMilliseconds);
       }),
@@ -295,7 +310,7 @@ if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.a
     process.exitCode = await runHealthCommand({
       environment: process.env,
       args: process.argv.slice(2),
-      readInput,
+      readInput: readHealthInput,
       journal: (line) => {
         process.stderr.write(`${line}\n`);
       },

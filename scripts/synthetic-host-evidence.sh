@@ -17,7 +17,7 @@ synthetic_host_runtime_diagnostic() {
 synthetic_host_report_failure() {
   local stage=unknown line file="${2:-}"
   case "${1:-}" in
-    preflight|fixture|build|keys|isolated-resources|deploy|verify|private-http|maintenance|backup|checkpoint|restore|promote|rollback|cleanup) stage="$1" ;;
+    preflight|fixture|build|keys|isolated-resources|deploy|verify|private-http|maintenance|backup|health|checkpoint|restore|promote|rollback|cleanup) stage="$1" ;;
   esac
   printf 'synthetic_host_failed=%s\n' "$stage" >&2
   # Diagnostic enums only; identities, references and arbitrary values are ignored.
@@ -50,7 +50,13 @@ synthetic_host_report_failure() {
   local -i i start=0 count=0 budget=0
   local -A seen_diagnostics=()
   while IFS= read -r line; do
-    diagnostic="$(synthetic_host_runtime_diagnostic "$line")"
+    diagnostic=''
+    # Trace lines need no validator subprocess, and accepted duplicates need no
+    # repeated work. Keep the closed validator as the publication authority.
+    if [[ "$line" =~ ^runtime_host_diagnostic=[A-Za-z_.]{1,128}$ ]] &&
+      (( ${#diagnostics[@]} < 16 )) && [[ -z "${seen_diagnostics[$line]:-}" ]]; then
+      diagnostic="$(synthetic_host_runtime_diagnostic "$line")"
+    fi
     if [[ -n "$diagnostic" ]]; then
       if (( ${#diagnostics[@]} < 16 )) && [[ -z "${seen_diagnostics[$diagnostic]:-}" ]]; then
         diagnostics+=("$diagnostic")

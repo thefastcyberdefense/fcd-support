@@ -143,3 +143,16 @@ refusal, slot references, stop-on-failure, exact acknowledgements and health std
 The separate Linux lane covers protected filesystem publication, actual
 `systemd-analyze` validation and the complete journaled job transport using
 synthetic fakes. No installed host timer or server evidence is claimed here.
+
+## Health input framing
+
+The owning scheduler sends one content-free JSON value followed by a newline
+through the verified health container's interactive stdin. Compose keeps stdin
+open after the attached writer disconnects; the collector therefore completes
+a nonblank, valid JSON value at its terminating newline and closes its input
+iterator. It must not wait for daemon EOF. Leading blank chunks and split/pretty
+JSON do not complete an empty frame. Direct closed-pipe EOF input remains
+compatible, including empty input. The existing 16,384-byte total input cap and
+configured call timeout still apply; malformed, oversized and stalled input
+fails closed. No public route, customer data or extra container authority is
+introduced by this transport contract.
