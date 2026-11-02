@@ -2,6 +2,28 @@
 
 Last reviewed: 2026-11-02 (Asia/Dhaka)
 
+**Latest Task 16 attempt is stopped; Codex owns the follow-up.** Committed
+`14ff26a` executed once on fresh source `6d0210d`. Four private runtime roles
+are healthy and scheduled backup/replay exited 0, but first retention
+maintenance left an uncertain journal and its actor is absent. Do not replay,
+clear, settle or attach that scope to later work. The generated maintenance
+file lacks three required inputs; a local producer/consumer regression was
+RED then GREEN after explicit synthetic settings. Compiled-CLI coverage now
+uses generated configuration and real scheduler CI coverage is being added.
+The fixture correction is under validation, not a completed server fix.
+
+Full post-attempt preservation also refuses one newly absent unrelated running
+actor and its network membership. All surviving metadata, volumes, old files
+and boot/daemon pins match after a separately identified missing-set exclusion;
+the original baseline stays unchanged and no cause is attributed. No scoped
+command targeted another project. Server mutation remains stopped under that
+attempt. See `docs/operations/incidents/2026-11-02-final-deployment-maintenance.md`.
+Actual SSH/admin checks, timer rendering/privileged installation and final
+handoff remain open. Passwordless sudo is unavailable. Local Docker tests use
+Desktop's named-pipe endpoint and are distinct from server execution.
+
+### Local-gate checkpoint before the Task 16 attempt
+
 **P6-GATE PASS for local implementation and validation; Task 16 remains open.**
 PR #5 is merged as `157e9e26fc62183fe6f6b859803d35d9b14aee51`, with the exact
 same tree as final reviewed `cbf3f2b6fddd7f87ec868a37e3d8753e964bf7a1`.

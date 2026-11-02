@@ -121,6 +121,14 @@ grep -qx 'STATE_PHASE=ready' "$fixture/state/deployment-state"
 [[ "$(snapshot)" == "$before" ]]
 printf 'synthetic_host_deploy_passed=true\nsynthetic_host_verify_passed=true\nsynthetic_host_private_http_passed=true\nsynthetic_host_existing_stack_unchanged=true\n'
 if [[ "$ci_mode" == true ]]; then
+  # The same generated role configuration must support the real owning scheduler,
+  # not only fake dispatch or manually populated CLI integration environments.
+  printf 'FCD_MAINTENANCE_SLOT_SECONDS=300\n' >>"$fixture/config/operations.env"
+  stage=maintenance
+  synthetic_host_run scripts/run-operation.sh maintenance "$revision" "$fixture/config/operations.env" >"$fixture/logs/maintenance.log" 2>&1 </dev/null || synthetic_host_stage_failed
+  [[ ! -e "$fixture/state/active-job" && ! -L "$fixture/state/active-job" ]]
+  grep -qx 'STATE_PHASE=ready' "$fixture/state/deployment-state"
+  printf 'synthetic_host_maintenance_passed=true\n'
   stage=backup
   initial_system_id="$(sed -n 's/^STATE_SYSTEM_IDENTIFIER=//p' "$fixture/state/deployment-state")"
   initial_volume="$(sed -n 's/^STATE_VOLUME=//p' "$fixture/state/deployment-state")"

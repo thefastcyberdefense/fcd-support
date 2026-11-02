@@ -9,12 +9,18 @@
   `docs/reviews/phase-6-gate.md` and
   `docs/reviews/2026-11-02-pr-5-integration.md`. This does not complete Task 16
   or authorize live/production actions.
-- **Task 16 OPEN.** Fresh read-only server preflight confirms clean deployed
-  `67a4a4b`; retained API/reply/PostgreSQL are healthy, admin is restarting.
-  Preserve this stack, uncertain scopes and other projects. Prepare a fresh
-  isolated final-source project; do not replay old one-use actions. Host Node
-  is 24.16.0 and passwordless sudo is unavailable, so a private pinned toolchain
-  and a concrete privileged timer-installation step require explicit handling.
+- **Task 16 OPEN / stopped after a real server failure.** Committed action
+  `14ff26a` deployed fresh source `6d0210d`: four healthy private roles and
+  two successful scheduled-backup invocations, then uncertain retention
+  maintenance. Its actor is absent; keep its journal/override/database and
+  do not retry or infer SQL outcome. Codex reproduced missing maintenance
+  fixture inputs and owns the correction/real CLI verification. The full
+  preservation audit also refuses one newly absent unrelated actor; surviving
+  metadata/files/volumes/pins match only after explicitly excluding that set.
+  No attribution or original-baseline repair is claimed. See
+  `docs/operations/incidents/2026-11-02-final-deployment-maintenance.md`.
+  Timers, actual SSH/admin proof and final handoff remain pending; passwordless
+  sudo is unavailable. Older scopes and other projects stay protected.
 - AGY's next independent assignment is
   `docs/handoffs/2026-11-02-antigravity-topology-ci.md`, on a fresh isolated
   branch from synchronized main. Codex retains server execution. No new routine

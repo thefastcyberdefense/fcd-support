@@ -3,9 +3,12 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test } from 'vitest';
+import { z } from 'zod';
 import { loadOperationsConfig } from '../src/operations/operations-config.js';
 import { loadReplySettings } from '../src/operations/reply-config.js';
 import { restoreTargetIdentitySchema } from '../src/persistence/postgres-restore-evidence.js';
+import { parseLearningPolicy } from '../src/learning/learning-input.js';
+import { parseOutboundPolicyInput } from '../src/outbound/outbound-policy-input.js';
 import { writeRuntimeHostFixture } from './helpers/runtime-host-fixture.js';
 
 function environment(text: string) {
@@ -20,6 +23,37 @@ function environment(text: string) {
       }),
   );
 }
+
+test('generated maintenance configuration satisfies the actual CLI policy inputs', async () => {
+  const parent = await mkdtemp(join(tmpdir(), 'fcd-host-fixture-test-'));
+  const root = join(parent, 'fcd-support-host-test-synthetic');
+  try {
+    await writeRuntimeHostFixture(root, 'fcd-support-host-test-synthetic', 'b'.repeat(40));
+    const common = environment(await readFile(join(root, 'config/common.env'), 'utf8'));
+    const maintenance = environment(await readFile(join(root, 'config/maintenance.env'), 'utf8'));
+    const reply = environment(await readFile(join(root, 'config/reply.env'), 'utf8'));
+    const input = { ...common, ...maintenance };
+    expect(() =>
+      parseLearningPolicy(JSON.parse(z.string().max(4096).parse(input.OPS_LEARNING_POLICY_JSON))),
+    ).not.toThrow();
+    expect(() =>
+      parseOutboundPolicyInput(
+        JSON.parse(z.string().max(4096).parse(input.REPLY_OUTBOUND_BOUNDS_JSON)),
+      ),
+    ).not.toThrow();
+    expect(Number(input.OPS_LEARNING_WINDOW_MS)).toBeGreaterThan(0);
+    expect(Number(input.OPS_LEARNING_WINDOW_MS)).toBeLessThanOrEqual(31_536_000_000);
+    expect(input.REPLY_OUTBOUND_BOUNDS_JSON).toBe(reply.REPLY_OUTBOUND_BOUNDS_JSON);
+    const config = loadOperationsConfig('maintenance', input);
+    expect([
+      config.modelExecutionEnabled,
+      config.outboundExecutionEnabled,
+      config.n8nExecutionEnabled,
+    ]).toEqual([false, false, false]);
+  } finally {
+    await rm(parent, { recursive: true, force: true });
+  }
+});
 
 test('fresh host fixture supplies valid disabled runtime policy and distinct database capabilities', async () => {
   const parent = await mkdtemp(join(tmpdir(), 'fcd-host-fixture-test-'));

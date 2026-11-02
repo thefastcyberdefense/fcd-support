@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import pg from 'pg';
@@ -11,7 +11,7 @@ import {
 } from '../../src/operations/maintenance-pool.js';
 import { databaseReadinessPorts } from '../../src/operations/role-runtime.js';
 import { PostgresRetentionJob } from '../../src/persistence/postgres-retention-job.js';
-import { operationsEnvironment } from '../helpers/operations-fixtures.js';
+import { writeRuntimeHostFixture } from '../helpers/runtime-host-fixture.js';
 import { loadRoleEnvironment } from '../../src/operations/secret-files.js';
 import { loadOperationsConfig } from '../../src/operations/operations-config.js';
 import {
@@ -315,7 +315,16 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
       }),
       { mode: 0o600 },
     );
-    const common = operationsEnvironment();
+    const hostFixture = join(root, 'fcd-support-host-test-synthetic');
+    await writeRuntimeHostFixture(hostFixture, 'fcd-support-host-test-synthetic', revision);
+    const generated = async (role: string) =>
+      Object.fromEntries(
+        (await readFile(join(hostFixture, `config/${role}.env`), 'utf8'))
+          .split('\n')
+          .filter((line) => line.length > 0 && !line.startsWith('#'))
+          .map((line) => [line.slice(0, line.indexOf('=')), line.slice(line.indexOf('=') + 1)]),
+      );
+    const common = { ...(await generated('common')), ...(await generated('maintenance')) };
     const environment = {
       ...common,
       PATH: process.env.PATH,
@@ -331,29 +340,6 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
       OPS_DATABASE_NAME: 'fcd_support_test',
       OPS_GIT_REVISION: revision,
       OPS_SCHEMA_REVISION: '000016',
-      OPS_LEARNING_WINDOW_MS: '86400000',
-      OPS_LEARNING_POLICY_JSON: JSON.stringify({
-        minimumGroupCount: 3,
-        digestIntervalMilliseconds: 259200000,
-        maximumQuestionsPerDigest: 5,
-        questionCooldownMilliseconds: 604800000,
-        maximumDigestAppearances: 2,
-        maximumObservationsPerRun: 1000,
-      }),
-      REPLY_OUTBOUND_BOUNDS_JSON: JSON.stringify({
-        global1Minute: 120,
-        globalUtcDay: 900,
-        leaseMs: 25000,
-        maximumDefiniteRetries: 2,
-        messengerAccount1Minute: 80,
-        perContact15Minute: 3,
-        perContact24Hour: 30,
-        providerTimeoutMs: 8000,
-        retryBaseMs: 5000,
-        retryMaximumMs: 30000,
-        whatsappAccount1Minute: 90,
-        workerBatchSize: 10,
-      }),
     };
     const loaded = await loadRoleEnvironment('maintenance', environment);
     expect(loadOperationsConfig('maintenance', loaded).maximumCallMilliseconds).toBe(20000);

@@ -120,7 +120,21 @@ export async function writeRuntimeHostFixture(
       },
     }))
       await writeFile(join(root, `config/${role}.env`), serialize(settings), { mode: 0o600 });
-    // Replace the initially empty reply role file without creating arbitrary paths.
+    const outboundBounds = {
+      global1Minute: 10,
+      globalUtcDay: 100,
+      leaseMs: 30000,
+      maximumDefiniteRetries: 1,
+      messengerAccount1Minute: 10,
+      perContact15Minute: 2,
+      perContact24Hour: 5,
+      providerTimeoutMs: 1000,
+      retryBaseMs: 100,
+      retryMaximumMs: 1000,
+      whatsappAccount1Minute: 10,
+      workerBatchSize: 5,
+    };
+    // Replace only known role files in this newly authored synthetic fixture.
     await writeFile(
       join(root, 'config/reply.env'),
       serialize({
@@ -129,19 +143,22 @@ export async function writeRuntimeHostFixture(
           minimumSimilarity: 0.8,
           maximumCandidates: 10,
         }),
-        REPLY_OUTBOUND_BOUNDS_JSON: JSON.stringify({
-          global1Minute: 10,
-          globalUtcDay: 100,
-          leaseMs: 30000,
-          maximumDefiniteRetries: 1,
-          messengerAccount1Minute: 10,
-          perContact15Minute: 2,
-          perContact24Hour: 5,
-          providerTimeoutMs: 1000,
-          retryBaseMs: 100,
-          retryMaximumMs: 1000,
-          whatsappAccount1Minute: 10,
-          workerBatchSize: 5,
+        REPLY_OUTBOUND_BOUNDS_JSON: JSON.stringify(outboundBounds),
+      }),
+      { mode: 0o600 },
+    );
+    await writeFile(
+      join(root, 'config/maintenance.env'),
+      serialize({
+        REPLY_OUTBOUND_BOUNDS_JSON: JSON.stringify(outboundBounds),
+        OPS_LEARNING_WINDOW_MS: '86400000',
+        OPS_LEARNING_POLICY_JSON: JSON.stringify({
+          minimumGroupCount: 3,
+          digestIntervalMilliseconds: 259200000,
+          maximumQuestionsPerDigest: 5,
+          questionCooldownMilliseconds: 604800000,
+          maximumDigestAppearances: 2,
+          maximumObservationsPerRun: 1000,
         }),
       }),
       { mode: 0o600 },

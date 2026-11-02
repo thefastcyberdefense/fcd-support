@@ -2171,3 +2171,18 @@ Task 16 also still requires real SSH loopback forwarding to this new fixture's
 handoff. A successful non-privileged deploy alone does not complete these steps,
 install timers, establish provider readiness or close the actor-loss incident.
 Execution evidence will be appended only after actual commands finish.
+
+### Task 16 execution stopped at maintenance
+
+The committed `14ff26a` action ran once. Fresh source `6d0210d` has four healthy
+private roles; the existing deploy/verify/private-HTTP harness and both scheduled
+backup invocations succeeded. First retention maintenance then produced
+`operations_job_uncertain`. Its durable journal remains uncertain and the
+actor is absent. No completion marker was written; timers, health scheduling,
+actual SSH/admin proof and final handoff did not run.
+
+Do not execute the one-use deployment again or clear its state. The original
+preservation audit also refuses one newly absent unrelated actor. A separate
+qualified surviving-inventory comparison is not a replacement baseline or an
+attribution. Current incident and direct fixture correction:
+`docs/operations/incidents/2026-11-02-final-deployment-maintenance.md`.
