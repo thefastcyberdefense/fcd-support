@@ -5,6 +5,12 @@ Decision: **PASS — Phase 6 local implementation and validation complete; Task 
 Authority scope: local implementation and validation only.
 External or production action authorization from this gate: **false**.
 
+Subsequent Task 16 execution found a generated-maintenance configuration defect
+and a preservation refusal. Its uncertain scope is held; the correction and
+new server proof remain pending. This local-gate checkpoint does not resolve
+that later failure. Current record:
+`docs/operations/incidents/2026-11-02-final-deployment-maintenance.md`.
+
 Reviewed source: `cbf3f2b6fddd7f87ec868a37e3d8753e964bf7a1` (PR #5).
 Its complete implementation tree equals accepted dependency source
 `9f76455be443a527ce58725fa574e7324631fd4d` and topology-tested

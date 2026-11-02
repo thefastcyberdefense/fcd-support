@@ -13,6 +13,7 @@ async function recovery(fault: string) {
     await mkdir(join(directory, 'scripts'));
     await mkdir(join(directory, 'state'));
     await mkdir(join(directory, 'logs'));
+    await mkdir(join(directory, 'config'));
     await writeFile(
       join(directory, 'scripts/synthetic-host-cleanup.sh'),
       await readFile('scripts/synthetic-host-cleanup.sh'),
@@ -20,7 +21,9 @@ async function recovery(fault: string) {
     const source = (
       await readFile('scripts/test-synthetic-runtime-deployment.sh', 'utf8')
     ).replaceAll('\r\n', '\n');
-    const start = source.indexOf('if [[ "$ci_mode" == true ]]; then\n  stage=backup');
+    const maintenance = source.indexOf('\n  stage=maintenance\n');
+    expect(maintenance).toBeGreaterThan(0);
+    const start = source.lastIndexOf('if [[ "$ci_mode" == true ]]; then\n', maintenance);
     expect(start).toBeGreaterThan(0);
     const block = source.slice(start, source.indexOf('# Keep this explicitly synthetic', start));
     // Test ports stand in for external processes; execute the production orchestration unchanged.
@@ -55,7 +58,12 @@ selection ready "$project-postgres" 1111111111111111111
 bash() {
  case "$1" in
   -c) command bash "$@" ;;
-  scripts/run-operation.sh) trace backup; [[ "$TASK_FAULT" != backup ]] ;;
+  scripts/run-operation.sh)
+   case "$2" in
+    maintenance) trace maintenance; [[ "$TASK_FAULT" != maintenance ]] ;;
+    backup) trace backup; [[ "$TASK_FAULT" != backup ]] ;;
+    *) return 91 ;;
+   esac ;;
   scripts/restore-runtime.sh)
    trace restore
    [[ "$TASK_FAULT" != restore ]] || return 1
@@ -125,7 +133,15 @@ root="$PWD"; fixture="$root"; export root
 test('checkpoint uses revision, managed READY selection and retained-image guards before a job', async () => {
   const result = await recovery('checkpoint');
   expect(result.status).toBe(1);
-  expect(result.trace).toEqual(['backup', 'load', 'preflight', 'ready', 'images', 'checkpoint']);
+  expect(result.trace).toEqual([
+    'maintenance',
+    'backup',
+    'load',
+    'preflight',
+    'ready',
+    'images',
+    'checkpoint',
+  ]);
   expect(result.stdout).not.toContain('synthetic_host_checkpoint_passed');
 });
 
@@ -154,7 +170,7 @@ test('cleanup guard refusal preserves protected evidence', async () => {
   expect(result.stdout).not.toContain('synthetic_host_cleanup_passed');
 });
 
-test.each(['backup', 'restore', 'missing-record'])(
+test.each(['maintenance', 'backup', 'restore', 'missing-record'])(
   'a failed or missing %s proof cannot reach promotion or cleanup',
   async (fault) => {
     const result = await recovery(fault);
@@ -164,5 +180,6 @@ test.each(['backup', 'restore', 'missing-record'])(
     expect(result.trace).not.toContain('premature-evidence-removal');
     expect(result.stdout).not.toContain('synthetic_host_recovery_passed');
     if (fault === 'backup') expect(result.trace).not.toContain('checkpoint');
+    if (fault === 'maintenance') expect(result.trace).toEqual(['maintenance']);
   },
 );

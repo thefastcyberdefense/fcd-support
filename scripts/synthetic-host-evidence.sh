@@ -17,7 +17,7 @@ synthetic_host_runtime_diagnostic() {
 synthetic_host_report_failure() {
   local stage=unknown line file="${2:-}"
   case "${1:-}" in
-    preflight|fixture|build|keys|isolated-resources|deploy|verify|private-http|backup|checkpoint|restore|promote|rollback|cleanup) stage="$1" ;;
+    preflight|fixture|build|keys|isolated-resources|deploy|verify|private-http|maintenance|backup|checkpoint|restore|promote|rollback|cleanup) stage="$1" ;;
   esac
   printf 'synthetic_host_failed=%s\n' "$stage" >&2
   # Diagnostic enums only; identities, references and arbitrary values are ignored.
