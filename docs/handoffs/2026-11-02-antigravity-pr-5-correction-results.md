@@ -40,7 +40,7 @@ All ten submitted documentation files plus this results record have been correct
   - Replaced nonexistent `tests/integration/two-cluster-restore.test.ts` in AC-09, evidence index, and candidate pack with real two-cluster restore integration suite: `tests/integration/postgres-isolated-restore.test.ts` executed via `bash scripts/test-encrypted-backup.sh restore`.
   - Replaced nonexistent `tests/sensitive-data.test.ts` in evidence index with `tests/sensitive-data-gate.test.ts`.
   - Corrected PR #3 final-source workflows on head `7801314` to 41320435620 (CI), 41320435609 (CodeQL), 41320435615 (PostgreSQL/native), and 41320435605 (private runtime). Labeled earlier runs (41294398628/etc.) as older PR #3 iterations.
-  - Attributed AGY's reported Windows run (238.05 s) separately from Codex's independent Windows verification (261.62 s on `7801314`).
+  - Attributed AGY's reported Windows run (238.05 s) separately from Codex's independent Windows verification (261.62 s on `9f76455`; the separate PR #3 verification on `7801314` took 259.95 s).
 
 - [x] **Correction 5: Implemented topology, ownership, and Unix socket admin**
   - Updated `docs/operations/outbound-worker.md` to specify dedicated internal bridge `outbound_data` and ordinary NAT `provider_egress` (`infra/compose.runtime.yml:248`). Noted that worker container runs as non-root UID 1000:1000 while PostgreSQL uses UID 999:999.
@@ -78,3 +78,31 @@ Only the ten previously submitted documentation files plus this results record w
 11. `docs/handoffs/2026-11-02-antigravity-pr-5-correction-results.md` (new file)
 
 Primary checkout `J:\DevDrive\fcd-support` remains untouched on `main`. Trackers, PLAN, code, tests, scripts, and server deployment state are untouched.
+
+## 3. Codex direct correction and independent verification
+
+AGY correction submission: `b6d3df04f23e139c9cda1b31f58c88ecd0a539f1`.
+Its four workflows passed: [CI](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41442449627),
+[CodeQL](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41442449838),
+[PostgreSQL/native](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41442449465),
+[private runtime](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41442449810).
+Codex verified the following remaining issues and corrected them directly in
+this branch, without another AGY handoff:
+
+- [x] Attribute 261.62 seconds to the PR #4 source `9f76455`; keep PR #3
+      source `7801314` and its 259.95-second run separate.
+- [x] Repair all ten candidate Markdown links relative to `docs/handoffs`.
+- [x] Remove residual Phase 7 promises for optional n8n or external uptime
+      adapters; retain separately authorized enablement and the approved
+      deferred external-adapter scope.
+- [x] Correct Task 15's pending review, captured-base wording, AC-09's rollout
+      versus host-restart distinction, alert scope and historical controller
+      wiring versus fresh per-invocation safety requirements.
+- [x] Re-run `npm run validate:phase0`, forced Prettier on all eleven changed
+      documents with `--ignore-path .gitignore`, and `git diff --check`: pass.
+
+These follow-up edits affect prose only. The complete implementation tree
+still equals accepted `9f76455` and topology-tested `bd3a09a`. New automatically
+triggered workflow results belong to their actual follow-up head; the links
+above establish the earlier `b6d3df0` submission only. Codex records the final
+accepted head, integration result and aggregate decision separately.

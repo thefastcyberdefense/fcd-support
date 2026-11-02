@@ -3,8 +3,11 @@
 ## Implementation Status
 
 Phase 6 runtime and operational failure controls are implemented and validated
-across local and CI suites (Task 11 complete; Tasks 12–15 complete via PR #3
-`df8e52d` and PR #4 `c74b6f4`). Main is clean and synchronized at `bd3a09a`.
+across local and CI suites (Task 11 and Tasks 12–14 local implementation complete;
+Task 15 failure tests accepted through PR #3 `df8e52d` and PR #4 `c74b6f4`).
+Task 15 documentation acceptance and aggregate review remain pending. The
+captured original evidence-pack base was `bd3a09a`; correction work merged
+review checkpoint `4aaddbc`.
 However, final server deployment (Task 16) and P6-GATE review remain open under
 Codex authority; local and CI passes do not constitute a live server deployment
 or restore gate pass. Historical server records (`67a4a4b`, `3f22344`, `d96382d`)
@@ -1277,8 +1280,8 @@ The returned `{status:'ready'}` is an internal result for that still-quiesced
 operation, not a transferable token, saved approval or Docker attachment.
 (Historical prerequisite note: public promotion controller invocation was subsequently
 implemented in `scripts/promote-restore.sh` and validated during Task 11). Docker
-inspection and the quiescence implementation must be wired and rechecked through
-failure-safe switching before any application attachment. No external-execution flag is
+inspection and quiescence are wired through that controller and must be freshly
+rechecked through failure-safe switching before every application attachment. No external-execution flag is
 enabled by this function.
 
 ### Explicit Stale Socket Recovery Prerequisites
@@ -1307,9 +1310,9 @@ is withheld. Native tests exercise the real compiled filesystem helper behind
 a fake external Docker transport; they do not establish real Ubuntu daemon,
 UID mapping or SSH behavior. (Historical prerequisite note: stale socket recovery
 was subsequently wired into `scripts/recover-admin-socket.sh` and validated in
-`tests/admin-socket-recovery.test.ts` and authorized server drill `4c51898`). Cancellation/cleanup
-of ambiguous jobs, full runtime verification and the completed host controller remain
-required before enabling that command.
+`tests/admin-socket-recovery.test.ts` and authorized server drill `4c51898`). The completed host controller enforces bounded cancellation/cleanup and full
+runtime verification; every new invocation still requires its fresh admission
+and exact reviewed server scope.
 
 ### Commands And Evidence
 

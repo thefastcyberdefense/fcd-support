@@ -108,7 +108,7 @@ messages, credentials, provider bodies or dumps. Health collection is independen
 of n8n. The signed n8n adapter owns only notification attempts and never
 conversation, escalation, consent or delivery authority.
 
-External uptime alerts remain deferred to Phase 7. Dashboard and journal evidence
+Direct external uptime adapters remain deferred to a separately approved future version. Dashboard and journal evidence
 cannot notify an operator while the host is powered down. Staff must retain manual
 Meta Business Suite coverage and check readiness after downtime; old events do not
 become eligible for automatic replies merely because the server restarts.

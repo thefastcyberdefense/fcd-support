@@ -2,8 +2,8 @@
 
 This document serves as the consolidated Task 15 evidence index for Phase 6
 gate consideration. It does not constitute an aggregate P6 gate pass or server
-deployment authorization. Tasks 1–15 implementation, failure tests, and runtime
-dependency follow-up are complete; independent whole-phase gate review
+deployment authorization. Tasks 1–14 local implementation, Task 15 failure tests and runtime
+dependency follow-up are complete; Task 15 documentation acceptance and whole-phase gate review
 (P6-GATE) and Task 16 server deployment/handoff remain under Codex ownership.
 Keep local component checks, disposable CI runtimes, bounded historical server
 records, and pending live integration distinctly categorized.
@@ -28,8 +28,8 @@ records, and pending live integration distinctly categorized.
   `docs/reviews/2026-11-01-pr-3-integration.md`.
 - **Task 15 Runtime Dependency Follow-up (PR #4):** Merged as `c74b6f4` on tested
   source `9f76455`. Scoped pinned overrides under `node-pg-migrate@9.0.0`
-  (glob `14.0.3` and minimatch `11.0.3`) eliminated the two reported runtime
-  vulnerabilities (#42 and #43). Production audit `npm audit --omit=dev` reports
+  (glob `14.0.3` and minimatch `11.0.3`) removed the affected production glob/minimatch copies. GitHub
+  alert #42 was observed fixed/runtime; #43 remains open/development. Production audit `npm audit --omit=dev` reports
   **zero vulnerabilities**. Development-only tooling advisories (11 moderate)
   remain distinct. See `docs/reviews/2026-11-01-pr-4-integration.md`.
 - **Captured Base Revision:** `bd3a09a1f5ade5bdfa17a3df1e0fab6498f1538a`
@@ -52,15 +52,15 @@ records, and pending live integration distinctly categorized.
 
 ### Execution Counts and Skips by Lane (Source `9f76455` / `c74b6f4`)
 
-| Lane                    | Result                                       | Files | Duration | Notes                                                                                                |
-| :---------------------- | :------------------------------------------- | :---- | :------- | :--------------------------------------------------------------------------------------------------- |
-| Local Windows Full Gate | 1,952 passed / 438 platform skips / 0 failed | 131   | 238.05 s | `VITEST_MAX_WORKERS=4 npm run check` (AGY run; Codex independent run 261.62 s on `7801314`)          |
-| Linux CI Unit Lane      | 2,020 passed / 370 lane skips                | 131   | 80.11 s  | Ubuntu runner, pinned UID 1000, tmpfs scratch                                                        |
-| Native Operations Lane  | 1,298 passed                                 | 55    | 489.37 s | Host scripts, permissions, lifecycle, containment                                                    |
-| Full PostgreSQL Lane    | 621 passed / 52 lane skips                   | 56    | 97.78 s  | Authoritative state stores, flows, migrations                                                        |
-| Grants PostgreSQL Lane  | 139 passed / one restore-only skip           | 13    | 58.35 s  | Restricted roles, bootstrap, migrator checks                                                         |
-| Restore Unit Lane       | 252 passed                                   | 12    | 62.08 s  | Split capabilities, readers, reconcile, proof ports                                                  |
-| Two-Cluster Integration | 47 passed                                    | 2     | 25.72 s  | `tests/integration/postgres-isolated-restore.test.ts` via `scripts/test-encrypted-backup.sh restore` |
+| Lane                    | Result                                       | Files | Duration | Notes                                                                                                                      |
+| :---------------------- | :------------------------------------------- | :---- | :------- | :------------------------------------------------------------------------------------------------------------------------- |
+| Local Windows Full Gate | 1,952 passed / 438 platform skips / 0 failed | 131   | 238.05 s | `VITEST_MAX_WORKERS=4 npm run check` (AGY run; Codex independent run 261.62 s on `9f76455`; PR #3 `7801314` took 259.95 s) |
+| Linux CI Unit Lane      | 2,020 passed / 370 lane skips                | 131   | 80.11 s  | Ubuntu runner, pinned UID 1000, tmpfs scratch                                                                              |
+| Native Operations Lane  | 1,298 passed                                 | 55    | 489.37 s | Host scripts, permissions, lifecycle, containment                                                                          |
+| Full PostgreSQL Lane    | 621 passed / 52 lane skips                   | 56    | 97.78 s  | Authoritative state stores, flows, migrations                                                                              |
+| Grants PostgreSQL Lane  | 139 passed / one restore-only skip           | 13    | 58.35 s  | Restricted roles, bootstrap, migrator checks                                                                               |
+| Restore Unit Lane       | 252 passed                                   | 12    | 62.08 s  | Split capabilities, readers, reconcile, proof ports                                                                        |
+| Two-Cluster Integration | 47 passed                                    | 2     | 25.72 s  | `tests/integration/postgres-isolated-restore.test.ts` via `scripts/test-encrypted-backup.sh restore`                       |
 
 _Note: Test lanes overlap and represent distinct capability scopes; counts must never be summed._
 
@@ -122,7 +122,7 @@ _(PR #3 final-source workflows on head `7801314`: [ci 41320435620](https://githu
 | **PostgreSQL Authority & Worker Stop**                     | `tests/worker-loop.test.ts`, `tests/health-collector.test.ts`, `tests/operations-deployment-state.test.ts`, and runtime stores             | Local and ephemeral CI pass; full host power outage/restart matrix is deferred P7/P8                                                                                                 |
 | **Manifest Privacy, Timeout & Tool Isolation**             | `tests/manifest-client.test.ts`, `tests/model-reply-service.test.ts`, `tests/sensitive-data-gate.test.ts`, `tests/faq-resolver.test.ts`    | Local fakes and policy pass; live Manifest recording-off attestation and model quality are deferred P7                                                                               |
 | **Meta Ambiguous Outcome & Replay**                        | `tests/integration/postgres-outbound-flow.test.ts`, `tests/outbound-worker.test.ts`, `tests/meta-outbound-client.test.ts`                  | Outbound flow and eligibility tests pass; real test-device sends and live manual-echo correlation are deferred P7/P8                                                                 |
-| **Private n8n Boundary & Signed Retries**                  | `tests/n8n-client.test.ts`, `tests/integration/postgres-notification-flow.test.ts`                                                         | Fake peer and real PostgreSQL store pass; live n8n workflow deployment is deferred P7                                                                                                |
+| **Private n8n Boundary & Signed Retries**                  | `tests/n8n-client.test.ts`, `tests/integration/postgres-notification-flow.test.ts`                                                         | Fake peer and real PostgreSQL store pass; optional live n8n enablement requires separate authorization                                                                               |
 | **Health Observer & Outage Recording**                     | `tests/health-collector.test.ts:220`, `tests/operations-health-host.test.ts`, `tests/systemd-contract.test.ts:403`                         | Host observations and bounded gap recording pass; installed host timer execution remains open                                                                                        |
 | **Encrypted Backup Full (`ENOSPC`) & Read-Only (`EROFS`)** | `tests/backup.test.ts:268-615`, `tests/backup-harness-containment.test.ts`, `scripts/test-encrypted-backup.sh`                             | Verified via real Linux kernel RO mount, directory mode 0500, full tmpfs (`ENOSPC`), and contained RO initializer with verified cleanup gate                                         |
 | **Ciphertext Verification & Malformed Detection**          | `tests/backup.test.ts:170-195`, `tests/integration/postgres-isolated-restore.test.ts`                                                      | Bit-flipped ciphertext, truncated archives, and premature exit pass                                                                                                                  |
