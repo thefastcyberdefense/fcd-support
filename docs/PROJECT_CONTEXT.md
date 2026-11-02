@@ -1,6 +1,33 @@
 # Project Context
 
-Last reviewed: 2026-11-01 (Asia/Dhaka)
+Last reviewed: 2026-11-02 (Asia/Dhaka)
+
+**PR #5 is reviewed; corrections are required before merge and P6-GATE.**
+Submitted `d821b246bad61ae3a23f923f7a491bbc8fd1964b` changes ten documents.
+All four exact-head workflows, Phase 0 and diff checks pass. Independent
+reviews find false standalone drain/retention instructions, wrong runtime
+topology/task mapping, invalid citations and deployment/deferral overclaims.
+Forced Markdown formatting fails three submitted files. Review and immediate
+AGY assignment: `docs/reviews/2026-11-02-pr-5-evidence-review.md` and
+`docs/handoffs/2026-11-02-antigravity-pr-5-review-fixes.md`. PR #5 remains draft;
+Task 15, aggregate P6-004/005/006, P6-GATE and Task 16 remain open.
+
+Codex also executed the missing full local topology harness on exact
+`bd3a09a1f5ade5bdfa17a3df1e0fab6498f1538a`, whose implementation tree equals
+accepted `9f76455`. It passed in 157.32 seconds: four Compose contracts,
+9 allowed/20 denied paths including ordinary-egress multihoming, native Unix
+socket/UID checks and zero test-owned Docker leftovers. Evidence:
+`docs/testing/2026-11-02-phase-6-local-topology.md`. This is local synthetic-peer
+testing, not a new server or live-integration claim.
+
+The actor-loss incident stays open and contained. Attribution does not block
+unrelated local evidence, but old targets/journals/baselines/volumes remain
+protected and no uncertain SQL outcome is inferred. Task 16 needs fresh
+admission and a committed exact updated-source action; old one-use actions
+cannot deploy the dependency correction. No shared-server, provider, Meta,
+tunnel, production, other-project or recovery-policy action ran this turn.
+
+### Earlier PR #4 checkpoint
 
 **PR #4 is accepted and merged; final Phase 6 evidence work is unblocked.**
 Merge `c74b6f4314e17fe707ba5e3f02a183d1ebe9b9fd` has the same complete tree as
@@ -87,9 +114,9 @@ infrastructure, tunnel, production or other-project change ran. See
 `docs/reviews/2026-10-31-phase-6-task-11-closeout.md` for scope and limitations.
 
 P6-004/005/006 remain IN PROGRESS because they include Task 15; P6-GATE remains
-BLOCKED. AGY's approved final documentation closeout is now unblocked. Current
-handoff: `docs/handoffs/2026-11-01-antigravity-phase-6-evidence-pack.md`, with
-its linked plan. Codex owns server recovery, trackers, integration and independent
+BLOCKED. AGY's approved documentation correction assignment is unblocked. Current
+handoff: `docs/handoffs/2026-11-02-antigravity-pr-5-review-fixes.md`.
+Codex owns server recovery, trackers, integration and independent
 whole-phase review. No live provider, Meta, tunnel or production change ran.
 
 The following entries retain earlier checkpoints and their evidence.
