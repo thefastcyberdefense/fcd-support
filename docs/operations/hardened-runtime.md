@@ -1,9 +1,12 @@
 # Hardened Runtime Operator Guide
 
-Phase 6 is under validation. Command availability and component tests do not
-establish a completed deployment, recovery or production gate. The exact server
+Phase 6 runtime controls, split restore, private admin, and failure-matrix coverage
+have been validated across local, unit, native, and PostgreSQL test lanes (PR #3
+`df8e52d`, PR #4 `c74b6f4`). Command availability and component tests do not
+establish a completed deployment, recovery, or production gate. The exact server
 action record is `phase-6-server-deployment.md`; current limitations and validation
-are in `runtime-deployment-safety.md`.
+are in `runtime-deployment-safety.md`. Final server deployment (Task 16) and
+P6-GATE review remain open under Codex authority.
 
 ## Source and protected inputs
 
@@ -39,9 +42,11 @@ The host flock serializes operations. Durable selection, immutable volume/image
 history and a separate job journal preserve uncertainty across interruption.
 Fresh initialization refuses pre-existing storage or interrupted intent.
 Updating an existing database verifies ownership/storage before stopping apps,
-drains only verified actors, verifies a pre-migration encrypted archive and
-applies forward transactional migrations. Startup checks physical identity,
-schema, roles, deployment metadata, socket and actual Docker topology.
+executes the internal controlled drain procedure (`scripts/operations-drain.sh`,
+sourced by the controller) to verify and drain only expected actors before container
+teardown, verifies a pre-migration encrypted archive and applies forward transactional
+migrations. Startup checks physical identity, schema, roles, deployment metadata,
+socket and actual Docker topology.
 
 Rollback uses retained images and the selected database only when the recorded
 schema exactly matches. It does not rebuild an old revision, down-migrate or
@@ -69,10 +74,13 @@ separately before it can be considered validated there.
 
 Admin listens only on the owned mode-`0600` Unix socket under its independently
 provisioned mode-`0700` directory. Runtime services publish no Docker host ports.
-Use the separately verified SSH loopback-TCP-to-remote-Unix forward described in
-the concrete server record. The browser port and origin must match the admin
-configuration; retaining host-key checks, authentication, MFA, session checks,
-CSRF and signed actions is required.
+Remote administration uses the separately verified SSH loopback-TCP-to-remote-Unix
+forward to the configured host socket `${FCD_ADMIN_SOCKET_ROOT}/admin.sock` (which the
+container mounts at `/run/fcd-support-admin/admin.sock`). The SSH client loopback
+forward does not publish or create a server Docker port, and synthetic-forward
+proofs do not replace real SSH host forwarding checks. The browser port and origin
+must match the admin configuration; retaining host-key checks, authentication,
+MFA, session checks, CSRF and signed actions is required.
 
 A stale or substituted socket blocks startup. Only this separate command may
 remove a freshly verified stale socket belonging to the verified stopped actor:
@@ -87,9 +95,12 @@ delete a socket manually or introduce a TCP listener to get past this check.
 ## Scheduling, health and manual coverage
 
 Timers pin revision, configuration and slot, use the same operation lock and
-preserve durable job identity. Catch-up does not authorize blind replay of an
-uncertain result. Backup verification precedes retention pruning; scheduled
-maintenance uses its restricted role and current physical identity.
+preserve durable job identity. Scheduled catch-up is bounded strictly to the current
+execution slot and deduplicated via the authoritative PostgreSQL catalog rather than
+queuing or replaying missed past slots. Synthetic native tests verify timer execution
+logic, but real host systemd timers are not installed merely because tests pass.
+Backup verification precedes retention pruning; scheduled maintenance uses its
+restricted role and current physical identity.
 
 The private operations dashboard displays minimized health, queue, archive and
 incident metadata with authenticated acknowledgements. It does not expose raw
@@ -97,10 +108,10 @@ messages, credentials, provider bodies or dumps. Health collection is independen
 of n8n. The signed n8n adapter owns only notification attempts and never
 conversation, escalation, consent or delivery authority.
 
-External uptime alerts are deferred. Dashboard/journal evidence cannot notify
-an operator while the host is off. Staff must retain manual Meta Business Suite
-coverage and check readiness after downtime; old events do not become eligible
-for automatic replies merely because the server restarts.
+Direct external uptime adapters remain deferred to a separately approved future version. Dashboard and journal evidence
+cannot notify an operator while the host is powered down. Staff must retain manual
+Meta Business Suite coverage and check readiness after downtime; old events do not
+become eligible for automatic replies merely because the server restarts.
 
 ## Verification boundary
 

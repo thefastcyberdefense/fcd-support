@@ -1,32 +1,40 @@
 # Outbound Worker Operations Contract
 
-Status: operational design only; no deployable worker entrypoint or service is
-enabled in Phase 5
+Status: Implemented in Phase 6 runtime packaging; entrypoint and worker service
+remain disabled in `--mode private-disabled` until Phase 7 authorizes live
+Meta test assets.
 
 ## Preconditions
 
-Do not start outbound processing until P6 packaging and private operations pass,
-P7 authorizes the exact test assets, and the runtime has protected credentials.
-The worker must have private PostgreSQL access and outbound HTTPS to the approved
-Meta host only. It must not join the public ingress network or expose a route.
+Do not enable outbound processing until Phase 6 packaging and private operations
+gates pass, Phase 7 authorizes the exact Meta test number/assets, and the runtime
+receives protected credentials. The worker requires private PostgreSQL access
+and outbound HTTPS to the approved Meta host only. It must not join the public
+ingress network or expose any host or HTTP route.
 
-Before enablement verify the exact approved revision, migration state, one
+Before enablement, verify the exact approved revision, migration state, one
 active reviewed policy, reviewed account-scoped templates, protected deployment
-bounds, private health/alert path, manual coverage, and an explicit rollback.
+bounds, private health/alert path, manual coverage, and an explicit rollback plan.
 Never print credentials or inspect their values for evidence.
 
 ## Start And Stop
 
-Phase 5 cannot currently be started as a daemon: it provides library
-composition but no worker command, container, scheduler, or deployment unit.
-P6 must add those artifacts with a non-root user, read-only filesystem where
-compatible, health check, resource limits, and private-only networking.
+In Phase 6, the worker entrypoint is implemented in `dist/worker-main.js outbound`
+(along with `reply` and `notification` roles). The worker container runs as non-root
+user `1000:1000` (while PostgreSQL uses dedicated user `999:999`), with a read-only
+root filesystem (`read_only: true`), all Linux capabilities dropped (`cap_drop: [ALL]`),
+`no-new-privileges: true`, explicit CPU/memory/PIDs limits, health checks, and
+attachment only to its dedicated internal database bridge `outbound_data` and ordinary
+NAT `provider_egress` in `infra/compose.runtime.yml`. It has no ingress network attachment,
+publishes no host ports, and joins neither the optional model overlay nor the
+notification network.
 
-The future start procedure must enable claiming only after readiness checks.
-The stop procedure must first stop new claims, allow bounded in-process calls to
-finish within their configured timeout, then terminate. Killing after
-`dispatch_started` is safe from blind resend: lease recovery closes the attempt
-as `delivery_unknown`.
+The start procedure enables claiming only after PostgreSQL readiness checks pass.
+The stop procedure relies on the owning controllers' internal controlled drain
+(`scripts/operations-drain.sh`): it halts new job claims, allows in-flight calls
+to complete within their configured timeout, and then terminates. Terminating after
+`dispatch_started` is safe from duplicate sending: lease recovery transitions the
+attempt to `delivery_unknown` rather than blindly re-dispatching.
 
 ## Lease Recovery
 
