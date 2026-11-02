@@ -2,6 +2,15 @@
 
 ## Current Phase 6 checkpoint
 
+- **Maintenance correction accepted:** PR #6 merged as `7af70cc`, identical to
+  validated `e665249`; all four workflows passed, including both real scheduled
+  maintenance/recovery/cleanup lanes. Local full check: 1,955 passed / 438 skips;
+  separate native/grants checks passed. Task 16 uses a new reviewed one-use scope
+  at `7af70cc`; its action/runbook are prepared for commit and fresh admission.
+  This does not settle or retry failed `6d0210d`. Actual execution evidence follows
+  only after commands finish. AGY also has the independent Phase 7 readiness
+  assignment in `docs/handoffs/2026-11-02-antigravity-phase-7-readiness.md`.
+
 - **P6-GATE PASS for local implementation/validation.** Task 15 and
   P6-004/P6-005/P6-006 are COMPLETE. PR #5 merged as `157e9e2` after AGY
   corrections and Codex direct fixes on final `cbf3f2b`; all four exact-head

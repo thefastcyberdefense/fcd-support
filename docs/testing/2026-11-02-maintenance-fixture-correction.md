@@ -71,3 +71,27 @@ Any later server attempt requires a fresh source/project and reviewed admission
 with explicit missing-set quarantine. Actual SSH/admin proof, timer rendering/
 privileged installation and final Task 16 handoff remain open. No live model,
 Meta, n8n, tunnel or production action is included in this fix.
+
+## Exact-source integration accepted
+
+PR #6 merged as `7af70cc77196813b92d8365567150153996b790a`. Its complete tree
+matches reviewed `e6652496c24db30a486e08b618e74e74cf74a569` (`git diff --quiet`,
+exit 0). All four PR workflows passed:
+
+- CI: [41489228568](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41489228568).
+- CodeQL: [41489228400](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41489228400).
+- PostgreSQL/native: [41489228447](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41489228447).
+- Private runtime: [41489228486](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41489228486).
+
+The PostgreSQL job reports 621 passed / 52 skipped. Native operations reports
+1,298 native tests, 139 grants tests / one restore-only skip, 252 encrypted
+backup/restore tests and 47 isolated-restore tests. These overlapping lanes
+are not summed. Both fresh and precreated private-runtime logs contain closed
+success markers for real maintenance, backup, checkpoint, restore, promotion,
+rollback, recovery and scoped cleanup. This closes the correction's CI condition.
+A first local fetch after merge failed to connect to GitHub:443; an unchanged
+standard retry succeeded. No credential or network-policy workaround was used.
+
+The two exact labelled local diagnostic images were removed after checking
+labels and zero consumers; zero matching diagnostic images remain. No global
+Docker pruning or shared-server cleanup occurred.

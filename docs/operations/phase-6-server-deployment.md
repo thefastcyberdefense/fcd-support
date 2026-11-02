@@ -2186,3 +2186,46 @@ preservation audit also refuses one newly absent unrelated actor. A separate
 qualified surviving-inventory comparison is not a replacement baseline or an
 attribution. Current incident and direct fixture correction:
 `docs/operations/incidents/2026-11-02-final-deployment-maintenance.md`.
+
+### Separate fresh Task 16 follow-up after PR #6
+
+The maintenance correction is accepted at mainline
+`7af70cc77196813b92d8365567150153996b790a`, with a complete tree identical to
+reviewed `e665249`. All four exact-source CI workflows passed, including both
+real maintenance/recovery/cleanup lanes. This is the selected fresh server source.
+The previous `6d0210d` action, uncertain journal/database and original baseline
+remain untouched; its full audit still fails and no loss cause is attributed.
+
+New one-use executor: `docs/operations/actions/2026-11-02-final-server-followup.py`.
+SHA256: `49eda6f6994ae4071928fcc5cdbe545452d85aec0f937879f269ced02e98bcb0`.
+Review, direct RED/GREEN continuity fix and 24 passing real-Linux hermetic checks:
+`docs/reviews/2026-11-02-task-16-followup-action.md`. Commit/push these records
+before execution under the owner's existing isolated-test-deployment authorization.
+
+Only new project `fcd-support-host-test-p6-7af70cc`, fixture root
+`/home/redwan/fcd-support-host-test-p6-7af70cc` and action root
+`/home/redwan/fcd-support-p6-final-7af70cc` are affected. The eight new bridges use
+198.19.48.0/24 through 198.19.55.0/24, subject to repeated full non-overlap checks.
+The old failed scope is included in the new preservation baseline. Prior loss
+qualification permits exactly one absent unrelated running actor and requires
+all survivors, memberships, volumes, old state/evidence and pins to match; it
+never replaces the original baseline. Additional drift stops admission.
+
+```powershell
+$taskSource = '7af70cc77196813b92d8365567150153996b790a'
+$taskPath = 'docs/operations/actions/2026-11-02-final-server-followup.py'
+if ((Get-FileHash -Algorithm SHA256 -LiteralPath $taskPath).Hash.ToLowerInvariant() -ne '49eda6f6994ae4071928fcc5cdbe545452d85aec0f937879f269ced02e98bcb0') { throw 'Action changed' }
+$taskAction = Get-Content -LiteralPath $taskPath -Raw
+$taskAction | ssh -T -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=yes redwan@192.168.10.40 "python3 -B - --inspect $taskSource"
+if ($LASTEXITCODE -ne 0) { throw 'Admission refused' }
+$taskAction | ssh -T -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=yes redwan@192.168.10.40 "python3 -B - --deploy $taskSource"
+if ($LASTEXITCODE -ne 0) { throw 'Deployment refused; preserve evidence and stop' }
+$taskAction | ssh -T -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=yes redwan@192.168.10.40 "python3 -B - --audit $taskSource"
+```
+
+The action invokes the unchanged public deployment, scheduling, rendering and
+verification interfaces. It provisions no live credentials and leaves all three
+external execution flags false. Successful completion still leaves actual SSH/
+login/origin proof, root-owned timer installation/enabling and consolidated
+handoff open. No automatic retry, old uncertain cleanup, host reboot, daemon
+restart, other-project mutation or global pruning is authorized by this action.

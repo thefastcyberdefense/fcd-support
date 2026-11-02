@@ -2,6 +2,18 @@
 
 Last reviewed: 2026-11-02 (Asia/Dhaka)
 
+**Maintenance correction is accepted; fresh Task 16 follow-up is prepared.**
+PR #6 merged as `7af70cc`, exactly matching tested `e665249`. All four workflows
+passed, including real maintenance and full recovery/cleanup in both private
+runtime lanes. The generated-role CLI control, 1,955-test Windows check and native
+validation passed. See `docs/testing/2026-11-02-maintenance-fixture-correction.md`.
+The separately reviewed follow-up action selects `7af70cc`, uses new namespace and
+bridges, and preserves `6d0210d` uncertainty plus the original failed audit.
+Its admission race was reproduced and fixed; all 24 Linux guards pass. Commit/push
+and repeat fresh admission precede mutation; no successful new deployment is
+claimed yet. Actual SSH/admin, privileged timers and final handoff remain open.
+AGY's independent next preparation is the Phase 7 evidence-readiness assignment.
+
 **Latest Task 16 attempt is stopped; Codex owns the follow-up.** Committed
 `14ff26a` executed once on fresh source `6d0210d`. Four private runtime roles
 are healthy and scheduled backup/replay exited 0, but first retention
