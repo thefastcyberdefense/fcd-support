@@ -3,6 +3,7 @@
 synthetic_host_health_ack_diagnostic() {
   local value="${1-}" category=unexpected processed
   if [[ -z "$value" ]]; then category=empty
+  elif [[ "$value" == log_read_failed ]]; then category=log_read_failed
   elif [[ "$value" == *$'\r'* ]]; then category=carriage_return
   elif [[ "$value" == *$'\n'* ]]; then category=multiple_lines
   elif [[ "$value" == '{"status":"completed","processed":0,"reasonCode":"dependency_unavailable"}' ]]; then category=dependency_unavailable
@@ -19,7 +20,7 @@ synthetic_host_health_ack_diagnostic() {
 synthetic_host_runtime_diagnostic() {
   local code="${1:-}"
   case "$code" in
-    synthetic_health_ack_diagnostic=empty|synthetic_health_ack_diagnostic=carriage_return|synthetic_health_ack_diagnostic=multiple_lines|synthetic_health_ack_diagnostic=dependency_unavailable|synthetic_health_ack_diagnostic=completed|synthetic_health_ack_diagnostic=unexpected)
+    synthetic_health_ack_diagnostic=empty|synthetic_health_ack_diagnostic=log_read_failed|synthetic_health_ack_diagnostic=carriage_return|synthetic_health_ack_diagnostic=multiple_lines|synthetic_health_ack_diagnostic=dependency_unavailable|synthetic_health_ack_diagnostic=completed|synthetic_health_ack_diagnostic=unexpected)
       printf '%s\n' "$code" ;;
     runtime_host_diagnostic=arguments|runtime_host_diagnostic=input|runtime_host_diagnostic=validation|runtime_host_diagnostic=revision|runtime_host_diagnostic=ingress|runtime_host_diagnostic=compose|runtime_host_diagnostic=paths|runtime_host_diagnostic=samples|runtime_host_diagnostic=volume_identity|runtime_host_diagnostic=topology|runtime_host_diagnostic=images|runtime_host_diagnostic=volume|runtime_host_diagnostic=network_set|runtime_host_diagnostic=network_labels|runtime_host_diagnostic=network_members|runtime_host_diagnostic=container_policy|runtime_host_diagnostic=container_networks|runtime_host_diagnostic=tmpfs|runtime_host_diagnostic=mounts|runtime_host_diagnostic=binds|runtime_host_diagnostic=protected_binds|runtime_host_diagnostic=socket_users|runtime_host_diagnostic=stability)
       printf '%s\n' "$code" ;;
@@ -35,7 +36,7 @@ synthetic_host_runtime_diagnostic() {
 synthetic_host_report_failure() {
   local stage=unknown line file="${2:-}"
   case "${1:-}" in
-    preflight|fixture|build|keys|isolated-resources|deploy|verify|private-http|maintenance|backup|health|checkpoint|restore|promote|rollback|cleanup) stage="$1" ;;
+    preflight|fixture|build|keys|isolated-resources|deploy|verify|private-http|maintenance|backup|health|health-[1-9]|health-10|checkpoint|restore|promote|rollback|cleanup) stage="$1" ;;
   esac
   printf 'synthetic_host_failed=%s\n' "$stage" >&2
   # Diagnostic enums only; identities, references and arbitrary values are ignored.

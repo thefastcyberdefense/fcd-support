@@ -36,6 +36,7 @@ printf 'captures:%s:%s:%s\\n' "$` +
 
 test.each([
   ['', 'empty'],
+  ['log_read_failed', 'log_read_failed'],
   ['{"status":"completed","processed":10,"reasonCode":"ok"}', 'completed'],
   [
     '{"status":"completed","processed":0,"reasonCode":"dependency_unavailable"}',
@@ -65,66 +66,71 @@ test.each([
   expect(result.stdout).not.toContain('synthetic_private_value');
 });
 
-test.each(['deploy', 'restore', 'maintenance', 'health', 'untrusted_stage_value'])(
-  'synthetic host report emits only closed evidence for %s',
-  async (stage) => {
-    const root = await mkdtemp(join(tmpdir(), 'fcd-host-evidence-test-'));
-    try {
-      await writeFile(
-        join(root, 'active-job'),
-        'JOB_SERVICE=restore-reconcile\nJOB_PHASE=uncertain\nJOB_REF=synthetic_private_reference\n',
-      );
-      await writeFile(
-        join(root, 'deployment-state'),
-        'STATE_PHASE=quiescent\nSTATE_SYSTEM_IDENTIFIER=synthetic_private_identifier\n',
-      );
-      const log = join(root, 'diagnostic.log');
-      await writeFile(
-        log,
-        'synthetic_untrusted_diagnostic\noperations_restore_refused\noperations_untrusted_value\n',
-      );
-      const trace = join(root, 'trace.log');
-      await writeFile(
-        trace,
-        'operations-restore-controller.sh:71:previous=1\nsynthetic_untrusted_value:3:previous=1\n' +
-          'runtime_host_diagnostic=samples.healthy\n' +
-          'runtime_host_diagnostic=samples.synthetic_private_key\n' +
-          'runtime_host_diagnostic=synthetic_private_value\n',
-      );
-      const result = spawnSync(
-        process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash',
-        [
-          '-c',
-          'source "$TASK_LIBRARY" && synthetic_host_report_failure "$TASK_STAGE" "$TASK_LOG" "$TASK_TRACE" "$TASK_STATE"',
-        ],
-        {
-          encoding: 'utf8',
-          timeout: 5000,
-          env: {
-            ...process.env,
-            TASK_LIBRARY: resolve('scripts/synthetic-host-evidence.sh').replaceAll('\\', '/'),
-            TASK_LOG: log.replaceAll('\\', '/'),
-            TASK_STAGE: stage,
-            TASK_STATE: root.replaceAll('\\', '/'),
-            TASK_TRACE: trace.replaceAll('\\', '/'),
-          },
+test.each([
+  'deploy',
+  'restore',
+  'maintenance',
+  'health',
+  'health-1',
+  'health-10',
+  'untrusted_stage_value',
+])('synthetic host report emits only closed evidence for %s', async (stage) => {
+  const root = await mkdtemp(join(tmpdir(), 'fcd-host-evidence-test-'));
+  try {
+    await writeFile(
+      join(root, 'active-job'),
+      'JOB_SERVICE=restore-reconcile\nJOB_PHASE=uncertain\nJOB_REF=synthetic_private_reference\n',
+    );
+    await writeFile(
+      join(root, 'deployment-state'),
+      'STATE_PHASE=quiescent\nSTATE_SYSTEM_IDENTIFIER=synthetic_private_identifier\n',
+    );
+    const log = join(root, 'diagnostic.log');
+    await writeFile(
+      log,
+      'synthetic_untrusted_diagnostic\noperations_restore_refused\noperations_untrusted_value\n',
+    );
+    const trace = join(root, 'trace.log');
+    await writeFile(
+      trace,
+      'operations-restore-controller.sh:71:previous=1\nsynthetic_untrusted_value:3:previous=1\n' +
+        'runtime_host_diagnostic=samples.healthy\n' +
+        'runtime_host_diagnostic=samples.synthetic_private_key\n' +
+        'runtime_host_diagnostic=synthetic_private_value\n',
+    );
+    const result = spawnSync(
+      process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash',
+      [
+        '-c',
+        'source "$TASK_LIBRARY" && synthetic_host_report_failure "$TASK_STAGE" "$TASK_LOG" "$TASK_TRACE" "$TASK_STATE"',
+      ],
+      {
+        encoding: 'utf8',
+        timeout: 5000,
+        env: {
+          ...process.env,
+          TASK_LIBRARY: resolve('scripts/synthetic-host-evidence.sh').replaceAll('\\', '/'),
+          TASK_LOG: log.replaceAll('\\', '/'),
+          TASK_STAGE: stage,
+          TASK_STATE: root.replaceAll('\\', '/'),
+          TASK_TRACE: trace.replaceAll('\\', '/'),
         },
-      );
-      const expectedStage = stage === 'untrusted_stage_value' ? 'unknown' : stage;
-      expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
-        status: 0,
-        stdout: '',
-        stderr:
-          `synthetic_host_failed=${expectedStage}\n` +
-          'synthetic_host_job_service=restore-reconcile\nsynthetic_host_job_phase=uncertain\nsynthetic_host_selection_phase=quiescent\n' +
-          'operations_restore_refused\noperations-restore-controller.sh:71:previous=1\n' +
-          'runtime_host_diagnostic=samples.healthy\n',
-      });
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  },
-);
+      },
+    );
+    const expectedStage = stage === 'untrusted_stage_value' ? 'unknown' : stage;
+    expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
+      status: 0,
+      stdout: '',
+      stderr:
+        `synthetic_host_failed=${expectedStage}\n` +
+        'synthetic_host_job_service=restore-reconcile\nsynthetic_host_job_phase=uncertain\nsynthetic_host_selection_phase=quiescent\n' +
+        'operations_restore_refused\noperations-restore-controller.sh:71:previous=1\n' +
+        'runtime_host_diagnostic=samples.healthy\n',
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test('CI trace retains a closed validator refusal through nested stderr suppression', async () => {
   const root = await mkdtemp(join(tmpdir(), 'fcd-host-evidence-test-'));

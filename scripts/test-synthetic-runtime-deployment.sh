@@ -103,7 +103,7 @@ if [[ "$ci_mode" == true ]]; then
 exec 3>"${FCD_SYNTHETIC_TRACE:?}"
 source "${FCD_SYNTHETIC_EVIDENCE_LIBRARY:?}"
 set -o functrace
-trap 'trace_status=$?; trace_source="${BASH_SOURCE[0]-stdin}"; printf "%s:%s:previous=%s\n" "${trace_source##*/}" "$LINENO" "$trace_status" >&3; synthetic_host_runtime_diagnostic "${result-}" >&3; if [[ "${OPS_JOB_SERVICE-}" == health && -v acknowledgement ]]; then synthetic_host_health_ack_diagnostic "$acknowledgement" >&3; fi' DEBUG
+trap 'trace_status=$?; trace_source="${BASH_SOURCE[0]-stdin}"; printf "%s:%s:previous=%s\n" "${trace_source##*/}" "$LINENO" "$trace_status" >&3; synthetic_host_runtime_diagnostic "${result-}" >&3; if [[ "${OPS_JOB_SERVICE-}" == health ]]; then if [[ "${trace_source##*/}" == operations-job-lifecycle.sh && "$LINENO" -eq 260 && "$trace_status" -ne 0 ]]; then synthetic_host_health_ack_diagnostic log_read_failed >&3; elif [[ -v acknowledgement ]]; then synthetic_host_health_ack_diagnostic "$acknowledgement" >&3; fi; fi' DEBUG
 TRACE
   BASH_ENV="$fixture/logs/trace-entry.bash" FCD_SYNTHETIC_TRACE="$fixture/logs/deploy-lines.log" FCD_SYNTHETIC_EVIDENCE_LIBRARY="$root/scripts/synthetic-host-evidence.sh" FCD_RUNTIME_HOST_DIAGNOSTICS=closed-v1 \
     bash scripts/deploy-runtime.sh "$revision" --mode private-disabled "$fixture/config/operations.env" >"$fixture/logs/deploy.log" 2>&1 </dev/null
@@ -149,9 +149,21 @@ if [[ "$ci_mode" == true ]]; then
   printf 'synthetic_host_backup_passed=true\n'
 
   stage=health
-  synthetic_host_run scripts/run-operation.sh health "$revision" "$fixture/config/operations.env" >"$fixture/logs/health.log" 2>&1 </dev/null || synthetic_host_stage_failed
-  [[ ! -e "$fixture/state/active-job" && ! -L "$fixture/state/active-job" ]]
-  grep -qx 'STATE_PHASE=ready' "$fixture/state/deployment-state"
+  health_invocations="${TASK_HEALTH_STRESS:-1}"
+  [[ "$health_invocations" =~ ^([1-9]|10)$ ]] || { printf 'synthetic_host_health_stress_invalid\n' >&2; exit 1; }
+  for (( health_idx=1; health_idx<=health_invocations; health_idx++ )); do
+    stage="health-$health_idx"
+    [[ ! -e "$fixture/state/active-job" && ! -L "$fixture/state/active-job" ]] || synthetic_host_stage_failed
+    job_actors="$(docker ps -aq --filter "label=fcd-support.operation.service=health" --filter "label=com.docker.compose.project=$project")"
+    [[ -z "$job_actors" ]] || synthetic_host_stage_failed
+    synthetic_host_run scripts/run-operation.sh health "$revision" "$fixture/config/operations.env" >"$fixture/logs/$stage.log" 2>&1 </dev/null || synthetic_host_stage_failed
+    [[ ! -e "$fixture/state/active-job" && ! -L "$fixture/state/active-job" ]] || synthetic_host_stage_failed
+    grep -qx 'STATE_PHASE=ready' "$fixture/state/deployment-state"
+    printf 'synthetic_host_health_iteration=%s\n' "$health_idx"
+  done
+  cp -f "$fixture/logs/health-$health_invocations.log" "$fixture/logs/health.log" 2>/dev/null || true
+  cp -f "$fixture/logs/health-$health_invocations-lines.log" "$fixture/logs/health-lines.log" 2>/dev/null || true
+  stage=health
   printf 'synthetic_host_health_passed=true\n'
 
   stage=checkpoint

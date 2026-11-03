@@ -72,7 +72,8 @@ if(args.includes('compose')) {
   c.phase='exited'; c.exit=fault==='job-failed'?1:0; save(c); console.log(c.exit);
 } else if(args.includes('logs')) {
   trace('logs');
-  console.log(fault==='unsafe-output'?'synthetic_unexpected_diagnostic':fault==='database-down'?'{"status":"completed","processed":0,"reasonCode":"dependency_unavailable"}':fault==='not-due'?'{"status":"skipped","processed":0,"reasonCode":"not_due"}':'${ack}');
+  if(fault==='logs-failed') process.exit(19);
+  console.log(fault==='unsafe-output'?'synthetic_unexpected_diagnostic':fault==='empty-output'?'':fault==='multiline-output'?'line1\\nline2':fault==='malformed-output'?'{"status":':fault==='database-down'?'{"status":"completed","processed":0,"reasonCode":"dependency_unavailable"}':fault==='not-due'?'{"status":"skipped","processed":0,"reasonCode":"not_due"}':'${ack}');
 } else if(args.includes('stop')) {
   trace('stop'); if(fault==='cannot-stop') process.exit(19);
   const c=load(); c.phase='exited'; save(c);
@@ -236,6 +237,10 @@ test
     'wait-ack',
     'job-failed',
     'unsafe-output',
+    'empty-output',
+    'multiline-output',
+    'malformed-output',
+    'logs-failed',
     'remove-ack',
     'absence-error',
     'cannot-stop',
