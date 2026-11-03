@@ -2,14 +2,28 @@
 
 ## Current Phase 6 checkpoint
 
-**Phase 6 COMPLETE, including Task 16 (2026-11-03).** Accepted `24e5667` is
+**Phase 6 closeout recorded, including Task 16 (2026-11-03); current scheduled
+operations HELD.** Accepted `24e5667` is
 deployed on the private test server. Managed upgrade, original database/volume
 identity, backup/maintenance/health, existing-admin SSH password/MFA/logout,
 actual root service execution and all three enabled/active timers passed.
 Installed hashes/hardening and separate post-root public verification/strict
 preservation passed. Closeout: `docs/reviews/2026-11-03-phase-6-task-16-closeout.md`.
+Subsequent inventory found a recurring uncertain health job with its actor
+absent; normal scheduled backup/maintenance/health now refuse pending review.
+Core containers and private dashboard remain available. No journal was cleared
+or replayed. See `docs/operations/incidents/2026-11-03-recurring-health-uncertainty.md`.
 Phase 7 live/current test-asset work remains separate. AGY has health-transport
-stress and Phase 7 readiness assignments with checkbox acceptance criteria.
+stress and Phase 7 readiness assignments with checkbox acceptance criteria;
+Codex retains current-server diagnosis and disposition.
+
+Owner-authorized cleanup is COMPLETE: 19 old isolated test containers were
+removed, keeping the latest five actors, connected three-container webhook
+stack and 23 unrelated actors. Separate strict audit preserved all volumes,
+networks and saved state files. Dashboard login is available through the local
+SSH forward at `http://127.0.0.1:13004/login` (password/MFA required). See
+`docs/operations/2026-11-03-test-container-retirement.md` and
+`docs/operations/admin-dashboard-access.md`.
 
 The dated checkpoint notes below are historical; their pending Task 16
 statements are superseded by this closeout. Original incidents and uncertain

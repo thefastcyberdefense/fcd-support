@@ -2,14 +2,30 @@
 
 Last reviewed: 2026-11-03 (Asia/Dhaka)
 
-**Phase 6 COMPLETE, including Task 16.** Accepted `24e5667` is deployed in
+**Phase 6 closeout recorded, including Task 16; current scheduled operations
+HELD.** Accepted `24e5667` is deployed in
 the private synthetic project. Managed rollout, database/volume identity,
 backup/maintenance/health, existing-admin SSH password/MFA/dashboards/logout,
 actual root service tests and three enabled/active timers passed. Independent
 installed-unit/hardening inspection and separate post-root public verification/
 strict preservation passed. See `docs/reviews/2026-11-03-phase-6-task-16-closeout.md`.
+Subsequent cleanup inventory found a recurring uncertain health job whose actor
+is absent; normal scheduled operations now refuse pending review. The earlier
+successful closeout remains bounded historical evidence. Core roles and private
+dashboard are available; no journal was cleared or replayed. See
+`docs/operations/incidents/2026-11-03-recurring-health-uncertainty.md`.
 Phase 7 current live/test-asset integration remains next; model/outbound/n8n
-flags stay false. AGY has independent stress and readiness assignments.
+flags stay false. AGY has independent stress and readiness assignments; Codex
+owns current-server diagnosis and operational disposition.
+
+The owner's old-container cleanup completed: 19 obsolete actors removed,
+latest five and connected webhook three retained, 23 unrelated actors unchanged.
+Strict independent audit preserved volumes/networks/state and original evidence.
+The new private survivor baseline supersedes old inventories for future checks,
+without rewriting history. Dashboard is accessible now through loopback SSH at
+`http://127.0.0.1:13004/login`; see
+`docs/operations/2026-11-03-test-container-retirement.md` and
+`docs/operations/admin-dashboard-access.md`.
 
 The checkpoint paragraphs below are historical. Their Task 16 pending notes
 are superseded; original incidents/uncertain scopes remain open and contained.

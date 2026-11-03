@@ -1,7 +1,7 @@
 # Authorized old test-container retirement
 
 Date: 2026-11-03 (Asia/Dhaka).
-Status: **Reviewed and read-only admitted; actual retirement pending.**
+Status: **COMPLETE. Nineteen obsolete containers retired; independent preservation audit passed.**
 
 The owner requested removing old test Docker containers and keeping the latest
 deployment. They separately chose to **keep the connected Meta test webhook
@@ -55,7 +55,7 @@ these exact bytes for publication, provisioning and one admitted execution.
 Published executor `24e2253` ran once. The first old API stopped cleanly with
 exit 0 and identical identity/mounts, but Docker's deprecated `--time` option
 printed its notice on stdout before the ID. The strict receipt guard refused
-at graceful_stop. All 19 actors remain present; no container was removed.
+at graceful_stop. At that checkpoint all 19 actors remained present; no container was removed.
 The first private archive/start marker and original executor remain unchanged.
 
 The separately reviewed `actions/2026-11-03-retire-old-tests-r2.py` uses canonical
@@ -70,13 +70,40 @@ already exited API is adopted without another stop. It never clears a journal.
 Four new test-first continuation guards passed on Windows and Linux, alongside
 the original seven. Read-only native R2 admission passed against the immutable
 first-attempt archive. Independent review approved publication/provisioning and
-one fresh admitted R2 execution. Actual completion remains pending.
+one fresh admitted R2 execution.
+
+## Actual continuation and independent verification
+
+Published continuation `ae87a21` was provisioned outside the application checkout
+at its exact reviewed hash, owner/group 1000:1000 and mode 0400. Fresh read-only
+admission passed. One subsequent `--cleanup` execution exited 0: all 19 actors
+stopped gracefully and were removed without force or volume removal. All seven
+old PostgreSQL containers exited 0 without OOM before removal.
+
+A separate read-only audit compared the current snapshot with both the new
+survivor baseline and the original projected survivors. Both matched exactly:
+
+- 31 containers remain: five latest test actors, three connected webhook actors
+  and 23 unrelated actors.
+- All five latest actors are running; the four core roles are healthy. All
+  three connected webhook actors are running and healthy.
+- All volume/network definitions, surviving actor metadata, saved state-file
+  fingerprints and host boot/Docker daemon pins are unchanged.
+- Original first-attempt evidence remains unchanged. Old and current uncertain
+  operation records remain preserved and unresolved.
+
+Private completion and the new survivor baseline are in
+`/home/redwan/fcd-support-retire-old-tests-20261103-r2/` as
+`retirement-completed.json` and `survivors-baseline.json`. Use that baseline for
+subsequent preservation checks; older baselines intentionally still include
+the now-authorized retired actors. Do not rewrite them or rerun either action.
+No volume, network, image, database, configuration or journal was deleted.
 
 ## Dashboard and separate current health hold
 
 The dashboard exists now (Phase 5 implementation, Phase 6 deployment). Its
 login route was verified HTTP 200 and protected knowledge route HTTP 303 to
-login. An SSH forward binds only local 127.0.0.1:13004 to the latest remote Unix
+login, including a separate check after retirement. An SSH forward binds only local 127.0.0.1:13004 to the latest remote Unix
 socket. Browser access is `http://127.0.0.1:13004/login`; login and MFA remain
 required. No public admin endpoint or server port was added.
 

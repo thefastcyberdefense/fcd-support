@@ -1,7 +1,8 @@
 # AGY assignment: synthetic health transport and acknowledgement stress
 
 Owner: AGY. Codex retains source acceptance, merge, shared-server execution and
-Task 16 authority. This assignment is independent of the root timer repair.
+server operational authority. The root timer repair and bounded Task 16 closeout
+passed; this assignment now also informs a subsequent recurring-health incident.
 
 ## Context and start boundary
 
@@ -14,9 +15,17 @@ passed, then health stopped at its terminal log/acknowledgement boundary and
 retained uncertainty. The precreated lane and other three workflows passed.
 No cause or SQL completion has been inferred.
 
+PR #8 is merged as `24e5667`. The exact accepted source passed the real root
+backup/maintenance/health drill, but later server inventory found another
+uncertain scheduled-health journal with its actor absent. Core containers are
+healthy; six sampled recent service refusals were operations_job_pending.
+Normal scheduled operations are now held. See
+`../operations/incidents/2026-11-03-recurring-health-uncertainty.md`.
+This is a new bounded observation, not proof of the original failure's cause.
+Codex preserved its record during the authorized retirement of 19 older actors.
+
 Use a separate worktree and branch `codex/agy-p6-health-transport-stress` from
-fresh synchronized main **after Codex merges PR #8**. Until then, inspect the
-published evidence and prepare the test design only. Do not edit Codex's primary
+fresh synchronized main; PR #8 has merged. Do not edit Codex's primary
 checkout, timer helpers, server or tracker. Do not replay a failed scope.
 
 ## Tasks
@@ -45,7 +54,7 @@ checkout, timer helpers, server or tracker. Do not replay a failed scope.
 - [ ] Record exact source SHA, commands, RED/GREEN evidence, immutable workflow
       links, independent lane counts and any unresolved cause in
       `2026-11-03-antigravity-health-transport-results.md`. Open a draft PR;
-      do not merge or claim Phase 6/Task 16 completion.
+      do not merge, settle the server incident or claim recurring reliability.
 
 ## Scope and acceptance
 
