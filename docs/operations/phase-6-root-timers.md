@@ -9,7 +9,7 @@ installing/testing the four rendered systemd units. Owner authorization already
 covers this scoped action; the remaining constraint is OS privilege. sudo -n
 is unavailable. Enter any sudo password only in your own SSH terminal.
 
-The reviewed helper must first be committed/pushed and provisioned at:
+The reviewed helper is committed/pushed and provisioned at:
 
 `/home/redwan/fcd-support-p6-final-b1e183d/install-timers.py`
 
@@ -19,7 +19,9 @@ It is owner-only mode 0400 and binds exact application source
 `b1e183df3e7c319483f863346925b38c4f149ba5` plus the four existing unit hashes.
 Review: `../reviews/2026-11-03-task-16-root-timers.md`.
 
-After provisioning is verified, run once from your own terminal:
+Provisioning/hash and owner mode 1000:1000:0400 are verified. The exact
+noninteractive sudo attempt returned password-required before executing the
+helper. Run once from your own terminal:
 
 ```powershell
 ssh -t -o StrictHostKeyChecking=yes redwan@192.168.10.40 'sudo /usr/bin/python3 /home/redwan/fcd-support-p6-final-b1e183d/install-timers.py'

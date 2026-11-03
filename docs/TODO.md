@@ -8,7 +8,8 @@
   CSRF/logout proof. Older scopes and qualified preservation evidence remain
   intact. **Task 16 stays OPEN only for privileged timer install/testing and
   final handoff.** Root-only helper is reviewed with nine Linux guards and
-  exact generation pins; noninteractive sudo is unavailable. See
+  exact generation pins and is provisioned/hash-verified at mode 0400. The
+  exact sudo -n invocation requires a password; owner terminal action is pending. See
   `docs/testing/2026-11-03-phase-6-server-b1e183d.md` and
   `docs/operations/phase-6-root-timers.md`. No actual root outcome is claimed.
 

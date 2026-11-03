@@ -10,8 +10,8 @@ Generated verification credentials remain only in the fresh private server file;
 no values entered output or Git. Both old uncertain scopes remain protected.
 Task 16 now requires only root-owned timer install/testing and final handoff.
 The exact scoped helper passed independent review and nine Linux filesystem/
-security guards; sudo -n is unavailable. It must be provisioned before the owner
-runs the one root command in `docs/operations/phase-6-root-timers.md`.
+security guards and is provisioned/hash-verified at private mode 0400. The exact
+sudo -n invocation requires a password; the owner runs the one root command in `docs/operations/phase-6-root-timers.md`.
 Actual evidence: `docs/testing/2026-11-03-phase-6-server-b1e183d.md`.
 No root unit installation, full-host restart or live provider/Meta action is claimed.
 

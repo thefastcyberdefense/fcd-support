@@ -66,3 +66,11 @@ Commit/push and provision the exact mode-0400 helper before asking the owner to
 run it. Root installation, real systemd resource/sandbox execution and active
 calendars are not claimed until that command succeeds. No other-project,
 provider, Meta, tunnel, production or old-uncertain-scope action is authorized.
+
+## Publication and noninteractive privilege check
+
+The reviewed helper was committed/pushed at ab3bb00 and its private server copy
+is verified byte-for-byte at mode 0400, UID/GID 1000:1000. The exact sudo -n
+command returned password-required (exit 1) before invoking it. No privileged
+write or systemd service/timer execution is inferred. Owner terminal execution
+and subsequent read-only verification remain required.

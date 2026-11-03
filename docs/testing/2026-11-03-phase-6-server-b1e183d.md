@@ -17,8 +17,9 @@ subcommands and actual health collection passed. The four systemd units were
 rendered and verified. Final runtime verification returned 0 and wrote the
 protected completed-deployment marker.
 
-Closed executor outcomes were private_deployment_verified=true,
-timers_rendered_not_installed=true and preserved_inventory_verified=true.
+Closed executor outcomes were final_server_private_deployment_verified=true,
+final_server_timers_rendered_not_installed=true and
+final_server_preserved_inventory_verified=true.
 The separate public audit passed before authentication and again afterward.
 The qualified original history remains intact; these checks compare the new
 raw baseline and retain the documented legacy-admin restart-loop exception.
@@ -42,9 +43,9 @@ The corrected proof then ran once and completed:
   logout CSRF refusal and actual session revocation.
 - Owned SSH client termination and reaping.
 
-Its closed outputs confirm synthetic_identity_created=true,
-password_mfa_dashboard_origin_csrf_logout_passed=true and
-owned_forward_process_reaped=true. No cookie, OTP, credential, HTML, raw
+Its closed outputs confirm ssh_proof_synthetic_identity_created=true,
+ssh_unix_forward_password_mfa_dashboard_origin_csrf_logout_passed=true and
+ssh_owned_forward_process_reaped=true. No cookie, OTP, credential, HTML, raw
 payload, SQL row or private identifier was displayed or committed.
 
 ## Boundaries and remaining Task 16 work
@@ -67,3 +68,17 @@ Sources: `../reviews/2026-11-03-task-16-action.md`,
 `../reviews/2026-11-03-task-16-ssh-proof.md`,
 `2026-11-03-health-input-correction.md` and
 `../operations/phase-6-server-deployment.md`.
+
+## Privileged step prepared and provisioned
+
+The exact reviewed root helper was published at `ab3bb00` and provisioned outside
+the application checkout at the fresh private action root. Its SHA256 matches
+f20831c688d22db8b7c08556334e2e67e0a4ec32c63214d9a94c0b7ca3967d94;
+owner/mode is 1000:1000:0400. Actual four-unit generation pins and root destination/
+absence/drop-in/tool prechecks passed read-only; nine Linux installer guards pass.
+
+An attempt to execute exactly that helper with sudo -n returned 1 because a
+password is required, before the helper was invoked. No unit installation or
+activation is claimed. The owner has the exact one-command terminal action in
+`../operations/phase-6-root-timers.md`; OS credential entry occurs only there.
+Task 16 remains OPEN until actual root service/timer evidence and final handoff.
