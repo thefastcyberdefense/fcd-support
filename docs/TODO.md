@@ -2,6 +2,18 @@
 
 ## Current Phase 6 checkpoint
 
+- **Health framing correction accepted:** PR #7 merged as `b1e183d`, identical
+  to reviewed `c75a573`; all four workflows and both real health/recovery/cleanup
+  lanes passed. Full Windows gate: 1,961 passed / 438 skips; native/compiled
+  transport checks passed. A separate fresh `b1e183d` action is being reviewed.
+  Both failed scopes remain uncertain and unchanged. New admission observed one
+  unrelated healthy actor's +1 restart and only start/endpoint/MAC metadata
+  changes; no loss, recorded configuration/IP, old state, volume or pin drift.
+  Its bounded qualification and exact executor passed review and 26 Linux
+  checks; original baselines stay intact. Commit/push precedes repeat admission.
+  Actual read-only SSH 200/303/403 passed; authenticated login and privileged
+  timers remain pending. No new server deployment is claimed.
+
 - **Latest Task 16 attempt stopped at health.** Reviewed action `26ba72a` ran once
   on fresh `7af70cc`. Deployment, backup/replay and all four maintenance jobs
   completed; health left `uncertain/health`, actor absent. Four runtime roles

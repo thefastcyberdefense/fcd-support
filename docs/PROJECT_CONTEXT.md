@@ -2,6 +2,18 @@
 
 Last reviewed: 2026-11-03 (Asia/Dhaka)
 
+**Health fix accepted; next fresh server action is reviewed and prepared.** PR #7 merged
+as `b1e183d`, with exactly the tested `c75a573` tree. All four workflows passed;
+both private-runtime lanes executed real health plus full recovery/cleanup.
+See `docs/testing/2026-11-03-health-input-correction.md`. A distinct action must
+preserve both failed scopes and the inherited original-baseline qualification.
+Current admission also observes one unrelated healthy actor's +1 restart with
+only start/endpoint/MAC changes; no loss or other recorded configuration/IP,
+files, volumes or pins changed. Its narrow pre-action qualification passed independent review and all 26
+Linux guards; future during-action preservation stays strict. No cause is attributed
+and no command targets that project. Real read-only SSH 200/303/403 passed;
+password/MFA and root-owned timers remain open. No new deployment is claimed.
+
 **Fresh `7af70cc` deployment stopped at health; direct correction is underway.**
 One-use action `26ba72a` passed deployment, backup/replay and all four maintenance
 jobs, then left an uncertain health journal with its actor absent. Four runtime

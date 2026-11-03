@@ -70,3 +70,21 @@ real health and full recovery in both runtime lanes, remains required before
 merge. A new reviewed server scope is still needed afterward. No successful
 server health collection, uncertain SQL resolution, root timer installation,
 password/MFA login or final Task 16 completion is claimed.
+
+## Exact-source integration accepted
+
+PR #7 merged as `b1e183df3e7c319483f863346925b38c4f149ba5`, with the complete
+tree identical to reviewed `c75a573f47cd65a3a7e62df4c0d3a353fac658b3`
+(`git diff --quiet`, exit 0). All four exact-source workflows passed:
+
+- CI: [41496773888](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41496773888).
+- CodeQL: [41496773933](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41496773933).
+- PostgreSQL/native: [41496773997](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41496773997).
+- Private runtime: [41496773998](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41496773998).
+
+Both runtime logs contain real maintenance, backup, health, checkpoint, restore,
+promotion, rollback, recovery and cleanup success markers. PostgreSQL reports
+621 passed / 52 skipped. Native reports 1,302 unit tests, 139 grants tests / one
+restore-only skip, 252 backup/restore tests and 47 isolated-restore tests; both
+native harness stages emit encrypted_backup_local=true. These lanes overlap
+and are not summed. This closes the fix's hosted-CI condition, not Task 16.

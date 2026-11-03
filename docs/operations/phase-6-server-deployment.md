@@ -2240,3 +2240,37 @@ timer rendering/install or actual SSH/admin authentication ran. Do not execute
 the one-use action again or clear its journal. Current evidence and the local
 Compose stdin reproduction are in
 `docs/operations/incidents/2026-11-02-final-deployment-health.md`.
+
+### Health-corrected separate attempt at b1e183d
+
+Selected source: `b1e183df3e7c319483f863346925b38c4f149ba5`, exactly the tested
+PR #7 tree. All four workflows and both actual health/recovery/cleanup lanes
+passed. Executor: `docs/operations/actions/2026-11-03-final-server.py`, SHA256
+`5d8434c1b9ae5406b84a6b1bf463b2991851c4334a2598b2584014138f30f6f5`.
+Review, evidence, bounded observation rulings and 26 Linux checks:
+`docs/reviews/2026-11-03-task-16-action.md`.
+
+This affects only new project/fixture `fcd-support-host-test-p6-b1e183d`, action
+root `/home/redwan/fcd-support-p6-final-b1e183d`, fresh volumes/images and eight
+new bridges (198.19.64.0/24 through 198.19.71.0/24). Both earlier uncertain scopes
+and the original failed audit remain intact. A single observed healthy actor
+restart is qualified only before the new raw baseline; during-action comparison
+remains strict. Commit/push these exact records before acting under the owner's
+standing isolated-test-deployment authorization.
+
+```powershell
+$taskSource = 'b1e183df3e7c319483f863346925b38c4f149ba5'
+$taskPath = 'docs/operations/actions/2026-11-03-final-server.py'
+if ((Get-FileHash -Algorithm SHA256 -LiteralPath $taskPath).Hash.ToLowerInvariant() -ne '5d8434c1b9ae5406b84a6b1bf463b2991851c4334a2598b2584014138f30f6f5') { throw 'Action changed' }
+$taskAction = Get-Content -LiteralPath $taskPath -Raw
+$taskAction | ssh -T -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=yes redwan@192.168.10.40 "python3 -B - --inspect $taskSource"
+if ($LASTEXITCODE -ne 0) { throw 'Admission refused' }
+$taskAction | ssh -T -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=yes redwan@192.168.10.40 "python3 -B - --deploy $taskSource"
+if ($LASTEXITCODE -ne 0) { throw 'Deployment refused; preserve evidence and stop' }
+$taskAction | ssh -T -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=yes redwan@192.168.10.40 "python3 -B - --audit $taskSource"
+```
+
+No failed action is rerun. Successful deploy/health/timer rendering still does
+not install/enable host timers, authenticate an operator or complete Task 16.
+No actual outcome is claimed before commands finish. No old database switch,
+job resolver, host reboot, daemon restart or other-project mutation is included.
