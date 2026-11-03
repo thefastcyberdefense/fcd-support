@@ -43,6 +43,24 @@ must see readable/executable but not writable. It runs the real
   formatting, lint, strict type checking and build all exited 0. The eight new
   mount-specific cases skip on Windows and passed separately on native Linux.
 
+## Retained first-head CI failure
+
+On source `b73188e`, CI, CodeQL and PostgreSQL/native operations passed. Private
+runtime run 41581877934 passed its precreated lane, including recovery/cleanup,
+but the fresh disposable lane stopped at health after deploy, verification,
+private HTTP, maintenance and backup passed. The owning journal remained
+uncertain. Closed trace reached the final log/acknowledgement boundary after
+terminal checks; it did not expose the acknowledgement body or establish its
+failure class. Do not claim this lane passed or infer its SQL outcome.
+
+Synthetic-only diagnostics now classify health acknowledgements as empty,
+completed, dependency_unavailable, carriage_return, multiple_lines or unexpected.
+Only these fixed enums enter failure reporting; no body or arbitrary value is
+published. Test-first RED: six new classifier cases failed before implementation.
+Affected suites then passed **47 tests / 59 platform skips**, 2.61 s; lint and
+type checking exited 0. These diagnostics do not alter runtime job acceptance,
+clear uncertainty or retry a failed journal. New exact-head CI remains required.
+
 Read-only server reinspection confirms the backup failure, absent active job,
 preserved start marker, absent completion record, all three timers disabled and
 inactive, no service drop-ins, and zero container bind sources under private
