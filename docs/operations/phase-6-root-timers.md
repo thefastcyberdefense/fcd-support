@@ -1,77 +1,72 @@
 # Finish the private test server timers
 
 Date: 2026-11-03 (Asia/Dhaka).
-Status: **Partial installation; backup service refused. Task 16 remains OPEN.**
+Status: **Managed upgrade, existing-admin authentication and separate audits PASS. Root repair remains OPEN.**
 
-## Actual owner execution and refusal
+The corrected application `24e5667` is deployed on the existing private synthetic
+project. Its database/volume identity, secrets and existing admin identity are
+preserved. Actual backup, maintenance, health, SSH password/MFA, dashboards,
+logout/revocation and strict post-auth preservation passed. The reviewed repair
+helper is provisioned and hash-verified. Task 16 needs actual root service/timer
+execution and subsequent verification; it is not complete yet.
 
-The owner executed the published sudo command once. The helper reached
-`real_service_backup` and returned `timer_install_refused_stage=real_service_backup`.
-Read-only inspection confirms all four exact unit files are installed, the root
-start marker exists and the completion record is absent. Backup exited 1 with
-the closed preflight code `operations_socket_root_invalid`; no active operations
-job was created. Maintenance and health were not executed. All three timers
-remain disabled. Preserve these units and the original helper/marker; **do not
-rerun the command below**.
+## Current one-use root command
 
-The shared socket-directory admission incorrectly requires write access even
-for `verify`, which is also the scheduler's preflight mode. The actual hardened
-service deliberately has `ProtectHome=read-only` and only the state root in
-`ReadWritePaths`. The correction must allow read/traverse access for verification
-while retaining write access for every mutating action, including socket
-recovery. Do not weaken the unit sandbox or edit the deployed immutable source.
-A tested source correction and separately reviewed continuation are required.
-
-PR #8 now supplies accepted source `24e5667`. The managed upgrade and new
-exact-generation root continuation are reviewed, with 17 actual Linux hermetic
-guards passing. See `../reviews/2026-11-03-task-16-timer-repair.md`. Actual rollout
-and root execution remain pending; Codex will provision the new helper only
-after successful managed deployment and generation verification. The new command
-uses isolated Python (`-I`). Do not run the historical installer again.
-
-## Historical installation preparation
-
-The final-source private deployment, operations, separate audits and actual SSH
-password/MFA/dashboard/origin/CSRF/logout proof passed. The last server step is
-installing/testing the four rendered systemd units. Owner authorization already
-covers this scoped action; the remaining constraint is OS privilege. sudo -n
-is unavailable. Enter any sudo password only in your own SSH terminal.
-
-The reviewed helper is committed/pushed and provisioned at:
-
-`/home/redwan/fcd-support-p6-final-b1e183d/install-timers.py`
-
-Helper SHA256:
-`f20831c688d22db8b7c08556334e2e67e0a4ec32c63214d9a94c0b7ca3967d94`.
-It is owner-only mode 0400 and binds exact application source
-`b1e183df3e7c319483f863346925b38c4f149ba5` plus the four existing unit hashes.
-Review: `../reviews/2026-11-03-task-16-root-timers.md`.
-
-Provisioning/hash and owner mode 1000:1000:0400 are verified. The exact
-noninteractive sudo attempt returned password-required before executing the
-helper. Run once from your own terminal:
+Run this once in your own PowerShell terminal. Enter the sudo password only
+there; never paste it, credentials or private logs into chat.
 
 ```powershell
-ssh -t -o StrictHostKeyChecking=yes redwan@192.168.10.40 'sudo /usr/bin/python3 /home/redwan/fcd-support-p6-final-b1e183d/install-timers.py'
+ssh -t -o StrictHostKeyChecking=yes redwan@192.168.10.40 'sudo /usr/bin/python3 -I /home/redwan/fcd-support-p6-timer-upgrade-20261103/repair-timers.py'
 ```
 
-The helper refuses stale source, changed generation, collisions, pending jobs,
-unsafe ownership or inherited drop-ins. It writes only the four exact new unit
-files, reloads systemd, runs the three private services sequentially as UID/GID
-1000, then enables only backup/maintenance/health timers. It does not restart
-Docker, the host or other projects and keeps external execution flags false.
+The exact noninteractive `sudo -n` invocation returned password-required before
+executing the helper. This is an OS authentication requirement; the scoped
+action already has owner authorization and independent review.
 
-Expected final closed outputs are:
+Helper SHA256:
+`80efc0052ebff2bb270c1d40e5df6a7780dd7026ebae9fe330a85863b453725f`.
+It is mode 0400, UID/GID 1000, and binds accepted source
+`24e56679c9c29823b210ca6991608f83de556156` plus the exact four rendered unit pins.
+Review: `../reviews/2026-11-03-task-16-timer-repair.md`.
+Actual server evidence: `../testing/2026-11-03-phase-6-server-24e5667.md`.
+
+Expected final closed outcomes:
 
 ```text
-task16_exact_timer_units_installed=true
+task16_exact_timer_generation_repaired=true
 task16_real_scheduled_services_passed=true
 task16_three_timers_enabled_active=true
 ```
 
-If refused or interrupted, preserve the marker/units and stop. Do not rerun it,
-overwrite units or paste private logs/credentials. Share only the closed stage
-and outcome. Codex then performs read-only unit/service/runtime verification,
-records actual evidence, updates Task 16 and commits/pushes the final handoff.
-Until then installation, root sandbox execution and timer activation remain
-unproven. Earlier uncertain scopes and original incident records stay protected.
+The helper accepts only the exact old installed generation, matching completed
+upgrade, clean source/config/READY state, disabled timers and absent drop-ins.
+It preserves old bytes/markers, atomically replaces only the changed service,
+retains the sandbox, then tests backup/maintenance/health sequentially with
+persistent systemd references. Only after success does it enable the three
+exact timers. It never restarts Docker/the host or changes another project.
+
+If refused/interrupted, preserve all evidence and do not rerun it. Share only
+the closed refusal stage/outcome. Activation failure attempts to stop/disable
+only the three timers and reports whether containment is verified; it never
+stops an already dispatched service or clears/settles a journal. Failed
+completion publication removes only its owned success record.
+
+After the command returns, Codex must inspect actual unit/service/timer state,
+verify the private runtime and compare the preserved other-project inventory,
+then record evidence, update Task 16 and commit/push the final handoff.
+
+## Historical first installer refusal
+
+The original b1e183d installer ran once and installed the four exact units.
+The first real backup activation then refused with
+`operations_socket_root_invalid`, exit 1, before creating a job. Maintenance
+and health did not run and all timers remained disabled. The original helper,
+root start marker and unit bytes are retained. **Never rerun that old installer.**
+
+The defect required directory writes even for verification under the deliberate
+`ProtectHome=read-only` sandbox. PR #8 permits only verification to read/traverse;
+all mutating operations still require write access. The sandbox is unchanged.
+
+No live provider/model/Meta/n8n/tunnel/production-number action is included.
+Older uncertain scopes and original incident records stay protected. Full-host
+restart and remaining current live acceptance evidence belong to later work.

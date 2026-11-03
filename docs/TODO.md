@@ -5,8 +5,10 @@
 - **Managed server upgrade PASS on `24e5667`.** One reviewed execution retained
   the existing synthetic database/identity; public deployment, verification,
   backup/maintenance/health and exact timer rendering passed. Strict fresh-raw
-  preservation passed. Root repair is provisioned/hash-verified; actual root
-  execution and final existing-admin proof/audit remain pending. Task 16 stays
+  preservation, actual existing-admin password/MFA/dashboards/logout and
+  separate post-auth audit passed. Root repair is provisioned/hash-verified;
+  its exact sudo -n call requires a password before invocation. Only actual root
+  service/timer execution, post-root verification and final handoff remain. Task 16 stays
   OPEN. See `docs/testing/2026-11-03-phase-6-server-24e5667.md`.
 
 - **Read-only socket fix accepted.** PR #8 merged as `24e5667`, tree-identical to

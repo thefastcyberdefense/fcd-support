@@ -5,9 +5,11 @@ Last reviewed: 2026-11-03 (Asia/Dhaka)
 **Actual managed server upgrade to `24e5667` passed.** The one-use public
 controller retained the original synthetic database/volume and identity while
 deploying the accepted source; verification, backup/maintenance/health, rendering
-and strict fresh-raw preservation passed. Root repair is provisioned at its
-reviewed hash; it has not run. Final existing-admin proof/audit and owner sudo
-execution remain open under Task 16. See
+and strict fresh-raw preservation passed. Actual existing-admin password/MFA,
+dashboards, logout/revocation and separate post-auth audits also passed. Root
+repair is provisioned at its reviewed hash; its exact sudo -n attempt required
+a password before invocation. Actual root service/timer execution, subsequent
+verification and final handoff remain open under Task 16. See
 `docs/testing/2026-11-03-phase-6-server-24e5667.md`.
 
 **Socket correction accepted; concrete upgrade/repair reviewed.** PR #8 merged
