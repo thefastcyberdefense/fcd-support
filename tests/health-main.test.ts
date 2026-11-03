@@ -1,7 +1,8 @@
 import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 import pg from 'pg';
 import { expect, test, vi } from 'vitest';
-import { runHealthCommand } from '../src/operations/health-main.js';
+import { readHealthInput, runHealthCommand } from '../src/operations/health-main.js';
 import type { HealthDatabaseSnapshot } from '../src/operations/health-collector.js';
 import type { HealthObservation } from '../src/operations/operations-types.js';
 import { operationsEnvironment } from './helpers/operations-fixtures.js';
@@ -381,3 +382,49 @@ test.each(['connection-refused', 'commit-socket-error'])(
     }
   },
 );
+
+test('health input consumes a newline-framed host snapshot without waiting for Compose stdin EOF', async () => {
+  const input = new PassThrough();
+  const result = readHealthInput(100, input);
+  input.write('{"availability":{"manifest":"healthy"}}\n');
+  await expect(result).resolves.toEqual({ availability: { manifest: 'healthy' } });
+  expect(input.destroyed).toBe(true);
+});
+
+test('health input retains EOF compatibility, byte bounds and timeout refusal', async () => {
+  const closed = new PassThrough();
+  closed.end('{}');
+  await expect(readHealthInput(100, closed)).resolves.toEqual({});
+  const oversized = new PassThrough();
+  oversized.end('x'.repeat(16385));
+  await expect(readHealthInput(100, oversized)).rejects.toThrow('health_input_invalid');
+  const held = new PassThrough();
+  await expect(readHealthInput(10, held)).rejects.toThrow('health_input_invalid');
+  expect(held.destroyed).toBe(true);
+});
+
+test('health input waits for a complete split JSON frame and refuses malformed EOF', async () => {
+  const split = new PassThrough();
+  const result = readHealthInput(100, split);
+  split.write('{\n"availability":');
+  setImmediate(() => split.write('{"manifest":"healthy"}}\n'));
+  await expect(result).resolves.toEqual({ availability: { manifest: 'healthy' } });
+  const malformed = new PassThrough();
+  malformed.end('{}\n{}\n');
+  await expect(readHealthInput(100, malformed)).rejects.toThrow();
+});
+
+test('health input keeps leading blank chunks until the complete JSON frame arrives', async () => {
+  const input = new PassThrough();
+  const result = readHealthInput(100, input);
+  input.write('\n');
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  try {
+    expect(input.destroyed).toBe(false);
+    input.write('{"availability":{"manifest":"healthy"}}\n');
+    await expect(result).resolves.toEqual({ availability: { manifest: 'healthy' } });
+  } finally {
+    input.destroy();
+    await result.catch(() => undefined);
+  }
+});

@@ -166,7 +166,7 @@ test.runIf(native)(
       });
       expect(JSON.parse(await readFile(join(f.root, 'start-contract'), 'utf8'))).toEqual({
         args: ['container', 'start', '--attach', '--interactive', cid],
-        input,
+        input: `${input}\n`,
       });
       expect(await readdir(f.root)).not.toContain('active-job');
       expect(await readdir(f.root)).not.toContain('container');

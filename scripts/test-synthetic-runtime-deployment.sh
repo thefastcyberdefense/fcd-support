@@ -148,6 +148,12 @@ if [[ "$ci_mode" == true ]]; then
   [[ "$backup_ref" =~ ^backup_[a-f0-9]{32}$ ]]
   printf 'synthetic_host_backup_passed=true\n'
 
+  stage=health
+  synthetic_host_run scripts/run-operation.sh health "$revision" "$fixture/config/operations.env" >"$fixture/logs/health.log" 2>&1 </dev/null || synthetic_host_stage_failed
+  [[ ! -e "$fixture/state/active-job" && ! -L "$fixture/state/active-job" ]]
+  grep -qx 'STATE_PHASE=ready' "$fixture/state/deployment-state"
+  printf 'synthetic_host_health_passed=true\n'
+
   stage=checkpoint
   checkpoint_ref="$(
     synthetic_host_run -c '

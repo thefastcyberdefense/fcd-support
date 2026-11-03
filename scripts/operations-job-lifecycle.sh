@@ -118,7 +118,7 @@ operations_job_start() {
   if [[ "$OPS_JOB_SERVICE" == promote ]]; then
     operations_job_promotion_exchange
   elif [[ "$OPS_JOB_SERVICE" == health ]]; then
-    printf '%s' "$OPS_HEALTH_INPUT_JSON" | operations_docker container start --attach --interactive "$OPS_JOB_CONTAINER" >/dev/null
+    printf '%s\n' "$OPS_HEALTH_INPUT_JSON" | operations_docker container start --attach --interactive "$OPS_JOB_CONTAINER" >/dev/null
   else
     operations_docker container start "$OPS_JOB_CONTAINER" >/dev/null
   fi
