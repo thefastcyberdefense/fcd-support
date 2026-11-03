@@ -50,6 +50,28 @@ exactly 19 targets. The first metadata-template parse failure was corrected
 before admission and before any mutation. Independent read-only review approved
 these exact bytes for publication, provisioning and one admitted execution.
 
+## First execution and reviewed continuation
+
+Published executor `24e2253` ran once. The first old API stopped cleanly with
+exit 0 and identical identity/mounts, but Docker's deprecated `--time` option
+printed its notice on stdout before the ID. The strict receipt guard refused
+at graceful_stop. All 19 actors remain present; no container was removed.
+The first private archive/start marker and original executor remain unchanged.
+
+The separately reviewed `actions/2026-11-03-retire-old-tests-r2.py` uses canonical
+`--timeout -1`. Its SHA256 is
+`704c14d9524acf75847975e0644278f80ce20c0aa1532bc245c1a9affac130d5`.
+It executes only the exact hash-verified original selection/archive/stop/removal
+logic, with a separate output directory and a narrowly defined CLI spelling
+adapter. Under the inherited old-scope locks, it verifies all original physical
+target IDs/identities and unchanged original survivors before continuing. The
+already exited API is adopted without another stop. It never clears a journal.
+
+Four new test-first continuation guards passed on Windows and Linux, alongside
+the original seven. Read-only native R2 admission passed against the immutable
+first-attempt archive. Independent review approved publication/provisioning and
+one fresh admitted R2 execution. Actual completion remains pending.
+
 ## Dashboard and separate current health hold
 
 The dashboard exists now (Phase 5 implementation, Phase 6 deployment). Its
