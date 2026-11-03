@@ -2274,3 +2274,27 @@ No failed action is rerun. Successful deploy/health/timer rendering still does
 not install/enable host timers, authenticate an operator or complete Task 16.
 No actual outcome is claimed before commands finish. No old database switch,
 job resolver, host reboot, daemon restart or other-project mutation is included.
+
+### Actual SSH password/MFA proof for the successful fresh scope
+
+After the `b1e183d` deployment and its separate public audit both pass, execute
+the one-use proof reviewed in `docs/reviews/2026-11-03-task-16-ssh-proof.md`.
+Commit/push it first. This creates one synthetic verification identity only in
+the exact fresh database through implemented bootstrap authorization, with
+random credentials retained privately under that fresh action root. It makes
+no other-project, live provider, Meta, tunnel or production change.
+
+```powershell
+$taskProof = 'docs/operations/actions/2026-11-03-admin-ssh-proof.py'
+if ((Get-FileHash -Algorithm SHA256 -LiteralPath $taskProof).Hash.ToLowerInvariant() -ne '85228d2c6658a941e3b963be2ea3a6e784e6c84d5c9bb4e7fc3badb40748f82f') { throw 'Proof changed' }
+python -B $taskProof
+if ($LASTEXITCODE -ne 0) { throw 'Proof refused; preserve private state and review' }
+```
+
+The proof performs actual loopback-to-remote-Unix SSH forwarding, checks the
+established connection belongs to its own SSH process before sending HTTP,
+then verifies password/MFA, origin/CSRF, private dashboards and logout. It
+closes only its own forward. It refuses failed deployments and an existing
+credential file; do not rerun it after partial bootstrap. No credential, OTP,
+cookie, HTML or raw database evidence may be printed or committed. Results
+are appended only after actual execution. Root-owned host timers remain separate.

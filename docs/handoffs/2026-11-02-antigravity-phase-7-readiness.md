@@ -52,3 +52,8 @@ The topology CI assignment remains separate in
 `2026-11-02-antigravity-topology-ci.md`. Keep the two branches independently
 reviewable and start each from current main to include the maintenance fixture
 correction accepted through PR #6.
+
+Current base reminder (2026-11-03): start from fresh synchronized main including
+accepted PR #6 and PR #7, not an earlier local checkpoint. Task 16 and its server
+scope remain Codex-owned. Do not duplicate the completed maintenance/health fixes
+or alter their stopped scopes while preparing your separate assignment.

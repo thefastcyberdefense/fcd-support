@@ -79,3 +79,8 @@ the selected approach under delegated routine implementation authority.
       approval or server work is delegated. If a blocker cannot be resolved
       within this scope, return the smallest reproducible failure and evidence
       for Codex to fix directly.
+
+Current base reminder (2026-11-03): start from fresh synchronized main including
+accepted PR #6 and PR #7, not an earlier local checkpoint. Task 16 and its server
+scope remain Codex-owned. Do not duplicate the completed maintenance/health fixes
+or alter their stopped scopes while preparing your separate assignment.
