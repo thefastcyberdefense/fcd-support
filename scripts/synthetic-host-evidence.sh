@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
 # Test harness diagnostics only. Never forward arbitrary process output.
 synthetic_host_health_ack_diagnostic() {
-  local value="${1-}" category=unexpected
+  local value="${1-}" category=unexpected processed
   if [[ -z "$value" ]]; then category=empty
   elif [[ "$value" == *$'\r'* ]]; then category=carriage_return
   elif [[ "$value" == *$'\n'* ]]; then category=multiple_lines
   elif [[ "$value" == '{"status":"completed","processed":0,"reasonCode":"dependency_unavailable"}' ]]; then category=dependency_unavailable
-  elif [[ "$value" =~ ^\{\"status\":\"completed\",\"processed\":(0|[1-9][0-9]{0,8}),\"reasonCode\":\"ok\"\}$ ]]; then category=completed
+  elif [[ "$value" == '{"status":"completed","processed":'*',"reasonCode":"ok"}' ]]; then
+    processed="${value#'{"status":"completed","processed":'}"
+    processed="${processed%',"reasonCode":"ok"}'}"
+    # This observer runs inside DEBUG traps. Never overwrite BASH_REMATCH,
+    # whose captures may belong to the owning lifecycle's next command.
+    if [[ -n "$processed" && ${#processed} -le 9 && "$processed" != *[!0-9]* && ( "$processed" == 0 || "$processed" != 0* ) ]]; then category=completed; fi
   fi
   printf 'synthetic_health_ack_diagnostic=%s\n' "$category"
 }

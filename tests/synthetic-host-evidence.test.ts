@@ -4,6 +4,36 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { expect, test } from 'vitest';
 
+test('health observer preserves the caller regex captures used by the owning lifecycle', () => {
+  const result = spawnSync(
+    process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash',
+    [
+      '-c',
+      `source "$TASK_LIBRARY"
+[[ synthetic_before =~ ^(synthetic)_(before)$ ]]
+synthetic_host_health_ack_diagnostic '{"status":"completed","processed":10,"reasonCode":"ok"}'
+printf 'captures:%s:%s:%s\\n' "$` +
+        `{BASH_REMATCH[0]-}" "$` +
+        `{BASH_REMATCH[1]-}" "$` +
+        `{BASH_REMATCH[2]-}"`,
+    ],
+    {
+      encoding: 'utf8',
+      timeout: 3000,
+      env: {
+        PATH: process.env.PATH,
+        SystemRoot: process.env.SystemRoot,
+        TASK_LIBRARY: resolve('scripts/synthetic-host-evidence.sh').replaceAll('\\', '/'),
+      },
+    },
+  );
+  expect(result.status).toBe(0);
+  expect(result.stdout).toBe(
+    'synthetic_health_ack_diagnostic=completed\ncaptures:synthetic_before:synthetic:before\n',
+  );
+  expect(result.stderr).toBe('');
+});
+
 test.each([
   ['', 'empty'],
   ['{"status":"completed","processed":10,"reasonCode":"ok"}', 'completed'],

@@ -61,6 +61,17 @@ Affected suites then passed **47 tests / 59 platform skips**, 2.61 s; lint and
 type checking exited 0. These diagnostics do not alter runtime job acceptance,
 clear uncertainty or retry a failed journal. New exact-head CI remains required.
 
+On diagnostic head `94d8ebb`, the full local gate passed **1,967 tests / 446
+skips**, 255.25 s, but both private runtime lanes in run 41608450617 stopped at
+health. Their closed acknowledgement class was completed; the journal remained
+started. Investigation reproduced an observer side effect: its regex replaced
+the owning Bash lifecycle's BASH_REMATCH captures during DEBUG tracing. This
+diagnostic head is not accepted for deployment. The classifier now uses string
+and digit checks without regex captures. A new preservation regression failed
+before this correction; affected suites then passed **48 tests / 59 skips**,
+2.42 s. The original b73188e failure remains distinct and unattributed. New
+exact-head full validation and both real runtime lanes must pass before merge.
+
 Read-only server reinspection confirms the backup failure, absent active job,
 preserved start marker, absent completion record, all three timers disabled and
 inactive, no service drop-ins, and zero container bind sources under private
