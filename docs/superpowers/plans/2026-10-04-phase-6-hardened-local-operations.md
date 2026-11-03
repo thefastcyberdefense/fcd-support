@@ -1493,6 +1493,11 @@ not replace it with an internal-only fixture to obtain a passing gate.
 
 ### Task 16: Concrete local-server deployment handoff
 
+**COMPLETE (2026-11-03).** Final private source `24e5667`, real admin/SSH,
+root services/timers and post-root preservation passed. Exact executed evidence:
+`docs/reviews/2026-11-03-phase-6-task-16-closeout.md`. The original task boundary
+and historical failed attempts remain recorded; live/production gates stay separate.
+
 **Files:** Create `docs/operations/phase-6-server-deployment.md`.
 Modify `docs/operations/test-deployment.md`, TODO and PROJECT_CONTEXT.
 
@@ -1501,7 +1506,7 @@ local-server target, current admission-only deployment runbook.
 **Produces:** one exact action list and rollback scope for
 redwan@192.168.10.40; subsequent sanitized server evidence only after execution.
 
-- [ ] **Step 1:** Prepare read-only preflight commands that disclose only service
+- [x] **Step 1:** Prepare read-only preflight commands that disclose only service
       readiness/version/count/network membership, disk capacity, file permissions,
       image revision, migration revision and configuration presence. Recheck current
       state instead of assuming the August inventory is still current. Never print
@@ -1510,7 +1515,7 @@ redwan@192.168.10.40; subsequent sanitized server evidence only after execution.
       and existing client/server support for local TCP-to-remote-Unix forwarding.
       No SSH daemon policy change, new public route or permission widening is
       authorized merely to make that preflight pass.
-- [ ] **Step 2:** Write exact pull/checkout, image build, secret-file provisioning,
+- [x] **Step 2:** Write exact pull/checkout, image build, secret-file provisioning,
       network verification, drain, encrypted backup/verification, forward migration,
       private-disabled runtime startup, health/timer installation and route verification
       commands from Tasks 7–12. Choose the actual full approved revision at execution
@@ -1523,25 +1528,25 @@ redwan@192.168.10.40; subsequent sanitized server evidence only after execution.
       the actual approved browser port and remote socket path, host-key checking
       intact, then verify real login/origin behavior without recording credentials.
       Do not claim the local synthetic forward proved this live SSH behavior.
-- [ ] **Step 3:** Account explicitly for the old admission-only runtime and
+- [x] **Step 3:** Account explicitly for the old admission-only runtime and
       already connected Meta test webhook: do not process historical non-synthetic
       pending messages or enable an automatic send merely by replacing the image.
       Keep MODEL_EXECUTION_ENABLED, OUTBOUND_EXECUTION_ENABLED and
       N8N_EXECUTION_ENABLED false; no live credentials for those roles are mounted.
       Before any existing database becomes attached to new workers, establish its
       approved non-customer data scope or keep those workers disabled.
-- [ ] **Step 4:** List stop conditions: unavailable protected secret provision,
+- [x] **Step 4:** List stop conditions: unavailable protected secret provision,
       no verification identity, insufficient disk, incomplete checkpoint, incompatible
       schema/volume ownership, broad external network, unhealthy runtime, changed
       callback target or lost ingress catch-all, unsafe socket root/entry, incompatible
       SSH forwarding, or any admin TCP listener/host publication. Preserve old stack/volumes/images;
       do not weaken boundaries to finish deployment.
-- [ ] **Step 5:** Commit/push the concrete handoff before server mutation.
+- [x] **Step 5:** Commit/push the concrete handoff before server mutation.
       Present the exact revision, affected services, commands and rollback at the
       repository's immediate external-action gate. The owner has already chosen this
       server; approval here concerns the concrete action list required by PLAN,
       not another server-selection question.
-- [ ] **Step 6:** After that required boundary is satisfied, execute the approved
+- [x] **Step 6:** After that required boundary is satisfied, execute the approved
       commands and record only sanitized pass/fail/version/count evidence. If this
       turn's authorization ends at planning, leave this execution step unchecked.
       P7-005 continues to own live test assets, recording-off attestation, real

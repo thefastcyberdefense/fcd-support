@@ -1,4 +1,19 @@
-# Phase 6 local operations gate
+# Phase 6 local operations gate and server handoff
+
+## Delivery addendum — 2026-11-03
+
+**Phase 6 COMPLETE, including the separately authorized Task 16 server handoff.**
+Accepted private application `24e5667` completed managed rollout, preserved
+database/identity, actual scheduled operations, SSH password/MFA, real root
+service checks, three active timers and strict post-root verification/preservation.
+See `2026-11-03-phase-6-task-16-closeout.md`. This completes the planned private
+test-server delivery and leaves Phase 7/live/production boundaries unchanged.
+
+The November 2 local-gate record below remains historical. Its pending Task 16
+notes are superseded by the closeout; original incidents and uncertainty are
+preserved, not reclassified as resolved.
+
+## Historical local-gate decision — 2026-11-02
 
 Date: 2026-11-02 (Asia/Dhaka).
 Decision: **PASS — Phase 6 local implementation and validation complete; Task 16 server handoff remains open.**

@@ -1,6 +1,23 @@
 # Phase 6 Local Server Deployment And Validation
 
-## Authorization and sequence
+## Current completed handoff — 2026-11-03
+
+Task 16 is COMPLETE on accepted application `24e5667`, deployed in the existing
+private synthetic project fcd-support-host-test-p6-b1e183d. Public managed
+upgrade/verify, preserved PostgreSQL/volume identity and secrets, actual backup/
+maintenance/health, SSH existing-admin password/MFA/dashboards/logout and actual
+root service/timer execution passed. All three timers are enabled/active. Exact
+installed hashes/hardening and separate post-root public verification/strict
+preservation passed. See `../reviews/2026-11-03-phase-6-task-16-closeout.md` and
+`../testing/2026-11-03-phase-6-server-24e5667.md`.
+
+Keep all old uncertain scopes, images, volumes, markers and original baselines.
+Do not replay any one-use action. Model/outbound/n8n remain disabled; the existing
+admission webhook stack was preserved. Current live/test-asset integration and
+host restart remain Phase 7. The detailed stages below are historical execution
+records and must be read with this current closeout.
+
+## Historical authorization and sequence
 
 The owner approved continued Phase 6/7 development and repeated test deployment
 on `redwan@192.168.10.40` on 2026-10-26. Routine implementation decisions are

@@ -1,5 +1,11 @@
 # Test Webhook Deployment Runbook
 
+Current status (2026-11-03): Phase 6 Task 16's separate hardened private runtime
+is deployed/verified at `24e5667`, with actual root services and three active
+timers. See `../reviews/2026-11-03-phase-6-task-16-closeout.md`. This admission
+runbook and existing callback remain separate; no automatic transition to the
+new private runtime or live send was performed. P7-005 owns that later action.
+
 This runbook deploys only the signed Meta webhook admission service on the Ubuntu Docker host. It is a narrow, explicitly approved test exception; it does not complete the Phase 6 or Phase 7 gates.
 
 The test container cannot send WhatsApp or Messenger messages, call n8n, or call Manifest. Those credentials are deliberately not injected, and the API is not attached to the Manifest network. The production WhatsApp number and production Facebook Page must remain untouched.
@@ -67,7 +73,6 @@ git checkout --detach "$FCD_APPROVED_REVISION"
 
 `deploy-test.sh` refuses a short SHA, a mismatched `HEAD`, or a dirty/untracked source tree. It builds and retains `fcd-support-api:<full-git-sha>` and verifies the same immutable revision label before starting it.
 The tunnel command builds a pinned project image with a real `/ready` health check. If a legacy same-purpose container does not meet the non-root, read-only, token-file, capability, restart, resource-limit, health, mount, command, and port contract, `--replace-existing` retains it as a stopped rollback container and restores it automatically if the hardened replacement fails.
-
 
 The script is idempotent for one approved revision. It:
 

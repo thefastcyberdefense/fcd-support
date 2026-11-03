@@ -2,6 +2,18 @@
 
 Last reviewed: 2026-11-03 (Asia/Dhaka)
 
+**Phase 6 COMPLETE, including Task 16.** Accepted `24e5667` is deployed in
+the private synthetic project. Managed rollout, database/volume identity,
+backup/maintenance/health, existing-admin SSH password/MFA/dashboards/logout,
+actual root service tests and three enabled/active timers passed. Independent
+installed-unit/hardening inspection and separate post-root public verification/
+strict preservation passed. See `docs/reviews/2026-11-03-phase-6-task-16-closeout.md`.
+Phase 7 current live/test-asset integration remains next; model/outbound/n8n
+flags stay false. AGY has independent stress and readiness assignments.
+
+The checkpoint paragraphs below are historical. Their Task 16 pending notes
+are superseded; original incidents/uncertain scopes remain open and contained.
+
 **Actual managed server upgrade to `24e5667` passed.** The one-use public
 controller retained the original synthetic database/volume and identity while
 deploying the accepted source; verification, backup/maintenance/health, rendering

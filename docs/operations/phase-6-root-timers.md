@@ -1,19 +1,21 @@
 # Finish the private test server timers
 
 Date: 2026-11-03 (Asia/Dhaka).
-Status: **Managed upgrade, existing-admin authentication and separate audits PASS. Root repair remains OPEN.**
+Status: **COMPLETE — owner root execution and independent post-root verification passed. Do not rerun either installer.**
 
 The corrected application `24e5667` is deployed on the existing private synthetic
 project. Its database/volume identity, secrets and existing admin identity are
 preserved. Actual backup, maintenance, health, SSH password/MFA, dashboards,
 logout/revocation and strict post-auth preservation passed. The reviewed repair
-helper is provisioned and hash-verified. Task 16 needs actual root service/timer
-execution and subsequent verification; it is not complete yet.
+helper ran once successfully after owner terminal authentication. All three
+services passed, the timers are enabled/active, installed hashes/hardening match,
+and separate public runtime/strict preservation checks passed. Task 16 is COMPLETE.
+See `../reviews/2026-11-03-phase-6-task-16-closeout.md`.
 
-## Current one-use root command
+## Historical successful command — do not rerun
 
-Run this once in your own PowerShell terminal. Enter the sudo password only
-there; never paste it, credentials or private logs into chat.
+The owner ran this once in their own terminal and authenticated sudo only
+there. It is retained as execution evidence; do not rerun it or share credentials.
 
 ```powershell
 ssh -t -o StrictHostKeyChecking=yes redwan@192.168.10.40 'sudo /usr/bin/python3 -I /home/redwan/fcd-support-p6-timer-upgrade-20261103/repair-timers.py'
@@ -30,7 +32,7 @@ It is mode 0400, UID/GID 1000, and binds accepted source
 Review: `../reviews/2026-11-03-task-16-timer-repair.md`.
 Actual server evidence: `../testing/2026-11-03-phase-6-server-24e5667.md`.
 
-Expected final closed outcomes:
+Actual final closed outcomes:
 
 ```text
 task16_exact_timer_generation_repaired=true
@@ -51,9 +53,10 @@ only the three timers and reports whether containment is verified; it never
 stops an already dispatched service or clears/settles a journal. Failed
 completion publication removes only its owned success record.
 
-After the command returns, Codex must inspect actual unit/service/timer state,
-verify the private runtime and compare the preserved other-project inventory,
-then record evidence, update Task 16 and commit/push the final handoff.
+Post-command unit/service/timer inspection, public runtime verification and
+strict preserved-inventory comparison all passed. The root-owned completion
+record and both old/new start markers are retained. Phase 6 Task 16 is complete;
+future changes use a new concrete reviewed action and current timer/source pins.
 
 ## Historical first installer refusal
 

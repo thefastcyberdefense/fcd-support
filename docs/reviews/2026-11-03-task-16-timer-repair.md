@@ -1,7 +1,10 @@
 # Task 16: reviewed managed upgrade and exact timer repair
 
 Date: 2026-11-03 (Asia/Dhaka).
-Status: **Concrete artifacts approved; real upgrade/root execution pending.**
+Status: **Concrete artifacts approved and subsequently executed successfully. Task 16 COMPLETE.**
+Actual closeout: `2026-11-03-phase-6-task-16-closeout.md`. The review/admission
+requirements below record pre-execution conditions; subsequent actual results
+supersede their historical pending statements.
 
 ## Accepted application source
 
