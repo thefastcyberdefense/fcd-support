@@ -193,7 +193,11 @@ operations_exact_revision() {
 
 operations_socket_root() {
   local socket="${OPS_CONFIG[FCD_ADMIN_SOCKET_ROOT]}" path before
-  [[ "$(id -u):$(id -g)" == 1000:1000 && -r "$socket" && -w "$socket" && -x "$socket" ]] || operations_fail operations_socket_root_invalid
+  [[ "$(id -u):$(id -g)" == 1000:1000 && -r "$socket" && -x "$socket" ]] || operations_fail operations_socket_root_invalid
+  # Verification and scheduled jobs only inspect/connect. The host service
+  # deliberately exposes this directory read-only; lifecycle actions still
+  # need write access to create or recover the owned socket.
+  [[ "$OPS_ACTION" == verify || -w "$socket" ]] || operations_fail operations_socket_root_invalid
   operations_private_directory "$socket" || operations_fail operations_socket_root_invalid
   for path in "$OPS_ROOT" "${OPS_CONFIG[FCD_CONFIG_ROOT]}" "${OPS_CONFIG[FCD_SECRET_ROOT]}" "${OPS_CONFIG[FCD_STATE_ROOT]}"; do
     operations_disjoint "$path" "$socket" || operations_fail operations_socket_root_invalid

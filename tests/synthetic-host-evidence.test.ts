@@ -4,6 +4,67 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { expect, test } from 'vitest';
 
+test('health observer preserves the caller regex captures used by the owning lifecycle', () => {
+  const result = spawnSync(
+    process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash',
+    [
+      '-c',
+      `source "$TASK_LIBRARY"
+[[ synthetic_before =~ ^(synthetic)_(before)$ ]]
+synthetic_host_health_ack_diagnostic '{"status":"completed","processed":10,"reasonCode":"ok"}'
+printf 'captures:%s:%s:%s\\n' "$` +
+        `{BASH_REMATCH[0]-}" "$` +
+        `{BASH_REMATCH[1]-}" "$` +
+        `{BASH_REMATCH[2]-}"`,
+    ],
+    {
+      encoding: 'utf8',
+      timeout: 3000,
+      env: {
+        PATH: process.env.PATH,
+        SystemRoot: process.env.SystemRoot,
+        TASK_LIBRARY: resolve('scripts/synthetic-host-evidence.sh').replaceAll('\\', '/'),
+      },
+    },
+  );
+  expect(result.status).toBe(0);
+  expect(result.stdout).toBe(
+    'synthetic_health_ack_diagnostic=completed\ncaptures:synthetic_before:synthetic:before\n',
+  );
+  expect(result.stderr).toBe('');
+});
+
+test.each([
+  ['', 'empty'],
+  ['{"status":"completed","processed":10,"reasonCode":"ok"}', 'completed'],
+  [
+    '{"status":"completed","processed":0,"reasonCode":"dependency_unavailable"}',
+    'dependency_unavailable',
+  ],
+  ['synthetic_private_value\r', 'carriage_return'],
+  ['synthetic_private_value\nsynthetic_second_value', 'multiple_lines'],
+  ['synthetic_private_value', 'unexpected'],
+])('health acknowledgement diagnostics publish only the closed class %s', (value, category) => {
+  const result = spawnSync(
+    process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash',
+    ['-c', 'source "$TASK_LIBRARY"; synthetic_host_health_ack_diagnostic "$TASK_VALUE"'],
+    {
+      encoding: 'utf8',
+      timeout: 3000,
+      env: {
+        PATH: process.env.PATH,
+        SystemRoot: process.env.SystemRoot,
+        TASK_LIBRARY: resolve('scripts/synthetic-host-evidence.sh').replaceAll('\\', '/'),
+        TASK_VALUE: value,
+      },
+    },
+  );
+  expect(result.status).toBe(0);
+  expect(result.stdout).toBe(`synthetic_health_ack_diagnostic=${category}\n`);
+  expect(result.stderr).toBe('');
+  expect(result.stdout).not.toContain('synthetic_private_value');
+});
+
 test.each(['deploy', 'restore', 'maintenance', 'health', 'untrusted_stage_value'])(
   'synthetic host report emits only closed evidence for %s',
   async (stage) => {

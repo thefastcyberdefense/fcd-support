@@ -1,8 +1,26 @@
 #!/usr/bin/env bash
 # Test harness diagnostics only. Never forward arbitrary process output.
+synthetic_host_health_ack_diagnostic() {
+  local value="${1-}" category=unexpected processed
+  if [[ -z "$value" ]]; then category=empty
+  elif [[ "$value" == *$'\r'* ]]; then category=carriage_return
+  elif [[ "$value" == *$'\n'* ]]; then category=multiple_lines
+  elif [[ "$value" == '{"status":"completed","processed":0,"reasonCode":"dependency_unavailable"}' ]]; then category=dependency_unavailable
+  elif [[ "$value" == '{"status":"completed","processed":'*',"reasonCode":"ok"}' ]]; then
+    processed="${value#'{"status":"completed","processed":'}"
+    processed="${processed%',"reasonCode":"ok"}'}"
+    # This observer runs inside DEBUG traps. Never overwrite BASH_REMATCH,
+    # whose captures may belong to the owning lifecycle's next command.
+    if [[ -n "$processed" && ${#processed} -le 9 && "$processed" != *[!0-9]* && ( "$processed" == 0 || "$processed" != 0* ) ]]; then category=completed; fi
+  fi
+  printf 'synthetic_health_ack_diagnostic=%s\n' "$category"
+}
+
 synthetic_host_runtime_diagnostic() {
   local code="${1:-}"
   case "$code" in
+    synthetic_health_ack_diagnostic=empty|synthetic_health_ack_diagnostic=carriage_return|synthetic_health_ack_diagnostic=multiple_lines|synthetic_health_ack_diagnostic=dependency_unavailable|synthetic_health_ack_diagnostic=completed|synthetic_health_ack_diagnostic=unexpected)
+      printf '%s\n' "$code" ;;
     runtime_host_diagnostic=arguments|runtime_host_diagnostic=input|runtime_host_diagnostic=validation|runtime_host_diagnostic=revision|runtime_host_diagnostic=ingress|runtime_host_diagnostic=compose|runtime_host_diagnostic=paths|runtime_host_diagnostic=samples|runtime_host_diagnostic=volume_identity|runtime_host_diagnostic=topology|runtime_host_diagnostic=images|runtime_host_diagnostic=volume|runtime_host_diagnostic=network_set|runtime_host_diagnostic=network_labels|runtime_host_diagnostic=network_members|runtime_host_diagnostic=container_policy|runtime_host_diagnostic=container_networks|runtime_host_diagnostic=tmpfs|runtime_host_diagnostic=mounts|runtime_host_diagnostic=binds|runtime_host_diagnostic=protected_binds|runtime_host_diagnostic=socket_users|runtime_host_diagnostic=stability)
       printf '%s\n' "$code" ;;
     runtime_host_diagnostic=samples.*|runtime_host_diagnostic=volume_identity.*)
@@ -53,7 +71,7 @@ synthetic_host_report_failure() {
     diagnostic=''
     # Trace lines need no validator subprocess, and accepted duplicates need no
     # repeated work. Keep the closed validator as the publication authority.
-    if [[ "$line" =~ ^runtime_host_diagnostic=[A-Za-z_.]{1,128}$ ]] &&
+    if [[ "$line" =~ ^(runtime_host_diagnostic|synthetic_health_ack_diagnostic)=[A-Za-z_.]{1,128}$ ]] &&
       (( ${#diagnostics[@]} < 16 )) && [[ -z "${seen_diagnostics[$line]:-}" ]]; then
       diagnostic="$(synthetic_host_runtime_diagnostic "$line")"
     fi

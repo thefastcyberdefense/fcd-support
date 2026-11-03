@@ -1,7 +1,28 @@
 # Finish the private test server timers
 
 Date: 2026-11-03 (Asia/Dhaka).
-Status: **Root step pending. Do not call Task 16 complete yet.**
+Status: **Partial installation; backup service refused. Task 16 remains OPEN.**
+
+## Actual owner execution and refusal
+
+The owner executed the published sudo command once. The helper reached
+`real_service_backup` and returned `timer_install_refused_stage=real_service_backup`.
+Read-only inspection confirms all four exact unit files are installed, the root
+start marker exists and the completion record is absent. Backup exited 1 with
+the closed preflight code `operations_socket_root_invalid`; no active operations
+job was created. Maintenance and health were not executed. All three timers
+remain disabled. Preserve these units and the original helper/marker; **do not
+rerun the command below**.
+
+The shared socket-directory admission incorrectly requires write access even
+for `verify`, which is also the scheduler's preflight mode. The actual hardened
+service deliberately has `ProtectHome=read-only` and only the state root in
+`ReadWritePaths`. The correction must allow read/traverse access for verification
+while retaining write access for every mutating action, including socket
+recovery. Do not weaken the unit sandbox or edit the deployed immutable source.
+A tested source correction and separately reviewed continuation are required.
+
+## Historical installation preparation
 
 The final-source private deployment, operations, separate audits and actual SSH
 password/MFA/dashboard/origin/CSRF/logout proof passed. The last server step is

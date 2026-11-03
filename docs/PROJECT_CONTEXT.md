@@ -2,6 +2,16 @@
 
 Last reviewed: 2026-11-03 (Asia/Dhaka)
 
+**Root timer attempt partially installed units, then failed before a job.** The
+owner ran the reviewed installer once. All four exact unit files are installed;
+the backup service exited 1 with `operations_socket_root_invalid`. The root start
+marker remains and no completion record or active job exists. Maintenance and
+health did not run and all three timers remain disabled. Shared verification
+incorrectly requires socket-directory writes under the deliberate read-only
+systemd sandbox. Codex owns the test-first correction and reviewed continuation;
+retain the original helper/units/marker and do not rerun it or edit deployed source.
+Task 16 remains OPEN. See `docs/operations/phase-6-root-timers.md`.
+
 **Final-source private deployment and real SSH authentication passed.** Fresh
 `b1e183d` completed public deploy/verify, backup/replay, four maintenance jobs,
 actual health and validated four-unit rendering. Separate audits passed before
