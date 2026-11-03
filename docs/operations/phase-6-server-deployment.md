@@ -2277,6 +2277,10 @@ job resolver, host reboot, daemon restart or other-project mutation is included.
 
 ### Actual SSH password/MFA proof for the successful fresh scope
 
+**Historical first proof: refused before bootstrap; do not execute this block.**
+Its service/user assumptions are superseded by the corrected proof below. No
+credential file or identity was created by that refused attempt.
+
 After the `b1e183d` deployment and its separate public audit both pass, execute
 the one-use proof reviewed in `docs/reviews/2026-11-03-task-16-ssh-proof.md`.
 Commit/push it first. This creates one synthetic verification identity only in
@@ -2298,3 +2302,27 @@ closes only its own forward. It refuses failed deployments and an existing
 credential file; do not rerun it after partial bootstrap. No credential, OTP,
 cookie, HTML or raw database evidence may be printed or committed. Results
 are appended only after actual execution. Root-owned host timers remain separate.
+
+### Corrected one-use SSH proof
+
+The first proof's lookup was refused before any identity/file creation. Use only
+`docs/operations/actions/2026-11-03-admin-ssh-proof-r2.py` after successful fresh
+deployment and separate audit. Five hermetic guards, real Compose producer/
+consumer checks and every actual read-only pre-bootstrap predicate pass. It
+uses the declared fcd-support-admin service, accepts its node alias only with a
+real default UID/GID 1000:1000 check, and retains established-peer ownership
+verification before any HTTP transmission. Review and failed-attempt evidence:
+`docs/reviews/2026-11-03-task-16-ssh-proof.md`. Commit/push before execution.
+
+```powershell
+$taskProof = 'docs/operations/actions/2026-11-03-admin-ssh-proof-r2.py'
+if ((Get-FileHash -Algorithm SHA256 -LiteralPath $taskProof).Hash.ToLowerInvariant() -ne 'fbf528092d2df63a16b8cfd62412961dc52b385c731b74572bc19eb27e86e94a') { throw 'Proof changed' }
+python -B $taskProof
+if ($LASTEXITCODE -ne 0) { throw 'Proof refused; preserve private state and review' }
+```
+
+This is a separate corrected proof, not a replay or modification of the failed
+historical executor. No credential value, OTP, cookie, HTML or unrestricted
+log may enter output or Git. Any created private credential file stops further
+bootstrap retries. Actual authentication and timer-install outcomes remain
+unclaimed until their commands pass.

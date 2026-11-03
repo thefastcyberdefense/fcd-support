@@ -79,3 +79,32 @@ outcomes are printed. Captured HTML, cookies, password, seed and OTP never print
 Successful proof still does not install host timers or finish Task 16 by itself.
 Any failure preserves the new private credential/marker evidence and requires
 review before a continuation; it never targets another project or old database.
+
+## First execution refused; separate corrected proof
+
+The published proof ran once and refused before identity creation. Read-only
+inspection confirms both credential and bootstrap-completed files are absent.
+Its Docker filter used admin, while the actual Compose service is
+fcd-support-admin. The preflight also assumed a numeric Config.User string;
+the actual approved manifest uses node, resolving to UID/GID 1000:1000.
+No database bootstrap was invoked; do not rerun the historical file.
+
+A separate corrected proof is
+`../operations/actions/2026-11-03-admin-ssh-proof-r2.py`, SHA256
+`fbf528092d2df63a16b8cfd62412961dc52b385c731b74572bc19eb27e86e94a`.
+Its tests SHA256 is
+`f45554324fdc55e5f20127ebc0f1432ff14bca3a7e4ccfc9de8607fb21b697e4`.
+Two producer/consumer regressions read the real Compose service/security
+sections: admin and the numeric-only assumption each failed, then passed after
+binding the declared service and accepted user aliases. Before any credential
+file is written, the proof additionally executes a closed default-process
+UID/GID assertion inside the exact actor and requires both 1000.
+
+All **five hermetic guards pass**. Client/remote Python and embedded Node syntax
+checks pass. Every corrected remote pre-bootstrap predicate was then run in
+read-only mode, stopping before umask/file creation/bootstrap, and passed on the
+actual fresh server. Exact source, ready/no-job state, Unix socket, healthy/
+read-only actor, revision, no published port and real UID/GID all match.
+The existing peer-ownership guard, bootstrap interface and all authentication
+checks are unchanged. Commit/push this separate correction before executing it
+once; no successful password/MFA result is claimed yet.
