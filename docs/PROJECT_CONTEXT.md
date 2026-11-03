@@ -18,6 +18,15 @@ Phase 7 current live/test-asset integration remains next; model/outbound/n8n
 flags stay false. AGY has independent stress and readiness assignments; Codex
 owns current-server diagnosis and operational disposition.
 
+Three existing dashboard modules have a confirmed deployed-role privilege gap:
+questions, insights and escalations return HTTP 500. Actual compiled list reads
+under the restricted admin login fail with SQLSTATE 42501 in read-only mode.
+No grants/data were changed. AGY's next package adds least-privilege correction
+and real-role HTTP/SQL regression coverage; Codex owns review/rollout. See
+`docs/testing/2026-11-03-admin-dashboard-permissions.md` and
+`docs/handoffs/2026-11-03-antigravity-priorities.md`. These are corrections to
+deployed features; Phase 7 remains live test-asset acceptance.
+
 The owner's old-container cleanup completed: 19 obsolete actors removed,
 latest five and connected webhook three retained, 23 unrelated actors unchanged.
 Strict independent audit preserved volumes/networks/state and original evidence.

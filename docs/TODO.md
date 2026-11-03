@@ -17,6 +17,15 @@ Phase 7 live/current test-asset work remains separate. AGY has health-transport
 stress and Phase 7 readiness assignments with checkbox acceptance criteria;
 Codex retains current-server diagnosis and disposition.
 
+Owner-reported dashboard failures are CONFIRMED: `/questions`, `/insights` and
+`/escalations` fail with permission denied under the actual restricted admin
+database login. Codex reproduced compiled reads in read-only mode without
+changing grants/data. Source correction and real-role HTTP regression coverage
+are AGY's first assignment; server rollout remains Codex-owned. See
+`docs/testing/2026-11-03-admin-dashboard-permissions.md` and the prioritized
+handoff `docs/handoffs/2026-11-03-antigravity-priorities.md`. These existing-module
+failures are not Phase 7 features and are not fixed yet.
+
 Owner-authorized cleanup is COMPLETE: 19 old isolated test containers were
 removed, keeping the latest five actors, connected three-container webhook
 stack and 23 unrelated actors. Separate strict audit preserved all volumes,

@@ -1,9 +1,16 @@
 # Antigravity assignment: Phase 7 evidence readiness
 
 Date: 2026-11-02 (Asia/Dhaka).
-Authority: preparation and repository review only. Codex retains Task 16, shared
-server operations, external-action decisions and final phase/gate authority.
+Authority: preparation and repository review only. Codex retains shared-server
+operations, external-action decisions and final phase/gate authority.
 This can follow the independent topology CI assignment; use a separate branch.
+
+Current priority and status (2026-11-03): follow
+`2026-11-03-antigravity-priorities.md`. Bounded Task 16 deployment/root-timer
+closeout passed at `24e5667`. A later uncertain recurring-health job holds
+scheduled operations, and three dashboard routes have confirmed missing admin
+database read permissions. These corrective dependencies remain open; do not
+mistake historical closeout for current integration readiness.
 
 ## Goal
 
@@ -33,8 +40,9 @@ Do not invent a new phase/task number or reclassify local fakes as live evidence
 - [ ] Identify which P7 checks need real test assets or human actions, which can
       reuse existing automated scripts, and which still lack an execution
       procedure. Recommend the smallest next work package; do not implement it.
-- [ ] Keep Task 16 completion, protected old uncertain scopes, open actor-loss
-      incidents and privileged timer installation distinct. Do not close any
+- [ ] Distinguish completed Task 16/root-timer evidence from the later recurring
+      health hold, dashboard failures, protected old uncertain scopes and open
+      actor-loss incidents. Do not close any
       tracker/gate row or claim owner approval.
 - [ ] No SSH, browser/account login, shared Docker, external API, DNS/tunnel,
       Meta, Manifest/n8n/model/provider calls, credentials or production actions.
@@ -54,6 +62,7 @@ reviewable and start each from current main to include the maintenance fixture
 correction accepted through PR #6.
 
 Current base reminder (2026-11-03): start from fresh synchronized main including
-accepted PR #6 and PR #7, not an earlier local checkpoint. Task 16 and its server
-scope remain Codex-owned. Do not duplicate the completed maintenance/health fixes
-or alter their stopped scopes while preparing your separate assignment.
+accepted PR #6, PR #7 and PR #8, not an earlier local checkpoint. Server recovery
+and rollout remain Codex-owned. Do not duplicate completed fixes or change any
+stopped scope while preparing this separate assignment. The new recurring
+health failure is a distinct open issue; its stress work has its own branch.
