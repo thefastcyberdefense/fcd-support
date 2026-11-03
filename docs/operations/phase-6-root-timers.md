@@ -22,6 +22,13 @@ while retaining write access for every mutating action, including socket
 recovery. Do not weaken the unit sandbox or edit the deployed immutable source.
 A tested source correction and separately reviewed continuation are required.
 
+PR #8 now supplies accepted source `24e5667`. The managed upgrade and new
+exact-generation root continuation are reviewed, with 17 actual Linux hermetic
+guards passing. See `../reviews/2026-11-03-task-16-timer-repair.md`. Actual rollout
+and root execution remain pending; Codex will provision the new helper only
+after successful managed deployment and generation verification. The new command
+uses isolated Python (`-I`). Do not run the historical installer again.
+
 ## Historical installation preparation
 
 The final-source private deployment, operations, separate audits and actual SSH

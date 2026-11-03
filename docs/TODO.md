@@ -2,6 +2,14 @@
 
 ## Current Phase 6 checkpoint
 
+- **Read-only socket fix accepted.** PR #8 merged as `24e5667`, tree-identical to
+  reviewed `3c59596`; all four exact-head workflows passed, including both real
+  runtime lanes. Full gate: 1,968 passed / 446 skips, 253.76 s. Managed upgrade
+  and exact-generation root repair passed independent review and 17 Linux
+  hermetic guards. Actual upgrade/root execution remains pending; Task 16 stays
+  OPEN. See `docs/reviews/2026-11-03-task-16-timer-repair.md`. A narrow observed
+  pre-action lifecycle window is separately recorded; original history remains.
+
 - **Actual root timer attempt stopped before any backup job.** Four exact units
   were installed, then backup exited 1 with `operations_socket_root_invalid`.
   The start marker remains; no completion record or active job exists. Maintenance

@@ -2,6 +2,16 @@
 
 Last reviewed: 2026-11-03 (Asia/Dhaka)
 
+**Socket correction accepted; concrete upgrade/repair reviewed.** PR #8 merged
+as `24e5667` with exactly the tested `3c59596` tree. Four workflows and both real
+runtime lanes passed; final full gate: 1,968 passed / 446 skips, 253.76 s.
+Reviewed artifacts preserve the existing synthetic database/identity and exact
+old timer evidence; 17 hermetic Linux guards passed. Actual managed upgrade and
+root service/timer execution remain pending. Task 16 stays OPEN. See
+`docs/reviews/2026-11-03-task-16-timer-repair.md`. A separate bounded observation
+of five other-project lifecycle metadata changes preserves the original baseline
+and does not attribute cause or authorize changing those projects.
+
 **Root timer attempt partially installed units, then failed before a job.** The
 owner ran the reviewed installer once. All four exact unit files are installed;
 the backup service exited 1 with `operations_socket_root_invalid`. The root start
