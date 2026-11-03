@@ -2,6 +2,14 @@
 
 Last reviewed: 2026-11-03 (Asia/Dhaka)
 
+**Actual managed server upgrade to `24e5667` passed.** The one-use public
+controller retained the original synthetic database/volume and identity while
+deploying the accepted source; verification, backup/maintenance/health, rendering
+and strict fresh-raw preservation passed. Root repair is provisioned at its
+reviewed hash; it has not run. Final existing-admin proof/audit and owner sudo
+execution remain open under Task 16. See
+`docs/testing/2026-11-03-phase-6-server-24e5667.md`.
+
 **Socket correction accepted; concrete upgrade/repair reviewed.** PR #8 merged
 as `24e5667` with exactly the tested `3c59596` tree. Four workflows and both real
 runtime lanes passed; final full gate: 1,968 passed / 446 skips, 253.76 s.
