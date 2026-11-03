@@ -1,7 +1,7 @@
 # Task 16 actual SSH authentication proof
 
 Date: 2026-11-03 (Asia/Dhaka).
-Status: **Prepared and corrected; execution requires successful fresh deployment and audit.**
+Status: **Corrected proof R2 executed and PASS; first proof remains a refused historical attempt.**
 Scope: fresh `b1e183df3e7c319483f863346925b38c4f149ba5` only.
 Action: `docs/operations/actions/2026-11-03-admin-ssh-proof.py`.
 SHA256: `85228d2c6658a941e3b963be2ea3a6e784e6c84d5c9bb4e7fc3badb40748f82f`.
@@ -108,3 +108,14 @@ read-only actor, revision, no published port and real UID/GID all match.
 The existing peer-ownership guard, bootstrap interface and all authentication
 checks are unchanged. Commit/push this separate correction before executing it
 once; no successful password/MFA result is claimed yet.
+
+## Corrected proof execution PASS
+
+After publication at `652a4a2`, the corrected proof ran once against the
+successfully deployed/audited b1e183d scope. It reported synthetic identity
+creation, full password/MFA/dashboard/origin/CSRF/logout success and owned SSH
+process reaping. A subsequent separate public runtime/preservation audit also
+passed. Credentials remain only in the protected fresh server file; no value,
+OTP, cookie, HTML or raw identity record was displayed or committed.
+Exact actual evidence: `../testing/2026-11-03-phase-6-server-b1e183d.md`.
+No root timer or production/live-provider outcome is implied.

@@ -2326,3 +2326,17 @@ historical executor. No credential value, OTP, cookie, HTML or unrestricted
 log may enter output or Git. Any created private credential file stops further
 bootstrap retries. Actual authentication and timer-install outcomes remain
 unclaimed until their commands pass.
+
+### Current server closeout checkpoint
+
+Fresh b1e183d deployment, public scheduled operations/health, four-unit rendering,
+separate audits and corrected actual SSH password/MFA/dashboard/origin/CSRF/
+logout proof all passed. Earlier failed executors remain historical and must
+not be replayed. Source and closed actual results:
+`docs/testing/2026-11-03-phase-6-server-b1e183d.md`.
+
+Task 16 remains open for the scoped root timer installation/tests and final
+handoff. The reviewed one-use helper, source/hash pins, privilege boundary and
+exact owner terminal command are in `docs/operations/phase-6-root-timers.md`.
+Its code must be committed/pushed and the private mode-0400 copy verified before
+root execution. No installed/enabled timer result is claimed in advance.

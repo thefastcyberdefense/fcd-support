@@ -2,6 +2,19 @@
 
 Last reviewed: 2026-11-03 (Asia/Dhaka)
 
+**Final-source private deployment and real SSH authentication passed.** Fresh
+`b1e183d` completed public deploy/verify, backup/replay, four maintenance jobs,
+actual health and validated four-unit rendering. Separate audits passed before
+and after the corrected real SSH password/MFA/dashboard/origin/CSRF/logout proof.
+Generated verification credentials remain only in the fresh private server file;
+no values entered output or Git. Both old uncertain scopes remain protected.
+Task 16 now requires only root-owned timer install/testing and final handoff.
+The exact scoped helper passed independent review and nine Linux filesystem/
+security guards; sudo -n is unavailable. It must be provisioned before the owner
+runs the one root command in `docs/operations/phase-6-root-timers.md`.
+Actual evidence: `docs/testing/2026-11-03-phase-6-server-b1e183d.md`.
+No root unit installation, full-host restart or live provider/Meta action is claimed.
+
 **Health fix accepted; next fresh server action is reviewed and prepared.** PR #7 merged
 as `b1e183d`, with exactly the tested `c75a573` tree. All four workflows passed;
 both private-runtime lanes executed real health plus full recovery/cleanup.

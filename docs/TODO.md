@@ -2,6 +2,16 @@
 
 ## Current Phase 6 checkpoint
 
+- **Final-source server and authenticated SSH PASS.** Fresh `b1e183d` completed
+  deploy/verify, backup/replay, all maintenance, health and four-unit rendering.
+  Separate audits passed before and after actual password/MFA/dashboard/origin/
+  CSRF/logout proof. Older scopes and qualified preservation evidence remain
+  intact. **Task 16 stays OPEN only for privileged timer install/testing and
+  final handoff.** Root-only helper is reviewed with nine Linux guards and
+  exact generation pins; noninteractive sudo is unavailable. See
+  `docs/testing/2026-11-03-phase-6-server-b1e183d.md` and
+  `docs/operations/phase-6-root-timers.md`. No actual root outcome is claimed.
+
 - **Health framing correction accepted:** PR #7 merged as `b1e183d`, identical
   to reviewed `c75a573`; all four workflows and both real health/recovery/cleanup
   lanes passed. Full Windows gate: 1,961 passed / 438 skips; native/compiled
