@@ -2,6 +2,15 @@
 
 ## Current Phase 6 checkpoint
 
+- **Actual root timer attempt stopped before any backup job.** Four exact units
+  were installed, then backup exited 1 with `operations_socket_root_invalid`.
+  The start marker remains; no completion record or active job exists. Maintenance
+  and health did not run; all three timers remain disabled. Codex is correcting
+  the shared verification preflight for a genuinely read-only socket directory,
+  retaining write access for mutating operations and the hardened unit sandbox.
+  Do not rerun the one-use installer. Task 16 remains OPEN; see
+  `docs/operations/phase-6-root-timers.md`.
+
 - **Final-source server and authenticated SSH PASS.** Fresh `b1e183d` completed
   deploy/verify, backup/replay, all maintenance, health and four-unit rendering.
   Separate audits passed before and after actual password/MFA/dashboard/origin/

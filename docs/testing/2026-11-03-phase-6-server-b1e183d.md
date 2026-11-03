@@ -6,6 +6,17 @@ Application source: `b1e183df3e7c319483f863346925b38c4f149ba5`.
 Published deployment executor: `c4abc2b9f1d35304b9bccf0789a0e8fd76c800e5`.
 Authentication correction checkpoint: `652a4a2bbf76f8c944a40cdfffd3e29ad4ae6f8d`.
 
+## Latest actual root result
+
+The owner subsequently executed the reviewed installer once. Four exact unit
+files were installed and systemd reloaded, then the real backup service refused
+with `operations_socket_root_invalid`, exit 1, before creating an active job.
+Maintenance and health were not run and all three timers remain disabled. The
+start marker and installed generation are preserved; the completion record is
+absent. The earlier preparation notes below are historical, not current absence
+claims. The immutable b1e183d source and prior operations evidence are retained.
+Task 16 needs a tested verification-preflight correction and reviewed continuation.
+
 ## Actual executed results
 
 The one-use reviewed deployment ran once on the approved local test server.

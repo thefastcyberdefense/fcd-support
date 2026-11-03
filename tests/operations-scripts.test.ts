@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
 import { existsSync, readFileSync } from 'node:fs';
-import { chmod, mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { afterEach, expect, test } from 'vitest';
@@ -50,6 +50,72 @@ test('incomplete deployment installation refuses before Docker when the private 
 const native =
   process.platform === 'linux' &&
   process.env.RUN_ENCRYPTED_BACKUP_TESTS === 'synthetic-operations-toolchain-only';
+
+test
+  .runIf(native)
+  .each([
+    'verify',
+    'deploy',
+    'rollback',
+    'restore',
+    'promote',
+    'recover-admin-socket',
+    'private-startup',
+    'database-convergence',
+  ])(
+  'socket preflight for %s permits read-only verification and keeps mutating actions writable',
+  async (action) => {
+    const readonlyRoot = process.env.BACKUP_TEST_READONLY_ARCHIVE_ROOT ?? '';
+    const baseline = await readdir(readonlyRoot);
+    expect((await stat(readonlyRoot)).mode & 0o777).toBe(0o700);
+    // The owning user still has mode 0700. The kernel mount, not chmod or a
+    // mocked shell predicate, prevents directory writes inside the service.
+    await expect(
+      writeFile(join(readonlyRoot, 'synthetic-socket-write-probe'), ''),
+    ).rejects.toMatchObject({
+      code: 'EROFS',
+    });
+    const root = await mkdtemp('/run/fcd-support/socket-access-test-');
+    roots.push(root);
+    await chmod(root, 0o700);
+    for (const name of ['socket', 'config', 'secrets', 'state', 'workspace'])
+      await mkdir(join(root, name), { mode: 0o700 });
+    for (const readonly of [true, false]) {
+      const result = spawnSync(
+        '/bin/bash',
+        [
+          '--noprofile',
+          '--norc',
+          '-c',
+          `source "$TASK_COMMON"
+declare -A OPS_CONFIG=([FCD_ADMIN_SOCKET_ROOT]="$TASK_SOCKET" [FCD_CONFIG_ROOT]="$TASK_ROOT/config" [FCD_SECRET_ROOT]="$TASK_ROOT/secrets" [FCD_STATE_ROOT]="$TASK_ROOT/state")
+OPS_ROOT="$TASK_ROOT/workspace"; OPS_ACTION="$TASK_ACTION"
+[[ -r "$TASK_SOCKET" && -x "$TASK_SOCKET" ]]
+if [[ "$TASK_READONLY" == true ]]; then [[ ! -w "$TASK_SOCKET" ]]; else [[ -w "$TASK_SOCKET" ]]; fi
+operations_socket_root`,
+        ],
+        {
+          encoding: 'utf8',
+          timeout: 3000,
+          env: {
+            PATH: process.env.PATH,
+            TASK_COMMON: resolve('scripts/operations-common.sh'),
+            TASK_ROOT: root,
+            TASK_SOCKET: readonly ? readonlyRoot : join(root, 'socket'),
+            TASK_ACTION: action,
+            TASK_READONLY: String(readonly),
+          },
+        },
+      );
+      const allowed = !readonly || action === 'verify';
+      expect(result.status, result.stderr).toBe(allowed ? 0 : 1);
+      expect(result.stdout).toBe('');
+      expect(result.stderr).toBe(allowed ? '' : 'operations_socket_root_invalid\n');
+    }
+    expect(await readdir(readonlyRoot)).toEqual(baseline);
+    expect(await readdir(join(root, 'socket'))).toEqual([]);
+  },
+);
 
 test('shared preflight exposes no legacy unjournalled deployment or job implementation', () => {
   const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash';
