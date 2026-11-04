@@ -28,3 +28,11 @@
 
 - No production launch until the Meta test-number, signature rejection, duplicate/retry, stale-event, bilingual-answer, human-takeover, opt-in/out, deletion, backup-restore, and model-fallback tests pass.
 - If WhatsApp coexistence is unavailable, stop before changing the production number and request a separate migration decision.
+
+## Antigravity (agy) Launch Enforcement
+
+- Treat `agy-quality-and-security-gate`, `agy-ui-ux-responsive-a11y-gate`, and `agy-seo-and-identity-gate` as blocking quality gates; never bypass them with `continue-on-error`, skipped jobs, or unreviewed baseline changes.
+- Every public support answer must come from an approved, currently published knowledge version. Never render drafts, rejected, retired, superseded, audit, customer, credential, or internal provenance records.
+- Public pages must have valid self-canonical URLs, reciprocal `en`/`bn-BD`/`x-default` alternates, OpenGraph/Twitter metadata, visible-content-equivalent JSON-LD, robots/sitemap/security resources, and no operational route exposure.
+- Test public and private/admin pages at `320x568`, `390x844`, `768x1024`, `1440x900`, and `1920x1080`; require zero horizontal overflow (`scrollWidth <= clientWidth`), visible keyboard focus, `>= 44x44px` primary touch targets, and zero WCAG 2.2 AA axe violations.
+- Record exact commands, artifact links, story/tracker IDs, and rollback evidence in every pull request. A green unit test alone is not handoff evidence.
