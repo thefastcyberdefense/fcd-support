@@ -1,6 +1,16 @@
 # Project Context
 
-Last reviewed: 2026-11-03 (Asia/Dhaka)
+Last reviewed: 2026-11-04 (Asia/Dhaka)
+
+**PR #9/#10/#11 review requires corrections; all remain draft/unmerged.**
+Independent restricted-role PostgreSQL checks passed 58 / 1 skip on PR #9,
+with zero owned leftovers. Missing tests/evidence still block acceptance.
+PR #10 has confirmed diagnostic/actor-guard/persistence-proof gaps and a failed
+full runtime promotion lane despite passing stress subjobs. PR #11's missing
+acceptance rows and invented prerequisites require source-backed corrections.
+See `docs/reviews/2026-11-04-pr-9-10-11-review.md` and
+`docs/handoffs/2026-11-04-antigravity-review-corrections.md`. No server mutation,
+dashboard rollout, health settlement or phase-gate approval is claimed.
 
 **Phase 6 closeout recorded, including Task 16; current scheduled operations
 HELD.** Accepted `24e5667` is deployed in
