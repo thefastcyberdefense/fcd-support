@@ -2,6 +2,16 @@
 
 ## Current Phase 6 checkpoint
 
+**Latest PR #10 observer review (101f684): corrections required; still draft.**
+Independent focused suites pass 70 tests, but the observer rejects five fixed
+diagnostics accepted by production, mislabels zero-exit output and allows numeric
+overflow. The real-boundary test still replaces the inspected function. Final
+CI also supplies a new health-9 empty-acknowledgement failure after eight passes,
+separate from promotion refusals. See
+`docs/reviews/2026-11-04-pr-10-observability-review.md` and
+`docs/handoffs/2026-11-04-antigravity-observer-classification-corrections.md`.
+No server action, journal settlement or new merge occurred in this review.
+
 **2026-11-04 corrective integration: PRs #9, #11 and #12 merged.** Codex directly
 finished the remaining review gaps. The accepted dashboard grants passed 66
 native PostgreSQL tests / 1 skip; the accepted readiness matrix maps all 36 ACs.

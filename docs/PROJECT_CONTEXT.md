@@ -2,6 +2,15 @@
 
 Last reviewed: 2026-11-04 (Asia/Dhaka)
 
+Latest held PR #10 head 101f684 has confirmed observer classification gaps:
+five production-known tokens are dropped, zero-exit output is overclaimed and
+numeric bounds permit overflow. Focused suites pass 70 tests despite those gaps.
+Final runtime CI 41851012111 also fails fresh health iteration 9 with an empty
+acknowledgement; this is not proof of the held server job's cause. Review and
+precise AGY corrections: `docs/reviews/2026-11-04-pr-10-observability-review.md`
+and `docs/handoffs/2026-11-04-antigravity-observer-classification-corrections.md`.
+Runtime-controller changes and server disposition remain Codex-owned.
+
 **PRs #9, #11 and #12 accepted and merged; PR #10 remains held.**
 Dashboard grants/real-role tests passed 66 native checks / 1 skip; readiness
 covers AC-01 through AC-36 under the approved contracts. PR #10 source review,
