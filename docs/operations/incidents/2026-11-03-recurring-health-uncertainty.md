@@ -27,3 +27,22 @@ this recurring boundary without SSH/shared-server commands, new resolvers,
 forced retries or relaxed acknowledgement rules. Codex retains live read-only
 diagnosis, corrective review and operational disposition. Keep external
 execution flags false and preserve all current/old evidence.
+
+## Read-only follow-up, 2026-11-04
+
+The same saved health job remains uncertain and its physical actor is absent.
+The record's device/inode/mtime and bytes matched before/after inspection.
+A bounded last-250-entry health-service journal sample since November 3 contains
+48 operations_job_pending refusals, with no memory-kill or timeout messages in
+that sample. These are sampled observations, not a determination of the cause.
+
+Docker's retained event history contains no create/start/die/destroy/kill events
+for that actor within the bounded time window around the saved record. This
+does not prove that the actor never ran or establish any SQL result; historical
+events may no longer be retained. No job was retried, cleared or resolved, and
+no service, container, permission, network or server file was changed.
+
+Source corrections and synthetic stress verification in PRs #9–#11 are separate
+from this current-server disposition. The additional promotion diagnosis in
+PR #12 identifies an observability gap but does not establish the historical
+promotion root cause. See `../../reviews/2026-11-04-pr-12-promotion-diagnosis-review.md`.

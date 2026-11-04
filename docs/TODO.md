@@ -2,15 +2,20 @@
 
 ## Current Phase 6 checkpoint
 
-**2026-11-04 AGY review: PRs #9–#11 require corrections and remain unmerged.**
-The five dashboard grants are narrowly correct; independent native verification
-passed 58 tests / 1 skip, but required acceptance cases/evidence are missing.
-The health harness has confirmed trace/actor/persistence-proof defects; its
-latest full runtime workflow also fails later at promotion despite passing both
-stress jobs. The Phase 7 matrix contains missing items and source contradictions.
-Review: `docs/reviews/2026-11-04-pr-9-10-11-review.md`; AGY corrections:
-`docs/handoffs/2026-11-04-antigravity-review-corrections.md`. No server changes
-or new gate decisions occurred. Dashboard errors and scheduled-health hold remain.
+**2026-11-04 corrective integration: PRs #9, #11 and #12 merged.** Codex directly
+finished the remaining review gaps. The accepted dashboard grants passed 66
+native PostgreSQL tests / 1 skip; the accepted readiness matrix maps all 36 ACs.
+PR #10 source corrections passed a 1,994-test full gate / 454 platform skips,
+53 focused tests and 31 native lifecycle tests, but final runtime CI reproduces
+the older promotion failure after health/checkpoint/restore. The other three
+runtime lanes, including both ten-run health stress lanes, pass. PR #10 stays
+draft/unmerged. PR #12 is now accepted after direct evidence corrections,
+independent tests and completed final-head CI; see
+`docs/reviews/2026-11-04-pr-12-acceptance.md`. Its tests/evidence do not settle
+the historical promotion cause or the current server health job. See `docs/reviews/2026-11-04-pr-9-10-11-integration.md` and
+`docs/handoffs/2026-11-04-antigravity-promotion-observability.md`.
+The server was inspected read-only; its exact uncertain health record remains.
+Deployed dashboard errors and normal scheduled-operation hold remain unresolved.
 
 **Phase 6 closeout recorded, including Task 16 (2026-11-03); current scheduled
 operations HELD.** Accepted `24e5667` is
@@ -27,14 +32,12 @@ Phase 7 live/current test-asset work remains separate. AGY has health-transport
 stress and Phase 7 readiness assignments with checkbox acceptance criteria;
 Codex retains current-server diagnosis and disposition.
 
-Owner-reported dashboard failures are CONFIRMED: `/questions`, `/insights` and
-`/escalations` fail with permission denied under the actual restricted admin
-database login. Codex reproduced compiled reads in read-only mode without
-changing grants/data. Source correction and real-role HTTP regression coverage
-are AGY's first assignment; server rollout remains Codex-owned. See
-`docs/testing/2026-11-03-admin-dashboard-permissions.md` and the prioritized
-handoff `docs/handoffs/2026-11-03-antigravity-priorities.md`. These existing-module
-failures are not Phase 7 features and are not fixed yet.
+The dashboard's deployed `/questions`, `/insights` and `/escalations` failures
+have an accepted source correction in merged PR #9 (final head 1b51f53).
+Actual deployment is still 24e5667; no hot grant patch or rollout bypassed the
+held health job. Source proof and final integration evidence are separate from
+server validation. Codex retains disposition/rollout; AGY's bounded next work
+adds accurate closed promotion-command observations to the synthetic CI harness.
 
 Owner-authorized cleanup is COMPLETE: 19 old isolated test containers were
 removed, keeping the latest five actors, connected three-container webhook
