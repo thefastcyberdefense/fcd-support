@@ -5,19 +5,21 @@ Author: Antigravity (AGY)
 Target: Codex Review
 Related PR: Draft PR #12 (`codex/agy-promotion-failure-diagnosis`)
 Branch: `codex/agy-promotion-failure-diagnosis`
-Base commit: `a14551d45dc7cb79808a3832c6e6118d7d91e3e7`
+Base commit: `a14551dca9a0e4da0b7bb033501ecaef1b4855b6`
 
 ---
 
 ## 1. Executive Summary and Scope Boundary
 
 During synthetic private runtime CI testing, multiple workflow runs exhibited an exit at the promotion boundary after the preceding health, checkpoint, and restore stages had completed successfully. Specifically:
+
 - **Run 41656688444** (`private-runtime` fresh job) failed fresh promotion after health, checkpoint, and restore succeeded.
 - **Run 41682134296** (`private-runtime` precreated job and `health-stress` fresh job) failed at promotion after all ten health transport iterations succeeded.
 - **Run 41682171351** (`private-runtime` fresh job `126078386027`) failed at promotion after health, checkpoint, and restore succeeded.
-- **Run 41768173765** (PR #10 `private-runtime` fresh job) reproduced the identical promotion failure after all ten health iterations, checkpoint, and restore succeeded.
+- **Run 41778860198** (PR #10 final correction head `cf9defb`, `private-runtime (fresh)` job `126405652145`) failed promotion after one health invocation, checkpoint and restore passed. Both ten-iteration stress lanes and private-runtime precreated passed. The earlier run 41768173765 was green and is not a failed observation.
 
 This evidence-only package:
+
 1. Clearly separates **observed failure facts** from **untested hypotheses**.
 2. Documents the **diagnostic suppression mechanism** by accurately citing the immutable implementation of `operations_promotion_host_diagnostic` in `scripts/operations-promotion-host.sh` and `src/operations/promotion-host-main.ts`.
 3. Explicitly records that the validator's underlying internal refusal reason remains **historically unresolved**.
@@ -33,7 +35,7 @@ In accordance with project governance, no changes have been made to runtime cont
 
 ### Observed Failure Facts (Immutable CI Observations)
 
-Across runs 41656688444, 41682134296, 41682171351 (job 126078386027), and 41768173765:
+Across runs 41656688444, 41682134296, 41682171351 (job 126078386027), and 41778860198 (job 126405652145):
 
 1. **Preceding Stages Succeeded:** Preceding health checks, checkpoint generation, and database restore procedures completed with exit code 0 and verified state.
 2. **Failure Point:** In `scripts/operations-promotion-controller.sh:266`, `operations_promote_checked` invoked `operations_execute_job promote`.
@@ -50,7 +52,7 @@ Across runs 41656688444, 41682134296, 41682171351 (job 126078386027), and 417681
    operations-promotion-controller.sh:297:previous=1
    operations-promotion-controller.sh:298:previous=1
    ```
-4. **Non-Zero Validator Container Exit:** In `scripts/operations-promotion-host.sh:161-168`, the ephemeral validator container command exited non-zero (`previous=1` before line 166).
+4. **Non-Zero Host Inspection Command:** In `scripts/operations-promotion-host.sh:161-168`, the host inspection command/subshell returned nonzero. That boundary does not distinguish Docker client failure, container startup failure or an internal validator refusal; the previous-status frame alone cannot prove a container-internal exit.
 5. **Discarded Stderr:** Stderr from the container execution was redirected to `/dev/null` (`} 2>/dev/null)` at line 165.
 6. **No Diagnostic Emitted:** No diagnostic line was output to CI or operator logs.
 7. **Fail-Closed Containment:** `operations_job_lifecycle.sh:141` terminated the promotion container with `kill -TERM` (`wait` exit 143). `operations_execute_job` transitioned the active job to `uncertain` (`scripts/operations-job-lifecycle.sh:249`). Subshell exit 1 at line 314 triggered the `EXIT` trap `operations_promotion_uncertain` (`scripts/operations-promotion-controller.sh:297-298`), marking `STATE_PHASE=uncertain`, preserving the durable journal and `active-job` file, and emitting `operations_promotion_refused` (exit 1).
@@ -58,6 +60,7 @@ Across runs 41656688444, 41682134296, 41682171351 (job 126078386027), and 417681
 ### Untested Hypotheses (Historically Unresolved)
 
 Previous-status lines and shell exit codes cannot prove what occurred inside the container before exit. Specifically:
+
 - Whether Node.js failed to load `dist/operations/promotion-host-main.js` due to image packaging, entrypoint path, or module resolution is an **untested hypothesis**.
 - Whether file permissions, non-root user `1000:1000` constraints, or missing Linux capabilities caused the failure is an **untested hypothesis**.
 - Whether Docker daemon constraints (e.g. CPU/memory/pids limits) triggered container termination is an **untested hypothesis**.
@@ -112,14 +115,14 @@ A comprehensive unit test suite has been added to [`tests/operations-promotion-d
 
 ### Test Coverage Breakdown:
 
-| Test Name | Boundary Exercised | Owning Source | Behavioral Verification |
-| :--- | :--- | :--- | :--- |
-| `host inspection wrapper: unhandled validator exit discards raw stderr and unallowlisted stdout without leaking sentinels` | Real `operations_inspect_promotion_host` wrapper with synthetic `operations_docker` | `scripts/operations-promotion-host.sh:136-175` | Proves raw stderr discarded (`2>/dev/null`); unallowlisted stdout dropped; sensitive sentinels never leak; command fails closed with `promotion_host_invalid`. |
-| `host inspection wrapper: allowlisted closed diagnostic is delivered to descriptor 3 under closed-v1 without leaking stderr sentinels` | Real `operations_inspect_promotion_host` wrapper with synthetic `operations_docker` | `scripts/operations-promotion-host.sh:122-134` | Proves allowlisted token (`runtime_host_diagnostic=samples.memory`) reaches descriptor 3; zero stderr sentinels leak. |
-| `host inspection wrapper: closed diagnostics are suppressed when closed-v1 is inactive` | Real `operations_inspect_promotion_host` wrapper with synthetic `operations_docker` | `scripts/operations-promotion-host.sh:123` | Proves descriptor 3 remains empty when `FCD_RUNTIME_HOST_DIAGNOSTICS` is unset. |
-| `host inspection wrapper: unallowlisted diagnostic string on stdout is dropped by closed filter` | Real `operations_inspect_promotion_host` wrapper with synthetic `operations_docker` | `scripts/operations-promotion-host.sh:128-131` | Proves unallowlisted tokens are rejected by the case statement and descriptor 3 remains empty. |
-| `controller simulation: unhandled job execution failure triggers EXIT trap operations_promotion_uncertain and updates selection state` | Controller failure cascade simulation | `scripts/operations-promotion-controller.sh:297-318` | Proves controller EXIT trap triggers `operations_promotion_uncertain`, updates `OPS_SELECTION` to `uncertain`, and exits with `operations_promotion_refused`. |
-| `lifecycle containment: real operations_execute_job refuses execution when active-job is preserved` | Production lifecycle check | `scripts/operations-job-lifecycle.sh:210-212` | Proves production code line 211 detects existing `active-job` and immediately halts with `operations_job_pending` without starting any container. |
+| Test Name                                                                                                                              | Boundary Exercised                                                                  | Owning Source                                        | Behavioral Verification                                                                                                                                        |
+| :------------------------------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------- | :--------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `host inspection wrapper: unhandled validator exit discards raw stderr and unallowlisted stdout without leaking sentinels`             | Real `operations_inspect_promotion_host` wrapper with synthetic `operations_docker` | `scripts/operations-promotion-host.sh:136-175`       | Proves raw stderr discarded (`2>/dev/null`); unallowlisted stdout dropped; sensitive sentinels never leak; command fails closed with `promotion_host_invalid`. |
+| `host inspection wrapper: allowlisted closed diagnostic is delivered to descriptor 3 under closed-v1 without leaking stderr sentinels` | Real `operations_inspect_promotion_host` wrapper with synthetic `operations_docker` | `scripts/operations-promotion-host.sh:122-134`       | Proves allowlisted token (`runtime_host_diagnostic=samples.memory`) reaches descriptor 3; zero stderr sentinels leak.                                          |
+| `host inspection wrapper: closed diagnostics are suppressed when closed-v1 is inactive`                                                | Real `operations_inspect_promotion_host` wrapper with synthetic `operations_docker` | `scripts/operations-promotion-host.sh:123`           | Proves descriptor 3 remains empty when `FCD_RUNTIME_HOST_DIAGNOSTICS` is unset.                                                                                |
+| `host inspection wrapper: unallowlisted diagnostic string on stdout is dropped by closed filter`                                       | Real `operations_inspect_promotion_host` wrapper with synthetic `operations_docker` | `scripts/operations-promotion-host.sh:128-131`       | Proves unallowlisted tokens are rejected by the case statement and descriptor 3 remains empty.                                                                 |
+| `controller simulation: unhandled job execution failure triggers EXIT trap operations_promotion_uncertain and updates selection state` | Controller failure cascade simulation                                               | `scripts/operations-promotion-controller.sh:297-318` | Proves controller EXIT trap triggers `operations_promotion_uncertain`, updates `OPS_SELECTION` to `uncertain`, and exits with `operations_promotion_refused`.  |
+| `lifecycle containment: real operations_execute_job refuses execution when active-job is preserved`                                    | Production lifecycle check                                                          | `scripts/operations-job-lifecycle.sh:210-212`        | Proves production code line 211 detects existing `active-job` and immediately halts with `operations_job_pending` without starting any container.              |
 
 ### Execution Command and Results:
 
@@ -132,6 +135,7 @@ A comprehensive unit test suite has been added to [`tests/operations-promotion-d
 ## 5. Proposed Closed Allowlisted Diagnostics for Codex Evaluation
 
 In strict adherence to `docs/SYNTHETIC_FIXTURE_POLICY.md` and repository security rules:
+
 - **Never publish unrestricted raw stderr:** Raw stderr must not be forwarded to operator outputs or CI logs, as unvetted processes could emit sensitive environment data, stack traces, or customer payloads.
 - **Proposed Closed Observability Enhancements (Descriptor 3 only):**
   If Codex determines that container exit visibility should be expanded under `FCD_RUNTIME_HOST_DIAGNOSTICS=closed-v1`, only closed, fixed-enum tokens should be considered:
@@ -142,3 +146,19 @@ In strict adherence to `docs/SYNTHETIC_FIXTURE_POLICY.md` and repository securit
   - `runtime_host_diagnostic=container_output_unallowlisted`
 
 No runtime controllers or production acknowledgement rules have been modified in this branch.
+
+## Codex acceptance provenance
+
+Submitted source/test head: `818c4930acfd37c7977bd7ff69e6a13c81ccdf5f`.
+This final correction changes documentation metadata and evidence wording only;
+it changes no runtime controller or test behavior. New tests characterize
+existing behavior rather than implement a runtime fix, so no fabricated RED
+claim is made for them. The historical validator cause remains unresolved.
+
+All four submitted-head workflows passed:
+[CI 41785038664](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41785038664),
+[CodeQL 41785038690](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41785038690),
+[PostgreSQL/native 41785038453](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41785038453),
+[runtime 41785038666](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41785038666).
+The final publication head, local checks and any new CI outcomes are recorded
+in Codex's acceptance review; these links are not relabeled as another source.
