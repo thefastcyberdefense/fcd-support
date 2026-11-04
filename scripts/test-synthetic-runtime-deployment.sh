@@ -108,6 +108,14 @@ trace_status=$?
 trace_source="${BASH_SOURCE[0]-stdin}"
 printf "%s:%s:previous=%s\n" "${trace_source##*/}" "$LINENO" "$trace_status" >&3
 synthetic_host_runtime_diagnostic "${result-}" >&3
+if [[ "${trace_source##*/}" == operations-promotion-host.sh && "${FUNCNAME[0]-}" == operations_inspect_promotion_host ]]; then
+  if [[ "$BASH_COMMAND" == *"dist/operations/promotion-host-main.js"* ]]; then
+    promotion_inspecting_subshell=$BASH_SUBSHELL
+  elif [[ "${promotion_inspecting_subshell-}" == "$BASH_SUBSHELL" ]]; then
+    unset promotion_inspecting_subshell
+    synthetic_host_promotion_cmd_diagnostic "$trace_status" "${result-}" >&3
+  fi
+fi
 if [[ "${OPS_JOB_SERVICE-}" == health && "${trace_source##*/}" == operations-job-lifecycle.sh && "${FUNCNAME[0]-}" == operations_execute_job ]]; then
   if [[ "$BASH_COMMAND" == *"container logs"* ]]; then
     health_reading_logs=true

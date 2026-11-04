@@ -295,3 +295,143 @@ test('prioritizes trusted transport failure frames displaced by common or state 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('promotion command observer preserves caller regex captures and exit status', () => {
+  const result = spawnSync(
+    process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash',
+    [
+      '-c',
+      `source "$TASK_LIBRARY"
+[[ synthetic_before =~ ^(synthetic)_(before)$ ]]
+(exit 42)
+synthetic_host_promotion_cmd_diagnostic 0 '{"status":"ok"}'
+caller_status=$?
+printf 'status:%s:captures:%s:%s:%s\\n' "$caller_status" "$` +
+        `{BASH_REMATCH[0]-}" "$` +
+        `{BASH_REMATCH[1]-}" "$` +
+        `{BASH_REMATCH[2]-}"`,
+    ],
+    {
+      encoding: 'utf8',
+      timeout: 3000,
+      env: {
+        PATH: process.env.PATH,
+        SystemRoot: process.env.SystemRoot,
+        TASK_LIBRARY: resolve('scripts/synthetic-host-evidence.sh').replaceAll('\\', '/'),
+      },
+    },
+  );
+  expect(result.status).toBe(0);
+  expect(result.stdout).toBe(
+    'synthetic_promotion_cmd_diagnostic=canonical_success\nstatus:42:captures:synthetic_before:synthetic:before\n',
+  );
+  expect(result.stderr).toBe('');
+});
+
+test.each([
+  [0, '{"bound":true}', 'canonical_success', ''],
+  [1, '', 'empty_output:1', ''],
+  [1, 'SENSITIVE_SECRET_STACK_TRACE_112233', 'unallowlisted_output:1', ''],
+  [
+    1,
+    'runtime_host_diagnostic=samples.memory',
+    'allowlisted_diagnostic',
+    'runtime_host_diagnostic=samples.memory\n',
+  ],
+  [125, '', 'unavailable_transport:125', ''],
+  [127, '', 'unavailable_transport:127', ''],
+  ['', '', 'unobserved', ''],
+  ['256', '', 'unobserved', ''],
+  ['invalid', '', 'unobserved', ''],
+])(
+  'promotion command observer classifies status=%s result=%s as %s without leaking sentinels',
+  (status, resultVal, expectedCategory, expectedDiagnostic) => {
+    const result = spawnSync(
+      process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash',
+      [
+        '-c',
+        `source "$TASK_LIBRARY"; synthetic_host_promotion_cmd_diagnostic "$TASK_STATUS" "$TASK_RESULT"`,
+      ],
+      {
+        encoding: 'utf8',
+        timeout: 3000,
+        env: {
+          PATH: process.env.PATH,
+          SystemRoot: process.env.SystemRoot,
+          TASK_LIBRARY: resolve('scripts/synthetic-host-evidence.sh').replaceAll('\\', '/'),
+          TASK_STATUS: String(status),
+          TASK_RESULT: resultVal,
+        },
+      },
+    );
+    expect(result.status).toBe(0);
+    const expectedOut = `synthetic_promotion_cmd_diagnostic=${expectedCategory}\n${expectedDiagnostic}`;
+    expect(result.stdout).toBe(expectedOut);
+    expect(result.stderr).toBe('');
+    expect(result.stdout).not.toContain('SENSITIVE_SECRET_STACK_TRACE_112233');
+  },
+);
+
+test('CI trace extracts closed promotion command diagnostic from real subshell context', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'fcd-host-evidence-test-'));
+  try {
+    const runner = await readFile('scripts/test-synthetic-runtime-deployment.sh', 'utf8');
+    const entry = /<<'TRACE'\r?\n([\s\S]*?)\r?\nTRACE/u.exec(runner)?.[1];
+    if (entry === undefined) throw new Error('synthetic_trace_entry_missing');
+    const init = join(root, 'entry.bash');
+    const trace = join(root, 'trace.log');
+    const log = join(root, 'promote.log');
+    const hostScript = join(root, 'operations-promotion-host.sh');
+    await writeFile(init, entry.replaceAll('\r\n', '\n'));
+    await writeFile(log, 'operations_promotion_refused\n');
+    await writeFile(
+      hostScript,
+      `operations_docker() {
+  printf 'SENSITIVE_SENTINEL_ERR\\n' >&2
+  return 1
+}
+operations_inspect_promotion_host() (
+  local result payload="test" diag_flags=()
+  result="$({ printf '%s' "$payload" | operations_docker run --entrypoint node image dist/operations/promotion-host-main.js; } 2>/dev/null)" || {
+    return 1
+  }
+  return 0
+)
+`,
+    );
+    const result = spawnSync(
+      process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash',
+      [
+        '-c',
+        `
+source "$TASK_HOST"
+(operations_inspect_promotion_host) >/dev/null 2>&1 || true
+synthetic_host_report_failure promote "$TASK_LOG" "$FCD_SYNTHETIC_TRACE"
+`,
+      ],
+      {
+        encoding: 'utf8',
+        timeout: 5000,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: {
+          ...process.env,
+          BASH_ENV: init.replaceAll('\\', '/'),
+          FCD_SYNTHETIC_TRACE: trace.replaceAll('\\', '/'),
+          TASK_LOG: log.replaceAll('\\', '/'),
+          TASK_HOST: hostScript.replaceAll('\\', '/'),
+          FCD_SYNTHETIC_EVIDENCE_LIBRARY: resolve('scripts/synthetic-host-evidence.sh').replaceAll(
+            '\\',
+            '/',
+          ),
+        },
+      },
+    );
+    expect({ status: result.status, stdout: result.stdout }).toEqual({ status: 0, stdout: '' });
+    expect(result.stderr).toContain('synthetic_host_failed=promote\n');
+    expect(result.stderr).toContain('operations_promotion_refused\n');
+    expect(result.stderr).toContain('synthetic_promotion_cmd_diagnostic=empty_output:1\n');
+    expect(result.stderr).not.toContain('SENSITIVE_SENTINEL_ERR');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

@@ -17,11 +17,59 @@ synthetic_host_health_ack_diagnostic() {
   printf 'synthetic_health_ack_diagnostic=%s\n' "$category"
 }
 
+synthetic_host_promotion_cmd_diagnostic() {
+  local caller_status=$?
+  local status="${1-}" result="${2-}" category=''
+  local -a saved_rematch=()
+  if [[ -v BASH_REMATCH ]]; then
+    saved_rematch=("${BASH_REMATCH[@]}")
+  fi
+
+  if [[ -z "$status" || "$status" == *[!0-9]* || ( "$status" != 0 && "$status" == 0* ) || "$status" -lt 0 || "$status" -gt 255 ]]; then
+    category="unobserved"
+  elif [[ "$status" -eq 0 ]]; then
+    category="canonical_success"
+  elif [[ "$status" -eq 125 || "$status" -eq 126 || "$status" -eq 127 ]]; then
+    category="unavailable_transport:$status"
+  elif [[ "$result" == runtime_host_diagnostic=* ]]; then
+    local allowlisted
+    allowlisted="$(synthetic_host_runtime_diagnostic "$result")"
+    if [[ -n "$allowlisted" ]]; then
+      category="allowlisted_diagnostic"
+    else
+      category="unallowlisted_output:$status"
+    fi
+  elif [[ -z "$result" ]]; then
+    category="empty_output:$status"
+  else
+    category="unallowlisted_output:$status"
+  fi
+
+  printf 'synthetic_promotion_cmd_diagnostic=%s\n' "$category"
+  if [[ "$category" == "allowlisted_diagnostic" && -n "${allowlisted-}" ]]; then
+    printf '%s\n' "$allowlisted"
+  fi
+
+  if [[ ${#saved_rematch[@]} -gt 0 ]]; then
+    BASH_REMATCH=("${saved_rematch[@]}")
+  else
+    unset BASH_REMATCH
+  fi
+  return "$caller_status"
+}
+
 synthetic_host_runtime_diagnostic() {
   local code="${1:-}"
   case "$code" in
     synthetic_health_ack_diagnostic=empty|synthetic_health_ack_diagnostic=log_read_failed|synthetic_health_ack_diagnostic=carriage_return|synthetic_health_ack_diagnostic=multiple_lines|synthetic_health_ack_diagnostic=dependency_unavailable|synthetic_health_ack_diagnostic=completed|synthetic_health_ack_diagnostic=unexpected)
       printf '%s\n' "$code" ;;
+    synthetic_promotion_cmd_diagnostic=canonical_success|synthetic_promotion_cmd_diagnostic=allowlisted_diagnostic|synthetic_promotion_cmd_diagnostic=unobserved)
+      printf '%s\n' "$code" ;;
+    synthetic_promotion_cmd_diagnostic=empty_output:*|synthetic_promotion_cmd_diagnostic=unallowlisted_output:*|synthetic_promotion_cmd_diagnostic=unavailable_transport:*|synthetic_promotion_cmd_diagnostic=nonzero_execution:*)
+      local status_val="${code#*:}"
+      if [[ -n "$status_val" && "$status_val" != *[!0-9]* && ( "$status_val" == 0 || "$status_val" != 0* ) && "$status_val" -ge 0 && "$status_val" -le 255 ]]; then
+        printf '%s\n' "$code"
+      fi ;;
     runtime_host_diagnostic=arguments|runtime_host_diagnostic=input|runtime_host_diagnostic=validation|runtime_host_diagnostic=revision|runtime_host_diagnostic=ingress|runtime_host_diagnostic=compose|runtime_host_diagnostic=paths|runtime_host_diagnostic=samples|runtime_host_diagnostic=volume_identity|runtime_host_diagnostic=topology|runtime_host_diagnostic=images|runtime_host_diagnostic=volume|runtime_host_diagnostic=network_set|runtime_host_diagnostic=network_labels|runtime_host_diagnostic=network_members|runtime_host_diagnostic=container_policy|runtime_host_diagnostic=container_networks|runtime_host_diagnostic=tmpfs|runtime_host_diagnostic=mounts|runtime_host_diagnostic=binds|runtime_host_diagnostic=protected_binds|runtime_host_diagnostic=socket_users|runtime_host_diagnostic=stability)
       printf '%s\n' "$code" ;;
     runtime_host_diagnostic=samples.*|runtime_host_diagnostic=volume_identity.*)
@@ -72,7 +120,7 @@ synthetic_host_report_failure() {
     diagnostic=''
     # Trace lines need no validator subprocess, and accepted duplicates need no
     # repeated work. Keep the closed validator as the publication authority.
-    if [[ "$line" =~ ^(runtime_host_diagnostic|synthetic_health_ack_diagnostic)=[A-Za-z_.]{1,128}$ ]] &&
+    if [[ "$line" =~ ^(runtime_host_diagnostic|synthetic_health_ack_diagnostic|synthetic_promotion_cmd_diagnostic)=[A-Za-z0-9_.:]{1,128}$ ]] &&
       (( ${#diagnostics[@]} < 16 )) && [[ -z "${seen_diagnostics[$line]:-}" ]]; then
       diagnostic="$(synthetic_host_runtime_diagnostic "$line")"
     fi
