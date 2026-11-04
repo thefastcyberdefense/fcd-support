@@ -3,7 +3,7 @@ import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import pg from 'pg';
-import { afterAll, beforeAll, describe, expect, test } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vitest';
 import { AdminSecretBytes, AdminSecretText } from '../../src/admin/admin-types.js';
 import { AesGcmAdminSecretProtector, generateTotpCode } from '../../src/admin/mfa.js';
 import { buildAdminApp } from '../../src/admin/admin-app.js';
@@ -31,7 +31,8 @@ const pools = new Map<string, pg.Pool>();
 const cleanups: (() => Promise<void>)[] = [];
 
 const at = new Date('2026-11-03T06:00:00.000Z');
-const now = () => new Date(at);
+let currentTime = new Date(at);
+const now = () => new Date(currentTime);
 
 const seedAdmin = new AdminSecretBytes(Buffer.alloc(20, 0x61));
 const seedReviewer = new AdminSecretBytes(Buffer.alloc(20, 0x62));
@@ -392,11 +393,23 @@ afterAll(async () => {
 });
 
 describe('admin dashboard permissions under restricted runtime role', () => {
-  test('empty states return empty arrays and HTTP 200 without leaking errors', async () => {
-    expect(await dashboard.listQuestions()).toEqual([]);
-    expect(await dashboard.listInsights()).toEqual([]);
-    expect(await dashboard.listEscalationCounts()).toEqual([]);
+  beforeEach(() => {
+    currentTime = new Date(at);
+  });
 
+  test('admin role SQL: listQuestions returns empty array on empty database', async () => {
+    expect(await dashboard.listQuestions()).toEqual([]);
+  });
+
+  test('admin role SQL: listInsights returns empty array on empty database', async () => {
+    expect(await dashboard.listInsights()).toEqual([]);
+  });
+
+  test('admin role SQL: listEscalationCounts returns empty array on empty database', async () => {
+    expect(await dashboard.listEscalationCounts()).toEqual([]);
+  });
+
+  test('admin role HTTP: GET /questions returns HTTP 200 on empty database', async () => {
     const qResp = await app.inject({
       method: 'GET',
       url: '/questions',
@@ -405,7 +418,9 @@ describe('admin dashboard permissions under restricted runtime role', () => {
     expect(qResp.statusCode).toBe(200);
     expect(qResp.body).toContain('Owner questions');
     expect(qResp.body).not.toContain('Internal Server Error');
+  });
 
+  test('admin role HTTP: GET /insights returns HTTP 200 on empty database', async () => {
     const iResp = await app.inject({
       method: 'GET',
       url: '/insights',
@@ -414,7 +429,9 @@ describe('admin dashboard permissions under restricted runtime role', () => {
     expect(iResp.statusCode).toBe(200);
     expect(iResp.body).toContain('Customer insights');
     expect(iResp.body).not.toContain('Internal Server Error');
+  });
 
+  test('admin role HTTP: GET /escalations returns HTTP 200 on empty database', async () => {
     const eResp = await app.inject({
       method: 'GET',
       url: '/escalations',
@@ -561,6 +578,378 @@ describe('admin dashboard permissions under restricted runtime role', () => {
     expect(eResp.body).not.toContain('PSID_TEST_grants_');
   });
 
+  test('distinct-person count vs occurrence count: duplicate observations from fewer people suppress aggregates despite meeting occurrence threshold', async () => {
+    const observationAt = new Date(at.getTime() - 2500);
+    const learning = new PostgresLearningService(database.pool, {
+      now,
+      policy: learningPolicy,
+    });
+
+    // Create events for 2 distinct persons (2 events per person, each with distinct webhookEventId)
+    const source1a = await insertSyntheticAppliedCustomerEvent(database.pool, {
+      fixtureKey: 'distinct_person_1a',
+      identity: {
+        channel: 'whatsapp',
+        channelAccountId: 'PHONE_TEST_distinct',
+        externalContactId: '+8801700000001',
+      },
+      occurredAt: observationAt,
+    });
+    const source1b = await insertSyntheticAppliedCustomerEvent(database.pool, {
+      fixtureKey: 'distinct_person_1b',
+      identity: {
+        channel: 'whatsapp',
+        channelAccountId: 'PHONE_TEST_distinct',
+        externalContactId: '+8801700000001',
+      },
+      occurredAt: observationAt,
+    });
+    const source2a = await insertSyntheticAppliedCustomerEvent(database.pool, {
+      fixtureKey: 'distinct_person_2a',
+      identity: {
+        channel: 'whatsapp',
+        channelAccountId: 'PHONE_TEST_distinct',
+        externalContactId: '+8801700000002',
+      },
+      occurredAt: observationAt,
+    });
+    const source2b = await insertSyntheticAppliedCustomerEvent(database.pool, {
+      fixtureKey: 'distinct_person_2b',
+      identity: {
+        channel: 'whatsapp',
+        channelAccountId: 'PHONE_TEST_distinct',
+        externalContactId: '+8801700000002',
+      },
+      occurredAt: observationAt,
+    });
+
+    // Insert 4 total observations across these 2 persons (2 from person 1, 2 from person 2)
+    // Occurrence count = 4 (>= 3 minimum_group_count), but distinct person count = 2 (< 3 minimum_group_count)
+    await learning.recordGapObservation({
+      observationRef: 'OBS_TEST_dist_1a',
+      requestKey: 'REQ_TEST_dist_1a',
+      webhookEventId: source1a.eventId,
+      observedAt: observationAt,
+      retentionDeadline: new Date(at.getTime() + 86_400_000),
+      language: 'en',
+      gapKind: 'bilingual_coverage_gap',
+    });
+    await learning.recordGapObservation({
+      observationRef: 'OBS_TEST_dist_1b',
+      requestKey: 'REQ_TEST_dist_1b',
+      webhookEventId: source1b.eventId,
+      observedAt: observationAt,
+      retentionDeadline: new Date(at.getTime() + 86_400_000),
+      language: 'en',
+      gapKind: 'bilingual_coverage_gap',
+    });
+    await learning.recordGapObservation({
+      observationRef: 'OBS_TEST_dist_2a',
+      requestKey: 'REQ_TEST_dist_2a',
+      webhookEventId: source2a.eventId,
+      observedAt: observationAt,
+      retentionDeadline: new Date(at.getTime() + 86_400_000),
+      language: 'en',
+      gapKind: 'bilingual_coverage_gap',
+    });
+    await learning.recordGapObservation({
+      observationRef: 'OBS_TEST_dist_2b',
+      requestKey: 'REQ_TEST_dist_2b',
+      webhookEventId: source2b.eventId,
+      observedAt: observationAt,
+      retentionDeadline: new Date(at.getTime() + 86_400_000),
+      language: 'en',
+      gapKind: 'bilingual_coverage_gap',
+    });
+
+    const createdAt = new Date(at.getTime() - 800);
+    const run = await database.pool.query<{ id: string }>(
+      `insert into customer_insight_runs
+        (run_ref, window_started_at, window_ended_at, minimum_group_count, state,
+         source_observation_count, request_key, created_at)
+       values ('RUN_TEST_distinct_person', $1, $2, 3, 'completed', 4,
+               'REQUEST_TEST_dist_run', $3)
+       returning id`,
+      [new Date(at.getTime() - 5000), at, createdAt],
+    );
+
+    const insight = await database.pool.query<{ id: string }>(
+      `insert into customer_insight_entries
+        (insight_ref, run_id, topic_code, category_code, language, occurrence_count,
+         retention_deadline, created_at)
+       values ('INSIGHT_TEST_distinct_entry', $1, 'policy_gap', 'bilingual_coverage_gap', 'en', 4, $2, $3)
+       returning id`,
+      [run.rows[0]?.id, new Date(at.getTime() + 86_400_000), createdAt],
+    );
+
+    const question = await database.pool.query<{ id: string }>(
+      `insert into owner_questions
+        (question_ref, question_en, question_bn, priority, state,
+         next_eligible_digest_at, request_key, created_at, updated_at)
+       values ('QUESTION_TEST_dist_entry', 'Should unsupported requests be permitted?',
+               'অননুমোদিত অনুরোধ কি অনুমোদন করা উচিত?', 'high', 'open', $1,
+               'REQUEST_TEST_dist_q', $1, $1)
+       returning id`,
+      [createdAt],
+    );
+
+    await database.pool.query(
+      `insert into owner_question_insights (question_id, insight_id) values ($1, $2)`,
+      [question.rows[0]?.id, insight.rows[0]?.id],
+    );
+
+    // At 2 distinct persons, aggregates MUST be suppressed despite 4 occurrences
+    const preInsights = await dashboard.listInsights();
+    expect(preInsights.filter((i) => i.topicCode === 'policy_gap')).toEqual([]);
+
+    const preQuestions = await dashboard.listQuestions();
+    expect(preQuestions.filter((q) => q.questionRef === 'QUESTION_TEST_dist_entry')).toEqual([]);
+
+    const preHttpI = await app.inject({
+      method: 'GET',
+      url: '/insights',
+      headers: { cookie: adminCookies },
+    });
+    expect(preHttpI.statusCode).toBe(200);
+    expect(preHttpI.body).not.toContain('policy_gap');
+
+    const preHttpQ = await app.inject({
+      method: 'GET',
+      url: '/questions',
+      headers: { cookie: adminCookies },
+    });
+    expect(preHttpQ.statusCode).toBe(200);
+    expect(preHttpQ.body).not.toContain('Should unsupported requests be permitted?');
+
+    // Positive control: Add a 3rd distinct person
+    const source3 = await insertSyntheticAppliedCustomerEvent(database.pool, {
+      fixtureKey: 'distinct_person_3',
+      identity: {
+        channel: 'whatsapp',
+        channelAccountId: 'PHONE_TEST_distinct',
+        externalContactId: '+8801700000003',
+      },
+      occurredAt: observationAt,
+    });
+    await learning.recordGapObservation({
+      observationRef: 'OBS_TEST_dist_3',
+      requestKey: 'REQ_TEST_dist_3',
+      webhookEventId: source3.eventId,
+      observedAt: observationAt,
+      retentionDeadline: new Date(at.getTime() + 86_400_000),
+      language: 'en',
+      gapKind: 'bilingual_coverage_gap',
+    });
+
+    // Now person_count = 3 >= minimum_group_count (3). Must be eligible!
+    const postInsights = await dashboard.listInsights();
+    expect(postInsights).toContainEqual(
+      expect.objectContaining({
+        topicCode: 'policy_gap',
+        categoryCode: 'bilingual_coverage_gap',
+        occurrenceCount: 5,
+      }),
+    );
+
+    const postQuestions = await dashboard.listQuestions();
+    expect(postQuestions).toContainEqual(
+      expect.objectContaining({
+        questionRef: 'QUESTION_TEST_dist_entry',
+        priority: 'high',
+        state: 'open',
+      }),
+    );
+
+    const postHttpI = await app.inject({
+      method: 'GET',
+      url: '/insights',
+      headers: { cookie: adminCookies },
+    });
+    expect(postHttpI.statusCode).toBe(200);
+    expect(postHttpI.body).toContain('policy_gap');
+
+    const postHttpQ = await app.inject({
+      method: 'GET',
+      url: '/questions',
+      headers: { cookie: adminCookies },
+    });
+    expect(postHttpQ.statusCode).toBe(200);
+    expect(postHttpQ.body).toContain('Should unsupported requests be permitted?');
+  });
+
+  test('retention purge boundary: content_purged_through_at suppresses aggregate insights and questions', async () => {
+    // When person gamma's conversation has content_purged_through_at >= observation.created_at,
+    // that observation is excluded from eligibility. Eligible person_count drops from 3 to 2 (< 3).
+    const gammaConv = await database.pool.query<{ id: string }>(
+      `select c.id from conversations as c
+       join channel_identities as ci on ci.id = c.channel_identity_id
+       where ci.external_contact_id = 'PSID_TEST_grants_gamma'`,
+    );
+    expect(gammaConv.rows).toHaveLength(1);
+    const gammaConvId = gammaConv.rows[0]?.id;
+
+    // Set content_purged_through_at to anchor_at (which is >= observation.created_at)
+    await database.pool.query(
+      `update conversation_retention_states
+       set content_purged_through_at = anchor_at
+       where conversation_id = $1`,
+      [gammaConvId],
+    );
+
+    // Eligible persons is now 2 < 3. Aggregates must be suppressed!
+    const purgedInsights = await dashboard.listInsights();
+    expect(purgedInsights.filter((i) => i.topicCode === 'knowledge_coverage')).toEqual([]);
+
+    const purgedQuestions = await dashboard.listQuestions();
+    expect(purgedQuestions.filter((q) => q.questionRef === 'QUESTION_TEST_grants_entry')).toEqual(
+      [],
+    );
+
+    const purgedHttpI = await app.inject({
+      method: 'GET',
+      url: '/insights',
+      headers: { cookie: adminCookies },
+    });
+    expect(purgedHttpI.statusCode).toBe(200);
+    expect(purgedHttpI.body).not.toContain('knowledge_coverage');
+
+    const purgedHttpQ = await app.inject({
+      method: 'GET',
+      url: '/questions',
+      headers: { cookie: adminCookies },
+    });
+    expect(purgedHttpQ.statusCode).toBe(200);
+    expect(purgedHttpQ.body).not.toContain('Which reviewed business answer applies?');
+
+    // Reset content_purged_through_at to null: person gamma becomes eligible again
+    await database.pool.query(
+      `update conversation_retention_states
+       set content_purged_through_at = null
+       where conversation_id = $1`,
+      [gammaConvId],
+    );
+
+    expect(
+      (await dashboard.listInsights()).filter((i) => i.topicCode === 'knowledge_coverage'),
+    ).toHaveLength(1);
+    expect(
+      (await dashboard.listQuestions()).filter(
+        (q) => q.questionRef === 'QUESTION_TEST_grants_entry',
+      ),
+    ).toHaveLength(1);
+  });
+
+  test('expired observation and configurable evaluation-time: advancing clock suppresses expired insights and questions', async () => {
+    const observationAt = new Date(at.getTime() - 2000);
+    const shortTtlObservationDeadline = new Date(at.getTime() + 300_000); // expires in 5 minutes
+    const learning = new PostgresLearningService(database.pool, {
+      now,
+      policy: learningPolicy,
+    });
+
+    for (const key of ['exp_a', 'exp_b', 'exp_c']) {
+      const source = await insertSyntheticAppliedCustomerEvent(database.pool, {
+        fixtureKey: `dashboard_grants_${key}`,
+        identity: {
+          channel: 'messenger',
+          channelAccountId: 'PAGE_TEST_dashboard_grants',
+          externalContactId: `PSID_TEST_grants_${key}`,
+        },
+        occurredAt: observationAt,
+      });
+      await learning.recordGapObservation({
+        observationRef: `OBSERVATION_TEST_exp_${key}`,
+        requestKey: `REQUEST_TEST_exp_gap_${key}`,
+        webhookEventId: source.eventId,
+        observedAt: observationAt,
+        retentionDeadline: shortTtlObservationDeadline,
+        language: 'en',
+        gapKind: 'unsupported_model_claim',
+      });
+    }
+
+    const createdAt = new Date(at.getTime() - 1000);
+    const run = await database.pool.query<{ id: string }>(
+      `insert into customer_insight_runs
+        (run_ref, window_started_at, window_ended_at, minimum_group_count, state,
+         source_observation_count, request_key, created_at)
+       values ('RUN_TEST_exp_eval', $1, $2, 3, 'completed', 3,
+               'REQUEST_TEST_exp_run', $3)
+       returning id`,
+      [new Date(at.getTime() - 5000), at, createdAt],
+    );
+
+    const insight = await database.pool.query<{ id: string }>(
+      `insert into customer_insight_entries
+        (insight_ref, run_id, topic_code, category_code, language, occurrence_count,
+         retention_deadline, created_at)
+       values ('INSIGHT_TEST_exp_entry', $1, 'service_coverage', 'unsupported_model_claim', 'en', 3, $2, $3)
+       returning id`,
+      [run.rows[0]?.id, new Date(at.getTime() + 86_400_000), createdAt],
+    );
+
+    const question = await database.pool.query<{ id: string }>(
+      `insert into owner_questions
+        (question_ref, question_en, question_bn, priority, state,
+         next_eligible_digest_at, request_key, created_at, updated_at)
+       values ('QUESTION_TEST_exp_entry', 'Which service hours apply?',
+               'কোন সেবা সময় প্রযোজ্য?', 'normal', 'open', $1,
+               'REQUEST_TEST_exp_q', $1, $1)
+       returning id`,
+      [createdAt],
+    );
+
+    await database.pool.query(
+      `insert into owner_question_insights (question_id, insight_id) values ($1, $2)`,
+      [question.rows[0]?.id, insight.rows[0]?.id],
+    );
+
+    // At current time (at), observations are NOT expired (deadline is at + 5 min).
+    // Insight and question must be visible!
+    expect(
+      (await dashboard.listInsights()).filter((i) => i.topicCode === 'service_coverage'),
+    ).toHaveLength(1);
+    expect(
+      (await dashboard.listQuestions()).filter((q) => q.questionRef === 'QUESTION_TEST_exp_entry'),
+    ).toHaveLength(1);
+
+    const activeHttpI = await app.inject({
+      method: 'GET',
+      url: '/insights',
+      headers: { cookie: adminCookies },
+    });
+    expect(activeHttpI.statusCode).toBe(200);
+    expect(activeHttpI.body).toContain('service_coverage');
+
+    // Advance evaluation time by 10 minutes (600,000ms), which is past observation deadline (300,000ms)
+    // but within admin session TTL (3,600,000ms).
+    currentTime = new Date(at.getTime() + 600_000);
+
+    // Observations are now expired relative to evaluation time $1. Aggregates must be suppressed!
+    expect(
+      (await dashboard.listInsights()).filter((i) => i.topicCode === 'service_coverage'),
+    ).toEqual([]);
+    expect(
+      (await dashboard.listQuestions()).filter((q) => q.questionRef === 'QUESTION_TEST_exp_entry'),
+    ).toEqual([]);
+
+    const expiredHttpI = await app.inject({
+      method: 'GET',
+      url: '/insights',
+      headers: { cookie: adminCookies },
+    });
+    expect(expiredHttpI.statusCode).toBe(200);
+    expect(expiredHttpI.body).not.toContain('service_coverage');
+
+    const expiredHttpQ = await app.inject({
+      method: 'GET',
+      url: '/questions',
+      headers: { cookie: adminCookies },
+    });
+    expect(expiredHttpQ.statusCode).toBe(200);
+    expect(expiredHttpQ.body).not.toContain('Which service hours apply?');
+  });
+
   test('privacy hold and deletion suppress ineligible data rather than returning stale aggregates', async () => {
     // 1. Privacy hold: insert a privacy request for person alpha
     const hold = await database.pool.query<{ contact_id: string }>(
@@ -576,8 +965,14 @@ describe('admin dashboard permissions under restricted runtime role', () => {
     expect(hold.rows).toHaveLength(1);
 
     // Eligible persons is now 2 < minimumGroupCount (3). Insights and open questions must be suppressed.
-    expect(await dashboard.listInsights()).toEqual([]);
-    expect((await dashboard.listQuestions()).filter((q) => q.state === 'open')).toEqual([]);
+    expect(
+      (await dashboard.listInsights()).filter((i) => i.topicCode === 'knowledge_coverage'),
+    ).toEqual([]);
+    expect(
+      (await dashboard.listQuestions()).filter(
+        (q) => q.questionRef === 'QUESTION_TEST_grants_entry',
+      ),
+    ).toEqual([]);
 
     const iHoldResp = await app.inject({
       method: 'GET',
@@ -593,8 +988,14 @@ describe('admin dashboard permissions under restricted runtime role', () => {
     );
 
     // Re-verified: eligible again
-    expect(await dashboard.listInsights()).toHaveLength(1);
-    expect((await dashboard.listQuestions()).filter((q) => q.state === 'open')).toHaveLength(1);
+    expect(
+      (await dashboard.listInsights()).filter((i) => i.topicCode === 'knowledge_coverage'),
+    ).toHaveLength(1);
+    expect(
+      (await dashboard.listQuestions()).filter(
+        (q) => q.questionRef === 'QUESTION_TEST_grants_entry',
+      ),
+    ).toHaveLength(1);
 
     // 2. Soft deletion: mark person beta deleted
     await database.pool.query(
@@ -604,8 +1005,14 @@ describe('admin dashboard permissions under restricted runtime role', () => {
     );
 
     // Eligible persons is now 2 < 3. Suppressed!
-    expect(await dashboard.listInsights()).toEqual([]);
-    expect((await dashboard.listQuestions()).filter((q) => q.state === 'open')).toEqual([]);
+    expect(
+      (await dashboard.listInsights()).filter((i) => i.topicCode === 'knowledge_coverage'),
+    ).toEqual([]);
+    expect(
+      (await dashboard.listQuestions()).filter(
+        (q) => q.questionRef === 'QUESTION_TEST_grants_entry',
+      ),
+    ).toEqual([]);
 
     // Restore person beta
     await database.pool.query(
@@ -613,77 +1020,189 @@ describe('admin dashboard permissions under restricted runtime role', () => {
        set external_contact_id = 'PSID_TEST_grants_beta'
        where external_contact_id = 'deleted:PSID_TEST_grants_beta'`,
     );
-    expect(await dashboard.listInsights()).toHaveLength(1);
+    expect(
+      (await dashboard.listInsights()).filter((i) => i.topicCode === 'knowledge_coverage'),
+    ).toHaveLength(1);
   });
 
   test('negative privilege controls: admin role cannot read forbidden columns, mutate source tables, or run DDL', async () => {
     const adminPool = poolFor('admin');
 
-    // 1. Column read denials
-    await expect(
-      adminPool.query('select message_text from webhook_events limit 1'),
-    ).rejects.toMatchObject({ code: '42501' });
-
+    // 1. Individual column read denials on webhook_receipts (completely ungranted to admin)
+    const receiptColumns = ['id', 'payload_sha256', 'received_at', 'event_count'];
+    for (const col of receiptColumns) {
+      await expect(
+        adminPool.query(`select ${col} from webhook_receipts limit 1`),
+        `Admin role reading webhook_receipts.${col}`,
+      ).rejects.toMatchObject({ code: '42501' });
+    }
     await expect(adminPool.query('select * from webhook_receipts limit 1')).rejects.toMatchObject({
       code: '42501',
     });
 
+    // 2. Individual ungranted column read denials on webhook_events (admin has only id, contact_id)
+    const forbiddenEventColumns = [
+      'receipt_id',
+      'idempotency_key',
+      'channel',
+      'event_kind',
+      'channel_account_id',
+      'external_message_id',
+      'occurred_at',
+      'message_text',
+      'message_status',
+      'reason_code',
+    ];
+    for (const col of forbiddenEventColumns) {
+      await expect(
+        adminPool.query(`select ${col} from webhook_events limit 1`),
+        `Admin role reading webhook_events.${col}`,
+      ).rejects.toMatchObject({ code: '42501' });
+    }
+    await expect(adminPool.query('select * from webhook_events limit 1')).rejects.toMatchObject({
+      code: '42501',
+    });
+
+    // 3. Individual ungranted column read denials on support_escalation_outcomes (admin has only reason_code, state)
+    const forbiddenEscalationColumns = [
+      'id',
+      'escalation_ref',
+      'conversation_id',
+      'source_webhook_event_id',
+      'request_key',
+      'created_at',
+      'updated_at',
+      'resolved_at',
+    ];
+    for (const col of forbiddenEscalationColumns) {
+      await expect(
+        adminPool.query(`select ${col} from support_escalation_outcomes limit 1`),
+        `Admin role reading support_escalation_outcomes.${col}`,
+      ).rejects.toMatchObject({ code: '42501' });
+    }
     await expect(
-      adminPool.query('select id, escalation_ref from support_escalation_outcomes limit 1'),
+      adminPool.query('select * from support_escalation_outcomes limit 1'),
     ).rejects.toMatchObject({ code: '42501' });
 
-    await expect(
-      adminPool.query('select request_ref from privacy_requests limit 1'),
-    ).rejects.toMatchObject({ code: '42501' });
+    // 4. Individual ungranted column read denials on privacy_requests (admin has only contact_id, state)
+    const forbiddenPrivacyColumns = [
+      'id',
+      'request_ref',
+      'request_type',
+      'received_at',
+      'open_request_key',
+      'updated_at',
+    ];
+    for (const col of forbiddenPrivacyColumns) {
+      await expect(
+        adminPool.query(`select ${col} from privacy_requests limit 1`),
+        `Admin role reading privacy_requests.${col}`,
+      ).rejects.toMatchObject({ code: '42501' });
+    }
+    await expect(adminPool.query('select * from privacy_requests limit 1')).rejects.toMatchObject({
+      code: '42501',
+    });
 
-    // 2. Mutation denials
+    // 5. Individual ungranted column read denials on channel_identities (admin has only id, contact_id, external_contact_id)
+    const forbiddenIdentityColumns = [
+      'channel',
+      'channel_account_id',
+      'first_seen_at',
+      'last_seen_at',
+    ];
+    for (const col of forbiddenIdentityColumns) {
+      await expect(
+        adminPool.query(`select ${col} from channel_identities limit 1`),
+        `Admin role reading channel_identities.${col}`,
+      ).rejects.toMatchObject({ code: '42501' });
+    }
+    await expect(adminPool.query('select * from channel_identities limit 1')).rejects.toMatchObject(
+      {
+        code: '42501',
+      },
+    );
+
+    // 6. Individual ungranted column read denials on conversations (admin has only id, channel_identity_id)
+    const forbiddenConversationColumns = ['created_at', 'last_activity_at', 'updated_at'];
+    for (const col of forbiddenConversationColumns) {
+      await expect(
+        adminPool.query(`select ${col} from conversations limit 1`),
+        `Admin role reading conversations.${col}`,
+      ).rejects.toMatchObject({ code: '42501' });
+    }
+    await expect(adminPool.query('select * from conversations limit 1')).rejects.toMatchObject({
+      code: '42501',
+    });
+
+    // 7. Mutation denials: conversations
     await expect(
       adminPool.query(
         'insert into conversations (channel_identity_id, created_at, last_activity_at, updated_at) values (1, now(), now(), now())',
       ),
     ).rejects.toMatchObject({ code: '42501' });
-
     await expect(
       adminPool.query('update conversations set updated_at = now()'),
     ).rejects.toMatchObject({ code: '42501' });
-
     await expect(adminPool.query('delete from conversations')).rejects.toMatchObject({
       code: '42501',
     });
 
+    // 8. Mutation denials: channel_identities (INSERT, UPDATE, DELETE)
     await expect(
       adminPool.query(
         "insert into channel_identities (channel, channel_account_id, external_contact_id, contact_id, first_seen_at, last_seen_at) values ('whatsapp', 'a', 'b', 1, now(), now())",
       ),
     ).rejects.toMatchObject({ code: '42501' });
+    await expect(
+      adminPool.query('update channel_identities set last_seen_at = now()'),
+    ).rejects.toMatchObject({ code: '42501' });
+    await expect(adminPool.query('delete from channel_identities')).rejects.toMatchObject({
+      code: '42501',
+    });
 
+    // 9. Mutation denials: webhook_events (INSERT, UPDATE, DELETE)
     await expect(
       adminPool.query(
         "insert into webhook_events (receipt_id, idempotency_key, channel, event_kind, occurred_at, created_at) values (1, 'k', 'whatsapp', 'customer_message', now(), now())",
       ),
     ).rejects.toMatchObject({ code: '42501' });
+    await expect(
+      adminPool.query("update webhook_events set message_status = 'delivered'"),
+    ).rejects.toMatchObject({ code: '42501' });
+    await expect(adminPool.query('delete from webhook_events')).rejects.toMatchObject({
+      code: '42501',
+    });
 
+    // 10. Mutation denials: privacy_requests (INSERT, UPDATE, DELETE)
     await expect(
       adminPool.query(
         "insert into privacy_requests (request_ref, request_type, state, contact_id, received_at, open_request_key, updated_at) values ('r', 'access', 'received', 1, now(), 'k', now())",
       ),
     ).rejects.toMatchObject({ code: '42501' });
+    await expect(
+      adminPool.query("update privacy_requests set state = 'closed'"),
+    ).rejects.toMatchObject({ code: '42501' });
+    await expect(adminPool.query('delete from privacy_requests')).rejects.toMatchObject({
+      code: '42501',
+    });
 
+    // 11. Mutation denials: support_escalation_outcomes (INSERT, UPDATE, DELETE)
     await expect(
       adminPool.query(
         "insert into support_escalation_outcomes (escalation_ref, reason_code, state, request_key, created_at, updated_at) values ('e', 'timeout', 'open', 'k', now(), now())",
       ),
     ).rejects.toMatchObject({ code: '42501' });
-
+    await expect(
+      adminPool.query("update support_escalation_outcomes set state = 'resolved'"),
+    ).rejects.toMatchObject({ code: '42501' });
     await expect(adminPool.query('delete from support_escalation_outcomes')).rejects.toMatchObject({
       code: '42501',
     });
 
-    // 3. DDL denials
+    // 12. DDL denials
     await expect(adminPool.query('create table test_admin_ddl (id int)')).rejects.toMatchObject({
       code: '42501',
     });
-
     await expect(adminPool.query('drop table conversations')).rejects.toMatchObject({
       code: '42501',
     });
