@@ -335,3 +335,22 @@ test.runIf(native)(
     }
   },
 );
+
+test.runIf(native).each(['empty-output', 'multiline-output', 'malformed-output', 'logs-failed'])(
+  'real health lifecycle retains %s uncertainty and refuses reexecution without Docker access',
+  async (fault) => {
+    const f = await fixture(fault);
+    try {
+      expect(f.run('acknowledgement="$(operations_execute_job health health)"').status).toBe(1);
+      const saved = await readFile(join(f.root, 'active-job'), 'utf8');
+      expect(saved).toContain('JOB_SERVICE=health\n');
+      expect(saved).toContain('JOB_PHASE=uncertain\n');
+      const before = await f.trace();
+      expect(f.run('acknowledgement="$(operations_execute_job health health)"').status).toBe(1);
+      expect(await f.trace()).toEqual(before);
+      expect(await readFile(join(f.root, 'active-job'), 'utf8')).toBe(saved);
+    } finally {
+      await f.dispose();
+    }
+  },
+);

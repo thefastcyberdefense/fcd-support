@@ -1,11 +1,9 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { spawnSync } from 'node:child_process';
 import { describe, expect, test } from 'vitest';
-import { readHealthInput, runHealthCommand } from '../src/operations/health-main.js';
-import { operationsEnvironment } from './helpers/operations-fixtures.js';
+import { readHealthInput } from '../src/operations/health-main.js';
 
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash';
 const evidenceLibrary = resolve('scripts/synthetic-host-evidence.sh').replaceAll('\\', '/');
@@ -88,254 +86,84 @@ describe('closed diagnostic classification for health transport outcomes', () =>
   });
 });
 
-describe('trace entrypoint diagnostics under lifecycle operations', () => {
-  const runLifecycleTrace = async (outcome: { logsExit: number; stdoutFormat: string }) => {
-    const dir = await mkdtemp(join(tmpdir(), 'fcd-trace-test-'));
-    const lifecycleFile = join(dir, 'operations-job-lifecycle.sh');
-    const runnerFile = join(dir, 'run.sh');
-
-    const lifecycleContent = `#!/usr/bin/env bash
-operations_job_acknowledgement() {
-  return 0
-}
-
-operations_job_uncertain() {
-  return 1
-}
-
-operations_job_lifecycle() {
-  if [[ "$service" == promote ]]; then
-    acknowledgement="$(operations_docker container logs --tail 4 fake)" || operations_job_uncertain
-  else
-    acknowledgement="$(operations_docker container logs --tail 2 fake)" || operations_job_uncertain
-  fi
-  operations_job_acknowledgement "$acknowledgement" || operations_job_uncertain
-}
-`;
-    await writeFile(lifecycleFile, lifecycleContent);
-
-    const runnerContent = `#!/usr/bin/env bash
-set -e
-exec 3>&1
-source "${evidenceLibrary}"
-set -o functrace
-service=health
-OPS_JOB_SERVICE=health
-
-trap '
-trace_status=$?
-trace_source="\${BASH_SOURCE[0]-stdin}"
-if [[ "$BASH_SUBSHELL" -eq 0 && "\${OPS_JOB_SERVICE-}" == health && "\${trace_source##*/}" == operations-job-lifecycle.sh && "\${FUNCNAME[0]-}" == operations_job_lifecycle ]]; then
-  if [[ "$BASH_COMMAND" == *"container logs"* ]]; then
-    health_reading_logs=true
-  elif [[ "\${health_reading_logs-}" == true ]]; then
-    unset health_reading_logs
-    if [[ "$trace_status" -ne 0 ]]; then
-      synthetic_host_health_ack_diagnostic log_read_failed >&3
-    fi
-  fi
-  if [[ "$BASH_COMMAND" == operations_job_acknowledgement* ]]; then
-    synthetic_host_health_ack_diagnostic "\${acknowledgement-}" >&3
-  fi
-fi' DEBUG
-
+describe('actual scheduled lifecycle and extracted CI trace', () => {
+  async function runTrace(logs: string, logsExit: number) {
+    const source = await readFile('scripts/test-synthetic-runtime-deployment.sh', 'utf8');
+    const entry = /<<'TRACE'\r?\n([\s\S]*?)\r?\nTRACE/u.exec(source)?.[1];
+    if (entry === undefined) throw new Error('synthetic_trace_entry_missing');
+    const trace = entry.replaceAll('\r', '').split('\n').slice(1).join('\n');
+    const script = `set -uo pipefail
+source "$TASK_LIFECYCLE"
+operations_config_field() { return 0; }
+operations_job_state_root() { OPS_JOB_STATE_FILE=/synthetic-review-absent; }
+operations_job_state_begin() { return 0; }
+operations_job_state_sync() { return 0; }
+operations_job_state_transition() { return 0; }
+operations_job_override() { return 0; }
+operations_job_create_stopped() { return 0; }
+operations_job_discover() { printf '%064d\\n' 1; }
+operations_job_assert_container() { return 0; }
+operations_job_start() { return 0; }
+# Keep the real acknowledgement validator, and exit before any file cleanup.
+validator="$(declare -f operations_job_acknowledgement)"
+eval "\${validator/operations_job_acknowledgement/review_validate_ack}"
+operations_job_acknowledgement() { review_validate_ack "$@" || return; exit 0; }
+operations_job_uncertain() { exit 1; }
+timeout() { return 0; }
+od() { printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\n'; }
 operations_docker() {
-  if [[ "${String(outcome.logsExit)}" -ne 0 ]]; then
-    return ${String(outcome.logsExit)}
-  fi
-  printf ${outcome.stdoutFormat}
+ case "$1/$2" in
+  image/inspect) printf 'sha256:%064d/%040d/linux/amd64\\n' 1 1 ;;
+  container/wait) printf '0\\n' ;;
+  container/inspect) printf 'exited/0\\n' ;;
+  container/logs) printf '%s' "$TASK_LOGS"; return "$TASK_LOGS_EXIT" ;;
+  *) return 19 ;;
+ esac
 }
-
-source "${lifecycleFile.replaceAll('\\', '/')}"
-operations_job_lifecycle
+declare -A OPS_CONFIG=([FCD_SUPPORT_REVISION]=$(printf '%040d' 1) [FCD_RUNTIME_PROJECT]=synthetic [FCD_STATE_ROOT]=/synthetic-review-absent [FCD_OPERATIONS_IMAGE]=synthetic [FCD_COMMAND_TIMEOUT_SECONDS]=5 [FCD_POSTGRES_DB]=synthetic [FCD_DATABASE_SCHEMA]=public [FCD_DATABASE_ROLE_PREFIX]=synthetic [FCD_SCHEMA_REVISION]=000016)
+OPS_DATABASE_SYSTEM_IDENTIFIER=7300000000000000000
+exec 3>&1
+${trace}
+# Same command-substitution boundary used by the public scheduler.
+acknowledgement="$(operations_execute_job health health)"
 `;
-    await writeFile(runnerFile, runnerContent);
-
-    const res = spawnSync(bash, [runnerFile.replaceAll('\\', '/')], {
+    return spawnSync(bash, ['--noprofile', '--norc', '-c', script], {
       encoding: 'utf8',
       timeout: 5000,
-    });
-    await rm(dir, { recursive: true, force: true });
-    return res;
-  };
-
-  test('canonical successful logs emit completed and never emit log_read_failed', async () => {
-    const res = await runLifecycleTrace({
-      logsExit: 0,
-      stdoutFormat: `'%s' '{"status":"completed","processed":0,"reasonCode":"ok"}'`,
-    });
-    expect(res.status).toBe(0);
-    expect(res.stdout).toContain('synthetic_health_ack_diagnostic=completed');
-    expect(res.stdout).not.toContain('log_read_failed');
-  });
-
-  test('genuine non-zero log failure emits log_read_failed and never emits completed', async () => {
-    const res = await runLifecycleTrace({ logsExit: 1, stdoutFormat: `''` });
-    expect(res.status).toBe(1);
-    expect(res.stdout).toContain('synthetic_health_ack_diagnostic=log_read_failed');
-    expect(res.stdout).not.toContain('synthetic_health_ack_diagnostic=completed');
-  });
-
-  test('empty logs emit empty and never emit log_read_failed', async () => {
-    const res = await runLifecycleTrace({ logsExit: 0, stdoutFormat: `''` });
-    expect(res.status).toBe(0);
-    expect(res.stdout).toContain('synthetic_health_ack_diagnostic=empty');
-    expect(res.stdout).not.toContain('log_read_failed');
-  });
-
-  test('multiple lines emit multiple_lines and never emit log_read_failed', async () => {
-    const res = await runLifecycleTrace({ logsExit: 0, stdoutFormat: `'%s\\n%s' 'line1' 'line2'` });
-    expect(res.status).toBe(0);
-    expect(res.stdout).toContain('synthetic_health_ack_diagnostic=multiple_lines');
-    expect(res.stdout).not.toContain('log_read_failed');
-  });
-
-  test('carriage return emits carriage_return and never emit log_read_failed', async () => {
-    const res = await runLifecycleTrace({ logsExit: 0, stdoutFormat: `'%s\\r' 'line'` });
-    expect(res.status).toBe(0);
-    expect(res.stdout).toContain('synthetic_health_ack_diagnostic=carriage_return');
-    expect(res.stdout).not.toContain('log_read_failed');
-  });
-
-  test('dependency unavailable emits dependency_unavailable and never emits log_read_failed', async () => {
-    const res = await runLifecycleTrace({
-      logsExit: 0,
-      stdoutFormat: `'%s' '{"status":"completed","processed":0,"reasonCode":"dependency_unavailable"}'`,
-    });
-    expect(res.status).toBe(0);
-    expect(res.stdout).toContain('synthetic_health_ack_diagnostic=dependency_unavailable');
-    expect(res.stdout).not.toContain('log_read_failed');
-  });
-});
-
-describe('actor ownership filtering and containment', () => {
-  test('isolates owned health actors by exact parent and service, preserving unrelated actors', () => {
-    const script = `
-project="fcd-test-proj"
-
-containers=(
-  "c1:fcd-support.operation.parent=fcd-test-proj:fcd-support.operation.service=health"
-  "c2:fcd-support.operation.parent=fcd-test-proj:fcd-support.operation.service=backup"
-  "c3:fcd-support.operation.parent=other-proj:fcd-support.operation.service=health"
-)
-
-filter_actors() {
-  local service="$1" parent="$2"
-  for entry in "\${containers[@]}"; do
-    local id="\${entry%%:*}"
-    local rest="\${entry#*:}"
-    local p="\${rest%%:*}"; p="\${p#*=}"
-    local s="\${rest#*:*}"; s="\${s#*=}"
-    if [[ "$p" == "$parent" && "$s" == "$service" ]]; then
-      echo "$id"
-    fi
-  done
-}
-
-owned="$(filter_actors health "$project")"
-if [[ "$owned" != "c1" ]]; then
-  echo "FAIL: expected owned to be c1, got: $owned" >&2
-  exit 1
-fi
-
-unrelated_service="$(filter_actors backup "$project")"
-if [[ "$unrelated_service" != "c2" ]]; then
-  echo "FAIL: expected c2 for backup, got: $unrelated_service" >&2
-  exit 1
-fi
-
-unrelated_parent="$(filter_actors health "other-proj")"
-if [[ "$unrelated_parent" != "c3" ]]; then
-  echo "FAIL: expected c3 for other-proj, got: $unrelated_parent" >&2
-  exit 1
-fi
-
-echo "FILTER_SUCCESS"
-`;
-    const res = spawnSync(bash, ['-c', script], { encoding: 'utf8', timeout: 5000 });
-    expect(res.status).toBe(0);
-    expect(res.stdout).toContain('FILTER_SUCCESS');
-  });
-});
-
-describe('owning harness failure injection and uncertainty journal preservation', () => {
-  test('runHealthCommand stops immediately on uncertainty, preserves failure journal, and does not retry', async () => {
-    const journal: string[] = [];
-    const lines: string[] = [];
-
-    const status = await runHealthCommand({
-      environment: {
-        ...operationsEnvironment(),
-        DATABASE_URL: 'postgresql://synthetic@127.0.0.1/fcd_support_test',
-        OPS_GIT_REVISION: 'a'.repeat(40),
-        OPS_SCHEMA_REVISION: '000016',
-        OPS_DATABASE_SYSTEM_IDENTIFIER: '7300000000000000000',
-        OPS_DATABASE_NAME: 'fcd_support_test',
-        OPS_DATABASE_SCHEMA: 'public',
-        OPS_RESOURCE_LIMITS_JSON: JSON.stringify({
-          health: { cpus: 0.5, memoryMiB: 256, pids: 64, tmpfsMiB: 16 },
-        }),
-      },
-      args: ['health'],
-      input: {},
-      now: () => new Date('2030-01-01T00:00:00.000Z'),
-      write: (line) => lines.push(line),
-      journal: (line) => journal.push(line),
-      ports: () => {
-        throw new Error('synthetic_postgres_fatal_error');
+      env: {
+        PATH: process.env.PATH,
+        SystemRoot: process.env.SystemRoot,
+        TASK_LIFECYCLE: resolve('scripts/operations-job-lifecycle.sh').replaceAll('\\', '/'),
+        FCD_SYNTHETIC_EVIDENCE_LIBRARY: evidenceLibrary,
+        TASK_LOGS: logs,
+        TASK_LOGS_EXIT: String(logsExit),
       },
     });
-
-    // Command returns failure code 1
-    expect(status).toBe(1);
-    // Journal preserves the failure event with component postgres and state unknown
-    expect(journal).toHaveLength(1);
-    const parsedEvent = JSON.parse(journal[0] ?? '{}') as Record<string, unknown>;
-    expect(parsedEvent).toEqual({
-      event: 'operations_health',
-      component: 'postgres',
-      state: 'unknown',
-      checkedAt: '2030-01-01T00:00:00.000Z',
-    });
-    // No stdout acknowledgment was emitted
-    expect(lines).toEqual([]);
-  });
-
-  test('harness state machine rejects subsequent operations when prior operation is uncertain and leaves active-job intact', () => {
-    const script = `
-# State machine simulation: active-job existence prevents subsequent execution
-state_root="/tmp/fcd-state-test-$BASHPID"
-mkdir -p "$state_root"
-
-# 1. Uncertainty transitions active-job to uncertain
-printf 'JOB_REF=operation_12345\\nJOB_SERVICE=health\\nJOB_PHASE=uncertain\\n' > "$state_root/active-job"
-
-# 2. Guard checks for pending active-job before starting new job
-check_can_start() {
-  if [[ -e "$state_root/active-job" || -L "$state_root/active-job" ]]; then
-    echo "operations_job_pending" >&2
-    return 1
-  fi
-  return 0
-}
-
-# 3. Invocation must fail and reject execution
-if check_can_start; then
-  echo "FAIL: expected refusal due to uncertain active-job" >&2
-  exit 1
-fi
-
-# 4. Active-job must remain intact and unchanged
-if ! grep -q 'JOB_PHASE=uncertain' "$state_root/active-job"; then
-  echo "FAIL: active-job was cleared or overwritten" >&2
-  exit 1
-fi
-
-rm -rf "$state_root"
-echo "HARNESS_PRESERVED"
-`;
-    const res = spawnSync(bash, ['-c', script], { encoding: 'utf8', timeout: 5000 });
-    expect(res.status).toBe(0);
-    expect(res.stdout).toContain('HARNESS_PRESERVED');
-  });
+  }
+  test.each([
+    ['{"status":"completed","processed":1,"reasonCode":"ok"}', 0, 'completed', 0],
+    [
+      '{"status":"completed","processed":0,"reasonCode":"dependency_unavailable"}',
+      0,
+      'dependency_unavailable',
+      0,
+    ],
+    ['', 19, 'log_read_failed', 1],
+    ['', 0, 'empty', 1],
+    ['synthetic_invalid', 0, 'unexpected', 1],
+    ['line1\nline2', 0, 'multiple_lines', 1],
+    ['line\r', 0, 'carriage_return', 1],
+  ] as const)(
+    'classifies actual lifecycle logs as %s / %s / %s',
+    async (logs, logsExit, diagnostic, status) => {
+      const result = await runTrace(logs, logsExit);
+      expect(result.status).toBe(status);
+      expect(result.stdout).toContain(`synthetic_health_ack_diagnostic=${diagnostic}\n`);
+      if (logsExit === 0)
+        expect(result.stdout).not.toContain('synthetic_health_ack_diagnostic=log_read_failed');
+      if (logsExit !== 0)
+        expect(result.stdout).not.toContain('synthetic_health_ack_diagnostic=completed');
+      expect(result.stderr).toBe('');
+    },
+  );
 });

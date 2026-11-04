@@ -7,7 +7,7 @@ import { expect, test } from 'vitest';
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash';
 const ref = 'a'.repeat(32);
 
-async function recovery(fault: string) {
+async function recovery(fault: string, healthInvocations = 1) {
   const directory = await mkdtemp(join(tmpdir(), 'fcd-synthetic-recovery-'));
   try {
     await mkdir(join(directory, 'scripts'));
@@ -62,7 +62,16 @@ bash() {
    case "$2" in
     maintenance) trace maintenance; [[ "$TASK_FAULT" != maintenance ]] ;;
     backup) trace backup; [[ "$TASK_FAULT" != backup ]] ;;
-    health) trace health; [[ "$TASK_FAULT" != health ]] ;;
+    health)
+     trace health
+     [[ "$TASK_FAULT" != health ]] || return 1
+     if [[ "$TASK_FAULT" == health-uncertain && "$health_idx" == 2 ]]; then
+       printf 'JOB_SERVICE=health\\nJOB_PHASE=uncertain\\n' > "$root/state/active-job"
+       return 1
+     fi
+     if [[ "$TASK_FAULT" == health-leftover-after && "$health_idx" == 2 ]]; then
+       touch "$root/state/synthetic-leftover"
+     fi ;;
     *) return 91 ;;
    esac ;;
   scripts/restore-runtime.sh)
@@ -91,10 +100,13 @@ docker() {
   run*) printf backup_${ref} ;;
   'container inspect') trace cleanup-guard; return 1 ;;
   'volume inspect') [[ "$TASK_FAULT" != cleanup ]] || [[ "$stage" != cleanup ]] ;;
-  exec*) printf '%s\n' "$(( \${health_idx:-0} ))" ;;
+  exec*) [[ "$TASK_FAULT" != health-no-persistence ]] || { printf 0; return; }; printf '%s\n' "$(( \${health_idx:-0} ))" ;;
   'rm --force') trace cleanup-peer ;;
   compose*) trace invalid-compose; return 1 ;;
-  'volume ls'|'network ls'|'ps -aq') : ;;
+  'ps -aq')
+   [[ "$*" == "ps -aq --filter label=fcd-support.operation.service=health --filter label=fcd-support.operation.parent=$project" ]] || return 95
+   if [[ "$TASK_FAULT" == health-leftover-before || -e "$root/state/synthetic-leftover" ]]; then printf '%s' "${ref}${ref}"; fi ;;
+  'volume ls'|'network ls') : ;;
   'ps --all'*|'ps -q'*) if [[ "$*" == *"service=postgres"* ]]; then printf '%s\n' "${ref}${ref}"; fi ;;
   rmi*) trace cleanup-image ;;
   *) return 92 ;;
@@ -118,6 +130,7 @@ root="$PWD"; fixture="$root"; export root
           SystemRoot: process.env.SystemRoot,
           TASK_DIRECTORY: directory.replaceAll('\\', '/'),
           TASK_FAULT: fault,
+          TASK_HEALTH_STRESS: String(healthInvocations),
         },
       },
     );
@@ -125,6 +138,7 @@ root="$PWD"; fixture="$root"; export root
       status: result.status,
       stdout: result.stdout,
       stderr: result.stderr,
+      activeJob: await readFile(join(directory, 'state/active-job'), 'utf8').catch(() => ''),
       trace: (await readFile(join(directory, 'trace'), 'utf8').catch(() => '')).trim().split('\n'),
     };
   } finally {
@@ -186,3 +200,39 @@ test.each(['maintenance', 'backup', 'health', 'restore', 'missing-record'])(
     if (fault === 'maintenance') expect(result.trace).toEqual(['maintenance']);
   },
 );
+
+test('actual stress harness stops on the second uncertain operation and preserves its journal', async () => {
+  const result = await recovery('health-uncertain', 10);
+  expect(result.status).toBe(1);
+  expect(result.trace.filter((step) => step === 'health')).toHaveLength(2);
+  expect(result.stdout).toContain('synthetic_host_health_iteration=1\n');
+  expect(result.stdout).not.toContain('synthetic_host_health_iteration=2\n');
+  expect(result.trace).not.toContain('checkpoint');
+  expect(result.trace).not.toContain('promote');
+  expect(result.activeJob).toBe('JOB_SERVICE=health\nJOB_PHASE=uncertain\n');
+});
+
+test.each([
+  ['health-leftover-before', 0],
+  ['health-leftover-after', 2],
+  ['health-no-persistence', 1],
+] as const)(
+  'actual stress harness refuses %s before any later invocation',
+  async (fault, calls) => {
+    const result = await recovery(fault, 10);
+    expect(result.status).toBe(1);
+    expect(result.trace.filter((step) => step === 'health')).toHaveLength(calls);
+    expect(result.trace).not.toContain('checkpoint');
+    expect(result.trace).not.toContain('promote');
+    expect(result.trace).not.toContain('premature-evidence-removal');
+  },
+);
+
+test('actual stress harness completes ten persisted health operations before reaching checkpoint', async () => {
+  const result = await recovery('checkpoint', 10);
+  expect(result.status).toBe(1);
+  expect(result.trace.filter((step) => step === 'health')).toHaveLength(10);
+  expect(result.stdout).toContain('synthetic_host_health_iteration=10\n');
+  expect(result.stdout).toContain('synthetic_host_health_passed=true');
+  expect(result.trace).toContain('checkpoint');
+});

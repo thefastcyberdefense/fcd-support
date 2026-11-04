@@ -1,121 +1,73 @@
-# AGY Results: Synthetic Health Transport and Acknowledgement Stress
+# Health transport stress results and Codex final correction
 
-Date: 2026-11-04 (Asia/Dhaka)
-Author: AGY
-Branch: `codex/agy-p6-health-transport-stress`
-Base: `3685ae0de131e218d1eb946dd60d726aa43f3706` (`origin/main`)
-Context: Follows `docs/handoffs/2026-11-04-antigravity-review-corrections.md`, `docs/reviews/2026-11-04-pr-9-10-11-review.md`, and Priority 1 of `docs/handoffs/2026-11-03-antigravity-priorities.md`.
+Date: 2026-11-04 (Asia/Dhaka).
+Branch: `codex/agy-p6-health-transport-stress`.
+Base: `3685ae0de131e218d1eb946dd60d726aa43f3706`.
+AGY submission: `eaf8312433b73f9af76eece2403acac2532fe9da`.
 
----
+## Final behavior and meaningful regression coverage
 
-## 1. Executive Summary
+Codex corrected the observer to recognize the actual operations_execute_job
+function under the scheduler's command substitution. The previous guard named
+a nonexistent function and required subshell depth zero, disconnecting it from
+the real path. No lifecycle acceptance, retry or recovery rule changed.
 
-This work delivers corrected synthetic health transport, diagnostic observation, actor guard filtering, and PostgreSQL health persistence verification within the CI harness and regression suite. It explicitly addresses the four Important corrections from Codex's review of PR #10 (`docs/reviews/2026-11-04-pr-9-10-11-review.md`):
+The regression now extracts the actual TRACE block and invokes the actual
+source-defined lifecycle under command substitution, retaining the real
+acknowledgement validator. Only external process/state ports are synthetic.
+Seven diagnostic cases failed before the observer correction; all 17 tests in
+the final stress file then passed. Successful reads never emit log_read_failed;
+genuine failed reads are distinguished from empty, malformed, multiline,
+carriage-return and dependency-unavailable output. Framing uses ten independent
+held-open streams; it does not claim multiple frames on one persistent stream.
 
-1. **Observer Correction (Log Read Failures vs. Canonical Success)**:
-   - Replaced fragile previous-status and hardcoded line-number inference in `scripts/test-synthetic-runtime-deployment.sh` (`$LINENO -eq 260 && $trace_status -ne 0`).
-   - The trace observer now tracks the actual outcome of the log reading operation in `operations_job_lifecycle`:
-     - Canonical successful logs emit `synthetic_health_ack_diagnostic=completed` and **never** emit `log_read_failed`.
-     - A genuine non-zero exit from `operations_docker container logs` emits `synthetic_health_ack_diagnostic=log_read_failed` and never emits `completed`.
-     - Empty, multiline, carriage return, and dependency unavailable outputs emit their respective closed diagnostics and never emit `log_read_failed`.
-2. **Actor Ownership Guard Correction**:
-   - Operations containers are created with labels:
-     `--label "fcd-support.operation.parent=$project"`
-     `--label "fcd-support.operation.service=$service"`
-   - Corrected the actor discovery filter in `scripts/test-synthetic-runtime-deployment.sh` to query:
-     `docker ps -aq --filter "label=fcd-support.operation.service=health" --filter "label=fcd-support.operation.parent=$project"`
-     instead of the runtime's Compose project label.
-   - Asserted absence of health actors before **and** after every invocation, including after the final iteration.
-   - Added automated tests proving leftover refusal and preservation of unrelated actors.
-3. **PostgreSQL Health Persistence Verification**:
-   - In `scripts/test-synthetic-runtime-deployment.sh`, direct PostgreSQL queries verify that each positive stress iteration increments the count of health records for `component='postgres'` in `operations_health_checks` by exactly 1 (`(( health_count_current == health_count_initial + health_idx ))`).
-   - Closed count assertions only: no raw rows, tokens, or identifiers in output.
-   - A valid `dependency_unavailable` run is recognized as a safe runtime outcome, but cannot be counted as a successful persistence lane.
-4. **Harness Failure Injection & Accurate Framing**:
-   - Accurately described the framing test in `tests/health-transport-stress.test.ts`: ten sequential independent held-open streams without waiting for EOF.
-   - Replaced mocked loop/break testing with harness tests: verified that uncertainty transitions `active-job` to `JOB_PHASE=uncertain`, halts execution, preserves the journal intact, and causes subsequent invocations to halt immediately with `operations_job_pending` without retrying or clearing.
-5. **CI Observation & Promotion Failure Reporting**:
-   - The dedicated `health-stress` subjobs in `.github/workflows/runtime-host.yml` pass across both `fresh` and `precreated` networks.
-   - In the push runtime workflow (runs [41656688444](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41656688444), [41682134296](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41682134296), and [41682171351](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41682171351)), the full runtime workflow fails later during fresh/precreated promotion.
-   - This promotion failure is preserved and reported precisely; PR #10 is kept draft.
+Actor checks select exact operation parent and health-service labels before
+and after every invocation, including the final iteration. Each positive
+iteration must increment the PostgreSQL component health-record count by one;
+accepted dependency-unavailable outcomes cannot stand in for persistence proof.
 
----
+The source-extracted orchestration tests in synthetic-recovery.test.ts exercise
+the actual stress loop. They prove that an uncertain second invocation retains
+its record and prevents all later invocations/checkpoint/recovery, owned actors
+before/after a call cause refusal, and absent persistence causes refusal. The
+ten-iteration positive control reaches the fixture's intentional checkpoint
+refusal; it does not claim a successful full recovery from that test.
 
-## 2. Changes Made
+Four additional native tests execute the real health lifecycle with empty,
+malformed, multiline and unavailable logs. Each retains the real uncertain
+journal, and a subsequent attempt changes neither that record nor the Docker
+trace. The earlier hand-written lifecycle/filter/pending-guard simulations have
+been removed from the stress file.
 
-### A. Trace Entrypoint Observer (`scripts/test-synthetic-runtime-deployment.sh`)
-- In `trace-entry.bash`, replaced line-number based inference with lifecycle state tracking:
-  ```bash
-  if [[ "$BASH_SUBSHELL" -eq 0 && "${OPS_JOB_SERVICE-}" == health && "${trace_source##*/}" == operations-job-lifecycle.sh && "${FUNCNAME[0]-}" == operations_job_lifecycle ]]; then
-    if [[ "$BASH_COMMAND" == *"container logs"* ]]; then
-      health_reading_logs=true
-    elif [[ "${health_reading_logs-}" == true ]]; then
-      unset health_reading_logs
-      if [[ "$trace_status" -ne 0 ]]; then
-        synthetic_host_health_ack_diagnostic log_read_failed >&3
-      fi
-    fi
-    if [[ "$BASH_COMMAND" == operations_job_acknowledgement* ]]; then
-      synthetic_host_health_ack_diagnostic "${acknowledgement-}" >&3
-    fi
-  fi
-  ```
-- Avoids false `log_read_failed` emissions caused by earlier conditional checks (such as `[[ "$service" == promote ]]` returning 1).
+## Independent checks
 
-### B. Actor Guard and PostgreSQL Persistence (`scripts/test-synthetic-runtime-deployment.sh`)
-- Updated actor filter to check exact parent and service labels:
-  `job_actors="$(docker ps -aq --filter "label=fcd-support.operation.service=health" --filter "label=fcd-support.operation.parent=$project")"`
-- Asserted `[[ -z "$job_actors" ]]` before each iteration, after each iteration, and after the final iteration.
-- Queried PostgreSQL `operations_health_checks` count:
-  `health_count_current="$(docker exec "$pg_id" psql -U postgres -d "$db_name" -Atc "select count(*) from $db_schema.operations_health_checks where component='postgres'")"`
-  `(( health_count_current == health_count_initial + health_idx )) || synthetic_host_stage_failed`
+- Focused Windows command: `npx vitest run tests/health-transport-stress.test.ts tests/synthetic-recovery.test.ts tests/synthetic-host-evidence.test.ts`:
+  **52 passed**, three files, 8.10 seconds.
+- Native command: `bash scripts/test-encrypted-backup.sh state tests/operations-job-lifecycle.test.ts`:
+  **31 passed**, 25.59 seconds, operations_state_local=true. Owned scratch/resources
+  were cleaned by the established harness.
+- Two earlier ad hoc native-runner attempts failed before meaningful lifecycle
+  execution: the first lacked the scripts mount (31 failures); the second used
+  tmpfs, which the persistent-filesystem preflight correctly refused (30 failures,
+  1 pass). Neither changed application rules. The established native harness
+  supplies the required filesystem and all 31 tests pass there.
+- The complete source gate and final correction-head CI are recorded by Codex's
+  integration review when complete; they are not claimed from the focused counts.
 
-### C. Test Suite Updates (`tests/health-transport-stress.test.ts` - 19 tests)
-- **Held-Open Stdin Framing**: Verified newline-framed JSON reading without waiting for stream EOF across 10 sequential independent held-open streams (`PassThrough`).
-- **Closed Diagnostic Enums**: Verified 7 closed diagnostic classifications (`completed`, `dependency_unavailable`, `empty`, `log_read_failed`, `carriage_return`, `multiple_lines`, `unexpected`) without body leakage.
-- **Trace Lifecycle Cases**: Tested real trace entrypoint with lifecycle execution:
-  - Canonical success: outputs `synthetic_health_ack_diagnostic=completed`, does not emit `log_read_failed`.
-  - Genuine log failure: outputs `synthetic_health_ack_diagnostic=log_read_failed`, does not emit `completed`.
-  - Empty logs: outputs `synthetic_health_ack_diagnostic=empty`, does not emit `log_read_failed`.
-  - Multiline logs: outputs `synthetic_health_ack_diagnostic=multiple_lines`, does not emit `log_read_failed`.
-  - Carriage return: outputs `synthetic_health_ack_diagnostic=carriage_return`, does not emit `log_read_failed`.
-  - Dependency unavailable: outputs `synthetic_health_ack_diagnostic=dependency_unavailable`, does not emit `log_read_failed`.
-- **Actor Ownership Isolation**: Tested that owned actors with `fcd-support.operation.parent=$project` and `fcd-support.operation.service=health` are matched, while actors with different services or different parents are preserved.
-- **Harness Failure Injection**: Tested that uncertainty stops execution, preserves the failure journal with `JOB_PHASE=uncertain`, and causes subsequent invocations to halt immediately with `operations_job_pending` without retrying or clearing.
+## Immutable CI and observation boundaries
 
----
+AGY's submitted eaf8312 has four green workflows:
+[CI 41768173885](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41768173885),
+[CodeQL 41768173829](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41768173829),
+[PostgreSQL/native 41768173755](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41768173755),
+[runtime 41768173765](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41768173765).
+Both ten-iteration stress lanes and both full runtime lanes pass at that submitted
+head. Those runs precede Codex's final observer/test correction and do not replace
+its final-source verification.
 
-## 3. Verification Check Results
-
-| Check | Command | Result |
-|---|---|---|
-| Phase 0 Gate | `npm run validate:phase0` | **PASS** (exit 0) |
-| ESLint | `npm run lint` | **PASS** (exit 0, 0 errors, 0 warnings) |
-| TypeScript Check | `npm run typecheck` (`tsc --noEmit`) | **PASS** (exit 0) |
-| TypeScript Build | `npm run build` | **PASS** (exit 0) |
-| Git Whitespace Check | `git diff --check` | **PASS** (exit 0) |
-| Health Transport Stress Tests | `npm test -- tests/health-transport-stress.test.ts` | **PASS** (19 passed, 0 failed, 0.99s) |
-| Synthetic Host Evidence Tests | `npm test -- tests/synthetic-host-evidence.test.ts` | **PASS** (19 passed, 0 failed, 0.44s) |
-
----
-
-## 4. CI Workflow Lane Evidence
-
-- **PR-Triggered Workflows at Submitted Head**:
-  - CI: [Run 41683082597](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41683082597) (Pass)
-  - CodeQL: [Run 41683082751](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41683082751) (Pass)
-  - PostgreSQL / Native: [Run 41683082528](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41683082528) (Pass)
-  - Runtime Host: [Run 41683082558](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41683082558) (Stress subjobs pass)
-- **Push Runtime Workflow Promotion Failure (Preserved Observation)**:
-  - Push Run: [Run 41682134296](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41682134296) and [Run 41656688444](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41656688444).
-  - Failed Step: `private-runtime` precreated promotion and `health-stress` fresh promotion fail after all 10 health iterations, backup, and restore checkpoints pass.
-  - This observation is preserved; stress subjob success is not conflated with full runtime workflow completion.
-
----
-
-## 5. Scope Boundaries & Next Steps
-
-- **Incident Record**: `docs/operations/incidents/2026-11-03-recurring-health-uncertainty.md` remains OPEN under scheduled-health hold.
-- **Authority**: Codex retains source acceptance, merge, shared-server execution, and operational authority.
-- **PR State**: PR #10 remains draft.
-- **Next Step**: Proceed with Priority 2 (`Phase 7 evidence readiness`) on branch `codex/agy-p7-readiness`.
+Retain the earlier promotion failures in runs 41656688444, 41682134296 and
+41682171351, including job 126078386027. Some failed only after all ten health
+iterations completed. Neither a later green run nor a simulated failure proves
+the historical promotion root cause or resolves the current shared-server health
+incident. No SSH, shared-server Docker, live provider, account, tunnel, production
+or uncertain-record mutation occurred in this source review/correction.

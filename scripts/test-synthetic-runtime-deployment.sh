@@ -108,7 +108,7 @@ trace_status=$?
 trace_source="${BASH_SOURCE[0]-stdin}"
 printf "%s:%s:previous=%s\n" "${trace_source##*/}" "$LINENO" "$trace_status" >&3
 synthetic_host_runtime_diagnostic "${result-}" >&3
-if [[ "$BASH_SUBSHELL" -eq 0 && "${OPS_JOB_SERVICE-}" == health && "${trace_source##*/}" == operations-job-lifecycle.sh && "${FUNCNAME[0]-}" == operations_job_lifecycle ]]; then
+if [[ "${OPS_JOB_SERVICE-}" == health && "${trace_source##*/}" == operations-job-lifecycle.sh && "${FUNCNAME[0]-}" == operations_execute_job ]]; then
   if [[ "$BASH_COMMAND" == *"container logs"* ]]; then
     health_reading_logs=true
   elif [[ "${health_reading_logs-}" == true ]]; then
