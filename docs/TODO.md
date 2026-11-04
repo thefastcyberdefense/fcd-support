@@ -2,6 +2,16 @@
 
 ## Current Phase 6 checkpoint
 
+**2026-11-04 AGY review: PRs #9–#11 require corrections and remain unmerged.**
+The five dashboard grants are narrowly correct; independent native verification
+passed 58 tests / 1 skip, but required acceptance cases/evidence are missing.
+The health harness has confirmed trace/actor/persistence-proof defects; its
+latest full runtime workflow also fails later at promotion despite passing both
+stress jobs. The Phase 7 matrix contains missing items and source contradictions.
+Review: `docs/reviews/2026-11-04-pr-9-10-11-review.md`; AGY corrections:
+`docs/handoffs/2026-11-04-antigravity-review-corrections.md`. No server changes
+or new gate decisions occurred. Dashboard errors and scheduled-health hold remain.
+
 **Phase 6 closeout recorded, including Task 16 (2026-11-03); current scheduled
 operations HELD.** Accepted `24e5667` is
 deployed on the private test server. Managed upgrade, original database/volume
