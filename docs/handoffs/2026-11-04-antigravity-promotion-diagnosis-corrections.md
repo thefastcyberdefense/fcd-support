@@ -1,5 +1,9 @@
 # AGY: finish the evidence-only promotion diagnosis
 
+Status: historical assignment completed in accepted PR #12. See
+`../reviews/2026-11-04-pr-12-acceptance.md`. The next assignment is
+`2026-11-04-antigravity-promotion-observability.md`; do not repeat this work.
+
 Read `../reviews/2026-11-04-pr-12-promotion-diagnosis-review.md`, the original
 bounded assignment and the fixture policy. Continue the existing PR #12 branch
 from fresh synchronized main, preserving all historical failed observations.

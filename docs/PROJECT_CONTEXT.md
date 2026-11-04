@@ -2,16 +2,18 @@
 
 Last reviewed: 2026-11-04 (Asia/Dhaka)
 
-**PRs #9 and #11 merged after Codex final corrections and exact-head CI.**
+**PRs #9, #11 and #12 accepted and merged; PR #10 remains held.**
 Dashboard grants/real-role tests passed 66 native checks / 1 skip; readiness
 covers AC-01 through AC-36 under the approved contracts. PR #10 source review,
 full gate (1,994 passed / 454 skips), focused harness (53) and native lifecycle
 (31) pass, but final private-runtime fresh fails promotion after successful
 health/checkpoint/restore. Both ten-iteration stress lanes and private-runtime
-precreated pass. PR #10 remains draft; PR #12 remains draft for unsupported
-root-cause, simulated-boundary and raw-stderr proposals. See
+precreated pass. PR #10 remains draft. Corrected PR #12 is accepted and merged
+as 81bd770 with all 13 final-head checks successful; its real-wrapper and
+pending-guard evidence leaves the historical cause unresolved. Acceptance:
+`docs/reviews/2026-11-04-pr-12-acceptance.md`. See
 `docs/reviews/2026-11-04-pr-9-10-11-integration.md` and
-`docs/handoffs/2026-11-04-antigravity-promotion-diagnosis-corrections.md`.
+`docs/handoffs/2026-11-04-antigravity-promotion-observability.md`.
 The server follow-up was read-only and preserved the uncertain record exactly.
 No rollout, health settlement or live integration is claimed.
 

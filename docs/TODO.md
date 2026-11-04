@@ -2,16 +2,18 @@
 
 ## Current Phase 6 checkpoint
 
-**2026-11-04 corrective integration: PRs #9 and #11 merged.** Codex directly
+**2026-11-04 corrective integration: PRs #9, #11 and #12 merged.** Codex directly
 finished the remaining review gaps. The accepted dashboard grants passed 66
 native PostgreSQL tests / 1 skip; the accepted readiness matrix maps all 36 ACs.
 PR #10 source corrections passed a 1,994-test full gate / 454 platform skips,
 53 focused tests and 31 native lifecycle tests, but final runtime CI reproduces
 the older promotion failure after health/checkpoint/restore. The other three
 runtime lanes, including both ten-run health stress lanes, pass. PR #10 stays
-draft/unmerged; PR #12 also stays draft for unsupported diagnosis/test/privacy
-claims. See `docs/reviews/2026-11-04-pr-9-10-11-integration.md` and
-`docs/handoffs/2026-11-04-antigravity-promotion-diagnosis-corrections.md`.
+draft/unmerged. PR #12 is now accepted after direct evidence corrections,
+independent tests and completed final-head CI; see
+`docs/reviews/2026-11-04-pr-12-acceptance.md`. Its tests/evidence do not settle
+the historical promotion cause or the current server health job. See `docs/reviews/2026-11-04-pr-9-10-11-integration.md` and
+`docs/handoffs/2026-11-04-antigravity-promotion-observability.md`.
 The server was inspected read-only; its exact uncertain health record remains.
 Deployed dashboard errors and normal scheduled-operation hold remain unresolved.
 
@@ -35,7 +37,7 @@ have an accepted source correction in merged PR #9 (final head 1b51f53).
 Actual deployment is still 24e5667; no hot grant patch or rollout bypassed the
 held health job. Source proof and final integration evidence are separate from
 server validation. Codex retains disposition/rollout; AGY's bounded next work
-corrects the PR #12 evidence and real-boundary reproduction.
+adds accurate closed promotion-command observations to the synthetic CI harness.
 
 Owner-authorized cleanup is COMPLETE: 19 old isolated test containers were
 removed, keeping the latest five actors, connected three-container webhook

@@ -111,7 +111,7 @@ operations_promotion_host_diagnostic() {
 
 ## 4. Boundary Verification Suite
 
-A comprehensive unit test suite has been added to [`tests/operations-promotion-diagnosis.test.ts`](file:///J:/DevDrive/fcd-support/tests/operations-promotion-diagnosis.test.ts).
+A comprehensive unit test suite has been added to [`tests/operations-promotion-diagnosis.test.ts`](../../tests/operations-promotion-diagnosis.test.ts).
 
 ### Test Coverage Breakdown:
 
