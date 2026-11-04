@@ -2,15 +2,18 @@
 
 Last reviewed: 2026-11-04 (Asia/Dhaka)
 
-**PR #9/#10/#11 review requires corrections; all remain draft/unmerged.**
-Independent restricted-role PostgreSQL checks passed 58 / 1 skip on PR #9,
-with zero owned leftovers. Missing tests/evidence still block acceptance.
-PR #10 has confirmed diagnostic/actor-guard/persistence-proof gaps and a failed
-full runtime promotion lane despite passing stress subjobs. PR #11's missing
-acceptance rows and invented prerequisites require source-backed corrections.
-See `docs/reviews/2026-11-04-pr-9-10-11-review.md` and
-`docs/handoffs/2026-11-04-antigravity-review-corrections.md`. No server mutation,
-dashboard rollout, health settlement or phase-gate approval is claimed.
+**PRs #9 and #11 merged after Codex final corrections and exact-head CI.**
+Dashboard grants/real-role tests passed 66 native checks / 1 skip; readiness
+covers AC-01 through AC-36 under the approved contracts. PR #10 source review,
+full gate (1,994 passed / 454 skips), focused harness (53) and native lifecycle
+(31) pass, but final private-runtime fresh fails promotion after successful
+health/checkpoint/restore. Both ten-iteration stress lanes and private-runtime
+precreated pass. PR #10 remains draft; PR #12 remains draft for unsupported
+root-cause, simulated-boundary and raw-stderr proposals. See
+`docs/reviews/2026-11-04-pr-9-10-11-integration.md` and
+`docs/handoffs/2026-11-04-antigravity-promotion-diagnosis-corrections.md`.
+The server follow-up was read-only and preserved the uncertain record exactly.
+No rollout, health settlement or live integration is claimed.
 
 **Phase 6 closeout recorded, including Task 16; current scheduled operations
 HELD.** Accepted `24e5667` is deployed in
@@ -28,14 +31,11 @@ Phase 7 current live/test-asset integration remains next; model/outbound/n8n
 flags stay false. AGY has independent stress and readiness assignments; Codex
 owns current-server diagnosis and operational disposition.
 
-Three existing dashboard modules have a confirmed deployed-role privilege gap:
-questions, insights and escalations return HTTP 500. Actual compiled list reads
-under the restricted admin login fail with SQLSTATE 42501 in read-only mode.
-No grants/data were changed. AGY's next package adds least-privilege correction
-and real-role HTTP/SQL regression coverage; Codex owns review/rollout. See
-`docs/testing/2026-11-03-admin-dashboard-permissions.md` and
-`docs/handoffs/2026-11-03-antigravity-priorities.md`. These are corrections to
-deployed features; Phase 7 remains live test-asset acceptance.
+Three deployed dashboard modules still have the confirmed privilege gap at
+24e5667. The least-privilege correction and real-role SQL/HTTP regressions are
+accepted in merged PR #9; safe server disposition and rollout remain pending.
+These are corrections to existing features. Phase 7 remains approved test-asset
+acceptance; source readiness does not authorize or prove live integration.
 
 The owner's old-container cleanup completed: 19 obsolete actors removed,
 latest five and connected webhook three retained, 23 unrelated actors unchanged.
