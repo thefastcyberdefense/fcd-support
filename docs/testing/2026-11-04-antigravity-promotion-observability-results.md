@@ -215,3 +215,32 @@ In the isolated worktree `J:\DevDrive\fcd-support-agy-health-stress`:
 3. `npm run typecheck`: **PASS** (`tsc --noEmit` exited 0).
 4. `npm run build`: **PASS** (`tsc --project tsconfig.build.json` exited 0).
 5. `git diff --check`: **PASS** (zero trailing whitespaces, zero indentation errors).
+
+---
+
+## 7. CI Provenance and Observed Diagnostic Execution
+
+At submitted commit `cb6985e78ecae7c0a9696cf93e8787034b7910ff` on branch `codex/agy-p6-health-transport-stress` (PR #10):
+
+### Workflow Runs Summary
+
+- **CI:** [Run 41848310978](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41848310978) - **PASS** (lint, types, build, 1,952 passed / 438 platform skips).
+- **CodeQL Advanced:** [Run 41848311038](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41848311038) - **PASS** (0 alerts).
+- **PostgreSQL and native operations:** [Run 41848310888](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41848310888) - **PASS**:
+  - `postgres` (job 126637544791): PASS (66 passed / 1 platform skip).
+  - `native-operations` (job 126637545341): PASS (native permissions, bootstrap, host-operation, encrypted two-cluster restore, and promotion checks all pass).
+- **Private runtime controller:** [Run 41848310893](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41848310893):
+  - `health-stress (fresh)` (job 126637545457): **PASS** (all 10 sequential health iterations completed cleanly).
+  - `health-stress (precreated)` (job 126637545521): **PASS** (all 10 sequential health iterations completed cleanly).
+  - `private-runtime (fresh)` (job 126637545578): Reproduced historical promotion failure at line 169 (`synthetic_host_failed=promote`). Captured closed diagnostic token:
+    `synthetic_promotion_cmd_diagnostic=unallowlisted_output:1`
+  - `private-runtime (precreated)` (job 126637545251): Reproduced historical promotion failure at line 169 (`synthetic_host_failed=promote`). Captured closed diagnostic token:
+    `synthetic_promotion_cmd_diagnostic=unallowlisted_output:1`
+
+### Analysis of Captured Diagnostic
+
+The newly captured diagnostic token `synthetic_promotion_cmd_diagnostic=unallowlisted_output:1` establishes that:
+1. The host command `operations_docker run --entrypoint node image dist/operations/promotion-host-main.js` returned integer exit status 1.
+2. The stdout emitted by that invocation was non-empty and did not match the allowlisted `runtime_host_diagnostic=...` syntax.
+3. The closed CI harness observer suppressed and discarded the unallowlisted stdout bytes, ensuring zero leakage of command payloads, container IDs, or error bodies.
+4. Crucially, a return status of 1 with unallowlisted stdout reflects only what the host container runner observed; it does not demonstrate why the container process failed internally or whether Node.js crashed. As mandated by project governance, this outcome is presented as an observed boundary fact, not an invented root cause.
