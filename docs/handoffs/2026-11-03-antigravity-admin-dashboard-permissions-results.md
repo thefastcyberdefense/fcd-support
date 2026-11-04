@@ -12,7 +12,9 @@ Authority Boundary: Repository fixes, regression tests, and documentation only. 
 This package addresses Priority 0 from `docs/handoffs/2026-11-03-antigravity-priorities.md` and the review corrections from `docs/handoffs/2026-11-04-antigravity-review-corrections.md` (and review `docs/reviews/2026-11-04-pr-9-10-11-review.md`).
 
 ### Root Cause
+
 Under `src/persistence/postgres-runtime-grants.ts`, the nonsuperuser `admin` role previously received table-wide SELECT on knowledge, admin, learning, model, outbound, runtime, operations, recovery, and conversation retention state tables, but lacked the required column-scoped SELECT permissions on five tables needed by:
+
 1. `listQuestions()` and `listInsights()` in `src/persistence/postgres-admin-dashboard.ts` via the shared live privacy and retention join in `currentInsightEligibilityLateralSql` (`src/persistence/postgres-learning-service.ts`):
    - `conversations(id, channel_identity_id)`
    - `channel_identities(id, contact_id, external_contact_id)`
@@ -24,18 +26,17 @@ Under `src/persistence/postgres-runtime-grants.ts`, the nonsuperuser `admin` rol
 Under the deployed nonsuperuser admin login, all three list methods failed with SQLSTATE **42501** (`permission denied for table ...`), causing generic HTTP 500 errors on `/questions`, `/insights`, and `/escalations`.
 
 ### Smallest Grant Correction Retained
+
 In `src/persistence/postgres-runtime-grants.ts:464-468`, exactly 5 column-scoped SELECT grants were added to the `admin` role:
+
 ```typescript
 await grant('admin', 'select(id,channel_identity_id)', ['conversations']);
-await grant('admin', 'select(id,contact_id,external_contact_id)', [
-  'channel_identities',
-]);
+await grant('admin', 'select(id,contact_id,external_contact_id)', ['channel_identities']);
 await grant('admin', 'select(id,contact_id)', ['webhook_events']);
 await grant('admin', 'select(contact_id,state)', ['privacy_requests']);
-await grant('admin', 'select(reason_code,state)', [
-  'support_escalation_outcomes',
-]);
+await grant('admin', 'select(reason_code,state)', ['support_escalation_outcomes']);
 ```
+
 No whole tables were granted. Unpermitted columns (e.g., webhook message text, payload bodies, raw receipt metadata, access tokens) remain strictly denied. Mutations (INSERT, UPDATE, DELETE) and DDL on these tables remain completely denied.
 
 ---
@@ -64,6 +65,7 @@ Prior to modifying `src/persistence/postgres-runtime-grants.ts`, each of the six
 After applying the 5 column-scoped grants, the expanded regression suite passes completely (`13 passed` in `2.43s` on local PostgreSQL):
 
 ### 1. Independent Empty States
+
 - `dashboard.listQuestions()` returns `[]`.
 - `dashboard.listInsights()` returns `[]`.
 - `dashboard.listEscalationCounts()` returns `[]`.
@@ -72,6 +74,7 @@ After applying the 5 column-scoped grants, the expanded regression suite passes 
 - Authenticated `GET /escalations` returns HTTP 200 with empty state UI (`No escalations are recorded.`).
 
 ### 2. Eligible Populated States
+
 - Seeded 3 distinct synthetic customer contacts and events, 3 gap observations (`minimum_group_count = 3`), 1 insight run, 1 insight entry, 1 owner question, and 3 escalation outcomes (`faq_ambiguous: open` x 2, `sensitive_data_blocked: resolved` x 1).
 - `dashboard.listQuestions()` returns the open question.
 - `dashboard.listInsights()` returns `knowledge_coverage` with `occurrenceCount: 3`.
@@ -83,29 +86,35 @@ After applying the 5 column-scoped grants, the expanded regression suite passes 
 - Authenticated `GET /escalations` returns HTTP 200 and renders reason/state aggregates without leaking customer data.
 
 ### 3. Distinct-Person Count vs. Occurrence Count
-- Created events for 2 distinct persons with 4 total observations (2 observations per person, each linked to a distinct `source_webhook_event_id`).
+
+- Created events for 2 distinct persons with 4 linked channel identities and 4 total observations (2 observations per person, each linked to a distinct `source_webhook_event_id`).
 - Occurrence count = 4 (>= 3 minimum_group_count), but distinct person count = 2 (< 3 minimum_group_count).
 - `dashboard.listInsights()` and `dashboard.listQuestions()` suppress the aggregates.
 - Authenticated `GET /insights` and `GET /questions` do not contain the suppressed aggregates.
 - **Positive Control**: Added a 3rd distinct person with an observation (distinct person count = 3 >= 3). Aggregates immediately become eligible in both SQL and authenticated HTTP.
 
 ### 4. Actual Retention Purge Boundary
+
 - In `conversation_retention_states`, set `content_purged_through_at = anchor_at` (satisfying check constraint `content_purged_through_at <= anchor_at`).
-- Immediate suppression: `listInsights()` and `listQuestions()` return `[]`; authenticated HTTP returns HTTP 200 with empty UI.
-- Positive control: Reset `content_purged_through_at = null`; aggregates immediately reappear in both SQL and HTTP.
+- Immediate suppression: `listInsights()` and `listQuestions()` suppress the targeted group; authenticated HTTP returns HTTP 200 without that group. Other eligible groups may remain.
+- Positive control: Reset `content_purged_through_at = null`; the targeted aggregates reappear in SQL.
 
 ### 5. Expired Observations & Configurable Evaluation-Time
+
 - Seeded observations with `retention_deadline = at + 5 minutes`.
 - At current evaluation time `at`, observations are eligible.
 - Advanced evaluation time by 10 minutes (600,000ms), exceeding observation retention deadline while remaining within the 1-hour admin session TTL.
-- Immediate suppression: `listInsights()` and `listQuestions()` return `[]`; authenticated HTTP returns HTTP 200 with empty UI.
+- Immediate suppression: `listInsights()` and `listQuestions()` suppress the targeted group; authenticated HTTP returns HTTP 200 without that group. Other eligible groups may remain.
 
 ### 6. Live Privacy Suppression & Deletion Checks
-- **Privacy hold**: Inserting a `privacy_requests` row (`received`) for one contact reduces distinct eligible contacts below `minimum_group_count` (3); `listInsights()` and `listQuestions()` immediately suppress the ineligible aggregates (returning `[]`). Removing the request restores eligibility.
+
+- **Privacy hold**: Inserting a `privacy_requests` row (`received`) for one contact reduces distinct eligible contacts below `minimum_group_count` (3); `listInsights()` and `listQuestions()` immediately suppress the targeted ineligible aggregates. Removing the request restores eligibility.
 - **Soft deletion**: Setting `external_contact_id = 'deleted:' || ...` reduces distinct eligible contacts below threshold; queries immediately suppress ineligible aggregates.
 
 ### 7. Negative Privilege Controls
+
 The restricted `admin` role was tested directly against PostgreSQL:
+
 - **Individual column read denials on ungranted table `webhook_receipts`**:
   - `select id from webhook_receipts` -> SQLSTATE 42501
   - `select payload_sha256 from webhook_receipts` -> SQLSTATE 42501
@@ -129,25 +138,26 @@ The restricted `admin` role was tested directly against PostgreSQL:
   - `drop table conversations` -> SQLSTATE 42501
 
 ### 8. Authentication & RBAC Matrix
+
 - **Unauthenticated**: HTTP 303 Redirect to `/login` for all routes.
 - **Revoked session**: HTTP 303 Redirect to `/login` for all routes.
-- **Role separation**: Admin cannot access reviewer-only `/escalations` (HTTP 403); editor cannot access admin routes `/policy`, `/audit`, `/operations` (HTTP 403).
+- **Role separation**: Administrator has the documented role override, including `/escalations` (HTTP 200); editor cannot access admin routes `/policy`, `/audit`, `/operations` (HTTP 403).
 
 ---
 
 ## 4. Verification Check Results
 
-| Check | Command | Result |
-| --- | --- | --- |
-| Phase 0 Gate | `npm run validate:phase0` | **PASS** (exit 0) |
-| ESLint | `npm run lint` | **PASS** (exit 0, 0 errors, 0 warnings) |
-| TypeScript Check | `npm run typecheck` (`tsc --noEmit`) | **PASS** (exit 0) |
-| TypeScript Build | `npm run build` | **PASS** (exit 0) |
-| Git Whitespace Check | `git diff --check` | **PASS** (exit 0) |
-| New Integration Tests | `npm run test:integration -- tests/integration/postgres-admin-dashboard-grants.test.ts` | **PASS** (13 passed, 0 failed, 2.43s) |
-| Existing Dashboard Tests | `npm run test:integration -- tests/integration/postgres-admin-dashboard.test.ts` | **PASS** (8 passed, 0 failed, 1.05s) |
-| Existing Grants Tests | `npm run test:integration -- tests/integration/postgres-runtime-grants.test.ts` | **PASS** (45 passed, 1 skipped, 3.97s) |
-| Grants Unit Tests | `npm test -- tests/postgres-runtime-grants.test.ts` | **PASS** (3 passed, 0 failed, 0.08s) |
+| Check                    | Command                                                                                 | Result                                  |
+| ------------------------ | --------------------------------------------------------------------------------------- | --------------------------------------- |
+| Phase 0 Gate             | `npm run validate:phase0`                                                               | **PASS** (exit 0)                       |
+| ESLint                   | `npm run lint`                                                                          | **PASS** (exit 0, 0 errors, 0 warnings) |
+| TypeScript Check         | `npm run typecheck` (`tsc --noEmit`)                                                    | **PASS** (exit 0)                       |
+| TypeScript Build         | `npm run build`                                                                         | **PASS** (exit 0)                       |
+| Git Whitespace Check     | `git diff --check`                                                                      | **PASS** (exit 0)                       |
+| New Integration Tests    | `npm run test:integration -- tests/integration/postgres-admin-dashboard-grants.test.ts` | **PASS** (13 passed, 0 failed, 2.43s)   |
+| Existing Dashboard Tests | `npm run test:integration -- tests/integration/postgres-admin-dashboard.test.ts`        | **PASS** (8 passed, 0 failed, 1.05s)    |
+| Existing Grants Tests    | `npm run test:integration -- tests/integration/postgres-runtime-grants.test.ts`         | **PASS** (45 passed, 1 skipped, 3.97s)  |
+| Grants Unit Tests        | `npm test -- tests/postgres-runtime-grants.test.ts`                                     | **PASS** (3 passed, 0 failed, 0.08s)    |
 
 ---
 
@@ -155,3 +165,13 @@ The restricted `admin` role was tested directly against PostgreSQL:
 
 1. Commit and push updated branch `codex/agy-admin-dashboard-permissions` to keep PR #9 draft.
 2. Proceed to PR #10 observer and actor cleanup corrections.
+
+## Codex final review correction
+
+The distinct-person regression now uses four channel identities linked to two
+contacts, followed by an independent third-contact positive control. All phone
+fixtures use the non-routable 1555 family. SQL and HTTP assertions suppress the
+targeted ineligible group while unrelated eligible groups may remain visible;
+they do not assert that the entire dashboard becomes empty. Restoration after
+the privacy hold is verified through SQL; no separate HTTP restoration result
+is claimed. Administrator access to escalations remains authorized.

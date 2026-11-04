@@ -15,7 +15,10 @@ import {
   configureRuntimeGrants,
   runtimeDatabaseRoles,
 } from '../../src/persistence/postgres-runtime-grants.js';
-import { insertSyntheticAppliedCustomerEvent } from './policy-fixtures.js';
+import {
+  insertSyntheticAppliedCustomerEvent,
+  insertSyntheticLinkedCustomerIdentities,
+} from './policy-fixtures.js';
 import {
   createIsolatedTestDatabase,
   requireIsolatedTestDatabaseUrl,
@@ -585,43 +588,54 @@ describe('admin dashboard permissions under restricted runtime role', () => {
       policy: learningPolicy,
     });
 
-    // Create events for 2 distinct persons (2 events per person, each with distinct webhookEventId)
-    const source1a = await insertSyntheticAppliedCustomerEvent(database.pool, {
-      fixtureKey: 'distinct_person_1a',
-      identity: {
-        channel: 'whatsapp',
-        channelAccountId: 'PHONE_TEST_distinct',
-        externalContactId: '+8801700000001',
-      },
-      occurredAt: observationAt,
+    // Four channel identities belong to only two people. Counting identities
+    // or observations instead of distinct contacts must not meet the threshold.
+    const linked1 = await insertSyntheticLinkedCustomerIdentities(database.pool, {
+      fixtureKey: 'distinct_person_linked_1',
+      seeds: [
+        {
+          identity: {
+            channel: 'whatsapp',
+            channelAccountId: 'PHONE_TEST_distinct',
+            externalContactId: '15550007101',
+          },
+          occurredAt: observationAt,
+        },
+        {
+          identity: {
+            channel: 'messenger',
+            channelAccountId: 'PAGE_TEST_distinct',
+            externalContactId: 'PSID_TEST_distinct_1',
+          },
+          occurredAt: observationAt,
+        },
+      ],
     });
-    const source1b = await insertSyntheticAppliedCustomerEvent(database.pool, {
-      fixtureKey: 'distinct_person_1b',
-      identity: {
-        channel: 'whatsapp',
-        channelAccountId: 'PHONE_TEST_distinct',
-        externalContactId: '+8801700000001',
-      },
-      occurredAt: observationAt,
+    const linked2 = await insertSyntheticLinkedCustomerIdentities(database.pool, {
+      fixtureKey: 'distinct_person_linked_2',
+      seeds: [
+        {
+          identity: {
+            channel: 'whatsapp',
+            channelAccountId: 'PHONE_TEST_distinct',
+            externalContactId: '15550007102',
+          },
+          occurredAt: observationAt,
+        },
+        {
+          identity: {
+            channel: 'messenger',
+            channelAccountId: 'PAGE_TEST_distinct',
+            externalContactId: 'PSID_TEST_distinct_2',
+          },
+          occurredAt: observationAt,
+        },
+      ],
     });
-    const source2a = await insertSyntheticAppliedCustomerEvent(database.pool, {
-      fixtureKey: 'distinct_person_2a',
-      identity: {
-        channel: 'whatsapp',
-        channelAccountId: 'PHONE_TEST_distinct',
-        externalContactId: '+8801700000002',
-      },
-      occurredAt: observationAt,
-    });
-    const source2b = await insertSyntheticAppliedCustomerEvent(database.pool, {
-      fixtureKey: 'distinct_person_2b',
-      identity: {
-        channel: 'whatsapp',
-        channelAccountId: 'PHONE_TEST_distinct',
-        externalContactId: '+8801700000002',
-      },
-      occurredAt: observationAt,
-    });
+    const source1a = { eventId: linked1.eventIds[0] };
+    const source1b = { eventId: linked1.eventIds[1] };
+    const source2a = { eventId: linked2.eventIds[0] };
+    const source2b = { eventId: linked2.eventIds[1] };
 
     // Insert 4 total observations across these 2 persons (2 from person 1, 2 from person 2)
     // Occurrence count = 4 (>= 3 minimum_group_count), but distinct person count = 2 (< 3 minimum_group_count)
@@ -727,7 +741,7 @@ describe('admin dashboard permissions under restricted runtime role', () => {
       identity: {
         channel: 'whatsapp',
         channelAccountId: 'PHONE_TEST_distinct',
-        externalContactId: '+8801700000003',
+        externalContactId: '15550007103',
       },
       occurredAt: observationAt,
     });
