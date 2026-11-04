@@ -461,6 +461,11 @@ export async function configureRuntimeGrants(
       ...groups.recovery,
       'conversation_retention_states',
     ]);
+    await grant('admin', 'select(id,channel_identity_id)', ['conversations']);
+    await grant('admin', 'select(id,contact_id,external_contact_id)', ['channel_identities']);
+    await grant('admin', 'select(id,contact_id)', ['webhook_events']);
+    await grant('admin', 'select(contact_id,state)', ['privacy_requests']);
+    await grant('admin', 'select(reason_code,state)', ['support_escalation_outcomes']);
     await write('admin', [
       ...groups.knowledge,
       ...groups.admin,
