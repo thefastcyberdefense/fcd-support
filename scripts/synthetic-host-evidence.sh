@@ -19,18 +19,22 @@ synthetic_host_health_ack_diagnostic() {
 
 synthetic_host_promotion_cmd_diagnostic() {
   local caller_status=$?
-  local status="${1-}" result="${2-}" category=''
+  local status="${1-}" result="${2-}" expected="${3-}" category=''
   local -a saved_rematch=()
   if [[ -v BASH_REMATCH ]]; then
     saved_rematch=("${BASH_REMATCH[@]}")
   fi
 
-  if [[ -z "$status" || "$status" == *[!0-9]* || ( "$status" != 0 && "$status" == 0* ) || "$status" -lt 0 || "$status" -gt 255 ]]; then
+  if [[ ! "$status" =~ ^([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$ ]]; then
     category="unobserved"
   elif [[ "$status" -eq 0 ]]; then
-    category="canonical_success"
-  elif [[ "$status" -eq 125 || "$status" -eq 126 || "$status" -eq 127 ]]; then
-    category="unavailable_transport:$status"
+    if [[ -z "$result" ]]; then
+      category="empty_output:0"
+    elif [[ -n "$expected" && "$result" == "$expected" ]]; then
+      category="canonical_success"
+    else
+      category="unallowlisted_output:0"
+    fi
   elif [[ "$result" == runtime_host_diagnostic=* ]]; then
     local allowlisted
     allowlisted="$(synthetic_host_runtime_diagnostic "$result")"
@@ -67,14 +71,14 @@ synthetic_host_runtime_diagnostic() {
       printf '%s\n' "$code" ;;
     synthetic_promotion_cmd_diagnostic=empty_output:*|synthetic_promotion_cmd_diagnostic=unallowlisted_output:*|synthetic_promotion_cmd_diagnostic=unavailable_transport:*|synthetic_promotion_cmd_diagnostic=nonzero_execution:*)
       local status_val="${code#*:}"
-      if [[ -n "$status_val" && "$status_val" != *[!0-9]* && ( "$status_val" == 0 || "$status_val" != 0* ) && "$status_val" -ge 0 && "$status_val" -le 255 ]]; then
+      if [[ "$status_val" =~ ^([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$ ]]; then
         printf '%s\n' "$code"
       fi ;;
     runtime_host_diagnostic=arguments|runtime_host_diagnostic=input|runtime_host_diagnostic=validation|runtime_host_diagnostic=revision|runtime_host_diagnostic=ingress|runtime_host_diagnostic=compose|runtime_host_diagnostic=paths|runtime_host_diagnostic=samples|runtime_host_diagnostic=volume_identity|runtime_host_diagnostic=topology|runtime_host_diagnostic=images|runtime_host_diagnostic=volume|runtime_host_diagnostic=network_set|runtime_host_diagnostic=network_labels|runtime_host_diagnostic=network_members|runtime_host_diagnostic=container_policy|runtime_host_diagnostic=container_networks|runtime_host_diagnostic=tmpfs|runtime_host_diagnostic=mounts|runtime_host_diagnostic=binds|runtime_host_diagnostic=protected_binds|runtime_host_diagnostic=socket_users|runtime_host_diagnostic=stability)
       printf '%s\n' "$code" ;;
     runtime_host_diagnostic=samples.*|runtime_host_diagnostic=volume_identity.*)
       case "${code#*.}" in
-        id|project|service|revision|imageId|running|paused|restarting|dead|healthy|startedAt|restartCount|readOnlyRootfs|privileged|init|user|networkMode|networks|hostPortBindings|publishedPortBindings|publishAllPorts|pidMode|ipcMode|utsMode|capAdd|capDrop|securityOpt|devices|deviceRequests|groupAdd|volumesFrom|extraHosts|sysctls|nanoCpus|memory|pidsLimit|stopTimeout|restartPolicy|tmpfs|command|entrypoint|environmentNames|executionFlags|mounts|type|name|source|destination|readWrite|propagation|images|containers|volume|socket|hostBinds|driver|scope|options|logicalName|createdAt|mountpoint|users|os|architecture|before|after|probes|postgresSql|apiHttp|adminSocket|adminNoTcp|replyHeartbeat|internal|members|containerId|canonicalSource|device|inode|uid|gid|mode|rootDevice|rootInode|rootUid|rootGid|rootMode)
+        id|systemIdentifier|project|projectActors|service|revision|imageId|reference|running|paused|restarting|dead|healthy|startedAt|restartCount|readOnlyRootfs|privileged|init|user|networkMode|networks|hostPortBindings|publishedPortBindings|publishAllPorts|pidMode|ipcMode|utsMode|capAdd|capDrop|securityOpt|devices|deviceRequests|groupAdd|volumesFrom|extraHosts|sysctls|nanoCpus|memory|pidsLimit|stopTimeout|restartPolicy|tmpfs|command|entrypoint|environmentNames|executionFlags|mounts|type|name|source|destination|readWrite|propagation|images|containers|volume|socket|hostBinds|driver|scope|options|logicalName|createdAt|mountpoint|users|os|architecture|before|after|probes|postgresSql|apiHttp|adminSocket|adminNoTcp|replyHeartbeat|internal|members|containerId|canonicalSource|device|inode|uid|gid|mode|rootDevice|rootInode|rootUid|rootGid|rootMode|stability|target)
           printf '%s\n' "$code" ;;
       esac ;;
   esac
