@@ -168,7 +168,7 @@ if [[ "$ci_mode" == true ]]; then
   stage=health
   health_invocations="${TASK_HEALTH_STRESS:-1}"
   [[ "$health_invocations" =~ ^([1-9]|10)$ ]] || { printf 'synthetic_host_health_stress_invalid\n' >&2; exit 1; }
-  pg_id="$(docker ps -q --filter "label=com.docker.compose.project=$project" --filter "label=com.docker.compose.service=postgres")"
+  pg_id="$(docker ps --all --quiet --no-trunc --filter "label=com.docker.compose.project=$project" --filter "label=com.docker.compose.service=postgres")"
   [[ "$pg_id" =~ ^[a-f0-9]{64}$ ]] || synthetic_host_stage_failed
   db_name="$(sed -n 's/^FCD_POSTGRES_DB=//p' "$fixture/config/operations.env")"
   db_schema="$(sed -n 's/^FCD_DATABASE_SCHEMA=//p' "$fixture/config/operations.env")"

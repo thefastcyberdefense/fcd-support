@@ -91,10 +91,11 @@ docker() {
   run*) printf backup_${ref} ;;
   'container inspect') trace cleanup-guard; return 1 ;;
   'volume inspect') [[ "$TASK_FAULT" != cleanup ]] || [[ "$stage" != cleanup ]] ;;
-  exec*) : ;;
+  exec*) printf '%s\n' "$(( \${health_idx:-0} ))" ;;
   'rm --force') trace cleanup-peer ;;
   compose*) trace invalid-compose; return 1 ;;
   'volume ls'|'network ls'|'ps -aq') : ;;
+  'ps --all'*|'ps -q'*) if [[ "$*" == *"service=postgres"* ]]; then printf '%s\n' "${ref}${ref}"; fi ;;
   rmi*) trace cleanup-image ;;
   *) return 92 ;;
  esac
