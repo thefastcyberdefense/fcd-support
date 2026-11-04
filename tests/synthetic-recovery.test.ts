@@ -100,7 +100,7 @@ docker() {
   run*) printf backup_${ref} ;;
   'container inspect') trace cleanup-guard; return 1 ;;
   'volume inspect') [[ "$TASK_FAULT" != cleanup ]] || [[ "$stage" != cleanup ]] ;;
-  exec*) [[ "$TASK_FAULT" != health-no-persistence ]] || { printf 0; return; }; printf '%s\n' "$(( \${health_idx:-0} ))" ;;
+  exec*) [[ "$TASK_FAULT" != health-unavailable-row || "$*" != *"state='healthy'"* ]] || { printf 0; return; }; [[ "$TASK_FAULT" != health-no-persistence ]] || { printf 0; return; }; printf '%s\n' "$(( \${health_idx:-0} ))" ;;
   'rm --force') trace cleanup-peer ;;
   compose*) trace invalid-compose; return 1 ;;
   'ps -aq')
@@ -216,6 +216,7 @@ test.each([
   ['health-leftover-before', 0],
   ['health-leftover-after', 2],
   ['health-no-persistence', 1],
+  ['health-unavailable-row', 1],
 ] as const)(
   'actual stress harness refuses %s before any later invocation',
   async (fault, calls) => {

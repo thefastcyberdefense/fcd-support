@@ -172,7 +172,7 @@ if [[ "$ci_mode" == true ]]; then
   [[ "$pg_id" =~ ^[a-f0-9]{64}$ ]] || synthetic_host_stage_failed
   db_name="$(sed -n 's/^FCD_POSTGRES_DB=//p' "$fixture/config/operations.env")"
   db_schema="$(sed -n 's/^FCD_DATABASE_SCHEMA=//p' "$fixture/config/operations.env")"
-  health_count_initial="$(docker exec "$pg_id" psql -U postgres -d "$db_name" -Atc "select count(*) from $db_schema.operations_health_checks where component='postgres'")"
+  health_count_initial="$(docker exec "$pg_id" psql -U postgres -d "$db_name" -Atc "select count(*) from $db_schema.operations_health_checks where component='postgres' and state='healthy'")"
   [[ "$health_count_initial" =~ ^[0-9]+$ ]] || synthetic_host_stage_failed
   for (( health_idx=1; health_idx<=health_invocations; health_idx++ )); do
     stage="health-$health_idx"
@@ -183,7 +183,7 @@ if [[ "$ci_mode" == true ]]; then
     [[ ! -e "$fixture/state/active-job" && ! -L "$fixture/state/active-job" ]] || synthetic_host_stage_failed
     job_actors="$(docker ps -aq --filter "label=fcd-support.operation.service=health" --filter "label=fcd-support.operation.parent=$project")"
     [[ -z "$job_actors" ]] || synthetic_host_stage_failed
-    health_count_current="$(docker exec "$pg_id" psql -U postgres -d "$db_name" -Atc "select count(*) from $db_schema.operations_health_checks where component='postgres'")"
+    health_count_current="$(docker exec "$pg_id" psql -U postgres -d "$db_name" -Atc "select count(*) from $db_schema.operations_health_checks where component='postgres' and state='healthy'")"
     (( health_count_current == health_count_initial + health_idx )) || synthetic_host_stage_failed
     grep -qx 'STATE_PHASE=ready' "$fixture/state/deployment-state"
     printf 'synthetic_host_health_iteration=%s\n' "$health_idx"

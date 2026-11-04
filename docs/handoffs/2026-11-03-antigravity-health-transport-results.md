@@ -23,13 +23,13 @@ held-open streams; it does not claim multiple frames on one persistent stream.
 
 Actor checks select exact operation parent and health-service labels before
 and after every invocation, including the final iteration. Each positive
-iteration must increment the PostgreSQL component health-record count by one;
+iteration must increment the healthy PostgreSQL component health-record count by one;
 accepted dependency-unavailable outcomes cannot stand in for persistence proof.
 
 The source-extracted orchestration tests in synthetic-recovery.test.ts exercise
 the actual stress loop. They prove that an uncertain second invocation retains
 its record and prevents all later invocations/checkpoint/recovery, owned actors
-before/after a call cause refusal, and absent persistence causes refusal. The
+before/after a call cause refusal, and absent persistence or a persisted unavailable observation causes refusal. The unavailable-row regression failed before the healthy-state predicate and passed afterward. The
 ten-iteration positive control reaches the fixture's intentional checkpoint
 refusal; it does not claim a successful full recovery from that test.
 
