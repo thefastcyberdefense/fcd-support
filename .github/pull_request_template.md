@@ -1,13 +1,13 @@
 ## Summary
 
 - What changed and why?
-- Which approved story/plan/tracker row does this implement? (Ralph/GSD reference)
+- Which approved plan/tracker/handoff reference does this implement?
 
 ## Scope and Publication Safety
 
 - [ ] No production WhatsApp number, token, customer data, or private support content changed.
-- [ ] Public content is from approved/published knowledge records only.
-- [ ] Draft/rejected/retired/admin/webhook data cannot enter public output.
+- [ ] Webhook-only public exposure (`GET /webhooks/meta` and `POST /webhooks/meta`) and private admin/health/database/Manifest/n8n boundaries are preserved.
+- [ ] Approved FAQ precedence and tool-free Manifest `fcd-support` fallback (`model: "auto"`) are preserved; draft/rejected/retired/admin/webhook data cannot enter customer replies.
 
 ## Validation
 
@@ -23,14 +23,13 @@ Commands run (paste exact commands and outcomes):
 
 ## Evidence
 
-- Phase/story/tracker links:
-- Screenshots or Playwright artifact:
-- SEO URL/header/JSON-LD output:
-- Runtime or migration evidence:
+- Phase/tracker/handoff links:
+- Test or CI run evidence:
+- UI/SEO or runtime/migration evidence (if applicable):
 
 ## Security, SEO and Accessibility Impact
 
 - Threat-model/retention/consent impact:
-- Canonical/hreflang/schema/sitemap/robots impact:
-- WCAG 2.2 AA and keyboard/touch impact:
+- Crawler isolation or public-exposure impact (if applicable):
+- Admin UI/accessibility impact (if applicable):
 - Rollback plan:

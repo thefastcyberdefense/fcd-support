@@ -1,4 +1,4 @@
-name: agy SEO and identity gate
+name: agy SEO and crawler header source-text scaffold
 
 on:
   pull_request:
@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  seo-identity:
+  seo-identity-scaffold:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
@@ -35,5 +35,5 @@ jobs:
           cache: npm
       - name: Install locked dependencies
         run: npm ci --ignore-scripts
-      - name: Verify SEO, structured data, and crawler noindex contract
+      - name: Run source-text crawler noindex contract scaffold (strict=false by default; not live route/SEO verification)
         run: node scripts/verify-seo-contract.ts

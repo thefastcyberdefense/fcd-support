@@ -1,4 +1,4 @@
-name: agy UI UX responsive and WCAG gate
+name: agy UI UX source-text contract scaffold
 
 on:
   pull_request:
@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ui-ux-a11y:
+  ui-ux-a11y-scaffold:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
@@ -34,5 +34,5 @@ jobs:
           cache: npm
       - name: Install locked dependencies
         run: npm ci --ignore-scripts
-      - name: Verify responsive CSS, touch target, and WCAG 2.2 AA template contract
+      - name: Run source-text UI and accessibility contract scaffold (strict=false by default; not browser/axe verification)
         run: node scripts/verify-ui-ux-contract.ts

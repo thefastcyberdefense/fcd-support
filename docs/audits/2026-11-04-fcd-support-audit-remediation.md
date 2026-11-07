@@ -1,63 +1,57 @@
 # Fast Cyber Defense Support (`fcd-support`) - Technical Audit & Remediation Plan
 
-**Audited revision:** [`443d05b94dcffcafa17dea98fe6b6443fb5d8006`](https://github.com/thefastcyberdefense/fcd-support/commit/443d05b94dcffcafa17dea98fe6b6443fb5d8006)  
-**Status:** **NO-GO for production and Phase 7 live execution until the current blockers are closed.**
+- **Audited Revision (`main`):** [`16678546ec9ae6305ba750016da5b1ba604cf9ac`](https://github.com/thefastcyberdefense/fcd-support/commit/16678546ec9ae6305ba750016da5b1ba604cf9ac) (reconciled from `443d05b94dcffcafa17dea98fe6b6443fb5d8006`)
+- **Status:** **NO-GO for production and Phase 7 live execution until operational holds (`FCD-P6-001`..`FCD-P6-003`) and Phase 7/8 gates are closed.**
 
-## Executive findings
+## Executive Findings
 
-The local implementation has strong defensive foundations, but production readiness is blocked by the boundary between source evidence and live state:
+`fcd-support` already implements comprehensive source-level safety controls across webhook verification, PostgreSQL persistence, privacy/consent workflows, outbound `delivery_unknown` handling, `AbortSignal` cancellation, and hardened container contracts. Production readiness is currently gated by operational holds and live test-asset verification:
 
-1. The current uncertain scheduled-health journal remains open and correctly blocks scheduled operations.
-2. The deployed runtime is behind accepted dashboard grant corrections; authenticated dashboard re-test is pending.
-3. PR #10's promotion observer bounds diagnostics but does not identify the validator/container root cause.
-4. Phase 7 AC-01 through AC-36 remain readiness mappings, not current live acceptance evidence.
-5. Phase 8 lacks the signed decision, legal/privacy wording approval, token rotation proof, WhatsApp coexistence result, and n8n/on-call ownership evidence.
+1. **Open scheduled-health journal (`FCD-P6-001`):** The server's uncertain scheduled-health journal remains preserved and intentionally blocks scheduled operations until owner/Codex disposition.
+2. **Deployed dashboard grant drift (`FCD-P6-002`):** Least-privilege dashboard grants and PostgreSQL RBAC tests landed on `main` in PR #9 (`3685ae0` / `a14551d`), but server rollout awaits settlement of `FCD-P6-001`.
+3. **Precreated-lane promotion refusal (`FCD-P6-003`):** On PR #10 (`c8304a20aea6bdd8272b3279050cb3814cab4cca`), the corrected observer passed `140` focused tests (`0` skips), and runtime run `41860854083` passed both fresh lanes (`126681905506`, `126681906273`) plus all 10 precreated health iterations, but both precreated lanes (`126681906053`, `126681906432`) refused at promotion with `runtime_host_diagnostic=samples.stability` and `synthetic_promotion_cmd_diagnostic=allowlisted_diagnostic`. In `src/operations/promotion-host.ts`, `samples.stability` covers source initial/terminal, target initial/terminal, and whole before/after comparisons; the token alone does not identify which comparison or field differed or prove the historical root cause.
+4. **Phase 7 live acceptance (`AC-01`..`AC-36`):** PR #11 (`a14551d`) completed the readiness map (`docs/phase7-acceptance-evidence.md`), which is a pre-execution readiness artifact, not live Meta/Manifest/tunnel acceptance proof.
+5. **Phase 8 governance sign-off:** Signed `GO TO SEPARATE PRODUCTION PLAN` / `NO-GO`, legal/privacy/safe-harbor provenance, token rotation proof, WhatsApp coexistence verification, and n8n/on-call ownership remain open.
 
-## Priority remediation findings
+## Priority Operational & Phase Gate Findings
 
-### FCD-P6-001 - Critical - Held uncertain health job
+### `FCD-P6-001` — Critical — Held uncertain scheduled-health job (External Operational Hold — Codex/Owner Scope)
 
-Preserve the exact state file, journal, database and inventory. Do not clear, retry, infer SQL outcome, or use broad cleanup. Perform a separately approved read-only diagnosis, establish actor ownership and database postconditions, then record an append-only terminal disposition before any new scheduled run.
+Preserve the exact server state file, journal, database, and inventory. Do not clear, retry, infer SQL outcome, or run broad cleanup. Perform a separately approved read-only diagnosis, establish actor ownership and database postconditions, and record an append-only terminal disposition before any new scheduled run.
 
-### FCD-P6-002 - High - Dashboard grant correction not deployed
+### `FCD-P6-002` — High — Dashboard grant correction awaiting server deployment (Operational Hold)
 
-Deploy the accepted least-privilege grant correction only after the held state is safely settled. Re-run empty/populated/privacy-held/revoked-role dashboard tests and the authenticated seven-route smoke matrix without broadening privileges.
+Source-level least-privilege grants (`fcd_support_dashboard_read`) and 66 PostgreSQL integration tests are merged on `main` (PR #9). Deploy the reviewed source only after `FCD-P6-001` is settled, then re-verify the authenticated seven-route smoke matrix.
 
-### FCD-P6-003 - High - Promotion boundary unresolved
+### `FCD-P6-003` — High — Precreated-lane promotion `samples.stability` refusal (Open — Codex Scope)
 
-Keep PR #10 draft. Preserve failed run IDs, retain only bounded closed-v1 diagnostics, reproduce fresh/precreated lanes, and resolve the container/validator failure separately from acknowledgement logic.
+Keep PR #10 in draft. Preserve failed run IDs (`41860854083`, jobs `126681906053` and `126681906432`) and closed-v1 diagnostic tokens (`runtime_host_diagnostic=samples.stability`). Do not weaken stability checks or retry until green; Codex retains the promotion stability investigation.
 
-### FCD-P6-004/FCD-P6-005 - High - Timer and reboot evidence
+### `FCD-P6-004` / `FCD-P6-005` — High — Live systemd timer and full-host reboot evidence (Phase 6/7 Gate)
 
-Verify rendered systemd units, ownership, modes, hashes and `Persistent=true` replay behavior. Add an approved full-host reboot/recovery runbook; container restart is not host outage evidence.
+Source templates and native lifecycle tests exist (`tests/native-operations-lifecycle.test.ts`), but live host timer verification and full-host reboot recovery remain required before production sign-off.
 
-### FCD-P6-006/FCD-P6-007 - High - Enabled topology and secret mounts
+### `FCD-P6-006` / `FCD-P6-007` — High — Disabled-mode topology vs. enabled-profile host verification
 
-Make runtime role validation mode-aware. When outbound execution is false, there must be no outbound container, provider egress network, or Meta secret mounts. When enabled, require exact worker, secret and network evidence.
+- **Implemented control:** `src/operations/compose-contract.ts:124-141`, `infra/compose.runtime.yml`, and `infra/compose.model.yml` gate `fcd-support-outbound`, `fcd-support-notification`, and `model` behind opt-in profiles (`outbound-execution`, `notification-execution`, `model-execution`). `src/operations/runtime-host.ts:21-26,90-105` enforces that the disabled-execution baseline has only the 4 active roles (`postgres`, `fcd-support-api`, `fcd-support-admin`, `fcd-support-reply`) on `internal: true` networks with zero outbound/notification/Manifest secret mounts.
+- **Residual Phase 7 gate:** When opt-in execution profiles are enabled during Phase 7 live testing, mode-aware host inspection must verify the enabled worker containers, egress networks, and scoped secret mounts.
 
-### FCD-P6-008 - High - Manifest safeguards unverified
+### `FCD-P6-008` / `FCD-P6-009` / `FCD-P6-010` — High/Critical — Manifest safeguards and Phase 7/8 execution
 
-Keep model execution disabled until recording-off, deletion/retention, provider allowlist, deployment ceilings and private-route attestations are independently verified.
+Keep model execution disabled until Manifest `fcd-support` (`model: "auto"`) recording-off, retention, provider allowlist, and private-route attestations are verified on non-production assets (`AC-01`..`AC-36`), followed by a signed Phase 8 decision.
 
-### FCD-P6-009/FCD-P6-010 - High/Critical - Phase 7/8 incomplete
+## Reconciled Source-Level Controls vs. Narrow Residual Backlog
 
-Execute the AC-01..AC-36 matrix only on approved non-production Meta/Manifest assets. Then create a signed Phase 8 GO/NO-GO record. A green local suite is not live readiness.
+Per `docs/reviews/2026-11-07-agy-update-disposition.md`, the following source areas are reclassified with exact file, line, and test citations so implemented controls are not misrepresented as missing features:
 
-## Source-level remediation backlog
+| Topic                                   | Implemented Controls in `main` (Verified Citations)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Narrow Residual Gap / Enhancement Proposal                                                                                                                                                                                                                                                                                                                                                            |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Outbound `delivery_unknown` persistence | Implemented: `src/outbound/meta-outbound-client.ts:226` classifies post-request failures as `delivery_unknown`; `src/outbound/outbound-worker.ts:114,261` and `src/persistence/postgres-outbound-work-store.ts:634-642,736,1305-1315` (`src/persistence/postgres-outbound-privacy.ts:79-98`) persist `delivery_unknown` and escalate without blind retries. Tested in `tests/meta-outbound-client.test.ts:349-402`, `tests/outbound-worker.test.ts:401-423`, and `tests/integration/postgres-outbound-work-store.test.ts:254-273,547-552`. | **Narrow notification residual:** `src/notifications/notification-worker.ts:114-121` maps transport failures from `src/notifications/n8n-client.ts:238-259` to `{ status: 'retryable', reasonCode: 'transport_failure' }` relying on idempotent `workRef` claims rather than a separate `delivery_unknown` state.                                                                                     |
+| `AbortSignal` & timeout propagation     | Implemented: `AbortSignal` is threaded through `src/outbound/meta-outbound-client.ts:30`, `src/outbound/outbound-worker.ts:21,60,150,193`, `src/notifications/n8n-client.ts:41,187,240`, `src/notifications/notification-worker.ts:60,73`, `src/model/manifest-client.ts:29`, `src/operations/health-collector.ts:81-96`, `src/operations/worker-loop.ts:5`, and `src/operations/reply-pipeline.ts:28`.                                                                                                                                    | **Narrow residual:** `src/operations/health-collector.ts:63-69,161-185` creates an `AbortController` in `boundedHealthCall`, but `database.read`, `outage.read/write`, and `store.recordHealth` port signatures do not yet accept that `AbortSignal`. `src/operations/worker-loop.ts:78-98` aborts on shutdown timeout but resolves `Promise<void>` without a distinct drain-vs-timeout return union. |
+| Admin origin, cookie, CSP & CSRF safety | Implemented: `src/admin/admin-config.ts:186-202` enforces fail-closed loopback/Unix-socket origin checks (`127.0.0.1` / `[::1]`, port match, `http:` protocol, and rejects `secureCookie=true` on loopback HTTP). `src/admin/admin-app.ts:189-238` sets `SameSite=Strict`, `HttpOnly` cookies, per-response CSP nonces, `Cache-Control: no-store`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, exact `Origin` checks, and signed CSRF/action tokens.                                                                       | **Enhancement proposal:** Application-level per-account/per-IP login and MFA attempt rate limiting on `/admin/login` and `/admin/mfa` is a defense-in-depth enhancement, not a missing origin/cookie control.                                                                                                                                                                                         |
+| Backup, restore & promotion handshake   | Implemented: `src/operations/backup.ts`, `src/operations/restore.ts:116,220-262,428`, and `src/operations/promotion-handshake.ts:79` enforce age-encrypted backup verification, isolated restore, unexpired deletion tombstone replay, and two-challenge promotion quiesce handshakes.                                                                                                                                                                                                                                                     | **Open operational diagnosis:** Precreated CI lanes refuse at `samples.stability` during promotion (`FCD-P6-003`).                                                                                                                                                                                                                                                                                    |
 
-- Thread `AbortSignal` through health, readiness, PostgreSQL and worker operations; timeouts must cancel or classify side effects as uncertain.
-- Make non-cooperative worker shutdown return `drained`, `aborted`, or `uncertain`, and reconcile leases before termination.
-- Persist `delivery_unknown` for outbound and notification failures after dispatch; never blind-retry ambiguous sends.
-- Add login/MFA throttling and fail-closed production cookie/origin checks.
-- Add application-level request timeouts, bounded receipt concurrency, and a documented edge rate policy for Meta retries.
-- Add exact runtime grant preflight and make default `npm test` clearly distinguish unit-only from integration/native gates.
-- Add backup provenance/allowlist controls before promotion of restored state.
-- Add a current-status block to tracker/evidence docs so historical passes cannot be mistaken for present readiness.
+## Verification & ClickUp Boundary
 
-## Phase 7 and Phase 8 acceptance gap
-
-The detailed acceptance matrix must individually prove device delivery, signature rejection, deduplication, stale events, bilingual human scoring, takeover, consent/opt-out, deletion, restore, tunnel isolation, container hardening, Manifest safeguards, outbound ambiguity, rate limits, restart recovery, API support window/token rotation, coexistence eligibility, access requests, correction handling, race conditions and migration cycles.
-
-## Verification boundary
-
-No SSH, shared-server Docker/systemd, Cloudflare, Meta, Manifest, n8n, provider, or production action was executed for this report. Use the repository's approved runbooks and preserve all uncertain evidence.
+- No SSH, shared-server Docker/systemd, Cloudflare, Meta, Manifest, n8n, provider, or production action was executed for this report.
+- **ClickUp evidence unavailable:** No FCD Support ClickUp task/document IDs or URLs were inspected or verified; remote story approval cannot be established from repository or connected-workspace searches.

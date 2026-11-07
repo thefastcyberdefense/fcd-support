@@ -2,15 +2,30 @@
 
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
-interface UiContractFinding {
+export interface UiContractFinding {
   readonly code: string;
   readonly message: string;
 }
 
-async function main(): Promise<void> {
-  const repositoryRoot = process.cwd();
-  const strictMode = process.env.AGY_STRICT_UI_GATE === 'true';
+export interface UiContractAuditOptions {
+  readonly repositoryRoot?: string;
+  readonly strictMode?: boolean;
+}
+
+export interface UiContractAuditResult {
+  readonly ok: boolean;
+  readonly strictMode: boolean;
+  readonly findings: readonly UiContractFinding[];
+  readonly summary: string;
+}
+
+export async function auditUiUxContract(
+  options: UiContractAuditOptions = {},
+): Promise<UiContractAuditResult> {
+  const repositoryRoot = resolve(options.repositoryRoot ?? process.cwd());
+  const strictMode = options.strictMode ?? process.env.AGY_STRICT_UI_GATE === 'true';
   const adminHtml = await readFile(
     resolve(repositoryRoot, 'src', 'admin', 'admin-html.ts'),
     'utf8',
@@ -60,20 +75,34 @@ async function main(): Promise<void> {
     });
   }
 
-  for (const finding of findings) {
+  const count = String(findings.length);
+  const ok = !strictMode || findings.length === 0;
+  const summary = ok
+    ? `UI/UX source-text contract scaffold completed (${count} open item(s); strict=${String(strictMode)}; source-text check only — does not verify rendered WCAG, viewport overflow, or browser axe compliance).`
+    : `UI/UX source-text contract scaffold failed with ${count} finding(s) in strict mode (source-text check only — does not verify rendered WCAG or viewports).`;
+
+  return {
+    ok,
+    strictMode,
+    findings,
+    summary,
+  };
+}
+
+async function main(): Promise<void> {
+  const result = await auditUiUxContract();
+  for (const finding of result.findings) {
     process.stdout.write(`[${finding.code}] ${finding.message}\n`);
   }
-
-  const count = String(findings.length);
-  if (strictMode && findings.length > 0) {
-    process.stderr.write(`UI/UX contract failed with ${count} finding(s) in strict mode.\n`);
+  if (!result.ok) {
+    process.stderr.write(`${result.summary}\n`);
     process.exitCode = 1;
     return;
   }
-
-  process.stdout.write(
-    `UI/UX contract audit completed (${count} open item(s); strict=${String(strictMode)}).\n`,
-  );
+  process.stdout.write(`${result.summary}\n`);
 }
 
-await main();
+const invokedPath = process.argv[1];
+if (invokedPath !== undefined && import.meta.url === pathToFileURL(resolve(invokedPath)).href) {
+  await main();
+}

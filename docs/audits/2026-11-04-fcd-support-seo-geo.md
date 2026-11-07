@@ -1,30 +1,25 @@
-# Fast Cyber Defense Support (`fcd-support`) - SEO, GEO and Search Discoverability
+# Fast Cyber Defense Support (`fcd-support`) - SEO, GEO and Crawler Isolation
 
-## Current verdict
+- **Scope & Enforcement Status:** Per `AGENTS.md`, `fcd-support` exposes **only** `GET /webhooks/meta` and `POST /webhooks/meta` publicly through Cloudflare Tunnel, while keeping admin, health, database, Manifest, and n8n interfaces private. In PR #13, `scripts/verify-seo-contract.ts` and `.github/workflows/agy-seo-and-identity-gate.yml` run as **non-blocking source-text scaffolds (`AGY_STRICT_SEO_GATE=false`)** that inspect header strings in `src/app.ts` and `src/admin/admin-app.ts` and do **not** verify live HTTP routes, rendered metadata, or a public website.
 
-The current application is webhook-only: `src/app.ts` serves only `GET/POST /webhooks/meta` and returns plaintext 404 for `/`, `/robots.txt`, `/sitemap.xml`, `/llms.txt`, and `/.well-known/security.txt`. Googlebot, Bingbot and AI search systems therefore have no crawlable Support & Trust Center content.
+## Current Verdict & Approved Exposure Boundary
 
-Do not make webhooks or admin routes indexable. Keep them privately routed and add `X-Robots-Tag: noindex, nofollow, noarchive, nosnippet` and `Cache-Control: no-store` as defense in depth.
+`src/app.ts` intentionally serves only `GET /webhooks/meta` and `POST /webhooks/meta` and returns `404` for all other paths (`/`, `/robots.txt`, `/sitemap.xml`, `/llms.txt`, `/.well-known/security.txt`). This is the **approved security architecture** under `AGENTS.md`, not an accidental regression.
 
-## Recommended topology
+1. **Keep webhook and admin interfaces non-indexable:** Webhooks (`src/app.ts`) and the private admin console (`src/admin/admin-app.ts`) must never be indexed by search engines or AI crawlers. Adding `X-Robots-Tag: noindex, nofollow, noarchive, nosnippet` alongside existing `Cache-Control: no-store` headers on admin responses (`src/admin/admin-app.ts:226`) is a low-risk defense-in-depth hardening item.
+2. **Preserve model fallback & knowledge rules:** Customer support replies on WhatsApp follow the approved reply pipeline (`src/operations/reply-pipeline.ts`): approved FAQ and business facts take precedence over generation, and when needed, the dedicated Manifest Harness `fcd-support` (`model: "auto"`, tool-free, with sensitive-data redaction) provides bounded generation and provider fallback.
 
-- Public `support.fastcyberdefense.com` or `/support`: separate read-only renderer.
-- Private admin Unix-socket service.
-- Webhook origin exposing only Meta verification/event paths.
-- Public renderer reads only approved, current, published knowledge records.
+## Proposed Public Support & Trust Center SEO Contract (Unapproved Proposal — `US-105`)
 
-## Required public SEO contract
+If and only if the project owner separately approves a public Support & Trust Center in the future, it must be deployed as a **separate read-only public service** (`support.fastcyberdefense.com`) rather than weakening the webhook-only boundary of `src/app.ts`. Under such a future approved design, the proposed public SEO contract would include:
 
-- Unique title and 120-160 character description.
-- Self-referential canonical per locale.
-- Reciprocal `hreflang="en"`, `hreflang="bn-BD"`, `hreflang="x-default"`.
-- OpenGraph and Twitter/X metadata with deterministic 1200x630 images.
-- JSON-LD graph for `Organization`, `ProfessionalService`, `ContactPoint`, `WebSite`, `SearchAction`, `FAQPage`, and `BreadcrumbList`.
-- `robots.txt`, dynamic `sitemap.xml`, `manifest.webmanifest`, RFC 9116 `/.well-known/security.txt`.
-- Bing Webmaster verification and IndexNow notification on approved FAQ publication/replacement/retirement.
-- Public, approved-only `/llms.txt` and `/llms-full.txt`; never publish customer transcripts or private provenance.
-- Lighthouse targets: performance >=90, SEO >=95, accessibility >=95; LCP <=2.5s, INP <=200ms, CLS <=0.1.
+- Unique locale titles and 120–160 character meta descriptions.
+- Self-referential canonical URLs and reciprocal `hreflang="en"`, `hreflang="bn-BD"`, and `hreflang="x-default"` alternates.
+- OpenGraph and Twitter/X metadata with deterministic social preview images.
+- Validated JSON-LD (`Organization`, `ContactPoint`, `WebSite`, `FAQPage`, `BreadcrumbList`) derived strictly from owner-approved facts and published FAQ records.
+- Public `robots.txt`, `sitemap.xml`, and owner-approved RFC 9116 `/.well-known/security.txt` (only after disclosure mailbox and safe-harbor provenance are approved).
+- Approved-only public `/llms.txt` projections; never expose customer transcripts, drafts, rejected/retired knowledge, or internal provenance.
 
-## Search architecture rule
+## Search Architecture Rule
 
-Do not add a fabricated SEO page to the webhook service just to make CI green. Build a separate public content service or explicitly routed public surface, then enable strict SEO gates after the actual resources exist.
+Never add a fabricated landing page to `src/app.ts` or expose admin/health routes publicly just to turn an SEO check green. Keep `AGY_STRICT_SEO_GATE=false` unless a separate public surface is formally approved and implemented.

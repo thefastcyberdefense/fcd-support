@@ -6,10 +6,10 @@ Fast Cyber Defense treats the security of our customer-support automation, webho
 
 Only the current tracked `main` branch and explicitly attested deployment revisions are supported.
 
-| Version / Branch | Supported | Notes |
-| --- | --- | --- |
-| `main` (`0.1.x`) | Yes | Active hardened development and Phase 6/7 verification |
-| Older unpromoted branches | No | Historical evidence only |
+| Version / Branch          | Supported | Notes                                                  |
+| ------------------------- | --------- | ------------------------------------------------------ |
+| `main` (`0.1.x`)          | Yes       | Active hardened development and Phase 6/7 verification |
+| Older unpromoted branches | No        | Historical evidence only; not deployed or patched      |
 
 ## Security & Trust Boundaries
 
@@ -19,9 +19,7 @@ Only the current tracked `main` branch and explicitly attested deployment revisi
 
 ## Reporting a Vulnerability
 
-Please do not report security vulnerabilities through public GitHub issues or pull requests.
+Please do not report security vulnerabilities through public GitHub issues, discussions, or pull requests.
 
-- **Email:** `security@fastcyberdefense.com` (or `info@fastcyberdefense.com`)
-- **Website:** <https://fastcyberdefense.com>
-- **Expected Acknowledgement:** Within 24 hours for critical issues; initial triage within 48 hours.
-- **Safe Harbor:** Good-faith security research conducted without privacy violations, service disruption, or social engineering is authorized under our coordinated disclosure policy.
+- **Current Reporting Channel:** Use GitHub Private Vulnerability Reporting on `thefastcyberdefense/fcd-support` or contact the repository owner (`@redwan-cse`) directly through a private channel.
+- **Proposed Disclosure Mailbox, SLAs & Safe Harbor (Pending Owner/Legal Approval):** Dedicated mailbox addresses (such as `security@fastcyberdefense.com` or `info@fastcyberdefense.com`), fixed acknowledgement/triage response-time targets (such as 24-hour acknowledgement / 48-hour triage), and formal safe-harbor legal language are **proposals pending business-owner and legal provenance approval** in Phase 8 and are not published as active binding commitments until approved.
