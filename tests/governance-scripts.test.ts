@@ -1,4 +1,3 @@
-import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -26,10 +25,11 @@ afterEach(async () => {
   }
 });
 
-async function createSyntheticGitRepo(files: Readonly<Record<string, string>>): Promise<string> {
+async function createSyntheticRepo(files: Readonly<Record<string, string>>): Promise<{
+  readonly root: string;
+  readonly candidateFiles: readonly string[];
+}> {
   const root = await makeTempDir('fcd-gov-scan-');
-  execFileSync('git', ['-c', 'core.autocrlf=false', 'init', '-q'], { cwd: root });
-  execFileSync('git', ['config', 'core.autocrlf', 'false'], { cwd: root });
 
   const defaults: Record<string, string> = {
     'SECURITY.md':
@@ -47,20 +47,22 @@ async function createSyntheticGitRepo(files: Readonly<Record<string, string>>): 
     await writeFile(fullPath, content, 'utf8');
   }
 
-  execFileSync('git', ['add', '.'], { cwd: root });
-  return root;
+  return {
+    root,
+    candidateFiles: Object.keys(merged),
+  };
 }
 
 describe('verify-security-policy scanner coverage and failure semantics', () => {
   test('scans tracked docs/ and tests/ files and states pattern-scanner limitations on clean control', async () => {
-    const root = await createSyntheticGitRepo({
+    const { root, candidateFiles } = await createSyntheticRepo({
       'docs/guide.md': '# Guide\nSafe synthetic documentation.\n',
       'tests/sample.test.ts':
         'const key = "SYNTHETIC_API_KEY_DO_NOT_USE_CONTROL_01";\nconst pem = "-----BEGIN PRIVATE KEY-----\\nSYNTHETIC_PRIVATE_KEY_MATERIAL_DO_NOT_USE";\n',
       'src/index.ts': 'export const ok = true;\n',
     });
 
-    const result = await scanSecurityPolicy({ repositoryRoot: root });
+    const result = await scanSecurityPolicy({ repositoryRoot: root, candidateFiles });
 
     expect(result.ok).toBe(true);
     expect(result.errors).toEqual([]);
@@ -84,12 +86,12 @@ describe('verify-security-policy scanner coverage and failure semantics', () => 
   test('detects forbidden credential assignment and token prefix in docs/ and tests/ and suppresses matched values', async () => {
     const forbiddenValue = ['UNALLOWLISTED', 'SECRET', 'VALUE', '9876543210ABCDEF'].join('_');
     const forbiddenToken = ['ghp', '1234567890abcdefghijklmnopqrstuv'].join('_');
-    const root = await createSyntheticGitRepo({
+    const { root, candidateFiles } = await createSyntheticRepo({
       'docs/leaked-doc.md': `api_key = "${forbiddenValue}"\n`,
       'tests/leaked-test.ts': `const access_token = '${forbiddenValue}';\nconst pat = '${forbiddenToken}';\n`,
     });
 
-    const result = await scanSecurityPolicy({ repositoryRoot: root });
+    const result = await scanSecurityPolicy({ repositoryRoot: root, candidateFiles });
 
     expect(result.ok).toBe(false);
     expect(result.errors.some((line) => line.includes('docs/leaked-doc.md:1'))).toBe(true);
@@ -106,11 +108,11 @@ describe('verify-security-policy scanner coverage and failure semantics', () => 
   test('detects non-synthetic private key block in tests/ and suppresses key material', async () => {
     const header = ['-----BEGIN', 'RSA PRIVATE KEY-----'].join(' ');
     const body = 'MIIEowIBAAKCAQEA0123456789abcdefghijklmnopqrstuvwxyz';
-    const root = await createSyntheticGitRepo({
+    const { root, candidateFiles } = await createSyntheticRepo({
       'tests/bad-key.test.ts': `const pem = "${header}\\n${body}";\n`,
     });
 
-    const result = await scanSecurityPolicy({ repositoryRoot: root });
+    const result = await scanSecurityPolicy({ repositoryRoot: root, candidateFiles });
 
     expect(result.ok).toBe(false);
     expect(result.errors.some((line) => line.includes('tests/bad-key.test.ts:1'))).toBe(true);
@@ -121,12 +123,12 @@ describe('verify-security-policy scanner coverage and failure semantics', () => 
   });
 
   test('fails closed when a tracked candidate file is unreadable or missing on disk', async () => {
-    const root = await createSyntheticGitRepo({
+    const { root, candidateFiles } = await createSyntheticRepo({
       'src/vanished.ts': 'export const x = 1;\n',
     });
     await rm(resolve(root, 'src/vanished.ts'));
 
-    const result = await scanSecurityPolicy({ repositoryRoot: root });
+    const result = await scanSecurityPolicy({ repositoryRoot: root, candidateFiles });
 
     expect(result.ok).toBe(false);
     expect(
@@ -137,12 +139,12 @@ describe('verify-security-policy scanner coverage and failure semantics', () => 
   });
 
   test('rejects template boilerplate in SECURITY.md and missing policy rules', async () => {
-    const root = await createSyntheticGitRepo({
+    const { root, candidateFiles } = await createSyntheticRepo({
       'SECURITY.md': 'Use this section to tell people about which versions of your project are\n',
       'AGENTS.md': '# Instructions without the required rule\n',
     });
 
-    const result = await scanSecurityPolicy({ repositoryRoot: root });
+    const result = await scanSecurityPolicy({ repositoryRoot: root, candidateFiles });
 
     expect(result.ok).toBe(false);
     expect(

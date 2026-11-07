@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 
 import { execFileSync } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { readdir, readFile } from 'node:fs/promises';
+import { relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export interface SecurityScanOptions {
   readonly repositoryRoot?: string;
+  readonly candidateFiles?: readonly string[];
 }
 
 export interface SecurityScanResult {
@@ -28,6 +29,15 @@ const skippedBinaryExtensions = [
   '.pdf',
 ] as const;
 
+const skippedDirectories = new Set([
+  '.git',
+  'node_modules',
+  'dist',
+  'coverage',
+  '.vite-temp',
+  '.system_generated',
+]);
+
 const regexDefinitionAllowlist = new Set([
   'src/safety/sensitive-data-gate.ts',
   'src/persistence/postgres-access-export.ts',
@@ -42,20 +52,61 @@ const providerTokenPattern =
   /\b(?:ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{16,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35})\b/gu;
 const syntheticMarkerPattern = /(?:synthetic|test|fixture|example|do_not_use|redacted)/iu;
 
-function listTrackedCandidateFiles(repositoryRoot: string): string[] {
-  const output = execFileSync('git', ['ls-files', '-z'], {
-    cwd: repositoryRoot,
-    encoding: 'utf8',
-  });
-  return output
-    .split('\0')
-    .filter((entry) => entry.length > 0)
-    .filter(
-      (entry) =>
-        entry !== 'package-lock.json' &&
-        !entry.endsWith('/package-lock.json') &&
-        !skippedBinaryExtensions.some((ext) => entry.toLowerCase().endsWith(ext)),
-    );
+function isCandidatePath(relativePath: string): boolean {
+  return (
+    relativePath.length > 0 &&
+    relativePath !== 'package-lock.json' &&
+    !relativePath.endsWith('/package-lock.json') &&
+    !skippedBinaryExtensions.some((ext) => relativePath.toLowerCase().endsWith(ext))
+  );
+}
+
+async function walkCandidateFilesFallback(rootDir: string, currentDir: string): Promise<string[]> {
+  const entries = await readdir(currentDir, { withFileTypes: true });
+  const results: string[] = [];
+
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      if (skippedDirectories.has(entry.name)) {
+        continue;
+      }
+      const nested = await walkCandidateFilesFallback(rootDir, resolve(currentDir, entry.name));
+      results.push(...nested);
+      continue;
+    }
+    if (entry.isFile()) {
+      const rel = relative(rootDir, resolve(currentDir, entry.name)).replace(/\\/gu, '/');
+      if (isCandidatePath(rel)) {
+        results.push(rel);
+      }
+    }
+  }
+
+  return results;
+}
+
+async function listTrackedCandidateFiles(
+  repositoryRoot: string,
+  explicitCandidates?: readonly string[],
+): Promise<string[]> {
+  if (explicitCandidates !== undefined) {
+    return explicitCandidates.map((entry) => entry.replace(/\\/gu, '/')).filter(isCandidatePath);
+  }
+
+  try {
+    const output = execFileSync('git', ['ls-files', '-z'], {
+      cwd: repositoryRoot,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    return output
+      .split('\0')
+      .map((entry) => entry.replace(/\\/gu, '/'))
+      .filter(isCandidatePath);
+  } catch {
+    const walked = await walkCandidateFilesFallback(repositoryRoot, repositoryRoot);
+    return walked.sort();
+  }
 }
 
 function lineNumberAt(content: string, index: number): number {
@@ -137,13 +188,13 @@ export async function scanSecurityPolicy(
   let trackedFiles: string[];
 
   try {
-    trackedFiles = listTrackedCandidateFiles(repositoryRoot);
+    trackedFiles = await listTrackedCandidateFiles(repositoryRoot, options.candidateFiles);
   } catch {
     return {
       ok: false,
-      errors: ['Failed to enumerate tracked files with git ls-files.'],
+      errors: ['Failed to enumerate candidate files for security policy scan.'],
       scannedFiles: [],
-      summary: 'Security and fixture pattern scan failed (unable to list tracked files).',
+      summary: 'Security and fixture pattern scan failed (unable to list candidate files).',
     };
   }
 
