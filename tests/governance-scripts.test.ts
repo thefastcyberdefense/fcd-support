@@ -303,3 +303,71 @@ describe('UI/UX and SEO contract scaffolds state source-text audit scope', () =>
     expect(seoResult.summary).toContain('does not verify rendered');
   });
 });
+
+describe('Codex governance review regressions', () => {
+  test.each(['test', 'fixture', 'example', 'redacted', 'synthetic', 'do_not_use'])(
+    'does not exempt authored credential or provider-shaped values containing %s internally',
+    async (marker) => {
+      const value = ['UNALLOWLISTED', marker, 'AUTHORED_NEGATIVE_CONTROL_123456'].join('_');
+      const token = ['github', 'pat', 'A'.repeat(24) + marker].join('_');
+      const { root, candidateFiles } = await createSyntheticRepo({
+        'docs/synthetic-negative-control.md': `api_key = "${value}"\nconst candidate = "${token}";\n`,
+      });
+      const result = await scanSecurityPolicy({ repositoryRoot: root, candidateFiles });
+      expect(result.ok).toBe(false);
+      expect(result.errors.some((line) => line.includes('[CREDENTIAL_ASSIGNMENT]'))).toBe(true);
+      expect(result.errors.some((line) => line.includes('[PROVIDER_TOKEN_PREFIX]'))).toBe(true);
+      expect(result.errors.join('\n')).not.toContain(value);
+      expect(result.errors.join('\n')).not.toContain(token);
+    },
+  );
+
+  test.each([
+    null,
+    [],
+    true,
+    42,
+    'synthetic_invalid_event',
+    { pull_request: 'synthetic_invalid_request' },
+    { pull_request: { body: 42 } },
+    { pull_request: { body: ['synthetic_invalid_body'] } },
+  ])(
+    'fails closed on structurally invalid event fixture %# without rejecting its promise',
+    async (event) => {
+      const root = await makeTempDir('fcd-pr-shape-');
+      const eventPath = join(root, 'event.json');
+      await writeFile(eventPath, JSON.stringify(event));
+      await expect(verifyPrHandoff({ eventPath })).resolves.toMatchObject({ status: 'failed' });
+    },
+  );
+
+  test('fails closed on syntactically malformed event JSON', async () => {
+    const root = await makeTempDir('fcd-pr-json-');
+    const eventPath = join(root, 'event.json');
+    await writeFile(eventPath, '{"pull_request":');
+    await expect(verifyPrHandoff({ eventPath })).resolves.toMatchObject({ status: 'failed' });
+  });
+
+  test.each([
+    '## Summary\n**TODO**\n## Validation\n`TBD`\n## Evidence\n*TODO*',
+    '## Summary\n> TODO\n## Validation\n> `TBD`\n## Evidence\n> TODO',
+    '## Summary\n1. TODO\n## Validation\n1. `TBD`\n## Evidence\n1. TODO',
+    '## Summary\n```text\nTODO\n```\n## Validation\n```\nTBD\n```\n## Evidence\n```\nTODO\n```',
+  ])('rejects Markdown-wrapped placeholder-only handoff fixture %#', async (body) => {
+    const root = await makeTempDir('fcd-pr-placeholder-');
+    const eventPath = join(root, 'event.json');
+    await writeFile(eventPath, JSON.stringify({ pull_request: { body } }));
+    const result = await verifyPrHandoff({ eventPath });
+    expect(result.status).toBe('failed');
+    expect(result.errors).toHaveLength(3);
+  });
+});
+
+test('preserves substantive inline command evidence after placeholder normalization', async () => {
+  const root = await makeTempDir('fcd-pr-command-');
+  const eventPath = join(root, 'event.json');
+  const body =
+    '## Summary\nSynthetic governance correction.\n## Validation\n`tsc --noEmit`\n## Evidence\nSynthetic fixture controls documented.';
+  await writeFile(eventPath, JSON.stringify({ pull_request: { body } }));
+  await expect(verifyPrHandoff({ eventPath })).resolves.toMatchObject({ status: 'passed' });
+});

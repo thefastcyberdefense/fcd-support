@@ -50,7 +50,8 @@ const credentialAssignmentPattern =
   /(?:api[_-]?key|access[_-]?token|client[_-]?secret|app[_-]?secret|verify[_-]?token|tunnel[_-]?token|password)\s*[:=]\s*(['"])([A-Za-z0-9_\-/.+=!@#$%^&*]{16,})\1/giu;
 const providerTokenPattern =
   /\b(?:ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{16,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35})\b/gu;
-const syntheticMarkerPattern = /(?:synthetic|test|fixture|example|do_not_use|redacted)/iu;
+const syntheticMarkerPattern =
+  /^(?:synthetic|test|fixture|example|do_not_use|redacted)(?:[_-]|$)/iu;
 
 function isCandidatePath(relativePath: string): boolean {
   return (
@@ -168,13 +169,10 @@ function scanFileContent(relativePath: string, content: string): string[] {
   }
 
   for (const match of content.matchAll(providerTokenPattern)) {
-    const token = match[0];
-    if (!syntheticMarkerPattern.test(token)) {
-      const line = lineNumberAt(content, match.index);
-      findings.push(
-        `Potential secret pattern [PROVIDER_TOKEN_PREFIX] in ${relativePath}:${String(line)} (matched value suppressed)`,
-      );
-    }
+    const line = lineNumberAt(content, match.index);
+    findings.push(
+      `Potential secret pattern [PROVIDER_TOKEN_PREFIX] in ${relativePath}:${String(line)} (matched value suppressed)`,
+    );
   }
 
   return findings;

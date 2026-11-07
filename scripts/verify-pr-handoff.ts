@@ -3,14 +3,18 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { z } from 'zod';
 
-interface PullRequestPayload {
-  readonly pull_request?: {
-    readonly body?: string | null;
-    readonly draft?: boolean;
-    readonly title?: string;
-  } | null;
-}
+const pullRequestPayloadSchema = z.object({
+  pull_request: z
+    .object({
+      body: z.string().nullable().optional(),
+      draft: z.boolean().optional(),
+      title: z.string().optional(),
+    })
+    .nullable()
+    .optional(),
+});
 
 export interface PrHandoffOptions {
   readonly eventPath?: string;
@@ -85,8 +89,19 @@ function substantiveLines(sectionBody: string): string[] {
   return sectionBody
     .split(/\r?\n/u)
     .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .filter((line) => !templatePromptPatterns.some((pattern) => pattern.test(line)));
+    .filter((line) => {
+      const unquoted = line.replace(/^(?:>\s*)+/u, '').replace(/^\d+[.)]\s+/u, '- ');
+      if (templatePromptPatterns.some((pattern) => pattern.test(unquoted))) return false;
+      const normalized = unquoted
+        .replace(/^[-+*]\s+/u, '')
+        .replace(/^[`*_]+|[`*_]+$/gu, '')
+        .trim();
+      return (
+        normalized.length > 0 &&
+        !/^(?:`{3,}|~{3,})/u.test(unquoted) &&
+        !templatePromptPatterns.some((pattern) => pattern.test(normalized))
+      );
+    });
 }
 
 export async function verifyPrHandoff(options: PrHandoffOptions = {}): Promise<PrHandoffResult> {
@@ -100,10 +115,10 @@ export async function verifyPrHandoff(options: PrHandoffOptions = {}): Promise<P
     };
   }
 
-  let parsed: PullRequestPayload;
+  let parsed: z.infer<typeof pullRequestPayloadSchema>;
   try {
     const rawEvent = await readFile(eventPath, 'utf8');
-    parsed = JSON.parse(rawEvent) as PullRequestPayload;
+    parsed = pullRequestPayloadSchema.parse(JSON.parse(rawEvent) as unknown);
   } catch {
     const message = 'Unable to read or parse PR event payload from GITHUB_EVENT_PATH.';
     return {
