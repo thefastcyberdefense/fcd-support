@@ -1,0 +1,38 @@
+name: agy UI UX source-text contract scaffold
+
+on:
+  pull_request:
+    paths:
+      - 'src/admin/**'
+      - 'src/app.ts'
+      - 'scripts/verify-ui-ux-contract.ts'
+      - '.github/workflows/agy-ui-ux-responsive-a11y-gate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agy-ui-ux-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ui-ux-a11y-scaffold:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      AGY_STRICT_UI_GATE: ${{ vars.AGY_STRICT_UI_GATE || 'false' }}
+    steps:
+      - name: Check out repository without credentials
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up pinned Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts
+      - name: Run source-text UI and accessibility contract scaffold (strict=false by default; not browser/axe verification)
+        run: node scripts/verify-ui-ux-contract.ts
