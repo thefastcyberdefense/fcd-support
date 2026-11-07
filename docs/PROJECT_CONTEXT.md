@@ -1,6 +1,18 @@
 # Project Context
 
-Last reviewed: 2026-11-04 (Asia/Dhaka)
+Last reviewed: 2026-11-07 (Asia/Dhaka)
+
+Latest independent review of AGY's c8304a2 observer corrections passes 140
+focused tests with no skips. Runtime CI 41860854083 still fails precreated
+promotion, now exposing the recognized `samples.stability` token; source/terminal,
+target/terminal and whole-snapshot comparisons share that token, so the changed
+field is not established. PRs #10 and #13 remain draft/unmerged. Governance
+claims, audit gaps and proposed US-101..105 require the corrections recorded in
+`docs/reviews/2026-11-07-agy-update-disposition.md`; AGY's bounded next assignment
+is `docs/handoffs/2026-11-07-antigravity-governance-corrections.md`.
+No identifiable FCD Support ClickUp story records were found in the limited
+connected-workspace searches; no remote approval or completion is inferred.
+No server changes occurred. The deployed health hold remains unresolved.
 
 Latest held PR #10 head 101f684 has confirmed observer classification gaps:
 five production-known tokens are dropped, zero-exit output is overclaimed and
