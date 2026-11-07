@@ -1,0 +1,169 @@
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { PassThrough } from 'node:stream';
+import { spawnSync } from 'node:child_process';
+import { describe, expect, test } from 'vitest';
+import { readHealthInput } from '../src/operations/health-main.js';
+
+const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash';
+const evidenceLibrary = resolve('scripts/synthetic-host-evidence.sh').replaceAll('\\', '/');
+
+describe('health transport held-open stdin contract', () => {
+  test('consumes newline-framed JSON without waiting for stream EOF across 10 sequential independent held-open streams', async () => {
+    for (let i = 1; i <= 10; i++) {
+      const stream = new PassThrough();
+      const promise = readHealthInput(500, stream);
+      stream.write(JSON.stringify({ availability: { manifest: 'healthy', iteration: i } }) + '\n');
+      const result = await promise;
+      expect(result).toEqual({ availability: { manifest: 'healthy', iteration: i } });
+      expect(stream.destroyed).toBe(true);
+    }
+  });
+
+  test('refuses malformed, oversized or stalled stdin', async () => {
+    // Malformed JSON frame
+    const malformed = new PassThrough();
+    const malformedPromise = readHealthInput(500, malformed);
+    malformed.end('{"incomplete_json\n');
+    await expect(malformedPromise).rejects.toThrow();
+
+    // Oversized input exceeding 16KB
+    const oversized = new PassThrough();
+    const oversizedPromise = readHealthInput(500, oversized);
+    oversized.write('x'.repeat(16_385));
+    await expect(oversizedPromise).rejects.toThrow('health_input_invalid');
+
+    // Stalled / timeout input
+    const stalled = new PassThrough();
+    const stalledPromise = readHealthInput(50, stalled);
+    await expect(stalledPromise).rejects.toThrow('health_input_invalid');
+    expect(stalled.destroyed).toBe(true);
+  });
+});
+
+describe('closed diagnostic classification for health transport outcomes', () => {
+  const allowedClasses = [
+    'completed',
+    'dependency_unavailable',
+    'empty',
+    'carriage_return',
+    'multiple_lines',
+    'log_read_failed',
+    'unexpected',
+  ] as const;
+
+  test.each([
+    ['{"status":"completed","processed":1,"reasonCode":"ok"}', 'completed'],
+    [
+      '{"status":"completed","processed":0,"reasonCode":"dependency_unavailable"}',
+      'dependency_unavailable',
+    ],
+    ['', 'empty'],
+    ['log_read_failed', 'log_read_failed'],
+    ['valid_prefix\r', 'carriage_return'],
+    ['line_one\nline_two', 'multiple_lines'],
+    ['{"status":"completed","processed":99999999999999999999,"reasonCode":"ok"}', 'unexpected'],
+    ['raw_customer_secret_token_12345', 'unexpected'],
+  ] as const)('classifies outcome "%s" as %s without leaking body', (input, expectedClass) => {
+    const result = spawnSync(
+      bash,
+      ['-c', `source "$TASK_LIBRARY"; synthetic_host_health_ack_diagnostic "$TASK_INPUT"`],
+      {
+        encoding: 'utf8',
+        timeout: 3000,
+        env: {
+          PATH: process.env.PATH,
+          SystemRoot: process.env.SystemRoot,
+          TASK_LIBRARY: evidenceLibrary,
+          TASK_INPUT: input,
+        },
+      },
+    );
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe(`synthetic_health_ack_diagnostic=${expectedClass}\n`);
+    expect(result.stdout).not.toContain('raw_customer_secret_token_12345');
+    expect(allowedClasses).toContain(expectedClass);
+  });
+});
+
+describe('actual scheduled lifecycle and extracted CI trace', () => {
+  async function runTrace(logs: string, logsExit: number) {
+    const source = await readFile('scripts/test-synthetic-runtime-deployment.sh', 'utf8');
+    const entry = /<<'TRACE'\r?\n([\s\S]*?)\r?\nTRACE/u.exec(source)?.[1];
+    if (entry === undefined) throw new Error('synthetic_trace_entry_missing');
+    const trace = entry.replaceAll('\r', '').split('\n').slice(1).join('\n');
+    const script = `set -uo pipefail
+source "$TASK_LIFECYCLE"
+operations_config_field() { return 0; }
+operations_job_state_root() { OPS_JOB_STATE_FILE=/synthetic-review-absent; }
+operations_job_state_begin() { return 0; }
+operations_job_state_sync() { return 0; }
+operations_job_state_transition() { return 0; }
+operations_job_override() { return 0; }
+operations_job_create_stopped() { return 0; }
+operations_job_discover() { printf '%064d\\n' 1; }
+operations_job_assert_container() { return 0; }
+operations_job_start() { return 0; }
+# Keep the real acknowledgement validator, and exit before any file cleanup.
+validator="$(declare -f operations_job_acknowledgement)"
+eval "\${validator/operations_job_acknowledgement/review_validate_ack}"
+operations_job_acknowledgement() { review_validate_ack "$@" || return; exit 0; }
+operations_job_uncertain() { exit 1; }
+timeout() { return 0; }
+od() { printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\n'; }
+operations_docker() {
+ case "$1/$2" in
+  image/inspect) printf 'sha256:%064d/%040d/linux/amd64\\n' 1 1 ;;
+  container/wait) printf '0\\n' ;;
+  container/inspect) printf 'exited/0\\n' ;;
+  container/logs) printf '%s' "$TASK_LOGS"; return "$TASK_LOGS_EXIT" ;;
+  *) return 19 ;;
+ esac
+}
+declare -A OPS_CONFIG=([FCD_SUPPORT_REVISION]=$(printf '%040d' 1) [FCD_RUNTIME_PROJECT]=synthetic [FCD_STATE_ROOT]=/synthetic-review-absent [FCD_OPERATIONS_IMAGE]=synthetic [FCD_COMMAND_TIMEOUT_SECONDS]=5 [FCD_POSTGRES_DB]=synthetic [FCD_DATABASE_SCHEMA]=public [FCD_DATABASE_ROLE_PREFIX]=synthetic [FCD_SCHEMA_REVISION]=000016)
+OPS_DATABASE_SYSTEM_IDENTIFIER=7300000000000000000
+exec 3>&1
+${trace}
+# Same command-substitution boundary used by the public scheduler.
+acknowledgement="$(operations_execute_job health health)"
+`;
+    return spawnSync(bash, ['--noprofile', '--norc', '-c', script], {
+      encoding: 'utf8',
+      timeout: 5000,
+      env: {
+        PATH: process.env.PATH,
+        SystemRoot: process.env.SystemRoot,
+        TASK_LIFECYCLE: resolve('scripts/operations-job-lifecycle.sh').replaceAll('\\', '/'),
+        FCD_SYNTHETIC_EVIDENCE_LIBRARY: evidenceLibrary,
+        TASK_LOGS: logs,
+        TASK_LOGS_EXIT: String(logsExit),
+      },
+    });
+  }
+  test.each([
+    ['{"status":"completed","processed":1,"reasonCode":"ok"}', 0, 'completed', 0],
+    [
+      '{"status":"completed","processed":0,"reasonCode":"dependency_unavailable"}',
+      0,
+      'dependency_unavailable',
+      0,
+    ],
+    ['', 19, 'log_read_failed', 1],
+    ['', 0, 'empty', 1],
+    ['synthetic_invalid', 0, 'unexpected', 1],
+    ['line1\nline2', 0, 'multiple_lines', 1],
+    ['line\r', 0, 'carriage_return', 1],
+  ] as const)(
+    'classifies actual lifecycle logs as %s / %s / %s',
+    async (logs, logsExit, diagnostic, status) => {
+      const result = await runTrace(logs, logsExit);
+      expect(result.status).toBe(status);
+      expect(result.stdout).toContain(`synthetic_health_ack_diagnostic=${diagnostic}\n`);
+      if (logsExit === 0)
+        expect(result.stdout).not.toContain('synthetic_health_ack_diagnostic=log_read_failed');
+      if (logsExit !== 0)
+        expect(result.stdout).not.toContain('synthetic_health_ack_diagnostic=completed');
+      expect(result.stderr).toBe('');
+    },
+  );
+});

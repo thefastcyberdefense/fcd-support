@@ -3,6 +3,7 @@
 synthetic_host_health_ack_diagnostic() {
   local value="${1-}" category=unexpected processed
   if [[ -z "$value" ]]; then category=empty
+  elif [[ "$value" == log_read_failed ]]; then category=log_read_failed
   elif [[ "$value" == *$'\r'* ]]; then category=carriage_return
   elif [[ "$value" == *$'\n'* ]]; then category=multiple_lines
   elif [[ "$value" == '{"status":"completed","processed":0,"reasonCode":"dependency_unavailable"}' ]]; then category=dependency_unavailable
@@ -16,16 +17,68 @@ synthetic_host_health_ack_diagnostic() {
   printf 'synthetic_health_ack_diagnostic=%s\n' "$category"
 }
 
+synthetic_host_promotion_cmd_diagnostic() {
+  local caller_status=$?
+  local status="${1-}" result="${2-}" expected="${3-}" category=''
+  local -a saved_rematch=()
+  if [[ -v BASH_REMATCH ]]; then
+    saved_rematch=("${BASH_REMATCH[@]}")
+  fi
+
+  if [[ ! "$status" =~ ^([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$ ]]; then
+    category="unobserved"
+  elif [[ "$status" -eq 0 ]]; then
+    if [[ -z "$result" ]]; then
+      category="empty_output:0"
+    elif [[ -n "$expected" && "$result" == "$expected" ]]; then
+      category="canonical_success"
+    else
+      category="unallowlisted_output:0"
+    fi
+  elif [[ "$result" == runtime_host_diagnostic=* ]]; then
+    local allowlisted
+    allowlisted="$(synthetic_host_runtime_diagnostic "$result")"
+    if [[ -n "$allowlisted" ]]; then
+      category="allowlisted_diagnostic"
+    else
+      category="unallowlisted_output:$status"
+    fi
+  elif [[ -z "$result" ]]; then
+    category="empty_output:$status"
+  else
+    category="unallowlisted_output:$status"
+  fi
+
+  printf 'synthetic_promotion_cmd_diagnostic=%s\n' "$category"
+  if [[ "$category" == "allowlisted_diagnostic" && -n "${allowlisted-}" ]]; then
+    printf '%s\n' "$allowlisted"
+  fi
+
+  if [[ ${#saved_rematch[@]} -gt 0 ]]; then
+    BASH_REMATCH=("${saved_rematch[@]}")
+  else
+    unset BASH_REMATCH
+  fi
+  return "$caller_status"
+}
+
 synthetic_host_runtime_diagnostic() {
   local code="${1:-}"
   case "$code" in
-    synthetic_health_ack_diagnostic=empty|synthetic_health_ack_diagnostic=carriage_return|synthetic_health_ack_diagnostic=multiple_lines|synthetic_health_ack_diagnostic=dependency_unavailable|synthetic_health_ack_diagnostic=completed|synthetic_health_ack_diagnostic=unexpected)
+    synthetic_health_ack_diagnostic=empty|synthetic_health_ack_diagnostic=log_read_failed|synthetic_health_ack_diagnostic=carriage_return|synthetic_health_ack_diagnostic=multiple_lines|synthetic_health_ack_diagnostic=dependency_unavailable|synthetic_health_ack_diagnostic=completed|synthetic_health_ack_diagnostic=unexpected)
       printf '%s\n' "$code" ;;
+    synthetic_promotion_cmd_diagnostic=canonical_success|synthetic_promotion_cmd_diagnostic=allowlisted_diagnostic|synthetic_promotion_cmd_diagnostic=unobserved)
+      printf '%s\n' "$code" ;;
+    synthetic_promotion_cmd_diagnostic=empty_output:*|synthetic_promotion_cmd_diagnostic=unallowlisted_output:*|synthetic_promotion_cmd_diagnostic=unavailable_transport:*|synthetic_promotion_cmd_diagnostic=nonzero_execution:*)
+      local status_val="${code#*:}"
+      if [[ "$status_val" =~ ^([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$ ]]; then
+        printf '%s\n' "$code"
+      fi ;;
     runtime_host_diagnostic=arguments|runtime_host_diagnostic=input|runtime_host_diagnostic=validation|runtime_host_diagnostic=revision|runtime_host_diagnostic=ingress|runtime_host_diagnostic=compose|runtime_host_diagnostic=paths|runtime_host_diagnostic=samples|runtime_host_diagnostic=volume_identity|runtime_host_diagnostic=topology|runtime_host_diagnostic=images|runtime_host_diagnostic=volume|runtime_host_diagnostic=network_set|runtime_host_diagnostic=network_labels|runtime_host_diagnostic=network_members|runtime_host_diagnostic=container_policy|runtime_host_diagnostic=container_networks|runtime_host_diagnostic=tmpfs|runtime_host_diagnostic=mounts|runtime_host_diagnostic=binds|runtime_host_diagnostic=protected_binds|runtime_host_diagnostic=socket_users|runtime_host_diagnostic=stability)
       printf '%s\n' "$code" ;;
     runtime_host_diagnostic=samples.*|runtime_host_diagnostic=volume_identity.*)
       case "${code#*.}" in
-        id|project|service|revision|imageId|running|paused|restarting|dead|healthy|startedAt|restartCount|readOnlyRootfs|privileged|init|user|networkMode|networks|hostPortBindings|publishedPortBindings|publishAllPorts|pidMode|ipcMode|utsMode|capAdd|capDrop|securityOpt|devices|deviceRequests|groupAdd|volumesFrom|extraHosts|sysctls|nanoCpus|memory|pidsLimit|stopTimeout|restartPolicy|tmpfs|command|entrypoint|environmentNames|executionFlags|mounts|type|name|source|destination|readWrite|propagation|images|containers|volume|socket|hostBinds|driver|scope|options|logicalName|createdAt|mountpoint|users|os|architecture|before|after|probes|postgresSql|apiHttp|adminSocket|adminNoTcp|replyHeartbeat|internal|members|containerId|canonicalSource|device|inode|uid|gid|mode|rootDevice|rootInode|rootUid|rootGid|rootMode)
+        id|systemIdentifier|project|projectActors|service|revision|imageId|reference|running|paused|restarting|dead|healthy|startedAt|restartCount|readOnlyRootfs|privileged|init|user|networkMode|networks|hostPortBindings|publishedPortBindings|publishAllPorts|pidMode|ipcMode|utsMode|capAdd|capDrop|securityOpt|devices|deviceRequests|groupAdd|volumesFrom|extraHosts|sysctls|nanoCpus|memory|pidsLimit|stopTimeout|restartPolicy|tmpfs|command|entrypoint|environmentNames|executionFlags|mounts|type|name|source|destination|readWrite|propagation|images|containers|volume|socket|hostBinds|driver|scope|options|logicalName|createdAt|mountpoint|users|os|architecture|before|after|probes|postgresSql|apiHttp|adminSocket|adminNoTcp|replyHeartbeat|internal|members|containerId|canonicalSource|device|inode|uid|gid|mode|rootDevice|rootInode|rootUid|rootGid|rootMode|stability|target)
           printf '%s\n' "$code" ;;
       esac ;;
   esac
@@ -35,7 +88,7 @@ synthetic_host_runtime_diagnostic() {
 synthetic_host_report_failure() {
   local stage=unknown line file="${2:-}"
   case "${1:-}" in
-    preflight|fixture|build|keys|isolated-resources|deploy|verify|private-http|maintenance|backup|health|checkpoint|restore|promote|rollback|cleanup) stage="$1" ;;
+    preflight|fixture|build|keys|isolated-resources|deploy|verify|private-http|maintenance|backup|health|health-[1-9]|health-10|checkpoint|restore|promote|rollback|cleanup) stage="$1" ;;
   esac
   printf 'synthetic_host_failed=%s\n' "$stage" >&2
   # Diagnostic enums only; identities, references and arbitrary values are ignored.
@@ -71,7 +124,7 @@ synthetic_host_report_failure() {
     diagnostic=''
     # Trace lines need no validator subprocess, and accepted duplicates need no
     # repeated work. Keep the closed validator as the publication authority.
-    if [[ "$line" =~ ^(runtime_host_diagnostic|synthetic_health_ack_diagnostic)=[A-Za-z_.]{1,128}$ ]] &&
+    if [[ "$line" =~ ^(runtime_host_diagnostic|synthetic_health_ack_diagnostic|synthetic_promotion_cmd_diagnostic)=[A-Za-z0-9_.:]{1,128}$ ]] &&
       (( ${#diagnostics[@]} < 16 )) && [[ -z "${seen_diagnostics[$line]:-}" ]]; then
       diagnostic="$(synthetic_host_runtime_diagnostic "$line")"
     fi

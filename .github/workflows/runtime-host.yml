@@ -72,7 +72,121 @@ jobs:
           '
           sudo cp -a -- "$GITHUB_WORKSPACE/." "$task_root/repository/"
           sudo chown -R --no-dereference 1000:1000 "$task_root/repository"
-          sudo --set-home --user "$task_operator" --group '#1000' env PATH="$PATH" GITHUB_ACTIONS=true TASK_NETWORK_MODE="$TASK_NETWORK_MODE" \
+          sudo --set-home --user "$task_operator" --group '#1000' env PATH="$PATH" GITHUB_ACTIONS=true TASK_NETWORK_MODE="$TASK_NETWORK_MODE" TASK_HEALTH_STRESS="${TASK_HEALTH_STRESS:-1}" \
+            bash -c '
+              set -Eeuo pipefail
+              [[ "$1" =~ ^[a-f0-9]{40}$ ]]
+              cd /home/fcd-support-ci/repository
+              case "$TASK_NETWORK_MODE" in
+                fresh) mode=--ephemeral-ci ;;
+                precreated)
+                  project="fcd-support-host-test-ci-${1:0:7}"
+                  synthetic_networks="$(docker network ls --quiet --filter "label=fcd-support.synthetic-host-test=$project")"
+                  project_networks="$(docker network ls --quiet --filter "label=com.docker.compose.project=$project")"
+                  [[ -z "$synthetic_networks" && -z "$project_networks" ]]
+                  for role in webhook admin reply outbound notification operations; do
+                    if docker network inspect "$project-$role-data" >/dev/null 2>&1; then exit 1; fi
+                  done
+                  for role in ingress egress; do
+                    if docker network inspect "$project-$role" >/dev/null 2>&1; then exit 1; fi
+                  done
+                  for role in webhook admin reply outbound notification operations; do
+                    docker network create --driver bridge --internal \
+                      --label "fcd-support.synthetic-host-test=$project" \
+                      --label "com.docker.compose.project=$project" \
+                      --label "com.docker.compose.network=${role}_data" "$project-$role-data" >/dev/null
+                  done
+                  docker network create --driver bridge --internal \
+                    --label "fcd-support.synthetic-host-test=$project" "$project-ingress" >/dev/null
+                  docker network create --driver bridge \
+                    --label "fcd-support.synthetic-host-test=$project" "$project-egress" >/dev/null
+                  mode=--ephemeral-ci-precreated ;;
+                *) exit 1 ;;
+              esac
+              exec bash scripts/test-synthetic-runtime-deployment.sh "$1" "$mode"
+            ' bash "$GITHUB_SHA"
+      - name: Report only fixture-state ownership after a failed smoke test
+        if: failure()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$GITHUB_SHA" =~ ^[a-f0-9]{40}$ ]]
+          task_state="/home/fcd-support-ci/fcd-support-host-test-ci-${GITHUB_SHA:0:7}/state"
+          for task_name in initial-deployment.record deployment-state active-job; do
+            printf 'synthetic_state_%s=' "$task_name"
+            if sudo test -f "$task_state/$task_name"; then
+              sudo stat -c '%u:%g:%a:%h' -- "$task_state/$task_name"
+            else
+              printf 'absent\n'
+            fi
+          done
+          task_project="fcd-support-host-test-ci-${GITHUB_SHA:0:7}"
+          task_postgres="$(docker ps -a -q --no-trunc --filter "label=com.docker.compose.project=$task_project" --filter label=com.docker.compose.service=postgres)"
+          if [[ "$task_postgres" =~ ^[a-f0-9]{64}$ ]]; then
+            docker container inspect --format 'synthetic_postgres_sysctls={{len .HostConfig.Sysctls}}/low_ports={{with index .HostConfig.Sysctls "net.ipv4.ip_unprivileged_port_start"}}{{if eq . "0"}}zero{{else if eq . "1024"}}restricted{{else}}other{{end}}{{else}}absent{{end}}/security_options={{len .HostConfig.SecurityOpt}}/mounts={{len .Mounts}}/networks={{len .NetworkSettings.Networks}}' "$task_postgres"
+          fi
+
+  health-stress:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        network_mode: [fresh, precreated]
+    steps:
+      - name: Check out repository without retained credentials
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up the pinned Node.js toolchain
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+      - name: Install the pinned Compose renderer
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          task_compose="$RUNNER_TEMP/fcd-support-compose-5.5.1"
+          [[ ! -e "$task_compose" && ! -L "$task_compose" ]]
+          curl --proto '=https' --tlsv1.2 --fail --show-error --silent --location \
+            --output "$task_compose" \
+            https://github.com/docker/compose/releases/download/v5.5.1/docker-compose-linux-x86_64
+          printf '%s  %s\n' db1889184726840f75c4f9c001048430d4f25b3be3cb084d3ddd762bc0aed576 "$task_compose" | sha256sum --check --status
+          sudo install -D -m 0755 -- "$task_compose" /usr/local/lib/docker/cli-plugins/docker-compose
+          [[ "$(docker compose version --short)" == 5.5.1 ]]
+      - name: Exercise synthetic health transport stress across sequential invocations
+        shell: bash
+        env:
+          TASK_NETWORK_MODE: ${{ matrix.network_mode }}
+          TASK_HEALTH_STRESS: '10'
+        run: |
+          set -Eeuo pipefail
+          task_root=/home/fcd-support-ci
+          [[ ! -e "$task_root" && ! -L "$task_root" ]]
+          task_operator="$(getent passwd 1000 | cut -d: -f1)"
+          [[ -n "$task_operator" && "$(id -g "$task_operator")" == 1000 ]]
+          sudo --set-home --user "$task_operator" --group '#1000' env -i PATH="$PATH" LC_ALL=C \
+            bash -c '[[ "$(docker compose version --short)" == 5.5.1 ]]'
+          sudo usermod -aG docker "$task_operator"
+          sudo install -d -m 0700 -o 1000 -g 1000 "$task_root" "$task_root/repository"
+          [[ "$(sudo realpath -e "$task_root/repository")" == /home/fcd-support-ci/repository ]]
+          if [[ -n "$(sudo getfacl --skip-base --omit-header --absolute-names --numeric "$task_root")" ]]; then
+            printf 'fresh_ci_root_extended_acl_present=true\n'
+          fi
+          sudo setfacl --remove-all --remove-default -- "$task_root" "$task_root/repository"
+          [[ "$(sudo stat -c '%u:%g:%a' "$task_root")" == 1000:1000:700 ]]
+          sudo --set-home --user "$task_operator" --group '#1000' bash -c '
+            set -Eeuo pipefail
+            umask 077
+            test_file=/home/fcd-support-ci/private-mode-probe
+            printf synthetic | dd "of=$test_file" conv=excl,fsync oflag=nofollow status=none
+            [[ "$(stat -c "%u:%g:%a:%h" "$test_file")" == 1000:1000:600:1 ]]
+            rm -- "$test_file"
+            printf "fresh_ci_private_record_mode=600\n"
+          '
+          sudo cp -a -- "$GITHUB_WORKSPACE/." "$task_root/repository/"
+          sudo chown -R --no-dereference 1000:1000 "$task_root/repository"
+          sudo --set-home --user "$task_operator" --group '#1000' env PATH="$PATH" GITHUB_ACTIONS=true TASK_NETWORK_MODE="$TASK_NETWORK_MODE" TASK_HEALTH_STRESS="$TASK_HEALTH_STRESS" \
             bash -c '
               set -Eeuo pipefail
               [[ "$1" =~ ^[a-f0-9]{40}$ ]]

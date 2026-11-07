@@ -72,7 +72,8 @@ if(args.includes('compose')) {
   c.phase='exited'; c.exit=fault==='job-failed'?1:0; save(c); console.log(c.exit);
 } else if(args.includes('logs')) {
   trace('logs');
-  console.log(fault==='unsafe-output'?'synthetic_unexpected_diagnostic':fault==='database-down'?'{"status":"completed","processed":0,"reasonCode":"dependency_unavailable"}':fault==='not-due'?'{"status":"skipped","processed":0,"reasonCode":"not_due"}':'${ack}');
+  if(fault==='logs-failed') process.exit(19);
+  console.log(fault==='unsafe-output'?'synthetic_unexpected_diagnostic':fault==='empty-output'?'':fault==='multiline-output'?'line1\\nline2':fault==='malformed-output'?'{"status":':fault==='database-down'?'{"status":"completed","processed":0,"reasonCode":"dependency_unavailable"}':fault==='not-due'?'{"status":"skipped","processed":0,"reasonCode":"not_due"}':'${ack}');
 } else if(args.includes('stop')) {
   trace('stop'); if(fault==='cannot-stop') process.exit(19);
   const c=load(); c.phase='exited'; save(c);
@@ -236,6 +237,10 @@ test
     'wait-ack',
     'job-failed',
     'unsafe-output',
+    'empty-output',
+    'multiline-output',
+    'malformed-output',
+    'logs-failed',
     'remove-ack',
     'absence-error',
     'cannot-stop',
@@ -325,6 +330,25 @@ test.runIf(native)(
       expect(result.stderr).toBe('operations_job_arguments_invalid\n');
       expect(await readdir(f.root)).not.toContain('trace');
       expect(await readdir(f.root)).not.toContain('active-job');
+    } finally {
+      await f.dispose();
+    }
+  },
+);
+
+test.runIf(native).each(['empty-output', 'multiline-output', 'malformed-output', 'logs-failed'])(
+  'real health lifecycle retains %s uncertainty and refuses reexecution without Docker access',
+  async (fault) => {
+    const f = await fixture(fault);
+    try {
+      expect(f.run('acknowledgement="$(operations_execute_job health health)"').status).toBe(1);
+      const saved = await readFile(join(f.root, 'active-job'), 'utf8');
+      expect(saved).toContain('JOB_SERVICE=health\n');
+      expect(saved).toContain('JOB_PHASE=uncertain\n');
+      const before = await f.trace();
+      expect(f.run('acknowledgement="$(operations_execute_job health health)"').status).toBe(1);
+      expect(await f.trace()).toEqual(before);
+      expect(await readFile(join(f.root, 'active-job'), 'utf8')).toBe(saved);
     } finally {
       await f.dispose();
     }
