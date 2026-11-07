@@ -2,6 +2,19 @@
 
 ## Current Phase 6 checkpoint
 
+**2026-11-07 final-head review: direct PR #13 fixes pushed as f0c27ad.**
+Codex repaired residual sentinel exemptions, malformed PR-event handling and
+Markdown placeholder checks test-first. Final governance suite passes 36 tests;
+the fresh one-worker check including the previously timed-out harness suites
+passes 77 / 0 skips. The broader review run retains its 2,000 passed / 446 skips /
+3 timeout failures; no full passing gate is claimed. PRs #10 and #13 remain
+draft/unmerged, with new f0c27ad CI pending at the publication checkpoint.
+Submitted 14f91c4 runtime failed fresh health with an empty acknowledgement;
+d5fbb9b runtime has three promotion stability refusals. See
+`docs/reviews/2026-11-07-pr-13-direct-corrections.md`. AGY's next bounded task is
+`docs/handoffs/2026-11-07-antigravity-health-ack-localization.md`.
+The server health hold and dashboard rollout remain preserved and Codex-owned.
+
 **2026-11-07 AGY update reviewed; PRs #10 and #13 remain draft/unmerged.**
 PR #10's corrected observer passed 140 independent focused tests / 0 skips.
 Final c8304a2 runtime CI 41860854083 passes fresh lanes but refuses promotion
