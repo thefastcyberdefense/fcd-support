@@ -9,10 +9,12 @@ Worktree: Isolated worktree `J:\DevDrive\fcd-support-agy-health-stress`
 Preserved Codex Head: `cf9defb8f08a3ad6052267f5161eb616d18ab718`
 Previous Main Merge Head: `443d05b94dcffcafa17dea98fe6b6443fb5d8006`
 Previous Merge Commit: `a3b9b085956b5f287cafecfc4fa3cf18612ec280`
-Observer Implementation Head: `cb6985e80a6c1c3cb2bd7bf75caa7cff414586a2`
-Submitted Documentation Head: `101f684a46f14fb488a29f77c83051044f4269e0`
+Observer Implementation Head (Historical 30/70-Test Baseline): `cb6985e80a6c1c3cb2bd7bf75caa7cff414586a2`
+Submitted Documentation Head (Historical 30/70-Test Baseline): `101f684a46f14fb488a29f77c83051044f4269e0`
 Codex Review Head on Main: `ab6036aff5c5b3211df1655c450780957b5e9f83`
 Worktree Branch Merge Commit: `d4505e96c4adb6086a2ca36a45d0576bde9e6eaa`
+Corrected Observer & 100/140-Test Head: `c8304a20aea6bdd8272b3279050cb3814cab4cca`
+Codex Disposition Head on Main: `16678546ec9ae6305ba750016da5b1ba604cf9ac`
 
 ---
 
@@ -102,6 +104,7 @@ synthetic_host_promotion_cmd_diagnostic() {
 In [`scripts/test-synthetic-runtime-deployment.sh`](../../scripts/test-synthetic-runtime-deployment.sh), the runner instruments execution via a `DEBUG` trap with `set -o functrace`.
 
 To avoid subshell pollution and misclassification:
+
 1. Gated under `FCD_RUNTIME_HOST_DIAGNOSTICS=closed-v1`: the observer only records when the closed diagnostic gate is active.
 2. When entering `operations_inspect_promotion_host`, the subshell depth is recorded: `promotion_inspecting_subshell=$BASH_SUBSHELL`.
 3. Inside `$( { ... ; } 2>/dev/null )`, `$BASH_SUBSHELL` increments, preventing premature trap firing on intermediate statements inside the command substitution.
@@ -118,6 +121,7 @@ Production `operations_promotion_host_diagnostic` in `scripts/operations-promoti
 `capAdd`, `capDrop`, `securityOpt`, `groupAdd`, `volumesFrom`, `extraHosts`, `sysctls`, `nanoCpus`, `memory`, `pidsLimit`, `stopTimeout`, `environmentNames`, `mounts`, `tmpfs`, `service`, `healthy`, `user`, `restartPolicy`, `command`, `entrypoint`, `volume`, `id`, `systemIdentifier`, `project`, `revision`, `imageId`, `reference`, `projectActors`, `users`, `name`, `createdAt`, `logicalName`, `networks`, `hostBinds`, `stability`, `target`.
 
 The generic synthetic publication filter in `scripts/synthetic-host-evidence.sh` previously omitted five accepted fields:
+
 - `samples.systemIdentifier`
 - `samples.reference`
 - `samples.projectActors`
@@ -137,10 +141,13 @@ As established in Codex review, this omission caused any valid production diagno
 Bash evaluates integers as signed 64-bit values (`int64_t`). Large decimal strings such as `18446744073709551616` ($2^{64}$) wrap to 0 under arithmetic comparison (`(( 18446744073709551616 == 0 ))`).
 
 Both `synthetic_host_promotion_cmd_diagnostic` and `synthetic_host_runtime_diagnostic` now enforce lexical limits before any arithmetic:
+
 ```bash
 [[ "$status" =~ ^([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$ ]]
 ```
+
 This guarantees:
+
 1. Only canonical decimal strings with no leading zeros (except single `0`) are accepted.
 2. Huge decimals, negatives, decimals with periods, spaces, or non-digits are classified as `unobserved` and rejected by the validator.
 3. Values above 255 (e.g. 256, 300, 999) are rejected.
@@ -148,9 +155,14 @@ This guarantees:
 
 ---
 
-## 4. Behavioral Verification (RED / GREEN Evidence)
+## 4. Behavioral Verification (Historical 30/70 vs. Corrected 100/140 Evidence)
 
-### Test Coverage in `tests/synthetic-host-evidence.test.ts`
+### Historical Baseline vs. Corrected Suite Counts
+
+- **Historical Observer Baseline (`cb6985e80a6c1c3cb2bd7bf75caa7cff414586a2` / `101f684a46f14fb488a29f77c83051044f4269e0`):** `tests/synthetic-host-evidence.test.ts` contained **30 tests** (**70 tests** across the 4 focused files: `30 + 17 + 17 + 6`). That earlier baseline omitted five valid production `samples.*` fields (`systemIdentifier`, `reference`, `projectActors`, `stability`, `target`) from the generic consumer allowlist.
+- **Corrected Observer Head (`c8304a20aea6bdd8272b3279050cb3814cab4cca`):** `tests/synthetic-host-evidence.test.ts` was expanded to **100 tests** (**140 tests** across the 4 focused files: `100 + 17 + 17 + 6`, `0` skips) to cover all 36 production `samples.*` fields, lexical 0..255 status bounding, zero-exit neutrality, and the actual `operations_inspect_promotion_host` + extracted CI `TRACE` fixture.
+
+### Test Coverage in `tests/synthetic-host-evidence.test.ts` (100 Tests)
 
 1. **Producer Parity Suite:** Tests all 36 production `samples.*` fields against `synthetic_host_runtime_diagnostic` and `synthetic_host_promotion_cmd_diagnostic`, specifically verifying that `systemIdentifier`, `reference`, `projectActors`, `stability`, and `target` are exposed unchanged.
 2. **Lexical Status Bounding Suite:** Tests huge decimals (`18446744073709551616`), leading zeros (`00`, `01`, `007`), negative numbers (`-1`, `-42`), nondecimals (`''`, `'invalid'`, `' 1'`, `'1 '`, `'1.0'`, `'1a'`), and out-of-range values (`256`, `300`, `999`) across both entrypoints. Verifies boundary controls `0`, `1`, `42`, `255`.
@@ -217,11 +229,33 @@ This guarantees:
   - `health-stress (precreated)` (job 126646994093): all ten health iterations pass; promotion refuses with uncertain job/selection and `unallowlisted_output:1`.
   - `private-runtime (precreated)`: passed.
 
+### Corrected Observer Head Runs (Commit `c8304a20aea6bdd8272b3279050cb3814cab4cca`)
+
+- **CI:** [Run 41860854018](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41860854018) - **PASS**
+- **CodeQL Advanced:** [Run 41860854016](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41860854016) - **PASS**
+- **PostgreSQL and Native Operations:** [Run 41860854042](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41860854042) - **PASS**
+- **Private Runtime Controller:** [Run 41860854083](https://github.com/thefastcyberdefense/fcd-support/actions/runs/41860854083) - **FAIL**:
+  - `health-stress (fresh)` (job `126681905506`): **PASS** (all 10 health iterations, checkpoint, restore, and promotion pass).
+  - `private-runtime (fresh)` (job `126681906273`): **PASS** (health, checkpoint, restore, and promotion pass).
+  - `private-runtime (precreated)` (job `126681906053`): **FAIL** at promotion after health, checkpoint, and restore pass:
+    ```text
+    synthetic_host_failed=promote
+    runtime_host_diagnostic=samples.stability
+    synthetic_promotion_cmd_diagnostic=allowlisted_diagnostic
+    ```
+  - `health-stress (precreated)` (job `126681906432`): **FAIL** at promotion after all 10 precreated health iterations, checkpoint, and restore pass:
+    ```text
+    synthetic_host_failed=promote
+    runtime_host_diagnostic=samples.stability
+    synthetic_promotion_cmd_diagnostic=allowlisted_diagnostic
+    ```
+
 ### Separation of Observations and Uncertainty Preservation
 
-1. **Health-9 Empty Acknowledgement:** Run 41851012111 job 126646993818 recorded an empty acknowledgement on health iteration 9. This disposable CI failure is preserved as an observed fact distinct from the promotion failures and earlier passing stress runs. It does not prove the cause of the held server health job.
-2. **Promotion Unallowlisted Output:** In light of the producer-consumer allowlist correction, earlier `unallowlisted_output:1` observations in runs 41848310893 and 41851012111 may have resulted from the narrower filter rejecting one of the five accepted production fields (`samples.systemIdentifier`, `samples.reference`, `samples.projectActors`, `samples.stability`, `samples.target`).
-3. **No Inference or Replay:** No failed CI scope was retried, cleared, or treated as evidence of SQL completion.
+1. **Corrected Observer Surfaces `samples.stability` on Precreated Lanes (`41860854083`):** Restoring producer-consumer parity for the five omitted `samples.*` fields (`systemIdentifier`, `reference`, `projectActors`, `stability`, `target`) allowed run `41860854083` to publish the closed diagnostic `runtime_host_diagnostic=samples.stability` (`synthetic_promotion_cmd_diagnostic=allowlisted_diagnostic`) on both precreated lanes (`126681906053` and `126681906432`) after all 10 precreated health iterations passed.
+2. **Interpretation Boundary for `samples.stability`:** In `src/operations/promotion-host.ts`, the `samples.stability` diagnostic code covers source initial/terminal comparison, target initial/terminal comparison, and whole before/after comparison. The closed `samples.stability` token alone **does not identify which comparison or field differed**, nor does it reconstruct earlier lost output or prove the historical root cause of earlier refusals.
+3. **Health-9 Empty Acknowledgement (`41851012111`):** Historical run `41851012111` job `126646993818` recorded an empty acknowledgement on health iteration 9, whereas run `41860854083` passed all 10 health iterations in both fresh (`126681905506`) and precreated (`126681906432`) stress jobs. Both historical and current disposable CI observations are preserved without inference, retry-until-green, or weakening of stability checks. Codex retains the promotion stability investigation and deployed health-job disposition.
+4. **No Inference or Replay:** No failed CI scope was retried, cleared, or treated as evidence of SQL completion.
 
 ---
 
