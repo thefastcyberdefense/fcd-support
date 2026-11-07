@@ -161,7 +161,12 @@ export async function verifyPrHandoff(options: PrHandoffOptions = {}): Promise<P
       spec.requireConcreteCommandOrEvidence === true &&
       !lines.some(
         (line) =>
-          line.includes('`') || /\b(?:npm|npx|node|vitest|git|pass|passed|exit\s+0)\b/iu.test(line),
+          /`(?:[A-Za-z./][A-Za-z0-9_./-]*[ \t]+[^`\r\n]+|(?:\.{1,2}\/|scripts\/)[A-Za-z0-9_./-]+)`/u.test(
+            line,
+          ) ||
+          /\b(?:npm|npx|node|vitest|git|tsc|bash|python3?|prettier|eslint|pass|passed|fail|failed|exit\s+[0-9]+)\b/iu.test(
+            line,
+          ),
       )
     ) {
       errors.push(

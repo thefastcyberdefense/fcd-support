@@ -26,9 +26,16 @@ formatting could conceal placeholder-only evidence.
   Independent review caught the quoted-placeholder gap and an inline `tsc`
   evidence regression; three RED cases reproduce them, and both are corrected.
 
-The final focused governance suite passes **32 tests / 0 skips**, exit 0,
-1.14 seconds. Independent read-only patch review reports both follow-up findings
+The final focused governance suite passes **36 tests / 0 skips**, exit 0,
+0.938 seconds. Independent read-only patch review reports both follow-up findings
 closed and no additional important regression in the final normalization change.
+A final RED case also showed that an inline configuration value alone could
+satisfy validation. Generic backtick acceptance was removed in favor of known
+command/outcome tokens and generic inline command forms. The inline `tsc`
+control remains valid. Independent review also caught valid Docker/make/script
+commands rejected by a finite tool list; three RED controls reproduce that issue,
+and the final generic command-form check passes them without accepting the
+configuration-only control.
 The checker remains structural; it cannot prove artifact content, test execution
 or approval, and the scanner cannot prove fixture provenance or detect every secret.
 
@@ -52,8 +59,9 @@ skips**, three files, exit 0, 126.85 seconds:
 VITEST_MAX_WORKERS=1 npx vitest run tests/governance-scripts.test.ts tests/backup-harness-containment.test.ts tests/operations-promotion-controller.test.ts --reporter=dot
 ```
 
-This isolates the previously timed-out suites and includes all final governance
-cases; it does not retroactively turn the broader run into a passing full gate.
+This isolates the previously timed-out suites and includes the then-current
+32 governance cases; the final token-predicate follow-up passes 36 governance
+cases separately. This it does not retroactively turn the broader run into a passing full gate.
 
 ## Final-source validation and CI boundary
 

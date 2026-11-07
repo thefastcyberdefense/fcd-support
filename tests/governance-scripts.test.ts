@@ -371,3 +371,34 @@ test('preserves substantive inline command evidence after placeholder normalizat
   await writeFile(eventPath, JSON.stringify({ pull_request: { body } }));
   await expect(verifyPrHandoff({ eventPath })).resolves.toMatchObject({ status: 'passed' });
 });
+
+test('does not treat an inline configuration value as a validation command or outcome', async () => {
+  const root = await makeTempDir('fcd-pr-command-control-');
+  const eventPath = join(root, 'event.json');
+  const body =
+    '## Summary\nSynthetic governance correction.\n## Validation\n`AGY_STRICT_UI_GATE=false`\n## Evidence\nSynthetic fixture controls documented.';
+  await writeFile(eventPath, JSON.stringify({ pull_request: { body } }));
+  const result = await verifyPrHandoff({ eventPath });
+  expect(result.status).toBe('failed');
+  expect(
+    result.errors.some((line) => line.includes('concrete validation commands or outcomes')),
+  ).toBe(true);
+});
+
+test.each(['docker compose config --quiet', 'make check', './scripts/synthetic-check.sh'])(
+  'accepts concrete inline validation command %s without a fixed tool list',
+  async (command) => {
+    const root = await makeTempDir('fcd-pr-portable-command-');
+    const eventPath = join(root, 'event.json');
+    const body = [
+      '## Summary',
+      'Synthetic governance correction.',
+      '## Validation',
+      '`' + command + '`',
+      '## Evidence',
+      'Synthetic fixture controls documented.',
+    ].join('\n');
+    await writeFile(eventPath, JSON.stringify({ pull_request: { body } }));
+    await expect(verifyPrHandoff({ eventPath })).resolves.toMatchObject({ status: 'passed' });
+  },
+);
