@@ -2,6 +2,24 @@
 
 ## Current Phase 6 checkpoint
 
+**2026-11-09 independent review and direct runtime corrections.**
+PR #13 source 105017c fixes the aggregate CodeQL finding test-first; 39
+governance tests pass and aggregate CodeQL succeeds. Its runtime still refuses
+precreated promotion. PR #10 source fe3a66b localizes a changed field to
+`samples.stability.before_after.job.healthy`; this is not a proven cause.
+Attached-health capture source 58497e4 passes the full local gate (2,141 tests /
+461 platform skips), 38 native lifecycle tests and the other three CI workflows,
+but all four runtime lanes refuse health-1 with empty attached output.
+Owned-readiness and preserved-stdin correction 94c03d6 passes the full local
+gate (2,152 tests / 461 platform skips), 319 focused and 26 native wrapper tests
+plus independent review. Fresh CI remains under review; see
+`docs/reviews/2026-11-09-runtime-localization-review.md`.
+Both PRs remain draft/unmerged. Shared-server uncertainty, deployed dashboard
+errors and managed rollout remain held; no server action or settlement occurred.
+AGY can start the independent Windows deadline/reaping task at
+`docs/handoffs/2026-11-09-antigravity-windows-harness-bounds.md`, followed by
+`docs/handoffs/2026-11-09-antigravity-health-stdio-contract.md`.
+
 **2026-11-07 final-head review: direct PR #13 fixes pushed as f0c27ad.**
 Codex repaired residual sentinel exemptions, malformed PR-event handling and
 Markdown placeholder checks test-first. Final governance suite passes 36 tests;
