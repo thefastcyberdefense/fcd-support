@@ -1,6 +1,31 @@
 # Project Context
 
-Last reviewed: 2026-11-04 (Asia/Dhaka)
+Last reviewed: 2026-11-07 (Asia/Dhaka)
+
+Latest final-head review: Codex pushed direct PR #13 corrections as f0c27ad for
+residual marker exemptions, typed event parsing and Markdown placeholders.
+Final governance tests pass 36 / 0 skips; fresh one-worker governance/backup
+containment/promotion-controller suites pass 77 / 0 skips. The broader review
+run failed three unchanged shell-test timeouts (2,000 passed / 446 skipped),
+so a full passing gate is not claimed. PRs #10 and #13 remain draft/unmerged;
+new f0c27ad CI was pending at publication. Submitted 14f91c4 has a fresh health
+empty-acknowledgement failure, while d5fbb9b has three promotion stability
+refusals. Exact evidence: `docs/reviews/2026-11-07-pr-13-direct-corrections.md`.
+AGY can start `docs/handoffs/2026-11-07-antigravity-health-ack-localization.md`;
+Codex retains actual runtime fixes and deployed uncertain-health disposition.
+No server action or operational settlement occurred.
+
+Latest independent review of AGY's c8304a2 observer corrections passes 140
+focused tests with no skips. Runtime CI 41860854083 still fails precreated
+promotion, now exposing the recognized `samples.stability` token; source/terminal,
+target/terminal and whole-snapshot comparisons share that token, so the changed
+field is not established. PRs #10 and #13 remain draft/unmerged. Governance
+claims, audit gaps and proposed US-101..105 require the corrections recorded in
+`docs/reviews/2026-11-07-agy-update-disposition.md`; AGY's bounded next assignment
+is `docs/handoffs/2026-11-07-antigravity-governance-corrections.md`.
+No identifiable FCD Support ClickUp story records were found in the limited
+connected-workspace searches; no remote approval or completion is inferred.
+No server changes occurred. The deployed health hold remains unresolved.
 
 Latest held PR #10 head 101f684 has confirmed observer classification gaps:
 five production-known tokens are dropped, zero-exit output is overclaimed and
