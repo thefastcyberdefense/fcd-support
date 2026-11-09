@@ -168,7 +168,26 @@ Execution performed in the isolated worktree `J:\DevDrive\fcd-support-agy-health
 
 ---
 
-## 6. Concise List of Remaining Unknowns (Item 7)
+## 6. Final-Head GitHub Actions Validation
+
+Final implementation head commit: `a3c4d0a9d7409c9f0c9aa6b4b6ace1f34de44fdc`
+
+GitHub Actions runs triggered by push to `codex/agy-p6-health-transport-stress`:
+
+- **CI** ([Run `42554661897`](https://github.com/thefastcyberdefense/fcd-support/actions/runs/42554661897)): **PASS** (job `128957579951` `validate` passed in 4m44s).
+- **CodeQL Advanced** ([Run `42554661907`](https://github.com/thefastcyberdefense/fcd-support/actions/runs/42554661907)): **PASS** (passed in 55s).
+- **PostgreSQL and Native Operations** ([Run `42554661921`](https://github.com/thefastcyberdefense/fcd-support/actions/runs/42554661921)): **PASS** (job `128957580153` `postgres` passed in 3m35s; job `128957580381` `native-operations` passed in 11m29s).
+- **Private Runtime Controller** ([Run `42554661939`](https://github.com/thefastcyberdefense/fcd-support/actions/runs/42554661939)):
+  - `health-stress (precreated)` (ID `128957580631`): **PASS** in 10m26s (deploy, verify, maintenance, backup, all 10 health iterations, checkpoint, restore, promote, rollback, and cleanup passed).
+  - `health-stress (fresh)` (ID `128957580605`): all 10 health iterations passed (`synthetic_host_health_passed=true`), checkpoint and restore passed, refused at promote with `runtime_host_diagnostic=samples.stability` (`synthetic_promotion_cmd_diagnostic=allowlisted_diagnostic`).
+  - `private-runtime (fresh)` (ID `128957580563`): deploy, verify, maintenance, backup, health, checkpoint, and restore passed, refused at promote with `runtime_host_diagnostic=samples.stability`.
+  - `private-runtime (precreated)` (ID `128957580286`): deploy, verify, maintenance, backup, health, checkpoint, and restore passed, refused at promote with `runtime_host_diagnostic=samples.stability`.
+
+No occurrences of `synthetic_health_ack_diagnostic=empty` or `operations_schedule_failed` were observed across any of the four runtime lanes. The health acknowledgement loss was successfully isolated, observer status bounds were verified, and the separate promotion stability investigation remains cleanly distinguished.
+
+---
+
+## 7. Concise List of Remaining Unknowns (Item 7)
 
 1. **Docker Logs Buffer Empty Output in Disposable CI:**
    - In disposable CI runners, whether container logs can be momentarily empty immediately after `docker wait` exits `0` due to asynchronous logging driver flush latency or stdio buffering.
