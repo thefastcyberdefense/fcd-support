@@ -66,6 +66,27 @@ synthetic_host_health_ack_diagnostic() {
   return "$caller_status"
 }
 
+# Read-only synthetic observer. Its result never enters lifecycle acknowledgement.
+synthetic_host_health_daemon_probe() {
+  [[ "${FCD_RUNTIME_HOST_DIAGNOSTICS:-}" == closed-v1 && "${OPS_JOB_SERVICE:-}" == health ]] || return 0
+  local frame observed diagnostic
+  if frame="$(
+    set -o pipefail
+    operations_docker container logs --tail 2 "$OPS_JOB_CONTAINER" | {
+      if IFS= read -r -d '' -n 4097 observed; then exit 1; fi
+      printf '%s.' "$observed"
+    }
+  )"; then
+    frame="${frame%.}"
+    while [[ "$frame" == *$'\n' ]]; do frame="${frame%$'\n'}"; done
+    diagnostic="$(synthetic_host_health_ack_diagnostic 0 "$frame")" || true
+    synthetic_host_runtime_diagnostic "${diagnostic/synthetic_health_ack_diagnostic=/synthetic_health_daemon_diagnostic=}"
+  else
+    synthetic_host_runtime_diagnostic synthetic_health_daemon_diagnostic=unobserved
+  fi
+  return 0
+}
+
 synthetic_host_promotion_cmd_diagnostic() {
   local caller_status=$?
   local status="${1-}" result="${2-}" expected="${3-}" category=''
@@ -114,6 +135,8 @@ synthetic_host_promotion_cmd_diagnostic() {
 synthetic_host_runtime_diagnostic() {
   local code="${1:-}"
   case "$code" in
+    synthetic_health_daemon_diagnostic=empty|synthetic_health_daemon_diagnostic=completed|synthetic_health_daemon_diagnostic=dependency_unavailable|synthetic_health_daemon_diagnostic=carriage_return|synthetic_health_daemon_diagnostic=multiple_lines|synthetic_health_daemon_diagnostic=unexpected|synthetic_health_daemon_diagnostic=unobserved)
+      printf '%s\n' "$code" ;;
     synthetic_health_ack_diagnostic=empty|synthetic_health_ack_diagnostic=log_read_failed|synthetic_health_ack_diagnostic=carriage_return|synthetic_health_ack_diagnostic=multiple_lines|synthetic_health_ack_diagnostic=dependency_unavailable|synthetic_health_ack_diagnostic=completed|synthetic_health_ack_diagnostic=unexpected|synthetic_health_ack_diagnostic=unobserved)
       printf '%s\n' "$code" ;;
     synthetic_health_attach_diagnostic=nonzero:*)
@@ -184,7 +207,7 @@ synthetic_host_report_failure() {
     diagnostic=''
     # Trace lines need no validator subprocess, and accepted duplicates need no
     # repeated work. Keep the closed validator as the publication authority.
-    if [[ "$line" =~ ^(runtime_host_diagnostic|synthetic_health_ack_diagnostic|synthetic_health_attach_diagnostic|synthetic_promotion_cmd_diagnostic)=[A-Za-z0-9_.:]{1,128}$ ]] &&
+    if [[ "$line" =~ ^(runtime_host_diagnostic|synthetic_health_ack_diagnostic|synthetic_health_attach_diagnostic|synthetic_health_daemon_diagnostic|synthetic_promotion_cmd_diagnostic)=[A-Za-z0-9_.:]{1,128}$ ]] &&
       (( ${#diagnostics[@]} < 16 )) && [[ -z "${seen_diagnostics[$line]:-}" ]]; then
       diagnostic="$(synthetic_host_runtime_diagnostic "$line")"
     fi

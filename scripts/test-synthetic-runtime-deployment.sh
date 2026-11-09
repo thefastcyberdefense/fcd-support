@@ -135,6 +135,7 @@ if [[ "${FCD_RUNTIME_HOST_DIAGNOSTICS:-}" == closed-v1 && "${OPS_JOB_SERVICE-}" 
   fi
   if [[ "$BASH_COMMAND" == operations_job_acknowledgement* ]]; then
     synthetic_host_health_ack_diagnostic 0 "${acknowledgement-}" >&3
+    [[ -n "${acknowledgement-}" ]] || synthetic_host_health_daemon_probe >&3
   fi
 fi' DEBUG
 TRACE

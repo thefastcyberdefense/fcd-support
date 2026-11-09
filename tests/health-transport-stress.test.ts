@@ -186,7 +186,10 @@ printf 'synthetic_schedule=successor\\n' >&4
         expect(result.stdout).toContain(
           `synthetic_health_attach_diagnostic=nonzero:${String(logsExit)}\n`,
         );
-      expect(result.stdout).not.toContain('synthetic_transport=daemon_logs');
+      if (logs === '' && logsExit === 0) {
+        expect(result.stdout.match(/synthetic_transport=daemon_logs/gu)).toHaveLength(1);
+        expect(result.stdout).toContain('synthetic_health_daemon_diagnostic=empty');
+      } else expect(result.stdout).not.toContain('synthetic_transport=daemon_logs');
       if (logsExit === 0)
         expect(result.stdout).not.toContain('synthetic_health_ack_diagnostic=log_read_failed');
       if (logsExit !== 0)
@@ -204,6 +207,41 @@ printf 'synthetic_schedule=successor\\n' >&4
       }
     },
   );
+
+  test('observes producer daemon output after empty attachment without authorizing a fallback', async () => {
+    const ack = '{"status":"completed","processed":1,"reasonCode":"ok"}';
+    const result = await runTrace(ack, 0, { TASK_ATTACHED_OUTPUT: '' });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain('synthetic_health_daemon_diagnostic=completed\n');
+    expect(result.stdout.match(/synthetic_transport=daemon_logs/gu)).toHaveLength(1);
+    expect(result.stdout).toContain('synthetic_state=uncertain\n');
+    expect(result.stdout).not.toContain('synthetic_schedule=successor');
+    expect(result.stdout).not.toContain('synthetic_state=completed');
+    expect(result.stdout.match(/synthetic_transport=attached_start/gu)).toHaveLength(1);
+  });
+
+  test.each([
+    ['SYNTHETIC_PRIVATE_STDOUT', '0', 'unexpected'],
+    ['SYNTHETIC_PRIVATE_STDOUT', '19', 'unobserved'],
+    ['SYNTHETIC_' + 'X'.repeat(6000), '0', 'unobserved'],
+  ])('bounds and suppresses daemon probe bodies %#', async (body, code, category) => {
+    const result = await runTrace(body, 0, { TASK_ATTACHED_OUTPUT: '', TASK_LOGS_EXIT: code });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain('synthetic_health_daemon_diagnostic=' + category);
+    expect(result.stdout).not.toContain('SYNTHETIC_PRIVATE_STDOUT');
+    expect(result.stdout).not.toContain('XXXX');
+    expect(result.stdout).not.toContain('synthetic_schedule=successor');
+  });
+  test('inactive diagnostics perform no daemon observation after an empty attachment', async () => {
+    const result = await runTrace('SYNTHETIC_PRIVATE_STDOUT', 0, {
+      TASK_ATTACHED_OUTPUT: '',
+      FCD_RUNTIME_HOST_DIAGNOSTICS: '',
+    });
+    expect(result.status).toBe(1);
+    expect(result.stdout).not.toContain('synthetic_transport=daemon_logs');
+    expect(result.stdout).not.toContain('synthetic_health_daemon_diagnostic');
+    expect(result.stdout).not.toContain('synthetic_schedule=successor');
+  });
 
   test('suppresses health diagnostics when FCD_RUNTIME_HOST_DIAGNOSTICS is inactive', async () => {
     const result = await runTrace('{"status":"completed","processed":1,"reasonCode":"ok"}', 0, {
@@ -254,7 +292,10 @@ printf 'synthetic_schedule=successor\\n' >&4
       const ack = '{"status":"completed","processed":1,"reasonCode":"ok"}';
       const result = await runTrace(ack, 0, { TASK_ATTACHED_OUTPUT: output });
       expect(result.status).toBe(1);
-      expect(result.stdout).not.toContain('synthetic_transport=daemon_logs');
+      if (output === '') {
+        expect(result.stdout.match(/synthetic_transport=daemon_logs/gu)).toHaveLength(1);
+        expect(result.stdout).toContain('synthetic_health_daemon_diagnostic=completed');
+      } else expect(result.stdout).not.toContain('synthetic_transport=daemon_logs');
       expect(result.stdout).not.toContain('synthetic_schedule=successor');
       expect(result.stdout).toContain('synthetic_state=uncertain\n');
       expect(result.stdout.match(/synthetic_transport=attached_start/gu)).toHaveLength(1);
