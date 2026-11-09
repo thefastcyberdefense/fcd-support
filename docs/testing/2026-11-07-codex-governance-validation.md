@@ -79,3 +79,24 @@ not resolved by this governance patch or by an earlier green workflow.
 No SSH, shared-server Docker/systemd, tunnel, provider, account or ClickUp action
 occurred. The uncertain server health job is preserved; no completion inference,
 retry, clearing or managed dashboard deployment is authorized by this record.
+
+## 2026-11-09 aggregate CodeQL follow-up
+
+The seven workflow runs on f0c27ad succeeded, but the separate aggregate
+CodeQL check 128447342906 failed with one high finding at
+`scripts/verify-pr-handoff.ts:65` (`js/incomplete-multi-character-sanitization`).
+Do not report that head as having all required checks green.
+
+This path parses PR Markdown for a CLI check; no HTML rendering sink was found
+in this path. Nevertheless, two authored regressions prove a structural defect:
+unterminated comments could supply hidden required sections or evidence.
+RED: two failed / 37 passed. The parser now masks complete and unfinished
+comment spans with whitespace while retaining line boundaries instead of joining
+fragments through empty replacement. Visible-section controls remain valid.
+GREEN: 39 passed / 0 skips, exit 0, 0.830 seconds.
+
+The approach avoids the delimiter reconstruction described by
+[CodeQL's primary query documentation](https://codeql.github.com/codeql-query-help/javascript/js-incomplete-multi-character-sanitization/).
+No alert was dismissed and no query, gate or permission was disabled. A new
+CodeQL result, including the aggregate check, is still required before merge;
+local tests do not prove that result.

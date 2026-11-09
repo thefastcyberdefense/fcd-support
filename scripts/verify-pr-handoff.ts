@@ -62,7 +62,10 @@ function extractLevelTwoSections(markdown: string): readonly {
   readonly heading: string;
   readonly body: string;
 }[] {
-  const withoutComments = markdown.replace(/<!--[\s\S]*?-->/gu, '');
+  // Mask non-content spans without joining fragments or losing section line boundaries.
+  const withoutComments = markdown.replace(/<!--[\s\S]*?(?:-->|$)/gu, (comment) =>
+    comment.replace(/[^\r\n]/gu, ' '),
+  );
   const lines = withoutComments.split(/\r?\n/u);
   const sections: { heading: string; lines: string[] }[] = [];
   let current: { heading: string; lines: string[] } | undefined;

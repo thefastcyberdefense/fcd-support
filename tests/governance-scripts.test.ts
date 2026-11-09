@@ -402,3 +402,22 @@ test.each(['docker compose config --quiet', 'make check', './scripts/synthetic-c
     await expect(verifyPrHandoff({ eventPath })).resolves.toMatchObject({ status: 'passed' });
   },
 );
+
+test.each([
+  '<!-- synthetic unterminated comment\n## Summary\nSynthetic hidden summary.\n## Validation\n`npm test` passed.\n## Evidence\nSynthetic hidden evidence.',
+  '## Summary\nSynthetic visible summary.\n## Validation\n`npm test` passed.\n## Evidence\n<!-- synthetic unterminated evidence',
+])('does not accept required content hidden by an unterminated comment %#', async (body) => {
+  const root = await makeTempDir('fcd-pr-comment-');
+  const eventPath = join(root, 'event.json');
+  await writeFile(eventPath, JSON.stringify({ pull_request: { body } }));
+  await expect(verifyPrHandoff({ eventPath })).resolves.toMatchObject({ status: 'failed' });
+});
+
+test('preserves visible section lines around completed multiline comments', async () => {
+  const root = await makeTempDir('fcd-pr-comment-control-');
+  const eventPath = join(root, 'event.json');
+  const body =
+    '<!-- synthetic hidden guidance\n## Not an evidence section\n-->\n## Summary\nSynthetic visible correction.\n## Validation\n`npm test` passed.\n<!-- synthetic comment -->\n## Evidence\nSynthetic visible fixture controls.';
+  await writeFile(eventPath, JSON.stringify({ pull_request: { body } }));
+  await expect(verifyPrHandoff({ eventPath })).resolves.toMatchObject({ status: 'passed' });
+});
