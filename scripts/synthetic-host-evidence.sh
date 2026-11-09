@@ -116,6 +116,10 @@ synthetic_host_runtime_diagnostic() {
   case "$code" in
     synthetic_health_ack_diagnostic=empty|synthetic_health_ack_diagnostic=log_read_failed|synthetic_health_ack_diagnostic=carriage_return|synthetic_health_ack_diagnostic=multiple_lines|synthetic_health_ack_diagnostic=dependency_unavailable|synthetic_health_ack_diagnostic=completed|synthetic_health_ack_diagnostic=unexpected|synthetic_health_ack_diagnostic=unobserved)
       printf '%s\n' "$code" ;;
+    synthetic_health_attach_diagnostic=nonzero:*)
+      case "${code#*:}" in
+        [1-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5]) printf '%s\n' "$code" ;;
+      esac ;;
     synthetic_health_ack_diagnostic=log_read_failed:*)
       local status_val="${code#*:}"
       if [[ "$status_val" =~ ^([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$ ]]; then
@@ -180,7 +184,7 @@ synthetic_host_report_failure() {
     diagnostic=''
     # Trace lines need no validator subprocess, and accepted duplicates need no
     # repeated work. Keep the closed validator as the publication authority.
-    if [[ "$line" =~ ^(runtime_host_diagnostic|synthetic_health_ack_diagnostic|synthetic_promotion_cmd_diagnostic)=[A-Za-z0-9_.:]{1,128}$ ]] &&
+    if [[ "$line" =~ ^(runtime_host_diagnostic|synthetic_health_ack_diagnostic|synthetic_health_attach_diagnostic|synthetic_promotion_cmd_diagnostic)=[A-Za-z0-9_.:]{1,128}$ ]] &&
       (( ${#diagnostics[@]} < 16 )) && [[ -z "${seen_diagnostics[$line]:-}" ]]; then
       diagnostic="$(synthetic_host_runtime_diagnostic "$line")"
     fi

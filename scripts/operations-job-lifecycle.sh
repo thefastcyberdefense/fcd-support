@@ -118,7 +118,7 @@ operations_job_start() {
   if [[ "$OPS_JOB_SERVICE" == promote ]]; then
     operations_job_promotion_exchange
   elif [[ "$OPS_JOB_SERVICE" == health ]]; then
-    printf '%s\n' "$OPS_HEALTH_INPUT_JSON" | operations_docker container start --attach --interactive "$OPS_JOB_CONTAINER" >/dev/null
+    printf '%s\n' "$OPS_HEALTH_INPUT_JSON" | operations_docker container start --attach --interactive "$OPS_JOB_CONTAINER"
   else
     operations_docker container start "$OPS_JOB_CONTAINER" >/dev/null
   fi
@@ -195,7 +195,7 @@ operations_job_create_stopped() {
 }
 
 operations_execute_job() {
-  local service="${1:-}" argument image_metadata token wait_result actual_exit acknowledgement hash index=0
+  local service="${1:-}" argument image_metadata token wait_result actual_exit acknowledgement health_frame health_observed_frame hash index=0
   [[ "$#" -ge 2 && "$#" -le 14 && "$service" =~ ^(bootstrap|migrate|backup|verify-backup|checkpoint|health|maintenance|restore|restore-bootstrap|restore-migrate|restore-reconcile|promote)$ ]] || operations_fail operations_job_arguments_invalid
   shift
   for argument in "$@"; do
@@ -246,7 +246,24 @@ operations_execute_job() {
   operations_job_state_transition "$OPS_JOB_REFERENCE" created "$OPS_JOB_CONTAINER"
   # Record before start: a lost start acknowledgement is never replay-safe.
   operations_job_state_transition "$OPS_JOB_REFERENCE" started "$OPS_JOB_CONTAINER"
-  operations_job_start || operations_job_uncertain
+  if [[ "$service" == health ]]; then
+    # Retain the existing attached stream. Later daemon logs are not an acknowledgement channel.
+    # The sentinel preserves trailing bytes until the 4096-byte protocol bound is checked.
+    health_frame="$(
+      set -o pipefail
+      operations_job_start | {
+        # NUL or a full 4097-byte read is invalid; only bounded EOF may produce a frame.
+        if IFS= read -r -d '' -n 4097 health_observed_frame; then exit 1; fi
+        printf '%s.' "$health_observed_frame"
+      }
+    )" || operations_job_uncertain
+    health_frame="${health_frame%.}"
+    (( ${#health_frame} <= 4096 )) || operations_job_uncertain
+    while [[ "$health_frame" == *$'\n' ]]; do health_frame="${health_frame%$'\n'}"; done
+    acknowledgement="$health_frame"
+  else
+    operations_job_start || operations_job_uncertain
+  fi
   wait_result="$(operations_docker container wait "$OPS_JOB_CONTAINER")" || operations_job_uncertain
   [[ "$wait_result" == 0 ]] || operations_job_uncertain
   operations_job_assert_container exited || operations_job_uncertain
@@ -256,7 +273,7 @@ operations_execute_job() {
     acknowledgement="$(operations_docker container logs --tail 4 "$OPS_JOB_CONTAINER")" || operations_job_uncertain
     [[ "$acknowledgement" == "$OPS_PROMOTION_TRANSCRIPT" ]] || operations_job_uncertain
     acknowledgement="$OPS_PROMOTION_ACK"
-  else
+  elif [[ "$service" != health ]]; then
     acknowledgement="$(operations_docker container logs --tail 2 "$OPS_JOB_CONTAINER")" || operations_job_uncertain
   fi
   operations_job_acknowledgement "$acknowledgement" || operations_job_uncertain

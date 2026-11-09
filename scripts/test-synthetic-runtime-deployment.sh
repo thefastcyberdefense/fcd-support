@@ -117,6 +117,14 @@ if [[ "${FCD_RUNTIME_HOST_DIAGNOSTICS:-}" == closed-v1 && "${trace_source##*/}" 
   fi
 fi
 if [[ "${FCD_RUNTIME_HOST_DIAGNOSTICS:-}" == closed-v1 && "${OPS_JOB_SERVICE-}" == health && "${trace_source##*/}" == operations-job-lifecycle.sh && "${FUNCNAME[0]-}" == operations_execute_job ]]; then
+  if [[ "$BASH_COMMAND" == *"operations_job_start | {"* ]]; then
+    health_attaching_subshell=$BASH_SUBSHELL
+  elif [[ "${health_attaching_subshell-}" == "$BASH_SUBSHELL" ]]; then
+    unset health_attaching_subshell
+    if [[ "$trace_status" -ne 0 ]]; then
+      synthetic_host_runtime_diagnostic "synthetic_health_attach_diagnostic=nonzero:$trace_status" >&3
+    fi
+  fi
   if [[ "$BASH_COMMAND" == *"container logs"* ]]; then
     health_reading_logs_subshell=$BASH_SUBSHELL
   elif [[ "${health_reading_logs_subshell-}" == "$BASH_SUBSHELL" ]]; then

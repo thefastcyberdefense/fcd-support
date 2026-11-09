@@ -86,7 +86,7 @@ describe('closed diagnostic classification for health transport outcomes', () =>
   });
 });
 
-describe('actual scheduled lifecycle and extracted CI trace', () => {
+describe('actual scheduled lifecycle, attached health transport and extracted CI trace', () => {
   async function runTrace(
     logs: string,
     logsExit: number,
@@ -111,7 +111,7 @@ operations_job_override() { return 0; }
 operations_job_create_stopped() { return 0; }
 operations_job_discover() { [[ "\${review_actor_removed-}" != true ]] || return 0; printf '%064d\\n' 1; }
 operations_job_assert_container() { return 0; }
-operations_job_start() { return 0; }
+
 # Keep the real acknowledgement validator, and exit before any file cleanup.
 validator="$(declare -f operations_job_acknowledgement)"
 eval "\${validator/operations_job_acknowledgement/review_validate_ack}"
@@ -121,16 +121,23 @@ od() { printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\n'; }
 operations_docker() {
  case "$1/$2" in
   image/inspect) printf 'sha256:%064d/%040d/linux/amd64\\n' 1 1 ;;
+  container/start)
+    cat >/dev/null
+    printf 'synthetic_transport=attached_start\\n' >&4
+    printf '%s' "\${TASK_ATTACHED_OUTPUT-}"
+    [[ "\${TASK_ATTACH_NUL-}" != true ]] || printf '\\0'
+    return "\${TASK_ATTACHED_EXIT:-0}" ;;
   container/wait) printf '0\\n' ;;
-  container/inspect) printf 'exited/0\\n' ;;
+  container/inspect) printf '%s\\n' "\${TASK_EXIT_STATE:-exited/0}" ;;
   container/stop) printf 'synthetic_containment=stop\\n' >&4 ;;
   container/rm) review_actor_removed=true; printf 'synthetic_containment=remove\\n' >&4 ;;
-  container/logs) printf '%s' "$TASK_LOGS"; return "$TASK_LOGS_EXIT" ;;
+  container/logs) printf 'synthetic_transport=daemon_logs\\n' >&4; printf '%s' "$TASK_LOGS"; return "$TASK_LOGS_EXIT" ;;
   *) return 19 ;;
  esac
 }
 declare -A OPS_CONFIG=([FCD_SUPPORT_REVISION]=$(printf '%040d' 1) [FCD_RUNTIME_PROJECT]=synthetic [FCD_STATE_ROOT]=/synthetic-review-absent [FCD_OPERATIONS_IMAGE]=synthetic [FCD_COMMAND_TIMEOUT_SECONDS]=5 [FCD_STOP_GRACE_MS]=2000 [FCD_POSTGRES_DB]=synthetic [FCD_DATABASE_SCHEMA]=public [FCD_DATABASE_ROLE_PREFIX]=synthetic [FCD_SCHEMA_REVISION]=000016)
 OPS_DATABASE_SYSTEM_IDENTIFIER=7300000000000000000
+OPS_HEALTH_INPUT_JSON='{}'
 exec 3>&1 4>&1
 ${trace}
 # Same command-substitution boundary used by the public scheduler.
@@ -148,6 +155,8 @@ printf 'synthetic_schedule=successor\\n' >&4
         FCD_RUNTIME_HOST_DIAGNOSTICS: 'closed-v1',
         TASK_LOGS: logs,
         TASK_LOGS_EXIT: String(logsExit),
+        TASK_ATTACHED_OUTPUT: logs,
+        TASK_ATTACHED_EXIT: String(logsExit),
         ...envOverrides,
       },
     });
@@ -160,7 +169,7 @@ printf 'synthetic_schedule=successor\\n' >&4
       'dependency_unavailable',
       0,
     ],
-    ['', 19, 'log_read_failed:19', 1],
+    ['', 19, 'attach_nonzero:19', 1],
     ['', 0, 'empty', 1],
     ['synthetic_invalid', 0, 'unexpected', 1],
     ['line1\nline2', 0, 'multiple_lines', 1],
@@ -170,7 +179,13 @@ printf 'synthetic_schedule=successor\\n' >&4
     async (logs, logsExit, diagnostic, status) => {
       const result = await runTrace(logs, logsExit);
       expect(result.status).toBe(status);
-      expect(result.stdout).toContain(`synthetic_health_ack_diagnostic=${diagnostic}\n`);
+      if (logsExit === 0)
+        expect(result.stdout).toContain(`synthetic_health_ack_diagnostic=${diagnostic}\n`);
+      else
+        expect(result.stdout).toContain(
+          `synthetic_health_attach_diagnostic=nonzero:${String(logsExit)}\n`,
+        );
+      expect(result.stdout).not.toContain('synthetic_transport=daemon_logs');
       if (logsExit === 0)
         expect(result.stdout).not.toContain('synthetic_health_ack_diagnostic=log_read_failed');
       if (logsExit !== 0)
@@ -196,4 +211,76 @@ printf 'synthetic_schedule=successor\\n' >&4
     expect(result.status).toBe(0);
     expect(result.stdout).not.toContain('synthetic_health_ack_diagnostic');
   });
+  test('does not accept a captured acknowledgement before the final exit guard passes', async () => {
+    const ack = '{"status":"completed","processed":1,"reasonCode":"ok"}';
+    const result = await runTrace(ack, 0, {
+      TASK_ATTACHED_OUTPUT: ack,
+      TASK_EXIT_STATE: 'exited/19',
+    });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain('synthetic_state=uncertain\n');
+    expect(result.stdout).not.toContain('synthetic_schedule=successor');
+    expect(result.stdout).not.toContain('synthetic_health_ack_diagnostic=completed');
+    expect(result.stdout).not.toContain('synthetic_transport=daemon_logs');
+  });
+  test('rejects NUL in the attached wire frame before shell string normalization', async () => {
+    const ack = '{"status":"completed","processed":1,"reasonCode":"ok"}';
+    const result = await runTrace(ack, 0, { TASK_ATTACHED_OUTPUT: ack, TASK_ATTACH_NUL: 'true' });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain('synthetic_state=uncertain\n');
+    expect(result.stdout).not.toContain('synthetic_schedule=successor');
+    expect(result.stdout).not.toContain('synthetic_transport=daemon_logs');
+  });
+  test('retains the attached acknowledgement when later daemon logs are unavailable', async () => {
+    const ack = '{"status":"completed","processed":1,"reasonCode":"ok"}';
+    const result = await runTrace('', 19, {
+      TASK_ATTACHED_OUTPUT: ack + '\n',
+      TASK_ATTACHED_EXIT: '0',
+    });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('synthetic_schedule=successor\n');
+    expect(result.stdout).not.toContain('synthetic_transport=daemon_logs');
+    expect(result.stdout.match(/synthetic_transport=attached_start/gu)).toHaveLength(1);
+  });
+  test.each([
+    '',
+    'SYNTHETIC_INVALID_FRAME',
+    'SYNTHETIC_' + 'A'.repeat(6000),
+    '{"status":"completed","processed":1,"reasonCode":"ok"}' + '\n'.repeat(6000),
+  ])(
+    'never falls back to a daemon acknowledgement after invalid attached output %#',
+    async (output) => {
+      const ack = '{"status":"completed","processed":1,"reasonCode":"ok"}';
+      const result = await runTrace(ack, 0, { TASK_ATTACHED_OUTPUT: output });
+      expect(result.status).toBe(1);
+      expect(result.stdout).not.toContain('synthetic_transport=daemon_logs');
+      expect(result.stdout).not.toContain('synthetic_schedule=successor');
+      expect(result.stdout).toContain('synthetic_state=uncertain\n');
+      expect(result.stdout.match(/synthetic_transport=attached_start/gu)).toHaveLength(1);
+    },
+  );
 });
+
+test.each(['1', '19', '255', '0', '00', '-1', '256', '18446744073709551616', 'SYNTHETIC_INVALID'])(
+  'attached capture diagnostics publish only bounded nonzero observed statuses %s',
+  (status) => {
+    const line = 'synthetic_health_attach_diagnostic=nonzero:' + status;
+    const result = spawnSync(
+      bash,
+      ['-c', 'source "$TASK_LIBRARY"; synthetic_host_runtime_diagnostic "$TASK_LINE"'],
+      {
+        encoding: 'utf8',
+        timeout: 3000,
+        env: {
+          PATH: process.env.PATH,
+          SystemRoot: process.env.SystemRoot,
+          TASK_LIBRARY: evidenceLibrary,
+          TASK_LINE: line,
+        },
+      },
+    );
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.stdout).toBe(['1', '19', '255'].includes(status) ? line + '\n' : '');
+  },
+);
