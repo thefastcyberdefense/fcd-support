@@ -6,6 +6,7 @@
 - Related PR: Draft PR #10 (`codex/agy-p6-health-transport-stress`)
 - Branch: `codex/agy-p6-health-transport-stress`
 - Worktree: Isolated worktree `J:\DevDrive\fcd-support-agy-health-stress`
+- Reviewed AGY documentation head: `e781163adac4f0ccc89dedae42639224f2b0b752` (resolved from Git; the expanded SHA in the return message is incorrect).
 - Main Baseline Commit: `0539a036d7174084f2190ee0954f6adf18c6204b`
 - Worktree Integration Commit: `b9d45ecf0d1ff6796ac82e2a7ad3581351ea8ce9`
 - Handoff Reference: [`docs/handoffs/2026-11-07-antigravity-health-ack-localization.md`](../handoffs/2026-11-07-antigravity-health-ack-localization.md)
@@ -81,13 +82,13 @@ Under scheduled execution, the health lifecycle sequence proceeds through the fo
 
 ### Measured Facts vs. Hypothetical Possibilities
 
-| Item | Status | Source & Evidence |
-| :--- | :--- | :--- |
-| Container process wait & exit | **Measured** | `operations_docker container wait` returned `0`; container inspect confirmed `exited/0` on line 254. |
-| Nonzero log-read command failure | **Measured (Absence)** | In run `42384678769` and run `41851012111` (health-9), `operations_docker container logs` exited `0`, not `1..255`. If it had exited nonzero, line 260 would have triggered `|| operations_job_uncertain` directly without line 262 executing, and `log_read_failed` would have been emitted. |
-| Empty string capture | **Measured** | Command substitution assigned `acknowledgement=""`. Line 262 called `operations_job_acknowledgement ""` which returned `1`. TRACE trap on line 128 observed `synthetic_health_ack_diagnostic=empty`. |
-| Immediate halt on refusal | **Measured** | `operations_job_uncertain` transitioned active job to `uncertain`. `run-operation.sh:97` failed with `operations_schedule_failed`. Zero subsequent commands executed. |
-| Root cause of empty log output | **Hypothetical** | Whether Node.js process exited `0` before stdio buffer flushed, or dockerd/containerd log driver buffer had not flushed to disk prior to `docker logs` read in disposable GitHub runner environment. |
+| Item                              | Status                                | Source & Evidence                                                                                                                                                                                                                                                                                           |
+| :-------------------------------- | :------------------------------------ | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Container process wait & exit     | **Historical control-flow inference** | Reaching acknowledgement validation supports inferring that the owning wait/exit checks passed. The historical trace did not independently record both raw invocation outputs; this is not a new measurement.                                                                                               |
+| Log-read status in older failures | **Historical control-flow inference** | Reaching acknowledgement validation supports inferring successful log capture from the source control flow. The old observer lacked the new subshell latch; absence of its failure token is not independent proof of invocation status. Newly authored port fixtures explicitly control and observe status. |
+| Empty string capture              | **Measured**                          | Command substitution assigned `acknowledgement=""`. Line 262 called `operations_job_acknowledgement ""` which returned `1`. TRACE trap on line 128 observed `synthetic_health_ack_diagnostic=empty`.                                                                                                        |
+| Halt on refusal                   | **Scoped evidence**                   | The outer harness refuses later normal operations. Production uncertainty handling may perform verified actor cancellation/removal and journal transitions before exiting. This is not proof of zero lifecycle actions or a database outcome.                                                               |
+| Root cause of empty log output    | **Hypothetical**                      | Whether Node.js process exited `0` before stdio buffer flushed, or dockerd/containerd log driver buffer had not flushed to disk prior to `docker logs` read in disposable GitHub runner environment.                                                                                                        |
 
 ---
 
@@ -126,6 +127,7 @@ Under scheduled execution, the health lifecycle sequence proceeds through the fo
 ### 2. Publication Filter Parity ([`scripts/synthetic-host-evidence.sh:116-125`](../../scripts/synthetic-host-evidence.sh#L116-L125))
 
 `synthetic_host_runtime_diagnostic` allows:
+
 - Fixed tokens: `empty`, `log_read_failed`, `carriage_return`, `multiple_lines`, `dependency_unavailable`, `completed`, `unexpected`, `unobserved`.
 - Bounded status tokens: `log_read_failed:*` where the suffix strictly matches `^([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$`.
 - Any out-of-range or malformed token is rejected and dropped.
@@ -142,7 +144,7 @@ Under scheduled execution, the health lifecycle sequence proceeds through the fo
 ## 4. Preservation of Uncertainty and Containment (Item 5)
 
 - **Immediate Halt:** On acknowledgement rejection, `operations_job_uncertain` writes `JOB_PHASE=uncertain` to the active job journal and terminates immediately.
-- **Zero Subsequent Calls:** Tests verify that no subsequent operational calls, database queries, or lifecycle actions occur after refusal.
+- **Scoped successor suppression:** The revised port fixture retains the real uncertainty/cancel handlers, observes fixed containment and uncertain-state markers, and asserts no normal successor/completed marker after refusal. State and Docker ports remain synthetic; the fixture does not prove physical journal persistence, SQL settlement, or absence of permitted containment actions. The success control exits at acknowledgement validation before normal completion cleanup.
 - **No Replay or Settlement:** Extra observations deliver diagnostic visibility only; they carry zero completion or retry authority.
 
 ---
@@ -151,26 +153,27 @@ Under scheduled execution, the health lifecycle sequence proceeds through the fo
 
 Execution performed in the isolated worktree `J:\DevDrive\fcd-support-agy-health-stress`:
 
-| Check | Command | Result |
-| :--- | :--- | :--- |
-| Phase 0 Gate | `npm run validate:phase0` | Exit 0: tracker, evidence, citations, launch-gate mappings valid |
-| Code Formatting | `npm run format:check` | Exit 0: all matched files use Prettier code style |
-| Static Lint | `npm run lint` | Exit 0: clean across all project files |
-| TypeScript Types | `npm run typecheck` | Exit 0: `tsc --noEmit` clean |
-| TypeScript Build | `npm run build` | Exit 0: `tsc --project tsconfig.build.json` clean |
-| Whitespace & Diffs | `git diff --check origin/main...HEAD` | Exit 0: zero whitespace errors, clean patch |
-| Lifecycle Suite | `tests/operations-job-lifecycle.test.ts` | 31 skipped (retained Docker-isolated tests) |
-| Focused Suite 1 | `tests/health-transport-stress.test.ts` | **18 passed** / 0 skipped (including nonzero status and inactive suppression) |
-| Focused Suite 2 | `tests/operations-promotion-diagnosis.test.ts` | **6 passed** / 0 skipped |
-| Focused Suite 3 | `tests/synthetic-recovery.test.ts` | **17 passed** / 0 skipped |
-| Focused Suite 4 | `tests/synthetic-host-evidence.test.ts` | **127 passed** / 0 skipped (including status bounds, captures, sentinels) |
-| **Combined Focused** | `npx vitest run ...` (4 suites) | **168 passed / 0 skipped / 0 failed**, exit 0, 16.69s |
+| Check                | Command                                        | Result                                                                        |
+| :------------------- | :--------------------------------------------- | :---------------------------------------------------------------------------- |
+| Phase 0 Gate         | `npm run validate:phase0`                      | Exit 0: tracker, evidence, citations, launch-gate mappings valid              |
+| Code Formatting      | `npm run format:check`                         | Exit 0: all matched files use Prettier code style                             |
+| Static Lint          | `npm run lint`                                 | Exit 0: clean across all project files                                        |
+| TypeScript Types     | `npm run typecheck`                            | Exit 0: `tsc --noEmit` clean                                                  |
+| TypeScript Build     | `npm run build`                                | Exit 0: `tsc --project tsconfig.build.json` clean                             |
+| Whitespace & Diffs   | `git diff --check origin/main...HEAD`          | Exit 0: zero whitespace errors, clean patch                                   |
+| Lifecycle Suite      | `tests/operations-job-lifecycle.test.ts`       | 31 skipped (retained Docker-isolated tests)                                   |
+| Focused Suite 1      | `tests/health-transport-stress.test.ts`        | **18 passed** / 0 skipped (including nonzero status and inactive suppression) |
+| Focused Suite 2      | `tests/operations-promotion-diagnosis.test.ts` | **6 passed** / 0 skipped                                                      |
+| Focused Suite 3      | `tests/synthetic-recovery.test.ts`             | **17 passed** / 0 skipped                                                     |
+| Focused Suite 4      | `tests/synthetic-host-evidence.test.ts`        | **127 passed** / 0 skipped (including status bounds, captures, sentinels)     |
+| **Combined Focused** | `npx vitest run ...` (4 suites)                | **168 passed / 0 skipped / 0 failed**, exit 0, 16.69s                         |
 
 ---
 
-## 6. Final-Head GitHub Actions Validation
+## 6. AGY Implementation-Head GitHub Actions Validation
 
-Final implementation head commit: `a3c4d0a9d7409c9f0c9aa6b4b6ace1f34de44fdc`
+AGY implementation head: `a3c4d0a9d7409c9f0c9aa6b4b6ace1f34de44fdc`.
+The later documentation head is `e781163adac4f0ccc89dedae42639224f2b0b752`; its distinct runtime outcome is recorded below.
 
 GitHub Actions runs triggered by push to `codex/agy-p6-health-transport-stress`:
 
@@ -197,3 +200,15 @@ No occurrences of `synthetic_health_ack_diagnostic=empty` or `operations_schedul
    - The shared server's uncertain health job remains preserved and un-cleared. Disposition authority is retained exclusively by Codex.
 4. **Managed Dashboard Rollout & Merge Authority:**
    - Managed dashboard deployment and PR merge authority remain reserved to Codex.
+
+## 2026-11-09 Codex final-head reconciliation
+
+Independent focused execution of the submitted e781163 tree passed 168 tests,
+0 skips, four files, exit 0, 14.54 seconds. Its actual runtime workflow is
+[42555955045](https://github.com/thefastcyberdefense/fcd-support/actions/runs/42555955045):
+fresh ordinary 128961569977 and fresh stress 128961570035 pass; precreated stress
+128961569718 and precreated ordinary 128961570095 refuse promotion with
+`samples.stability`. The stress failure completes all ten health iterations.
+This is distinct from implementation-head run 42554661939 above. No historical
+output was reconstructed or failed scope replayed. Codex retains the runtime
+investigation; new detailed diagnostics do not retroactively identify old causes.

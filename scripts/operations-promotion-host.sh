@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Read-only live promotion proof. Caller retains the deployment lock, protected
 # configuration, exact revision and local Docker endpoint. Never source in a job.
+source "$(dirname -- "${BASH_SOURCE[0]}")/promotion-stability-diagnostics.sh"
 source "$(dirname -- "${BASH_SOURCE[0]}")/operations-runtime-host.sh"
 source "$(dirname -- "${BASH_SOURCE[0]}")/operations-restore-host.sh"
 
@@ -122,6 +123,8 @@ operations_promotion_host_secrets() {
 operations_promotion_host_diagnostic() {
   [[ "${FCD_RUNTIME_HOST_DIAGNOSTICS:-}" == closed-v1 && "$#" == 1 && ${#1} -le 128 ]] || return 0
   case "$1" in
+    runtime_host_diagnostic=samples.stability.*)
+      operations_promotion_stability_diagnostic_allowed "${1#runtime_host_diagnostic=}" || return 0 ;;
     runtime_host_diagnostic=arguments|runtime_host_diagnostic=input|runtime_host_diagnostic=validation|runtime_host_diagnostic=samples) ;;
     runtime_host_diagnostic=samples.*)
       case "${1#runtime_host_diagnostic=samples.}" in

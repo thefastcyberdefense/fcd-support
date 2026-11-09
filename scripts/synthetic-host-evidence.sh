@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Test harness diagnostics only. Never forward arbitrary process output.
+source "$(dirname -- "${BASH_SOURCE[0]}")/promotion-stability-diagnostics.sh"
 synthetic_host_health_ack_diagnostic() {
   local caller_status=$?
   local -a saved_rematch=()
@@ -129,6 +130,8 @@ synthetic_host_runtime_diagnostic() {
       fi ;;
     runtime_host_diagnostic=arguments|runtime_host_diagnostic=input|runtime_host_diagnostic=validation|runtime_host_diagnostic=revision|runtime_host_diagnostic=ingress|runtime_host_diagnostic=compose|runtime_host_diagnostic=paths|runtime_host_diagnostic=samples|runtime_host_diagnostic=volume_identity|runtime_host_diagnostic=topology|runtime_host_diagnostic=images|runtime_host_diagnostic=volume|runtime_host_diagnostic=network_set|runtime_host_diagnostic=network_labels|runtime_host_diagnostic=network_members|runtime_host_diagnostic=container_policy|runtime_host_diagnostic=container_networks|runtime_host_diagnostic=tmpfs|runtime_host_diagnostic=mounts|runtime_host_diagnostic=binds|runtime_host_diagnostic=protected_binds|runtime_host_diagnostic=socket_users|runtime_host_diagnostic=stability)
       printf '%s\n' "$code" ;;
+    runtime_host_diagnostic=samples.stability.*)
+      if operations_promotion_stability_diagnostic_allowed "${code#runtime_host_diagnostic=}"; then printf '%s\n' "$code"; fi ;;
     runtime_host_diagnostic=samples.*|runtime_host_diagnostic=volume_identity.*)
       case "${code#*.}" in
         id|systemIdentifier|project|projectActors|service|revision|imageId|reference|running|paused|restarting|dead|healthy|startedAt|restartCount|readOnlyRootfs|privileged|init|user|networkMode|networks|hostPortBindings|publishedPortBindings|publishAllPorts|pidMode|ipcMode|utsMode|capAdd|capDrop|securityOpt|devices|deviceRequests|groupAdd|volumesFrom|extraHosts|sysctls|nanoCpus|memory|pidsLimit|stopTimeout|restartPolicy|tmpfs|command|entrypoint|environmentNames|executionFlags|mounts|type|name|source|destination|readWrite|propagation|images|containers|volume|socket|hostBinds|driver|scope|options|logicalName|createdAt|mountpoint|users|os|architecture|before|after|probes|postgresSql|apiHttp|adminSocket|adminNoTcp|replyHeartbeat|internal|members|containerId|canonicalSource|device|inode|uid|gid|mode|rootDevice|rootInode|rootUid|rootGid|rootMode|stability|target)

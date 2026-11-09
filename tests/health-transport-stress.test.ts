@@ -102,17 +102,20 @@ operations_config_field() { return 0; }
 operations_job_state_root() { OPS_JOB_STATE_FILE=/synthetic-review-absent; }
 operations_job_state_begin() { return 0; }
 operations_job_state_sync() { return 0; }
-operations_job_state_transition() { return 0; }
+operations_job_state_transition() {
+  case "$2" in created|started|uncertain|completed) printf 'synthetic_state=%s\\n' "$2" >&4 ;; *) exit 1 ;; esac
+}
+operations_job_state_read() { declare -gA OPS_JOB_STATE=([JOB_CONTAINER]="$OPS_JOB_CONTAINER"); }
+operations_fail() { exit 1; }
 operations_job_override() { return 0; }
 operations_job_create_stopped() { return 0; }
-operations_job_discover() { printf '%064d\\n' 1; }
+operations_job_discover() { [[ "\${review_actor_removed-}" != true ]] || return 0; printf '%064d\\n' 1; }
 operations_job_assert_container() { return 0; }
 operations_job_start() { return 0; }
 # Keep the real acknowledgement validator, and exit before any file cleanup.
 validator="$(declare -f operations_job_acknowledgement)"
 eval "\${validator/operations_job_acknowledgement/review_validate_ack}"
 operations_job_acknowledgement() { review_validate_ack "$@" || return; exit 0; }
-operations_job_uncertain() { exit 1; }
 timeout() { return 0; }
 od() { printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\n'; }
 operations_docker() {
@@ -120,16 +123,19 @@ operations_docker() {
   image/inspect) printf 'sha256:%064d/%040d/linux/amd64\\n' 1 1 ;;
   container/wait) printf '0\\n' ;;
   container/inspect) printf 'exited/0\\n' ;;
+  container/stop) printf 'synthetic_containment=stop\\n' >&4 ;;
+  container/rm) review_actor_removed=true; printf 'synthetic_containment=remove\\n' >&4 ;;
   container/logs) printf '%s' "$TASK_LOGS"; return "$TASK_LOGS_EXIT" ;;
   *) return 19 ;;
  esac
 }
-declare -A OPS_CONFIG=([FCD_SUPPORT_REVISION]=$(printf '%040d' 1) [FCD_RUNTIME_PROJECT]=synthetic [FCD_STATE_ROOT]=/synthetic-review-absent [FCD_OPERATIONS_IMAGE]=synthetic [FCD_COMMAND_TIMEOUT_SECONDS]=5 [FCD_POSTGRES_DB]=synthetic [FCD_DATABASE_SCHEMA]=public [FCD_DATABASE_ROLE_PREFIX]=synthetic [FCD_SCHEMA_REVISION]=000016)
+declare -A OPS_CONFIG=([FCD_SUPPORT_REVISION]=$(printf '%040d' 1) [FCD_RUNTIME_PROJECT]=synthetic [FCD_STATE_ROOT]=/synthetic-review-absent [FCD_OPERATIONS_IMAGE]=synthetic [FCD_COMMAND_TIMEOUT_SECONDS]=5 [FCD_STOP_GRACE_MS]=2000 [FCD_POSTGRES_DB]=synthetic [FCD_DATABASE_SCHEMA]=public [FCD_DATABASE_ROLE_PREFIX]=synthetic [FCD_SCHEMA_REVISION]=000016)
 OPS_DATABASE_SYSTEM_IDENTIFIER=7300000000000000000
-exec 3>&1
+exec 3>&1 4>&1
 ${trace}
 # Same command-substitution boundary used by the public scheduler.
-acknowledgement="$(operations_execute_job health health)"
+acknowledgement="$(operations_execute_job health health)" || exit $?
+printf 'synthetic_schedule=successor\\n' >&4
 `;
     return spawnSync(bash, ['--noprofile', '--norc', '-c', script], {
       encoding: 'utf8',
@@ -170,6 +176,16 @@ acknowledgement="$(operations_execute_job health health)"
       if (logsExit !== 0)
         expect(result.stdout).not.toContain('synthetic_health_ack_diagnostic=completed');
       expect(result.stderr).toBe('');
+      if (status === 1) {
+        expect(result.stdout).toContain('synthetic_state=uncertain\n');
+        expect(result.stdout).toContain('synthetic_containment=stop\n');
+        expect(result.stdout).toContain('synthetic_containment=remove\n');
+        expect(result.stdout).not.toContain('synthetic_schedule=successor');
+        expect(result.stdout).not.toContain('synthetic_state=completed');
+      } else {
+        expect(result.stdout).toContain('synthetic_schedule=successor\n');
+        expect(result.stdout).not.toContain('synthetic_state=uncertain');
+      }
     },
   );
 
