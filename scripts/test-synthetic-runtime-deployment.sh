@@ -116,17 +116,17 @@ if [[ "${FCD_RUNTIME_HOST_DIAGNOSTICS:-}" == closed-v1 && "${trace_source##*/}" 
     synthetic_host_promotion_cmd_diagnostic "$trace_status" "${result-}" "${bound-}" >&3
   fi
 fi
-if [[ "${OPS_JOB_SERVICE-}" == health && "${trace_source##*/}" == operations-job-lifecycle.sh && "${FUNCNAME[0]-}" == operations_execute_job ]]; then
+if [[ "${FCD_RUNTIME_HOST_DIAGNOSTICS:-}" == closed-v1 && "${OPS_JOB_SERVICE-}" == health && "${trace_source##*/}" == operations-job-lifecycle.sh && "${FUNCNAME[0]-}" == operations_execute_job ]]; then
   if [[ "$BASH_COMMAND" == *"container logs"* ]]; then
-    health_reading_logs=true
-  elif [[ "${health_reading_logs-}" == true ]]; then
-    unset health_reading_logs
+    health_reading_logs_subshell=$BASH_SUBSHELL
+  elif [[ "${health_reading_logs_subshell-}" == "$BASH_SUBSHELL" ]]; then
+    unset health_reading_logs_subshell
     if [[ "$trace_status" -ne 0 ]]; then
-      synthetic_host_health_ack_diagnostic log_read_failed >&3
+      synthetic_host_health_ack_diagnostic "$trace_status" "" >&3
     fi
   fi
   if [[ "$BASH_COMMAND" == operations_job_acknowledgement* ]]; then
-    synthetic_host_health_ack_diagnostic "${acknowledgement-}" >&3
+    synthetic_host_health_ack_diagnostic 0 "${acknowledgement-}" >&3
   fi
 fi' DEBUG
 TRACE

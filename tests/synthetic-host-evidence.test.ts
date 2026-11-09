@@ -34,6 +34,143 @@ printf 'captures:%s:%s:%s\\n' "$` +
   expect(result.stderr).toBe('');
 });
 
+test('health acknowledgement observer preserves caller exit status and regex captures', () => {
+  const result = spawnSync(
+    process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash',
+    [
+      '-c',
+      `source "$TASK_LIBRARY"
+[[ synthetic_before =~ ^(synthetic)_(before)$ ]]
+(exit 42)
+synthetic_host_health_ack_diagnostic 0 '{"status":"completed","processed":10,"reasonCode":"ok"}'
+caller_status=$?
+printf 'status:%s:captures:%s:%s:%s\\n' "$caller_status" "$` +
+        `{BASH_REMATCH[0]-}" "$` +
+        `{BASH_REMATCH[1]-}" "$` +
+        `{BASH_REMATCH[2]-}"`,
+    ],
+    {
+      encoding: 'utf8',
+      timeout: 3000,
+      env: {
+        PATH: process.env.PATH,
+        SystemRoot: process.env.SystemRoot,
+        TASK_LIBRARY: resolve('scripts/synthetic-host-evidence.sh').replaceAll('\\', '/'),
+      },
+    },
+  );
+  expect(result.status).toBe(0);
+  expect(result.stdout).toBe(
+    'synthetic_health_ack_diagnostic=completed\nstatus:42:captures:synthetic_before:synthetic:before\n',
+  );
+  expect(result.stderr).toBe('');
+});
+
+test.each([
+  [0, '{"status":"completed","processed":1,"reasonCode":"ok"}', 'completed'],
+  [
+    0,
+    '{"status":"completed","processed":0,"reasonCode":"dependency_unavailable"}',
+    'dependency_unavailable',
+  ],
+  [0, '', 'empty'],
+  [0, 'invalid_payload_token_secret', 'unexpected'],
+  [0, 'valid_prefix\r', 'carriage_return'],
+  [0, 'line_one\nline_two', 'multiple_lines'],
+  [1, '', 'log_read_failed:1'],
+  [19, '', 'log_read_failed:19'],
+  [127, 'command_not_found_stderr_sentinel', 'log_read_failed:127'],
+  [255, '', 'log_read_failed:255'],
+])(
+  'health acknowledgement observer classifies status=%s value="%s" as %s without leaking sentinels',
+  (status, value, expected) => {
+    const result = spawnSync(
+      process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash',
+      [
+        '-c',
+        `source "$TASK_LIBRARY"; synthetic_host_health_ack_diagnostic "$TASK_STATUS" "$TASK_VALUE"`,
+      ],
+      {
+        encoding: 'utf8',
+        timeout: 3000,
+        env: {
+          PATH: process.env.PATH,
+          SystemRoot: process.env.SystemRoot,
+          TASK_LIBRARY: resolve('scripts/synthetic-host-evidence.sh').replaceAll('\\', '/'),
+          TASK_STATUS: String(status),
+          TASK_VALUE: value,
+        },
+      },
+    );
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe(`synthetic_health_ack_diagnostic=${expected}\n`);
+    expect(result.stdout).not.toContain('invalid_payload_token_secret');
+    expect(result.stdout).not.toContain('command_not_found_stderr_sentinel');
+    expect(result.stderr).toBe('');
+  },
+);
+
+test.each(['-1', '256', '18446744073709551616', '00', '01', 'invalid'])(
+  'health acknowledgement observer rejects malformed status %s as unobserved',
+  (status) => {
+    const result = spawnSync(
+      process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash',
+      [
+        '-c',
+        `source "$TASK_LIBRARY"; synthetic_host_health_ack_diagnostic "$TASK_STATUS" '{"status":"completed","processed":1,"reasonCode":"ok"}'`,
+      ],
+      {
+        encoding: 'utf8',
+        timeout: 3000,
+        env: {
+          PATH: process.env.PATH,
+          SystemRoot: process.env.SystemRoot,
+          TASK_LIBRARY: resolve('scripts/synthetic-host-evidence.sh').replaceAll('\\', '/'),
+          TASK_STATUS: status,
+        },
+      },
+    );
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe('synthetic_health_ack_diagnostic=unobserved\n');
+    expect(result.stderr).toBe('');
+  },
+);
+
+test.each([
+  ['18446744073709551616', false],
+  ['00', false],
+  ['01', false],
+  ['-1', false],
+  ['256', false],
+  ['invalid', false],
+  ['0', true],
+  ['1', true],
+  ['19', true],
+  ['255', true],
+])(
+  'runtime diagnostic validator verifies lexical bounds for health log_read_failed status=%s (valid=%s)',
+  (status, isValid) => {
+    const line = `synthetic_health_ack_diagnostic=log_read_failed:${status}`;
+    const result = spawnSync(
+      process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash',
+      ['-c', `source "$TASK_LIBRARY"; synthetic_host_runtime_diagnostic "$TASK_LINE"`],
+      {
+        encoding: 'utf8',
+        timeout: 3000,
+        env: {
+          PATH: process.env.PATH,
+          SystemRoot: process.env.SystemRoot,
+          TASK_LIBRARY: resolve('scripts/synthetic-host-evidence.sh').replaceAll('\\', '/'),
+          TASK_LINE: line,
+        },
+      },
+    );
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe(isValid ? `${line}\n` : '');
+    expect(result.stderr).toBe('');
+  },
+);
+
 test.each([
   ['', 'empty'],
   ['log_read_failed', 'log_read_failed'],

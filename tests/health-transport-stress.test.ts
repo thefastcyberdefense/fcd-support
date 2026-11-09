@@ -87,7 +87,11 @@ describe('closed diagnostic classification for health transport outcomes', () =>
 });
 
 describe('actual scheduled lifecycle and extracted CI trace', () => {
-  async function runTrace(logs: string, logsExit: number) {
+  async function runTrace(
+    logs: string,
+    logsExit: number,
+    envOverrides: Record<string, string> = {},
+  ) {
     const source = await readFile('scripts/test-synthetic-runtime-deployment.sh', 'utf8');
     const entry = /<<'TRACE'\r?\n([\s\S]*?)\r?\nTRACE/u.exec(source)?.[1];
     if (entry === undefined) throw new Error('synthetic_trace_entry_missing');
@@ -135,8 +139,10 @@ acknowledgement="$(operations_execute_job health health)"
         SystemRoot: process.env.SystemRoot,
         TASK_LIFECYCLE: resolve('scripts/operations-job-lifecycle.sh').replaceAll('\\', '/'),
         FCD_SYNTHETIC_EVIDENCE_LIBRARY: evidenceLibrary,
+        FCD_RUNTIME_HOST_DIAGNOSTICS: 'closed-v1',
         TASK_LOGS: logs,
         TASK_LOGS_EXIT: String(logsExit),
+        ...envOverrides,
       },
     });
   }
@@ -148,7 +154,7 @@ acknowledgement="$(operations_execute_job health health)"
       'dependency_unavailable',
       0,
     ],
-    ['', 19, 'log_read_failed', 1],
+    ['', 19, 'log_read_failed:19', 1],
     ['', 0, 'empty', 1],
     ['synthetic_invalid', 0, 'unexpected', 1],
     ['line1\nline2', 0, 'multiple_lines', 1],
@@ -166,4 +172,12 @@ acknowledgement="$(operations_execute_job health health)"
       expect(result.stderr).toBe('');
     },
   );
+
+  test('suppresses health diagnostics when FCD_RUNTIME_HOST_DIAGNOSTICS is inactive', async () => {
+    const result = await runTrace('{"status":"completed","processed":1,"reasonCode":"ok"}', 0, {
+      FCD_RUNTIME_HOST_DIAGNOSTICS: '',
+    });
+    expect(result.status).toBe(0);
+    expect(result.stdout).not.toContain('synthetic_health_ack_diagnostic');
+  });
 });

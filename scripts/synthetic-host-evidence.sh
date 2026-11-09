@@ -1,20 +1,68 @@
 #!/usr/bin/env bash
 # Test harness diagnostics only. Never forward arbitrary process output.
 synthetic_host_health_ack_diagnostic() {
-  local value="${1-}" category=unexpected processed
-  if [[ -z "$value" ]]; then category=empty
-  elif [[ "$value" == log_read_failed ]]; then category=log_read_failed
-  elif [[ "$value" == *$'\r'* ]]; then category=carriage_return
-  elif [[ "$value" == *$'\n'* ]]; then category=multiple_lines
-  elif [[ "$value" == '{"status":"completed","processed":0,"reasonCode":"dependency_unavailable"}' ]]; then category=dependency_unavailable
-  elif [[ "$value" == '{"status":"completed","processed":'*',"reasonCode":"ok"}' ]]; then
-    processed="${value#'{"status":"completed","processed":'}"
-    processed="${processed%',"reasonCode":"ok"}'}"
-    # This observer runs inside DEBUG traps. Never overwrite BASH_REMATCH,
-    # whose captures may belong to the owning lifecycle's next command.
-    if [[ -n "$processed" && ${#processed} -le 9 && "$processed" != *[!0-9]* && ( "$processed" == 0 || "$processed" != 0* ) ]]; then category=completed; fi
+  local caller_status=$?
+  local -a saved_rematch=()
+  if [[ -v BASH_REMATCH ]]; then
+    saved_rematch=("${BASH_REMATCH[@]}")
   fi
+
+  local status value category=unexpected processed
+  if [[ $# -ge 2 ]]; then
+    status="${1-}"
+    value="${2-}"
+    if [[ ! "$status" =~ ^([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$ ]]; then
+      category="unobserved"
+    elif [[ "$status" -ne 0 ]]; then
+      category="log_read_failed:$status"
+    elif [[ -z "$value" ]]; then
+      category="empty"
+    elif [[ "$value" == *$'\r'* ]]; then
+      category="carriage_return"
+    elif [[ "$value" == *$'\n'* ]]; then
+      category="multiple_lines"
+    elif [[ "$value" == '{"status":"completed","processed":0,"reasonCode":"dependency_unavailable"}' ]]; then
+      category="dependency_unavailable"
+    elif [[ "$value" == '{"status":"completed","processed":'*',"reasonCode":"ok"}' ]]; then
+      processed="${value#'{"status":"completed","processed":'}"
+      processed="${processed%',"reasonCode":"ok"}'}"
+      if [[ -n "$processed" && ${#processed} -le 9 && "$processed" != *[!0-9]* && ( "$processed" == 0 || "$processed" != 0* ) ]]; then
+        category="completed"
+      fi
+    fi
+  else
+    value="${1-}"
+    if [[ -z "$value" ]]; then
+      category="empty"
+    elif [[ "$value" == log_read_failed ]]; then
+      category="log_read_failed"
+    elif [[ "$value" =~ ^log_read_failed:([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$ ]]; then
+      category="$value"
+    elif [[ "$value" =~ ^([1-9][0-9]?|1[0-9]{2}|2[0-4][0-9]|25[0-5])$ ]]; then
+      category="log_read_failed:$value"
+    elif [[ "$value" == *$'\r'* ]]; then
+      category="carriage_return"
+    elif [[ "$value" == *$'\n'* ]]; then
+      category="multiple_lines"
+    elif [[ "$value" == '{"status":"completed","processed":0,"reasonCode":"dependency_unavailable"}' ]]; then
+      category="dependency_unavailable"
+    elif [[ "$value" == '{"status":"completed","processed":'*',"reasonCode":"ok"}' ]]; then
+      processed="${value#'{"status":"completed","processed":'}"
+      processed="${processed%',"reasonCode":"ok"}'}"
+      if [[ -n "$processed" && ${#processed} -le 9 && "$processed" != *[!0-9]* && ( "$processed" == 0 || "$processed" != 0* ) ]]; then
+        category="completed"
+      fi
+    fi
+  fi
+
   printf 'synthetic_health_ack_diagnostic=%s\n' "$category"
+
+  if [[ ${#saved_rematch[@]} -gt 0 ]]; then
+    BASH_REMATCH=("${saved_rematch[@]}")
+  else
+    unset BASH_REMATCH
+  fi
+  return "$caller_status"
 }
 
 synthetic_host_promotion_cmd_diagnostic() {
@@ -65,8 +113,13 @@ synthetic_host_promotion_cmd_diagnostic() {
 synthetic_host_runtime_diagnostic() {
   local code="${1:-}"
   case "$code" in
-    synthetic_health_ack_diagnostic=empty|synthetic_health_ack_diagnostic=log_read_failed|synthetic_health_ack_diagnostic=carriage_return|synthetic_health_ack_diagnostic=multiple_lines|synthetic_health_ack_diagnostic=dependency_unavailable|synthetic_health_ack_diagnostic=completed|synthetic_health_ack_diagnostic=unexpected)
+    synthetic_health_ack_diagnostic=empty|synthetic_health_ack_diagnostic=log_read_failed|synthetic_health_ack_diagnostic=carriage_return|synthetic_health_ack_diagnostic=multiple_lines|synthetic_health_ack_diagnostic=dependency_unavailable|synthetic_health_ack_diagnostic=completed|synthetic_health_ack_diagnostic=unexpected|synthetic_health_ack_diagnostic=unobserved)
       printf '%s\n' "$code" ;;
+    synthetic_health_ack_diagnostic=log_read_failed:*)
+      local status_val="${code#*:}"
+      if [[ "$status_val" =~ ^([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$ ]]; then
+        printf '%s\n' "$code"
+      fi ;;
     synthetic_promotion_cmd_diagnostic=canonical_success|synthetic_promotion_cmd_diagnostic=allowlisted_diagnostic|synthetic_promotion_cmd_diagnostic=unobserved)
       printf '%s\n' "$code" ;;
     synthetic_promotion_cmd_diagnostic=empty_output:*|synthetic_promotion_cmd_diagnostic=unallowlisted_output:*|synthetic_promotion_cmd_diagnostic=unavailable_transport:*|synthetic_promotion_cmd_diagnostic=nonzero_execution:*)
