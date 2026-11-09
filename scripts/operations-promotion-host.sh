@@ -22,6 +22,33 @@ operations_promotion_host_context() {
   operations_job_assert_container running && [[ "$(operations_job_discover)" == "$OPS_JOB_CONTAINER" ]]
 }
 
+# Observe startup readiness once before each immutable sample pair. Never resample
+# a refused pair or restart/replay the actor. The caller retains journal/context checks.
+operations_promotion_job_ready() (
+  local budget remaining deadline actual expected format
+  operations_config_field FCD_READY_TIMEOUT_SECONDS "${OPS_CONFIG[FCD_READY_TIMEOUT_SECONDS]:-}" || return 1
+  operations_config_field FCD_COMMAND_TIMEOUT_SECONDS "${OPS_CONFIG[FCD_COMMAND_TIMEOUT_SECONDS]:-}" || return 1
+  budget="${OPS_CONFIG[FCD_READY_TIMEOUT_SECONDS]}"
+  (( budget <= OPS_CONFIG[FCD_COMMAND_TIMEOUT_SECONDS] )) || budget="${OPS_CONFIG[FCD_COMMAND_TIMEOUT_SECONDS]}"
+  deadline=$((SECONDS + budget))
+  expected="$OPS_JOB_CONTAINER/$OPS_JOB_IMAGE/${OPS_CONFIG[FCD_SUPPORT_REVISION]}/$OPS_JOB_REFERENCE/${OPS_CONFIG[FCD_RUNTIME_PROJECT]}/promote/$OPS_JOB_COMMAND_HASH/running/false/false/false/$OPS_JOB_PROJECT/promote"
+  format="$OPERATIONS_JOB_IDENTITY_FORMAT"'{{with .State.Health}}/{{.Status}}{{else}}/missing{{end}}/{{json .Config.Cmd}}'
+  while :; do
+    remaining=$((deadline - SECONDS))
+    (( remaining > 0 )) || return 1
+    # A slow observation receives only the remaining configured budget, not a
+    # fresh full command timeout. This array mutation is confined to this subshell.
+    OPS_CONFIG[FCD_COMMAND_TIMEOUT_SECONDS]="$remaining"
+    actual="$(operations_docker container inspect --format "$format" "$OPS_JOB_CONTAINER")" || return 1
+    (( SECONDS < deadline )) || return 1
+    case "$actual" in
+      "$expected/healthy/$OPS_JOB_COMMAND_JSON") return 0 ;;
+      "$expected/starting/$OPS_JOB_COMMAND_JSON") sleep 0.1 ;;
+      *) return 1 ;;
+    esac
+  done
+)
+
 operations_promotion_host_network() {
   local metadata peers
   peers="$(operations_docker network inspect --format '{{range $id,$member := .Containers}}{{println $id}}{{end}}' "$1")" || return 1
@@ -155,6 +182,8 @@ operations_inspect_promotion_host() (
   volume_project="${OPS_SELECTION[STATE_VOLUME_ORIGIN]}"; volume_logical="${OPS_SELECTION[STATE_VOLUME_LOGICAL]}"
   if [[ "$volume_project" == none ]]; then volume_project=null; volume_logical=null; else volume_project="\"$volume_project\""; volume_logical="\"$volume_logical\""; fi
   options="$(printf '{"expectedHost":%s,"runtimeProject":"%s","sourceContainerId":"%s","sourceVolumeName":"%s","sourceSystemIdentifier":"%s","sourceSelectionReference":"%s","sourceRevision":"%s","sourcePostgresImageId":"%s","targetSystemIdentifier":"%s","gitRevision":"%s","secretRoot":"%s","backupVolumeName":"%s","databaseName":"%s","databaseSchema":"%s","rolePrefix":"%s","schemaRevision":"%s","job":{"id":"%s","reference":"%s","project":"%s","imageId":"%s","command":%s,"commandHash":"%s"},"sourceVolumeIdentity":{"project":%s,"logicalName":%s,"createdAt":"%s"},"limits":{"postgres":{"cpus":%s,"memoryMiB":%s,"pids":%s,"tmpfsMiB":%s},"job":{"cpus":%s,"memoryMiB":%s,"pids":%s,"tmpfsMiB":%s},"stopTimeoutSeconds":%s}}' "$bound" "${OPS_CONFIG[FCD_RUNTIME_PROJECT]}" "$OPS_PH_SOURCE" "$OPS_PH_VOLUME" "$OPS_PH_SYSTEM" "$OPS_PH_SELECTION" "$OPS_PH_REVISION" "$OPS_PH_IMAGE" "$OPS_RESTORE_TARGET_SYSTEM_IDENTIFIER" "${OPS_CONFIG[FCD_SUPPORT_REVISION]}" "${OPS_CONFIG[FCD_SECRET_ROOT]}" "${OPS_CONFIG[FCD_BACKUP_VOLUME]}" "${OPS_CONFIG[FCD_POSTGRES_DB]}" "${OPS_CONFIG[FCD_DATABASE_SCHEMA]}" "${OPS_CONFIG[FCD_DATABASE_ROLE_PREFIX]}" "${OPS_CONFIG[FCD_SCHEMA_REVISION]}" "$OPS_JOB_CONTAINER" "$OPS_JOB_REFERENCE" "$OPS_JOB_PROJECT" "$OPS_JOB_IMAGE" "$OPS_JOB_COMMAND_JSON" "$OPS_JOB_COMMAND_HASH" "$volume_project" "$volume_logical" "${OPS_SELECTION[STATE_VOLUME_CREATED_AT]}" "${OPS_CONFIG[FCD_POSTGRES_CPUS]}" "${OPS_CONFIG[FCD_POSTGRES_MEMORY_MIB]}" "${OPS_CONFIG[FCD_POSTGRES_PIDS]}" "${OPS_CONFIG[FCD_POSTGRES_TMPFS_MIB]}" "${OPS_CONFIG[FCD_RESTORE_CPUS]}" "${OPS_CONFIG[FCD_RESTORE_MEMORY_MIB]}" "${OPS_CONFIG[FCD_RESTORE_PIDS]}" "${OPS_CONFIG[FCD_RESTORE_TMPFS_MIB]}" "$(( (${OPS_CONFIG[FCD_STOP_GRACE_MS]} + 999) / 1000 ))")"
+  operations_promotion_job_ready || operations_fail promotion_host_invalid
+  operations_promotion_host_context || operations_fail promotion_host_invalid
   before="$(operations_promotion_host_snapshot)" || operations_fail promotion_host_invalid
   after="$(operations_promotion_host_snapshot)" || operations_fail promotion_host_invalid
   payload="$(printf '{"options":%s,"samples":{"before":%s,"after":%s}}' "$options" "$before" "$after")"

@@ -826,6 +826,14 @@ test.each([
     },
   ],
   [
+    'before_after.job.healthy',
+    (f: ReturnType<typeof fixture>) => {
+      const after = structuredClone(f.snapshot);
+      after.job.healthy = !after.job.healthy;
+      return after;
+    },
+  ],
+  [
     'before_after.hostBinds',
     (f: ReturnType<typeof fixture>) => {
       const after = structuredClone(f.snapshot);

@@ -16,7 +16,8 @@ describe('health transport held-open stdin contract', () => {
       stream.write(JSON.stringify({ availability: { manifest: 'healthy', iteration: i } }) + '\n');
       const result = await promise;
       expect(result).toEqual({ availability: { manifest: 'healthy', iteration: i } });
-      expect(stream.destroyed).toBe(true);
+      expect(stream.destroyed).toBe(false);
+      stream.destroy();
     }
   });
 
@@ -96,7 +97,7 @@ describe('actual scheduled lifecycle, attached health transport and extracted CI
     const entry = /<<'TRACE'\r?\n([\s\S]*?)\r?\nTRACE/u.exec(source)?.[1];
     if (entry === undefined) throw new Error('synthetic_trace_entry_missing');
     const trace = entry.replaceAll('\r', '').split('\n').slice(1).join('\n');
-    const script = `set -uo pipefail
+    const script = `set -Eeuo pipefail
 source "$TASK_LIFECYCLE"
 operations_config_field() { return 0; }
 operations_job_state_root() { OPS_JOB_STATE_FILE=/synthetic-review-absent; }
