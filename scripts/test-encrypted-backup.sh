@@ -53,9 +53,9 @@ if [[ "$MODE" == grants ]]; then
   UNIT_FILES+=(tests/operations-restore-controller.test.ts tests/operations-promotion-controller.test.ts tests/operations-restore-subnet.test.ts)
   UNIT_FILES+=(tests/restore-job-split.test.ts tests/restore-metadata-script.test.ts tests/promotion-host-transport.test.ts)
   UNIT_FILES+=(tests/promotion-host.test.ts tests/promotion-host-script.test.ts tests/restore-compose-split.test.ts)
-  UNIT_FILES+=(tests/restore-entrypoints.test.ts)
+  UNIT_FILES+=(tests/restore-entrypoints.test.ts tests/health-stdio-regression.test.ts)
   INTEGRATION_FILES+=(tests/integration/postgres-operation-settlement.test.ts)
-  INTEGRATION_FILES+=(tests/integration/postgres-deployment-cli.test.ts tests/integration/postgres-forward-migration.test.ts)
+  INTEGRATION_FILES+=(tests/integration/postgres-deployment-cli.test.ts tests/integration/postgres-forward-migration.test.ts tests/integration/postgres-health-stdio.test.ts)
 fi
 if [[ "$MODE" == settlement ]]; then
   UNIT_FILES=(tests/operation-settlement.test.ts tests/bootstrap-command.test.ts)
@@ -308,5 +308,6 @@ if [[ "$MODE" == grants || ( "$MODE" == state && ( "$#" == 1 || "${2:-}" == test
   docker build --platform linux/amd64 --build-arg "VCS_REF=$REVISION" --file "$NATIVE_ROOT/Dockerfile" --tag "$APP" "$NATIVE_ROOT" >/dev/null 2>&1 || { echo empty_target_application_build_failed >&2; exit 1; }
   bash "$ROOT/scripts/test-empty-target-docker.sh" "$APP" "$REVISION"
   bash "$ROOT/scripts/test-synthetic-cleanup.sh" "$OPS" "$REVISION"
+  if [[ "$MODE" == grants ]]; then bash "$ROOT/scripts/test-health-stdio-docker.sh" "$OPS" "$REVISION"; fi
 fi
 if [[ "$MODE" == state ]]; then echo operations_state_local=true; elif [[ "$MODE" == unit ]]; then echo operations_unit_local=true; else echo encrypted_backup_local=true; fi
