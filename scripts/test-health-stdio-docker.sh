@@ -204,7 +204,7 @@ const roles = [
 ];
 const composeRoles = [
   "webhook", "admin", "reply", "outbound", "notification", "maintenance",
-  "health", "backup", "verify-backup", "checkpoint", "migrate", "restore",
+  "health", "backup", "verify_backup", "checkpoint", "migrate", "restore",
 ];
 const put = (rel, val) => {
   const full = join(work, rel);
