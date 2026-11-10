@@ -131,8 +131,22 @@ cleanup() {
   fi
   return "$cleanup_status"
 }
+report_failure_state() {
+  local dir
+  [[ -n "${workdir:-}" && -d "${workdir:-}" ]] || return 0
+  for dir in "$workdir"/direct-*/state "$workdir"/cases/*/state; do
+    [[ -d "$dir" ]] || continue
+    printf 'health_stdio_case_state=%s\n' "${dir#$workdir/}" >&2
+    [[ ! -f "$dir/exit" ]] || printf '  exit=%s\n' "$(grep -E '^[0-9]{1,3}$' -- "$dir/exit" 2>/dev/null | head -n 1 || true)" >&2
+    [[ ! -f "$dir/log-driver" ]] || printf '  log_driver=%s\n' "$(grep -E '^[a-z0-9_-]{1,32}$' -- "$dir/log-driver" 2>/dev/null | head -n 1 || true)" >&2
+    [[ ! -f "$dir/active-job" ]] || grep -E '^(JOB_SERVICE|JOB_PHASE)=[a-z_-]{1,32}$' -- "$dir/active-job" 2>/dev/null | sed 's/^/  /' >&2 || true
+    [[ ! -f "$dir/stderr" ]] || grep -E '^[a-z0-9_:-]{1,64}$' -- "$dir/stderr" 2>/dev/null | head -n 5 | sed 's/^/  err=/' >&2 || true
+    [[ ! -f "$dir/docker.calls" ]] || awk '{print $1, $2}' -- "$dir/docker.calls" 2>/dev/null | sed 's/^/  docker=/' >&2 || true
+    [[ ! -f "$dir/trace3" ]] || grep -E '^(operations-[a-z-]+\.sh:[0-9]{1,6}:previous=[1-9][0-9]{0,2}|synthetic_health_(ack|attach|daemon)_diagnostic=[a-z0-9_:]{1,64})$' -- "$dir/trace3" 2>/dev/null | tail -n 20 | sed 's/^/  trace=/' >&2 || true
+  done
+}
 trap 'result=$?; cleanup || result=1; exit "$result"' EXIT
-trap 'result=$?; printf "health_stdio_docker_failed_line=%s status=%s\n" "$LINENO" "$result" >&2' ERR
+trap 'result=$?; printf "health_stdio_docker_failed_line=%s status=%s\n" "$LINENO" "$result" >&2; report_failure_state' ERR
 
 image_meta="$(docker image inspect --format '{{.Id}}/{{index .Config.Labels "org.opencontainers.image.revision"}}/{{.Os}}/{{.Architecture}}' "$ops_image")"
 [[ "$image_meta" =~ ^sha256:[a-f0-9]{64}/[a-f0-9]{40}/linux/amd64$ && "$image_meta" == */"$revision"/linux/amd64 ]]
