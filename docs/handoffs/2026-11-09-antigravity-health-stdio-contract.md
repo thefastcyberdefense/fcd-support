@@ -8,20 +8,18 @@ first, or use a separate isolated worker/worktree with no overlapping files.
 ## Exact starting point
 
 Read AGENTS.md, PLAN/TODO/PROJECT_CONTEXT, SYNTHETIC_FIXTURE_POLICY and the
-existing handoff/review documents. Codex's current runtime candidate is
-`94c03d62029a6bdc606f72fb81967af685ee8571` on draft PR #10. Verify that commit
-and record Git-generated provenance. Its predecessor 58497e4 passed local gates
-but all four runtime lanes failed health-1 with empty attached output. Never
-reuse those failed scopes. The 94c03d6 runtime result must be reported exactly,
-not assumed green from local tests.
+existing handoff/review documents. Updated 2026-11-10: PR #10 is accepted as
+merge `d4cfdddb63d98d76de13f47c697327eb9d43fbf5`, exact source
+`f108b026d8ef0a6c96e5e12eee083d53588a396a`. All four runtime recovery lanes
+pass, including both ten-iteration health lanes. Health implementation
+reference `4b38c94b943bf30d6cec3a188c84b6926f842198` is included. These
+synthetic results do not resolve historical or shared-server uncertain jobs.
 
-If Codex has accepted/merged PR #10, start from freshly synchronized main and
-record the merge/source relationship. Otherwise create a fresh isolated
-`codex/agy-health-stdio-regression` branch directly from exact 94c03d6, and open
-a stacked **draft** PR targeting `codex/agy-p6-health-transport-stress`.
-Do not cherry-pick copied controller fixes into another main-based branch.
-Codex will reconcile the base after accepting the parent. Primary checkout and
-Codex/other AGY worktrees must remain untouched.
+Start from freshly synchronized accepted main, record its exact SHA and verify
+with Git that it contains d4cfddd. Create a fresh isolated
+`codex/agy-health-stdio-regression` branch and a **draft** PR targeting main.
+Do not cherry-pick copied controller fixes. Primary checkout and Codex/other
+AGY worktrees must remain untouched.
 
 ## Problem and authorized scope
 

@@ -1,6 +1,23 @@
 # Project Context
 
-Last reviewed: 2026-11-09 (Asia/Dhaka)
+Last reviewed: 2026-11-10 (Asia/Dhaka)
+
+**2026-11-10: governance and runtime corrections accepted; server hold remains.**
+PR #13 is merged as 6091621 and PR #10 as d4cfddd after exact-head review.
+PR #10 source f108b02 passes all five applicable workflows and all 19 checks,
+including aggregate CodeQL and four complete runtime recovery/cleanup lanes.
+Both stress lanes complete ten health iterations. Exact-head Linux CI passes
+2,280 tests / 393 skips; the integrated local base passes 2,212 / 461 skips.
+The synthetic callback allowance now derives from its existing 20-second parent
+budget; production comparisons, bounds and uncertainty refusal remain intact.
+The merge tree exactly matches the tested source. Exact evidence:
+`docs/reviews/2026-11-10-governance-integration-and-runtime-review.md`.
+The deployed health journal and dashboard upgrade remain held. No server or
+provider action, replay, settlement or new launch-gate PASS occurred. AGY can
+start the Windows harness, real health stdio and compatible development-tool
+checklists from fresh accepted main; Codex retains server disposition.
+
+The dated checkpoints below are historical and retain their original outcomes.
 
 **2026-11-09 independent review and direct runtime corrections.**
 PR #13 source 105017c fixes the aggregate CodeQL finding test-first; 39
