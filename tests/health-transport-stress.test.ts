@@ -123,7 +123,13 @@ operations_docker() {
  case "$1/$2" in
   image/inspect) printf 'sha256:%064d/%040d/linux/amd64\\n' 1 1 ;;
   container/start)
-    cat >/dev/null
+    IFS= read -r review_host_frame || return 19
+    if [[ "\${TASK_REQUIRE_OPEN-}" == true ]]; then
+      local review_extra review_read_status=0
+      if IFS= read -r -t 0.05 review_extra; then return 19; else review_read_status=$?; fi
+      # EOF simulates an attachment closed by its input writer. A timeout proves it stays open.
+      [[ "$review_read_status" -gt 128 ]] || return 0
+    fi
     printf 'synthetic_transport=attached_start\\n' >&4
     printf '%s' "\${TASK_ATTACHED_OUTPUT-}"
     [[ "\${TASK_ATTACH_NUL-}" != true ]] || printf '\\0'
@@ -207,6 +213,14 @@ printf 'synthetic_schedule=successor\\n' >&4
       }
     },
   );
+
+  test('keeps the host input writer open until the attached response completes', async () => {
+    const ack = '{"status":"completed","processed":1,"reasonCode":"ok"}';
+    const result = await runTrace(ack, 0, { TASK_REQUIRE_OPEN: 'true' });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('synthetic_schedule=successor\n');
+    expect(result.stdout).not.toContain('synthetic_state=uncertain');
+  });
 
   test('observes producer daemon output after empty attachment without authorizing a fallback', async () => {
     const ack = '{"status":"completed","processed":1,"reasonCode":"ok"}';

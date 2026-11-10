@@ -118,10 +118,39 @@ operations_job_start() {
   if [[ "$OPS_JOB_SERVICE" == promote ]]; then
     operations_job_promotion_exchange
   elif [[ "$OPS_JOB_SERVICE" == health ]]; then
-    printf '%s\n' "$OPS_HEALTH_INPUT_JSON" | operations_docker container start --attach --interactive "$OPS_JOB_CONTAINER"
+    operations_job_health_exchange
   else
     operations_docker container start "$OPS_JOB_CONTAINER" >/dev/null
   fi
+}
+
+# Keep the host writer open until the framed health process closes its output.
+# A valid input frame, rather than stdin EOF, starts the work. No acknowledgement
+# is accepted here; the owning lifecycle still validates the full bounded output.
+operations_job_health_exchange() {
+  local health_read='' health_write='' health_original_read health_original_write health_pid health_status=0
+  coproc OPS_HEALTH_PIPE { operations_docker container start --attach --interactive "$OPS_JOB_CONTAINER"; }
+  health_pid="${OPS_HEALTH_PIPE_PID:-}"
+  health_original_read="${OPS_HEALTH_PIPE[0]-}"; health_original_write="${OPS_HEALTH_PIPE[1]-}"
+  if [[ ! "$health_pid" =~ ^[1-9][0-9]*$ || ! "$health_original_read" =~ ^[0-9]+$ || ! "$health_original_write" =~ ^[0-9]+$ ]]; then
+    [[ ! "$health_pid" =~ ^[1-9][0-9]*$ ]] || { kill "$health_pid" 2>/dev/null || true; wait "$health_pid" 2>/dev/null || true; }
+    return 1
+  fi
+  if ! exec {health_read}<&"$health_original_read" {health_write}>&"$health_original_write"; then
+    exec {health_original_read}<&- {health_original_write}>&- || true
+    [[ ! "$health_read" =~ ^[0-9]+$ ]] || exec {health_read}<&-
+    kill "$health_pid" 2>/dev/null || true; wait "$health_pid" 2>/dev/null || true
+    return 1
+  fi
+  exec {health_original_read}<&- {health_original_write}>&- || health_status=1
+  if (( health_status == 0 )) && printf '%s\n' "$OPS_HEALTH_INPUT_JSON" >&"$health_write"; then
+    cat <&"$health_read" || health_status=1
+  else
+    health_status=1
+  fi
+  exec {health_write}>&- {health_read}<&- || health_status=1
+  wait "$health_pid" || health_status=$?
+  return "$health_status"
 }
 
 # The job retains the source SQL freeze while the checked host answers two

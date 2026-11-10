@@ -63,7 +63,16 @@ if(args.includes('compose')) {
   }
 } else if(args.includes('start')) {
   trace('start'); const c=load(); c.phase='running'; save(c);
-  fs.writeFileSync(path.join(root,'start-contract'),JSON.stringify({args,input:args.includes('--interactive')?fs.readFileSync(0,'utf8'):''}));
+  let input='';
+  if(args.includes('--interactive')) {
+    const byte=Buffer.alloc(1);
+    while(input.length<=16384) {
+      const count=fs.readSync(0,byte,0,1,null); if(count===0) break;
+      input+=byte.toString('utf8'); if(input.endsWith('\\n')) break;
+    }
+    if(!input.endsWith('\\n')||input.length>16384) process.exit(19);
+  }
+  fs.writeFileSync(path.join(root,'start-contract'),JSON.stringify({args,input}));
   if(fault==='start-ack') process.exit(19);
   if(c.service==='health' && args.includes('--attach')) {
     if(fault==='health-output-empty'||fault==='empty-output') console.log('');
