@@ -100,3 +100,29 @@ The approach avoids the delimiter reconstruction described by
 No alert was dismissed and no query, gate or permission was disabled. A new
 CodeQL result, including the aggregate check, is still required before merge;
 local tests do not prove that result.
+
+## 2026-11-10 main integration verification
+
+Latest main `9607019fb5c5943376aeb882898c6d566a09cbdb` integrates cleanly as
+`07a7442ca1abd5ee8cd4ac43739cf20c62f343fe`, preserving all main evidence.
+Governance implementation remains 105017c; this integration does not include
+PR #10's unaccepted runtime source.
+
+Fresh `VITEST_MAX_WORKERS=2 npm run check` exits 0: Phase 0, formatting, lint,
+strict typecheck, build and **2,013 passed / 446 platform skips** across 133
+files in **257.86 seconds** (whole command **304.60 seconds**). This supersedes
+no historical failure: the earlier four-worker timeout cases remain assigned
+for bounded Windows harness investigation, and no cause/fix is inferred from
+this separate two-worker success.
+
+Direct `node scripts/verify-security-policy.ts` exits 0 on **717 tracked files**;
+this remains a heuristic pattern scan, not complete provenance/secret proof.
+`node scripts/verify-pr-handoff.ts` exits 0 with explicit SKIP when event path
+is unset. UI and SEO scaffolds exit 0 with **5** and **2** open source-text
+suggestions under `strict=false`; no rendered WCAG or live-route acceptance is
+claimed. Forced Markdown formatting and whitespace validation pass separately.
+
+New-head CI and aggregate CodeQL still require independent disposition. PR #13
+remains draft; this local governance gate does not settle the runtime promotion
+failure, deployed health journal or dashboard rollout. No server/provider,
+account-setting or production-number action occurred.
