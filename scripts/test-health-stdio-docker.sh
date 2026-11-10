@@ -298,6 +298,7 @@ docker run --rm --pull never --network none --read-only --user 0:0 \
 run_lifecycle_case() {
   local case_name="$1" log_driver="$2" trace_active="$3" drop_attached="$4" input_json="$5" second_attempt="$6"
   local extra_timeout_ms="${7:-}" override_schema_rev="${8:-}" omit_newline="${9:-0}"
+  shift 9
   local case_dir="$workdir/cases/$case_name"
   local case_config="$case_dir/config"
   local case_state="$case_dir/state"
@@ -389,14 +390,27 @@ run_lifecycle_case() {
 
     if [[ "$omit_newline" == 1 ]]; then
       operations_job_health_exchange() {
-        local health_read='' health_write='' health_pid health_status=0
+        local health_read='' health_write='' health_original_read health_original_write health_pid health_status=0
         coproc OPS_HEALTH_PIPE { operations_docker container start --attach --interactive "$OPS_JOB_CONTAINER"; }
         health_pid="${OPS_HEALTH_PIPE_PID:-}"
-        exec {health_read}<&"${OPS_HEALTH_PIPE[0]}" {health_write}>&"${OPS_HEALTH_PIPE[1]}"
-        exec {OPS_HEALTH_PIPE[0]}<&- {OPS_HEALTH_PIPE[1]}>&-
-        printf '%s' "$OPS_HEALTH_INPUT_JSON" >&"$health_write"
-        cat <&"$health_read" || health_status=1
-        exec {health_write}>&- {health_read}<&-
+        health_original_read="${OPS_HEALTH_PIPE[0]-}"; health_original_write="${OPS_HEALTH_PIPE[1]-}"
+        if [[ ! "$health_pid" =~ ^[1-9][0-9]*$ || ! "$health_original_read" =~ ^[0-9]+$ || ! "$health_original_write" =~ ^[0-9]+$ ]]; then
+          [[ ! "$health_pid" =~ ^[1-9][0-9]*$ ]] || { kill "$health_pid" 2>/dev/null || true; wait "$health_pid" 2>/dev/null || true; }
+          return 1
+        fi
+        if ! exec {health_read}<&"$health_original_read" {health_write}>&"$health_original_write"; then
+          exec {health_original_read}<&- {health_original_write}>&- || true
+          [[ ! "$health_read" =~ ^[0-9]+$ ]] || exec {health_read}<&-
+          kill "$health_pid" 2>/dev/null || true; wait "$health_pid" 2>/dev/null || true
+          return 1
+        fi
+        exec {health_original_read}<&- {health_original_write}>&- || health_status=1
+        if (( health_status == 0 )) && printf '%s' "$OPS_HEALTH_INPUT_JSON" >&"$health_write"; then
+          cat <&"$health_read" || health_status=1
+        else
+          health_status=1
+        fi
+        exec {health_write}>&- {health_read}<&- || health_status=1
         wait "$health_pid" || health_status=$?
         return "$health_status"
       }
