@@ -87,6 +87,39 @@ synthetic_host_health_daemon_probe() {
   return 0
 }
 
+synthetic_host_promotion_phase_allowed() {
+  [[ "$#" == 4 ]] || return 1
+  case "$1" in 1|2) ;; *) return 1 ;; esac
+  case "$2" in ready|before|after|validator|context) ;; *) return 1 ;; esac
+  case "$3" in [0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5]) ;; *) return 1 ;; esac
+  case "$4" in 0|[1-9]|[1-9][0-9]|[1-9][0-9][0-9]|[1-3][0-9][0-9][0-9]) ;; *) return 1 ;; esac
+  (( $4 <= 3600 ))
+}
+
+synthetic_host_promotion_phase_diagnostic() {
+  local caller_status=$?
+  if [[ "${FCD_RUNTIME_HOST_DIAGNOSTICS:-}" == closed-v1 ]] && synthetic_host_promotion_phase_allowed "$@"; then
+    printf 'synthetic_promotion_phase=%s:%s:%s:%s\n' "$1" "$2" "$3" "$4"
+  fi
+  return "$caller_status"
+}
+
+# Reuse already observed private identity metadata; never issue another Docker call.
+synthetic_host_promotion_actor_diagnostic() {
+  local caller_status=$? state=unobserved
+  local -a fields=()
+  if [[ "${FCD_RUNTIME_HOST_DIAGNOSTICS:-}" == closed-v1 ]]; then
+    if [[ "$#" == 1 && ${#1} -le 2048 && "$1" != *$'\n'* && "$1" != *$'\r'* ]]; then
+      IFS=/ read -r -a fields <<<"$1"
+      if (( ${#fields[@]} == 13 )); then
+        case "${fields[7]}" in running|exited|created|restarting|paused|dead) state="${fields[7]}" ;; esac
+      fi
+    fi
+    printf 'synthetic_promotion_actor=%s\n' "$state"
+  fi
+  return "$caller_status"
+}
+
 synthetic_host_promotion_cmd_diagnostic() {
   local caller_status=$?
   local status="${1-}" result="${2-}" expected="${3-}" category=''
@@ -135,6 +168,13 @@ synthetic_host_promotion_cmd_diagnostic() {
 synthetic_host_runtime_diagnostic() {
   local code="${1:-}"
   case "$code" in
+    synthetic_promotion_actor=running|synthetic_promotion_actor=exited|synthetic_promotion_actor=created|synthetic_promotion_actor=restarting|synthetic_promotion_actor=paused|synthetic_promotion_actor=dead|synthetic_promotion_actor=unobserved)
+      printf '%s\n' "$code" ;;
+    synthetic_promotion_phase=*)
+      local seq phase phase_status elapsed extra
+      IFS=: read -r seq phase phase_status elapsed extra <<<"${code#*=}"
+      if [[ -z "$extra" && "$code" == "synthetic_promotion_phase=$seq:$phase:$phase_status:$elapsed" ]] &&
+        synthetic_host_promotion_phase_allowed "$seq" "$phase" "$phase_status" "$elapsed"; then printf '%s\n' "$code"; fi ;;
     synthetic_health_daemon_diagnostic=empty|synthetic_health_daemon_diagnostic=completed|synthetic_health_daemon_diagnostic=dependency_unavailable|synthetic_health_daemon_diagnostic=carriage_return|synthetic_health_daemon_diagnostic=multiple_lines|synthetic_health_daemon_diagnostic=unexpected|synthetic_health_daemon_diagnostic=unobserved)
       printf '%s\n' "$code" ;;
     synthetic_health_ack_diagnostic=empty|synthetic_health_ack_diagnostic=log_read_failed|synthetic_health_ack_diagnostic=carriage_return|synthetic_health_ack_diagnostic=multiple_lines|synthetic_health_ack_diagnostic=dependency_unavailable|synthetic_health_ack_diagnostic=completed|synthetic_health_ack_diagnostic=unexpected|synthetic_health_ack_diagnostic=unobserved)
@@ -207,7 +247,7 @@ synthetic_host_report_failure() {
     diagnostic=''
     # Trace lines need no validator subprocess, and accepted duplicates need no
     # repeated work. Keep the closed validator as the publication authority.
-    if [[ "$line" =~ ^(runtime_host_diagnostic|synthetic_health_ack_diagnostic|synthetic_health_attach_diagnostic|synthetic_health_daemon_diagnostic|synthetic_promotion_cmd_diagnostic)=[A-Za-z0-9_.:]{1,128}$ ]] &&
+    if [[ "$line" =~ ^(runtime_host_diagnostic|synthetic_health_ack_diagnostic|synthetic_health_attach_diagnostic|synthetic_health_daemon_diagnostic|synthetic_promotion_phase|synthetic_promotion_actor|synthetic_promotion_cmd_diagnostic)=[A-Za-z0-9_.:]{1,128}$ ]] &&
       (( ${#diagnostics[@]} < 16 )) && [[ -z "${seen_diagnostics[$line]:-}" ]]; then
       diagnostic="$(synthetic_host_runtime_diagnostic "$line")"
     fi

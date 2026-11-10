@@ -108,6 +108,33 @@ trace_status=$?
 trace_source="${BASH_SOURCE[0]-stdin}"
 printf "%s:%s:previous=%s\n" "${trace_source##*/}" "$LINENO" "$trace_status" >&3
 synthetic_host_runtime_diagnostic "${result-}" >&3
+if [[ "${FCD_RUNTIME_HOST_DIAGNOSTICS:-}" == closed-v1 && "${trace_source##*/}" == operations-job-lifecycle.sh && "${OPS_JOB_SERVICE-}" == promote ]]; then
+  if [[ "${FUNCNAME[0]-}" == operations_job_promotion_exchange && "$BASH_COMMAND" == operations_promotion_host_check* ]]; then
+    synthetic_promotion_started=$SECONDS
+  elif [[ "${FUNCNAME[0]-}" == operations_job_assert_container && "${phase-}" == running && "$BASH_COMMAND" == "return 1" ]]; then
+    synthetic_host_promotion_actor_diagnostic "${actual-}" >&3
+  fi
+fi
+if [[ "${FCD_RUNTIME_HOST_DIAGNOSTICS:-}" == closed-v1 && "${trace_source##*/}" == operations-promotion-host.sh && "${FUNCNAME[0]-}" == operations_inspect_promotion_host ]]; then
+  if [[ "$BASH_COMMAND" == "local bound="* ]]; then
+    synthetic_promotion_host_depth=$BASH_SUBSHELL
+    unset synthetic_promotion_pending synthetic_promotion_pending_depth synthetic_promotion_validator_seen
+  fi
+  if [[ "${synthetic_promotion_host_depth-}" == "$BASH_SUBSHELL" ]]; then
+    if [[ -n "${synthetic_promotion_pending-}" && "${synthetic_promotion_pending_depth-}" == "$BASH_SUBSHELL" ]]; then
+      synthetic_host_promotion_phase_diagnostic "${sequence-}" "$synthetic_promotion_pending" "$trace_status" "$((SECONDS - ${synthetic_promotion_started:-SECONDS}))" >&3
+      unset synthetic_promotion_pending synthetic_promotion_pending_depth
+    fi
+    case "$BASH_COMMAND" in
+      operations_promotion_job_ready*) synthetic_promotion_pending=ready ;;
+      before=*) synthetic_promotion_pending=before ;;
+      after=*) synthetic_promotion_pending=after ;;
+      result=*) synthetic_promotion_pending=validator; synthetic_promotion_validator_seen=true ;;
+      operations_promotion_host_context*) [[ "${synthetic_promotion_validator_seen-}" != true ]] || synthetic_promotion_pending=context ;;
+    esac
+    [[ -z "${synthetic_promotion_pending-}" ]] || synthetic_promotion_pending_depth=$BASH_SUBSHELL
+  fi
+fi
 if [[ "${FCD_RUNTIME_HOST_DIAGNOSTICS:-}" == closed-v1 && "${trace_source##*/}" == operations-promotion-host.sh && "${FUNCNAME[0]-}" == operations_inspect_promotion_host ]]; then
   if [[ "$BASH_COMMAND" == *"dist/operations/promotion-host-main.js"* ]]; then
     promotion_inspecting_subshell=$BASH_SUBSHELL

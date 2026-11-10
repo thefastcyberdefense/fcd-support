@@ -704,7 +704,8 @@ async function runRealHostInspectionTrace(
     | 'allowlisted-diagnostic'
     | 'empty-output'
     | 'unallowlisted-sentinels'
-    | 'transport-failure',
+    | 'transport-failure'
+    | 'post-context-exit',
   diagnosticsMode?: string,
 ) {
   const root = await mkdtemp(join(tmpdir(), 'fcd-host-trace-'));
@@ -775,7 +776,7 @@ operations_job_state_read() {
   )
 }
 operations_job_state_same_file() { return 0; }
-operations_job_assert_container() { return 0; }
+operations_job_assert_container() { [[ "$TASK_SCENARIO" != post-context-exit || "\${result-}" != "$TASK_BOUND" ]]; }
 operations_selection_same_file() { return 0; }
 operations_protected_ancestors() { return 0; }
 operations_job_discover() { printf '%s' "$OPS_JOB_CONTAINER"; }
@@ -811,7 +812,7 @@ operations_docker() {
   if [[ "$*" == *'dist/operations/promotion-host-main.js'* ]]; then
     cat >/dev/null
     case "$TASK_SCENARIO" in
-      success)
+      success|post-context-exit)
         printf '%s\\n' "$TASK_BOUND"
         return 0
         ;;
@@ -836,6 +837,7 @@ operations_docker() {
   return 125
 }
 
+sequence=1; synthetic_promotion_started=$SECONDS
 (operations_inspect_promotion_host "$TASK_BOUND" "${inspectionSourceId}" fcd-support-synthetic-source "${inspectionSourceSystem}" "${inspectionSelection}" "${inspectionSourceRevision}" "${inspectionOperations}") >/dev/null 2>&1 || true
 synthetic_host_report_failure promote "$TASK_LOG" "$FCD_SYNTHETIC_TRACE"
 `,
@@ -931,4 +933,159 @@ test('real operations_inspect_promotion_host under CI trace: closed diagnostics 
   expect(traceContent).not.toContain('runtime_host_diagnostic=');
   expect(result.stderr).not.toContain('runtime_host_diagnostic=');
   expect(result.stderr).not.toContain('synthetic_promotion_cmd_diagnostic=');
+});
+
+test('actual host inspection trace separates five phase outcomes from validator success', async () => {
+  const { result, traceContent } = await runRealHostInspectionTrace('success', 'closed-v1');
+  expect(result.status).toBe(0);
+  for (const phase of ['ready', 'before', 'after', 'validator', 'context']) {
+    expect(
+      traceContent.match(new RegExp('synthetic_promotion_phase=1:' + phase + ':0:[0-9]+\\n', 'gu')),
+      phase,
+    ).toHaveLength(1);
+  }
+});
+
+test('actual host trace reports post-validator context refusal without inferring its cause', async () => {
+  const { result, traceContent } = await runRealHostInspectionTrace(
+    'post-context-exit',
+    'closed-v1',
+  );
+  expect(result.status).toBe(0);
+  expect(traceContent).toContain('synthetic_promotion_cmd_diagnostic=canonical_success');
+  expect(traceContent).toMatch(/synthetic_promotion_phase=1:context:1:[0-9]+\n/u);
+  expect(result.stderr).toContain('synthetic_host_failed=promote');
+  expect(result.stderr).not.toContain('SENSITIVE_');
+});
+
+test.each([
+  ['1:ready:0:0', true],
+  ['2:context:255:3600', true],
+  ['3:ready:0:1', false],
+  ['1:SYNTHETIC_PRIVATE:0:1', false],
+  ['1:ready:256:1', false],
+  ['1:ready:00:1', false],
+  ['1:ready:0:3601', false],
+  ['1:ready:0:00', false],
+  ['1:ready:0:1:', false],
+  ['1:ready:0:1:SYNTHETIC_PRIVATE', false],
+])('promotion phase publication keeps lexical bounds and fixed fields %s', (value, accepted) => {
+  const code = 'synthetic_promotion_phase=' + value;
+  const result = spawnSync(
+    process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash',
+    [
+      '--noprofile',
+      '--norc',
+      '-c',
+      'source "$TASK_LIBRARY"; synthetic_host_runtime_diagnostic "$TASK_CODE"',
+    ],
+    {
+      encoding: 'utf8',
+      timeout: 3000,
+      env: {
+        PATH: process.env.PATH,
+        SystemRoot: process.env.SystemRoot,
+        TASK_LIBRARY: resolve('scripts/synthetic-host-evidence.sh').replaceAll('\\', '/'),
+        TASK_CODE: code,
+      },
+    },
+  );
+  expect(result.status).toBe(0);
+  expect(result.stdout).toBe(accepted ? code + '\n' : '');
+  expect(result.stdout).not.toContain('SYNTHETIC_PRIVATE');
+});
+
+test.each([true, false])(
+  'new promotion observers preserve caller status and regex captures (active=%s)',
+  (active) => {
+    const metadata = Array.from({ length: 13 }, (_, index) =>
+      index === 7 ? 'exited' : 'SYNTHETIC_PRIVATE',
+    ).join('/');
+    const result = spawnSync(
+      process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash',
+      [
+        '--noprofile',
+        '--norc',
+        '-c',
+        `source "$TASK_LIBRARY"
+[[ SYNTHETIC_BEFORE =~ ^(SYNTHETIC)_(BEFORE)$ ]]
+(exit 19)
+synthetic_host_promotion_phase_diagnostic 1 context 1 10
+printf 'phase_return:%s\\n' "$?"
+(exit 19)
+synthetic_host_promotion_actor_diagnostic "$TASK_METADATA"
+printf 'actor_return:%s;captures:%s:%s\\n' "$?" "\${BASH_REMATCH[1]-}" "\${BASH_REMATCH[2]-}"`,
+      ],
+      {
+        encoding: 'utf8',
+        timeout: 3000,
+        env: {
+          PATH: process.env.PATH,
+          SystemRoot: process.env.SystemRoot,
+          TASK_LIBRARY: resolve('scripts/synthetic-host-evidence.sh').replaceAll('\\', '/'),
+          TASK_METADATA: metadata,
+          FCD_RUNTIME_HOST_DIAGNOSTICS: active ? 'closed-v1' : '',
+        },
+      },
+    );
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('phase_return:19\n');
+    expect(result.stdout).toContain('actor_return:19;captures:SYNTHETIC:BEFORE\n');
+    expect(result.stdout).not.toContain('SYNTHETIC_PRIVATE');
+    if (active) {
+      expect(result.stdout).toContain('synthetic_promotion_phase=1:context:1:10\n');
+      expect(result.stdout).toContain('synthetic_promotion_actor=exited\n');
+    } else expect(result.stdout).not.toContain('synthetic_promotion_');
+  },
+);
+
+test('actual promotion exchange starts a fresh observation clock for both accepted challenges', async () => {
+  const source = await readFile('scripts/test-synthetic-runtime-deployment.sh', 'utf8');
+  const entry = /<<'TRACE'\r?\n([\s\S]*?)\r?\nTRACE/u.exec(source)?.[1];
+  if (entry === undefined) throw new Error('synthetic_trace_entry_missing');
+  const trace = entry.replaceAll('\r', '').split('\n').slice(1).join('\n');
+  const script = `source "$TASK_COMMON"; source "$TASK_JOBS"
+declare -A OPS_CONFIG=([FCD_COMMAND_TIMEOUT_SECONDS]=1)
+OPS_JOB_SERVICE=promote; OPS_JOB_REFERENCE=operation_${'a'.repeat(32)}; OPS_JOB_CONTAINER=${'b'.repeat(64)}
+operations_docker() {
+  local n actual challenge
+  for n in 1 2; do
+    challenge=${'c'.repeat(32)}; [[ "$n" == 1 ]] || challenge=${'d'.repeat(32)}
+    printf '{"event":"promotion_host_check","operationRef":"%s","sequence":%s,"challenge":"%s"}\\n' "$OPS_JOB_REFERENCE" "$n" "$challenge"
+    IFS= read -r -t 1 actual || return 1
+  done
+  printf '{"status":"completed","processed":1,"reasonCode":"ok"}\\n'
+}
+operations_promotion_host_check() {
+  [[ "\${synthetic_promotion_started+x}" == x ]] || return 1
+  synthetic_host_promotion_phase_diagnostic "$sequence" context 0 "$((SECONDS - synthetic_promotion_started))" >&3
+}
+exec 3>&1
+${trace}
+operations_job_start
+printf 'SYNTHETIC_EXCHANGE_PASSED\\n'
+`;
+  const result = spawnSync(
+    process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash',
+    ['--noprofile', '--norc', '-c', script],
+    {
+      encoding: 'utf8',
+      timeout: 3000,
+      env: {
+        PATH: process.env.PATH,
+        SystemRoot: process.env.SystemRoot,
+        TASK_COMMON: resolve('scripts/operations-common.sh').replaceAll('\\', '/'),
+        TASK_JOBS: resolve('scripts/operations-job-lifecycle.sh').replaceAll('\\', '/'),
+        FCD_SYNTHETIC_EVIDENCE_LIBRARY: resolve('scripts/synthetic-host-evidence.sh').replaceAll(
+          '\\',
+          '/',
+        ),
+        FCD_RUNTIME_HOST_DIAGNOSTICS: 'closed-v1',
+      },
+    },
+  );
+  expect(result.status).toBe(0);
+  expect(result.stdout).toContain('SYNTHETIC_EXCHANGE_PASSED\n');
+  expect(result.stdout).toMatch(/synthetic_promotion_phase=1:context:0:[0-9]+\n/u);
+  expect(result.stdout).toMatch(/synthetic_promotion_phase=2:context:0:[0-9]+\n/u);
 });
