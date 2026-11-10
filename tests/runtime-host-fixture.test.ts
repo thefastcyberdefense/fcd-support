@@ -141,7 +141,9 @@ test.each(['backup', 'verify-backup', 'checkpoint', 'restore'])(
         expect(settings.CHECKPOINT_MAX_AGE_MS).toBe('60000');
         expect(settings.RESTORE_BATCH_LIMIT).toBe('10');
         expect(settings.RESTORE_MAX_BATCHES).toBe('100');
-        expect(settings.PROMOTION_HOST_CHECK_TIMEOUT_MS).toBe('10000');
+        const common = environment(await readFile(join(root, 'config/common.env'), 'utf8'));
+        expect(common.OPS_MAX_CALL_MS).toBe('20000');
+        expect(settings.PROMOTION_HOST_CHECK_TIMEOUT_MS).toBe(common.OPS_MAX_CALL_MS);
       }
     } finally {
       await rm(parent, { recursive: true, force: true });
@@ -161,6 +163,9 @@ test('CI recovery fixture explicitly budgets checkpoint freshness without changi
     );
     const settings = environment(await readFile(join(root, 'config/restore.env'), 'utf8'));
     expect(settings.CHECKPOINT_MAX_AGE_MS).toBe('600000');
+    const common = environment(await readFile(join(root, 'config/common.env'), 'utf8'));
+    expect(common.OPS_MAX_CALL_MS).toBe('20000');
+    expect(settings.PROMOTION_HOST_CHECK_TIMEOUT_MS).toBe(common.OPS_MAX_CALL_MS);
   } finally {
     await rm(parent, { recursive: true, force: true });
   }
