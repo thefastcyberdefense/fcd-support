@@ -1,6 +1,37 @@
 # Project Context
 
-Last reviewed: 2026-11-07 (Asia/Dhaka)
+Last reviewed: 2026-11-09 (Asia/Dhaka)
+
+**2026-11-09 independent review and direct runtime corrections.**
+PR #13 source 105017c fixes the aggregate CodeQL finding test-first; 39
+governance tests pass and aggregate CodeQL succeeds. Its runtime still refuses
+precreated promotion. PR #10 source fe3a66b localizes a changed field to
+`samples.stability.before_after.job.healthy`; this is not a proven cause.
+Attached-health capture source 58497e4 passes the full local gate (2,141 tests /
+461 platform skips), 38 native lifecycle tests and the other three CI workflows,
+but all four runtime lanes refuse health-1 with empty attached output.
+Owned-readiness and preserved-stdin correction 94c03d6 passes the full local
+gate (2,152 tests / 461 platform skips), 319 focused and 26 native wrapper tests
+plus independent review. Fresh CI remains under review; see
+`docs/reviews/2026-11-09-runtime-localization-review.md`.
+Both PRs remain draft/unmerged. Shared-server uncertainty, deployed dashboard
+errors and managed rollout remain held; no server action or settlement occurred.
+AGY can start the independent Windows deadline/reaping task at
+`docs/handoffs/2026-11-09-antigravity-windows-harness-bounds.md`, followed by
+`docs/handoffs/2026-11-09-antigravity-health-stdio-contract.md`.
+
+Historical 2026-11-07 final-head review: Codex pushed direct PR #13 corrections as f0c27ad for
+residual marker exemptions, typed event parsing and Markdown placeholders.
+Final governance tests pass 36 / 0 skips; fresh one-worker governance/backup
+containment/promotion-controller suites pass 77 / 0 skips. The broader review
+run failed three unchanged shell-test timeouts (2,000 passed / 446 skipped),
+so a full passing gate is not claimed. PRs #10 and #13 remain draft/unmerged;
+new f0c27ad CI was pending at publication. Submitted 14f91c4 has a fresh health
+empty-acknowledgement failure, while d5fbb9b has three promotion stability
+refusals. Exact evidence: `docs/reviews/2026-11-07-pr-13-direct-corrections.md`.
+AGY can start `docs/handoffs/2026-11-07-antigravity-health-ack-localization.md`;
+Codex retains actual runtime fixes and deployed uncertain-health disposition.
+No server action or operational settlement occurred.
 
 Latest independent review of AGY's c8304a2 observer corrections passes 140
 focused tests with no skips. Runtime CI 41860854083 still fails precreated
