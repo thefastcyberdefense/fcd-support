@@ -1,5 +1,5 @@
 export function createMockDocker() {
-  return `#!/usr/bin/env bash
+  return `#!/bin/bash
 printf '%s\\n' "$*" >> "$TASK_TRACE"
 volumes="$TASK_TRACE.volumes"; initializer="$TASK_TRACE.initializer"
 case "$1/$2" in
@@ -25,15 +25,25 @@ case "$1/$2" in
   start/*)
     : > "$TASK_TRACE.started"
     printf 'INITIALIZER_START\\n' >> "$TASK_TRACE"
+    if [[ "\${SIMULATE_STALL:-0}" == 1 ]]; then sleep 10; fi
     [[ "\${SIMULATE_INITIALIZER_FAILURE:-0}" != 1 ]]; exit $? ;;
   inspect/*)
-    if [[ "$*" == *HostConfig.NetworkMode* && -f "$initializer" ]]; then
-      name="$(cat "$initializer")"; scope="\${name%-ro-initializer}"; vol="$scope-ro-backups"
+    if [[ "$*" == *HostConfig.NetworkMode* && -s "$initializer" ]]; then
+      name=''
+      read -r name < "$initializer"
+      scope="\${name%-ro-initializer}"; vol="$scope-ro-backups"
       printf 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc//%s/sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd/%s/none/true/1/volume/%s//var/lib/fcd-support/ro-backups/true\\n' "$name" "$scope" "$vol"
     elif [[ "$*" == *len\\ .Mounts* ]]; then
       if [[ "$*" == *bbbbbbbb* ]]; then printf '1\\n'; else printf '0\\n'; fi
     elif [[ "$*" == *range\\ .Mounts* ]]; then
-      last_vol="$(grep -E '^volume create .* fcd-support-operations-mount-proof' "$TASK_TRACE" | tail -n 1 | awk '{print $NF}')"
+      last_vol=''
+      if [[ -f "$TASK_TRACE" ]]; then
+        while IFS= read -r line; do
+          if [[ "$line" == "volume create "*" fcd-support-operations-mount-proof"* ]]; then
+            last_vol="\${line##* }"
+          fi
+        done < "$TASK_TRACE"
+      fi
       printf 'volume/%s/false\\n' "$last_vol"
     elif [[ "$*" == *fcd-support.operations-mount-proof* ]]; then printf 'fcd-support-operations-mount-proof\\n';
     else exit 1; fi; exit 0 ;;
@@ -44,30 +54,60 @@ case "$1/$2" in
     [[ -f "$volumes" ]] || exit 0
     if [[ "$*" == *--filter* ]]; then
       pattern="\${!#}"; name="\${pattern#name=^}"; name="\${name%$}"
-      grep -Fx -- "$name" "$volumes" || true
-    else cat "$volumes"; fi; exit 0 ;;
+      while IFS= read -r v; do
+        if [[ "$v" == "$name" ]]; then printf '%s\\n' "$v"; fi
+      done < "$volumes"
+    else
+      while IFS= read -r v; do
+        printf '%s\\n' "$v"
+      done < "$volumes"
+    fi; exit 0 ;;
   volume/inspect)
     vol="\${!#}"
-    [[ -f "$volumes" ]] && grep -Fxq -- "$vol" "$volumes" || exit 1
+    found=0
+    if [[ -f "$volumes" ]]; then
+      while IFS= read -r v; do
+        if [[ "$v" == "$vol" ]]; then found=1; break; fi
+      done < "$volumes"
+    fi
+    [[ "$found" == 1 ]] || exit 1
     if [[ "\${SIMULATE_BAD_METADATA:-0}" == 1 && "$vol" == *ro-backups ]]; then printf 'synthetic_wrong_metadata\\n'; exit 0; fi
     scope="\${vol%-ro-backups}"; scope="\${scope%-backups}"; scope="\${scope%-postgres}"
     if [[ "$*" == *fcd-support.operations-mount-proof* ]]; then printf '%s\\n' "\${vol%-archive}";
     elif [[ "$*" == *Options* ]]; then printf '%s/local/local/default/%s\\n' "$vol" "$scope";
     elif [[ "$*" == *Name*Driver*Scope* ]]; then printf '%s/local/local/%s\\n' "$vol" "$scope"; fi; exit 0 ;;
   volume/rm)
-    grep -Fvx -- "\${!#}" "$volumes" > "$volumes.next" || true
-    mv "$volumes.next" "$volumes"; exit 0 ;;
+    target="\${!#}"
+    remaining=()
+    if [[ -f "$volumes" ]]; then
+      while IFS= read -r v; do
+        if [[ "$v" != "$target" ]]; then remaining+=("$v"); fi
+      done < "$volumes"
+    fi
+    if (( \${#remaining[@]} > 0 )); then
+      printf '%s\\n' "\${remaining[@]}" > "$volumes"
+    else
+      : > "$volumes"
+    fi; exit 0 ;;
   ps/--all)
     if [[ "$*" == *--format* ]]; then
       if [[ "\${SIMULATE_INITIALIZER_COLLISION:-0}" == 1 && "$*" == *--filter* ]]; then
-        vol="$(tail -n 1 "$volumes")"; printf '%s-ro-initializer\\n' "\${vol%-ro-backups}"
-      elif [[ -f "$initializer" ]]; then cat "$initializer"; fi
+        last_vol=''
+        if [[ -f "$volumes" ]]; then
+          while IFS= read -r v; do last_vol="$v"; done < "$volumes"
+        fi
+        printf '%s-ro-initializer\\n' "\${last_vol%-ro-backups}"
+      elif [[ -s "$initializer" ]]; then
+        while IFS= read -r init_line; do printf '%s\\n' "$init_line"; done < "$initializer"
+      fi
     elif [[ "$*" == *volume=* ]]; then
       if [[ "\${SIMULATE_CONSUMER:-0}" == 1 && "$*" == *ro-backups* ]]; then printf 'synthetic_foreign_consumer\\n'; fi
       if [[ "\${SIMULATE_CLEANUP_FAILURE:-0}" == 1 && -f "$TASK_TRACE.started" ]]; then printf 'synthetic_cleanup_consumer\\n'; fi
     fi; exit 0 ;;
   rm/*)
-    if [[ "$*" == *cccccccc* ]]; then rm -f -- "$initializer"; fi; exit 0 ;;
+    if [[ "$*" == *cccccccc* ]]; then
+      : > "$initializer"
+    fi; exit 0 ;;
   run/*) exit 0 ;;
   *) exit 1 ;;
 esac

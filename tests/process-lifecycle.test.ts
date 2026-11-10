@@ -208,3 +208,52 @@ it.skipIf(process.platform === 'win32')(
     expect(child.stderr.closed).toBe(true);
   },
 );
+
+it('reaps an owned shell process tree retaining stdio on stall within bounded deadline', async () => {
+  const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash';
+  const child = spawn(bash, ['--noprofile', '--norc', '-c', 'sleep 10'], {
+    detached: process.platform !== 'win32',
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  const start = Date.now();
+  await expect(waitForExit(child, { timeoutMs: 200 })).rejects.toThrow(/Process exit timed out/);
+  await reapChildProcess(child, {
+    termTimeoutMs: 500,
+    killTimeoutMs: 500,
+    processGroup: true,
+  });
+  expect(Date.now() - start).toBeLessThan(2000);
+  expect(child.stdout.closed).toBe(true);
+  expect(child.stderr.closed).toBe(true);
+});
+
+it('reaps an owned shell process tree retaining stdio after fork/exec under set -Eeuo pipefail', async () => {
+  const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash';
+  const child = spawn(
+    bash,
+    [
+      '--noprofile',
+      '--norc',
+      '-c',
+      'set -Eeuo pipefail\nx="$(printf ok)"\nprintf "READY\\n"\nsleep 10\n',
+    ],
+    {
+      detached: process.platform !== 'win32',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
+  );
+  const start = Date.now();
+  try {
+    await waitForBarrier(child, 'READY\n', { timeoutMs: 1500 });
+    await expect(waitForExit(child, { timeoutMs: 150 })).rejects.toThrow(/Process exit timed out/);
+  } finally {
+    await reapChildProcess(child, {
+      termTimeoutMs: 500,
+      killTimeoutMs: 500,
+      processGroup: true,
+    });
+  }
+  expect(Date.now() - start).toBeLessThan(3000);
+  expect(child.stdout.closed).toBe(true);
+  expect(child.stderr.closed).toBe(true);
+});
