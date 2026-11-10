@@ -259,6 +259,38 @@ const diagnosticFields = new Set([
   ...Object.keys(promotionHostOptionsSchema.shape.job.shape),
   'stability',
 ]);
+// These paths come only from fixed schema property names, never record keys or values.
+const containerStabilityPaths = Object.keys(container.shape).map((field) => [field]);
+const snapshotStabilityPaths = [
+  ...[
+    ['source', 'postgres'],
+    ['source', 'terminal'],
+    ['target', 'postgres'],
+    ['target', 'terminal'],
+    ['job'],
+  ].flatMap((prefix) => containerStabilityPaths.map((path) => [...prefix, ...path])),
+  ...Object.keys(snapshot.shape.source.shape)
+    .filter((field) => field !== 'postgres' && field !== 'terminal')
+    .map((field) => ['source', field]),
+  ...Object.keys(snapshot.shape.target.shape)
+    .filter((field) => field !== 'postgres' && field !== 'terminal')
+    .map((field) => ['target', field]),
+  ...Object.keys(snapshot.shape)
+    .filter((field) => field !== 'source' && field !== 'target' && field !== 'job')
+    .map((field) => [field]),
+];
+const stabilityPaths = {
+  source_terminal: containerStabilityPaths,
+  target_terminal: containerStabilityPaths,
+  before_after: snapshotStabilityPaths,
+};
+export const promotionHostStabilityDiagnostics: readonly string[] = Object.freeze(
+  Object.entries(stabilityPaths).flatMap(([comparison, paths]) =>
+    paths.map((path) => `samples.stability.${comparison}.${path.join('.')}`),
+  ),
+);
+const stabilityDiagnosticCodes = new Set(promotionHostStabilityDiagnostics);
+
 export class PromotionHostValidationError extends Error {
   readonly diagnosticCode: string;
   public constructor(code: string) {
@@ -266,13 +298,38 @@ export class PromotionHostValidationError extends Error {
     this.name = 'PromotionHostValidationError';
     this.diagnosticCode =
       ['arguments', 'input', 'validation', 'samples'].includes(code) ||
-      (code.startsWith('samples.') && diagnosticFields.has(code.slice('samples.'.length)))
+      (code.startsWith('samples.') && diagnosticFields.has(code.slice('samples.'.length))) ||
+      stabilityDiagnosticCodes.has(code)
         ? code
         : 'validation';
   }
 }
 function invalid(code = 'validation'): never {
   throw new PromotionHostValidationError(code);
+}
+function observationAt(value: unknown, path: readonly string[]): unknown {
+  for (const field of path) {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined;
+    value = (value as Record<string, unknown>)[field];
+  }
+  return value;
+}
+function requireStableObservation(
+  before: unknown,
+  after: unknown,
+  comparison: keyof typeof stabilityPaths,
+): void {
+  // The original complete comparison remains authoritative; diagnostics cannot relax it.
+  if (deterministicJson(before) === deterministicJson(after)) return;
+  for (const path of stabilityPaths[comparison]) {
+    if (
+      deterministicJson(observationAt(before, path)) !==
+      deterministicJson(observationAt(after, path))
+    ) {
+      invalid(`samples.stability.${comparison}.${path.join('.')}`);
+    }
+  }
+  invalid('samples.stability');
 }
 function same(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && new Set(a).size === a.length && a.every((v) => b.includes(v));
@@ -617,18 +674,18 @@ function check(s: z.infer<typeof snapshot>, o: Options) {
   );
   postgres(source.postgres, source.volume, o, false);
   postgres(source.terminal, source.volume, o, false);
-  if (
-    deterministicJson(canonicalContainer(source.postgres)) !==
-    deterministicJson(canonicalContainer(source.terminal))
-  )
-    invalid('samples.stability');
+  requireStableObservation(
+    canonicalContainer(source.postgres),
+    canonicalContainer(source.terminal),
+    'source_terminal',
+  );
   postgres(target.postgres, target.volume, o, true);
   postgres(target.terminal, target.volume, o, true);
-  if (
-    deterministicJson(canonicalContainer(target.postgres)) !==
-    deterministicJson(canonicalContainer(target.terminal))
-  )
-    invalid('samples.stability');
+  requireStableObservation(
+    canonicalContainer(target.postgres),
+    canonicalContainer(target.terminal),
+    'target_terminal',
+  );
   if (
     overlaps(source.volume.mountpoint, target.volume.mountpoint) ||
     [source.volume.mountpoint, target.volume.mountpoint].some((root) =>
@@ -725,11 +782,11 @@ export function inspectPromotionHostSamples(
   }
   const before = check(samples.before, o);
   const after = check(samples.after, o);
-  if (
-    deterministicJson(canonicalSnapshot(samples.before)) !==
-    deterministicJson(canonicalSnapshot(samples.after))
-  )
-    invalid('samples.stability');
+  requireStableObservation(
+    canonicalSnapshot(samples.before),
+    canonicalSnapshot(samples.after),
+    'before_after',
+  );
   try {
     return inspectRestoreHostSamples(
       { before, after },

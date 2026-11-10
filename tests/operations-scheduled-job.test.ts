@@ -84,7 +84,7 @@ test('health attaches bounded input through stdin while other jobs start without
   for (const service of ['health', 'maintenance']) {
     const result = shell(
       `OPS_JOB_SERVICE=$TASK_SERVICE; OPS_JOB_CONTAINER=${'b'.repeat(64)}; OPS_HEALTH_INPUT_JSON='{"outageGap":{"startedAt":"2030-01-01T00:00:00.000Z","lastObservedAt":"2030-01-01T00:05:00.000Z"}}'
-operations_docker() { printf 'args:%s\\n' "$*" >&2; if [[ "$OPS_JOB_SERVICE" == health ]]; then printf 'input:' >&2; cat >&2; fi; }
+operations_docker() { printf 'args:%s\\n' "$*" >&2; if [[ "$OPS_JOB_SERVICE" == health ]]; then local input; IFS= read -r input || return 19; printf 'input:%s\\n' "$input" >&2; fi; }
 operations_job_start`,
       { TASK_SERVICE: service },
     );

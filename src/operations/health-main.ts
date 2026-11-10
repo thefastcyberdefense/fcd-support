@@ -276,12 +276,13 @@ export async function readHealthInput(
     const input = await Promise.race([
       (async () => {
         let text = '';
-        for await (const chunk of stream) {
+        for await (const chunk of stream.iterator({ destroyOnReturn: false })) {
           text += String(chunk);
           if (Buffer.byteLength(text) > 16_384) throw new Error('health_input_invalid');
           // Compose keeps stdin open after the attached writer disconnects.
           // A complete JSON value terminated by newline is the one host frame;
-          // returning from the iterator closes our input without waiting for EOF.
+          // Stop consuming after that frame while retaining the attached transport
+          // until the process can write its acknowledgement.
           if (text.endsWith('\n') && text.trim() !== '') {
             try {
               JSON.parse(text);
@@ -301,7 +302,14 @@ export async function readHealthInput(
       }),
     ]);
     return input.trim() === '' ? {} : (JSON.parse(input) as unknown);
+  } catch (error) {
+    stream.destroy();
+    throw error;
   } finally {
+    stream.pause();
+    // Keep the Docker attachment open without letting idle stdin prevent natural exit.
+    if (stream === process.stdin && typeof process.stdin.unref === 'function')
+      process.stdin.unref();
     if (timer !== undefined) clearTimeout(timer);
   }
 }

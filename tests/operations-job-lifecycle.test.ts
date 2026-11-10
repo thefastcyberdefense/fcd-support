@@ -63,8 +63,27 @@ if(args.includes('compose')) {
   }
 } else if(args.includes('start')) {
   trace('start'); const c=load(); c.phase='running'; save(c);
-  fs.writeFileSync(path.join(root,'start-contract'),JSON.stringify({args,input:args.includes('--interactive')?fs.readFileSync(0,'utf8'):''}));
+  let input='';
+  if(args.includes('--interactive')) {
+    const byte=Buffer.alloc(1);
+    while(input.length<=16384) {
+      const count=fs.readSync(0,byte,0,1,null); if(count===0) break;
+      input+=byte.toString('utf8'); if(input.endsWith('\\n')) break;
+    }
+    if(!input.endsWith('\\n')||input.length>16384) process.exit(19);
+  }
+  fs.writeFileSync(path.join(root,'start-contract'),JSON.stringify({args,input}));
   if(fault==='start-ack') process.exit(19);
+  if(c.service==='health' && args.includes('--attach')) {
+    if(fault==='health-output-empty'||fault==='empty-output') console.log('');
+    else if(fault==='health-output-nul') console.log('${ack}'+String.fromCharCode(0));
+    else if(fault==='health-output-invalid') console.log('SYNTHETIC_INVALID_FRAME');
+    else if(fault==='multiline-output') console.log('line1\\nline2');
+    else if(fault==='malformed-output') console.log('{"status":');
+    else if(fault==='health-output-oversized') console.log('${ack}'+'\\n'.repeat(6000));
+    else console.log(fault==='database-down'?'{"status":"completed","processed":0,"reasonCode":"dependency_unavailable"}':'${ack}');
+    if(fault==='health-start-ack') process.exit(19);
+  }
   if(fault==='controller-killed') process.kill(Number(fs.readFileSync(path.join(root,'controller-pid'),'utf8')),'SIGKILL');
 } else if(args.includes('wait')) {
   trace('wait'); const c=load();
@@ -72,7 +91,9 @@ if(args.includes('compose')) {
   c.phase='exited'; c.exit=fault==='job-failed'?1:0; save(c); console.log(c.exit);
 } else if(args.includes('logs')) {
   trace('logs');
-  console.log(fault==='unsafe-output'?'synthetic_unexpected_diagnostic':fault==='database-down'?'{"status":"completed","processed":0,"reasonCode":"dependency_unavailable"}':fault==='not-due'?'{"status":"skipped","processed":0,"reasonCode":"not_due"}':'${ack}');
+  if(fault==='logs-failed'||fault==='health-logs-failed') process.exit(19);
+  if(fault==='health-logs-empty') { console.log(''); process.exit(0); }
+  console.log(fault==='unsafe-output'?'synthetic_unexpected_diagnostic':fault==='empty-output'?'':fault==='multiline-output'?'line1\\nline2':fault==='malformed-output'?'{"status":':fault==='database-down'?'{"status":"completed","processed":0,"reasonCode":"dependency_unavailable"}':fault==='not-due'?'{"status":"skipped","processed":0,"reasonCode":"not_due"}':'${ack}');
 } else if(args.includes('stop')) {
   trace('stop'); if(fault==='cannot-stop') process.exit(19);
   const c=load(); c.phase='exited'; save(c);
@@ -236,6 +257,10 @@ test
     'wait-ack',
     'job-failed',
     'unsafe-output',
+    'empty-output',
+    'multiline-output',
+    'malformed-output',
+    'logs-failed',
     'remove-ack',
     'absence-error',
     'cannot-stop',
@@ -330,3 +355,73 @@ test.runIf(native)(
     }
   },
 );
+
+test
+  .runIf(native)
+  .each(['empty-output', 'multiline-output', 'malformed-output', 'health-start-ack'])(
+  'real health lifecycle retains %s uncertainty and refuses reexecution without Docker access',
+  async (fault) => {
+    const f = await fixture(fault);
+    try {
+      expect(f.run('acknowledgement="$(operations_execute_job health health)"').status).toBe(1);
+      const saved = await readFile(join(f.root, 'active-job'), 'utf8');
+      expect(saved).toContain('JOB_SERVICE=health\n');
+      expect(saved).toContain('JOB_PHASE=uncertain\n');
+      const before = await f.trace();
+      expect(f.run('acknowledgement="$(operations_execute_job health health)"').status).toBe(1);
+      expect(await f.trace()).toEqual(before);
+      expect(await readFile(join(f.root, 'active-job'), 'utf8')).toBe(saved);
+    } finally {
+      await f.dispose();
+    }
+  },
+);
+
+test.runIf(native).each(['health-logs-empty', 'health-logs-failed'])(
+  'health retains the attached frame through complete owned cleanup when daemon logs are %s',
+  async (fault) => {
+    const f = await fixture(fault);
+    try {
+      const result = f.run("OPS_HEALTH_INPUT_JSON='{}'\noperations_execute_job health health");
+      expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
+        status: 0,
+        stdout: ack + '\n',
+        stderr: '',
+      });
+      const trace = await readFile(join(f.root, 'trace'), 'utf8');
+      expect(trace).not.toContain('logs\n');
+      expect(trace.split('\n').filter((line) => line === 'start')).toHaveLength(1);
+      expect(await readdir(f.root)).not.toContain('active-job');
+      expect(await readdir(f.root)).not.toContain('container');
+    } finally {
+      await f.dispose();
+    }
+  },
+);
+test
+  .runIf(native)
+  .each([
+    'health-output-empty',
+    'health-output-invalid',
+    'health-output-nul',
+    'health-output-oversized',
+    'health-start-ack',
+  ])('health preserves uncertainty without log fallback or replay for %s', async (fault) => {
+  const f = await fixture(fault);
+  try {
+    const result = f.run("OPS_HEALTH_INPUT_JSON='{}'\noperations_execute_job health health");
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe('');
+    const state = await readFile(join(f.root, 'active-job'), 'utf8');
+    expect(state).toContain('JOB_PHASE=uncertain');
+    const before = await readFile(join(f.root, 'trace'), 'utf8');
+    expect(before).not.toContain('logs\n');
+    expect(before.split('\n').filter((line) => line === 'start')).toHaveLength(1);
+    const repeated = f.run("OPS_HEALTH_INPUT_JSON='{}'\noperations_execute_job health health");
+    expect(repeated.status).toBe(1);
+    expect(repeated.stderr).toContain('operations_job_pending');
+    expect(await readFile(join(f.root, 'trace'), 'utf8')).toBe(before);
+  } finally {
+    await f.dispose();
+  }
+});

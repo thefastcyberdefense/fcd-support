@@ -116,7 +116,7 @@ export async function writeRuntimeHostFixture(
         CHECKPOINT_MAX_AGE_MS: profile === 'ci-recovery' ? '600000' : '60000',
         RESTORE_BATCH_LIMIT: '10',
         RESTORE_MAX_BATCHES: '100',
-        PROMOTION_HOST_CHECK_TIMEOUT_MS: '10000',
+        PROMOTION_HOST_CHECK_TIMEOUT_MS: common.OPS_MAX_CALL_MS,
       },
     }))
       await writeFile(join(root, `config/${role}.env`), serialize(settings), { mode: 0o600 });

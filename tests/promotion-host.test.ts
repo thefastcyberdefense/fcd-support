@@ -800,3 +800,66 @@ test.each(['/synthetic_private_path_sentinel', '/synthetic_private_path\nforged=
     }
   },
 );
+
+test.each([
+  [
+    'source_terminal.startedAt',
+    (f: ReturnType<typeof fixture>) => {
+      f.snapshot.source.terminal.startedAt = '2030-07-02T00:00:00.000Z';
+      return structuredClone(f.snapshot);
+    },
+  ],
+  [
+    'target_terminal.restartCount',
+    (f: ReturnType<typeof fixture>) => {
+      f.snapshot.target.terminal.restartCount += 1;
+      return structuredClone(f.snapshot);
+    },
+  ],
+  [
+    'before_after.source.postgres.startedAt',
+    (f: ReturnType<typeof fixture>) => {
+      const after = structuredClone(f.snapshot);
+      after.source.postgres.startedAt = '2030-07-02T00:00:00.000Z';
+      after.source.terminal.startedAt = after.source.postgres.startedAt;
+      return after;
+    },
+  ],
+  [
+    'before_after.job.healthy',
+    (f: ReturnType<typeof fixture>) => {
+      const after = structuredClone(f.snapshot);
+      after.job.healthy = !after.job.healthy;
+      return after;
+    },
+  ],
+  [
+    'before_after.hostBinds',
+    (f: ReturnType<typeof fixture>) => {
+      const after = structuredClone(f.snapshot);
+      after.hostBinds.push({
+        containerId: '9'.repeat(64),
+        source: '/synthetic/unrelated',
+        canonicalSource: '/synthetic/unrelated',
+      });
+      return after;
+    },
+  ],
+] as const)(
+  'reports only the fixed changed stability path %s while still refusing',
+  (path, change) => {
+    const f = fixture();
+    const after = change(f);
+    let captured: unknown;
+    try {
+      inspectPromotionHostSamples({ before: f.snapshot, after }, f.options);
+    } catch (error) {
+      captured = error;
+    }
+    expect(captured).toBeInstanceOf(PromotionHostValidationError);
+    expect(captured).toMatchObject({
+      message: 'promotion_host_invalid',
+      diagnosticCode: 'samples.stability.' + path,
+    });
+  },
+);

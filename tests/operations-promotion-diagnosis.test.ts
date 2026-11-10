@@ -64,6 +64,8 @@ declare -A OPS_CONFIG=(
   [FCD_DATABASE_SCHEMA]=public
   [FCD_DATABASE_ROLE_PREFIX]=fcd_synthetic
   [FCD_SCHEMA_REVISION]=000016
+  [FCD_READY_TIMEOUT_SECONDS]=2
+  [FCD_COMMAND_TIMEOUT_SECONDS]=2
   [FCD_STOP_GRACE_MS]=2000
   [FCD_RESTORE_CPUS]=1
   [FCD_RESTORE_MEMORY_MIB]=256
@@ -121,6 +123,10 @@ operations_promotion_host_secrets() { return 0; }
 operations_promotion_host_snapshot() { operations_promotion_host_context || return 1; printf '{}'; }
 
 operations_docker() {
+  if [[ "$1/$2" == container/inspect && "$*" == *'.State.Health'* ]]; then
+    printf '%s/healthy/%s' "$OPS_JOB_CONTAINER/$OPS_JOB_IMAGE/${revision}/$OPS_JOB_REFERENCE/fcd-support-synthetic/promote/$OPS_JOB_COMMAND_HASH/running/false/false/false/$OPS_JOB_PROJECT/promote" "$OPS_JOB_COMMAND_JSON"
+    return 0
+  fi
   if [[ "$1/$2" == image/inspect ]]; then
     printf '%s\\n' "${operations}/${revision}/linux/amd64/node"
     return 0

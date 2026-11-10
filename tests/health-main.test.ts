@@ -1,3 +1,5 @@
+import { spawn } from 'node:child_process';
+import { reapChildProcess, waitForBarrier, waitForExit } from './helpers/process-lifecycle.js';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import pg from 'pg';
@@ -388,7 +390,8 @@ test('health input consumes a newline-framed host snapshot without waiting for C
   const result = readHealthInput(100, input);
   input.write('{"availability":{"manifest":"healthy"}}\n');
   await expect(result).resolves.toEqual({ availability: { manifest: 'healthy' } });
-  expect(input.destroyed).toBe(true);
+  expect(input.destroyed).toBe(false);
+  input.destroy();
 });
 
 test('health input retains EOF compatibility, byte bounds and timeout refusal', async () => {
@@ -426,5 +429,46 @@ test('health input keeps leading blank chunks until the complete JSON frame arri
   } finally {
     input.destroy();
     await result.catch(() => undefined);
+  }
+});
+
+test('a framed health input keeps the interactive transport open until its response can be written', async () => {
+  const input = new PassThrough();
+  try {
+    const result = readHealthInput(100, input);
+    input.write('{}\n');
+    await expect(result).resolves.toEqual({});
+    expect(input.destroyed).toBe(false);
+    expect(input.listenerCount('readable')).toBe(0);
+  } finally {
+    input.destroy();
+  }
+});
+
+test('real stdin can remain attached through a flushed response and natural process exit', async () => {
+  const child = spawn(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `
+    const readInput = ${readHealthInput.toString()};
+    await readInput(500);
+    if (process.stdin.destroyed) throw new Error('synthetic_transport_closed');
+    await new Promise((resolve, reject) => process.stdout.write('SYNTHETIC_TRANSPORT_OPEN\\n', error => error ? reject(error) : resolve()));
+  `,
+    ],
+    {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot },
+    },
+  );
+  try {
+    const frame = waitForBarrier(child, 'SYNTHETIC_TRANSPORT_OPEN\n', { timeoutMs: 1000 });
+    child.stdin.write('{}\n');
+    await frame;
+    expect(await waitForExit(child, { timeoutMs: 1000 })).toEqual({ code: 0, signal: null });
+  } finally {
+    await reapChildProcess(child, { termTimeoutMs: 500, killTimeoutMs: 500 });
   }
 });
