@@ -36,14 +36,14 @@
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
-    "@types/node": "24.13.3",
+    "@types/node": "26.6.6",
     "@types/pg": "8.21.0",
-    "@vitest/coverage-v8": "4.1.12",
+    "@vitest/coverage-v8": "5.1.0",
     "eslint": "10.14.0",
-    "prettier": "3.9.6",
-    "typescript": "6.0.3",
-    "typescript-eslint": "8.68.0",
-    "vitest": "4.1.12"
+    "prettier": "3.9.10",
+    "typescript": "7.0.2",
+    "typescript-eslint": "8.72.1",
+    "vitest": "5.1.0"
   },
   "overrides": {
     "node-pg-migrate": {
