@@ -159,7 +159,7 @@ docker network create --internal --label "fcd-support.health-stdio-test=$scope" 
 docker volume create --label "fcd-support.health-stdio-test=$scope" "$backup_volume" >/dev/null
 docker volume create --label "fcd-support.health-stdio-test=$scope" "$pg_volume" >/dev/null
 docker run --rm --pull never --network none --read-only --user 0:0 \
-  --cap-drop ALL --cap-add CHOWN --cap-add FOWNER \
+  --cap-drop ALL --cap-add CHOWN --cap-add FOWNER --cap-add DAC_OVERRIDE \
   --security-opt no-new-privileges --cpus 0.25 --memory 128m --pids-limit 32 \
   --label "fcd-support.health-stdio-test=$scope" \
   --mount "type=volume,src=$backup_volume,dst=/var/lib/fcd-support/backups" \
@@ -275,7 +275,7 @@ while IFS= read -r sec; do
 done <"$workdir/secrets-list.txt"
 
 docker run --rm --pull never --network none --read-only --user 0:0 \
-  --cap-drop ALL --cap-add CHOWN --cap-add FOWNER \
+  --cap-drop ALL --cap-add CHOWN --cap-add FOWNER --cap-add DAC_OVERRIDE \
   --security-opt no-new-privileges --cpus 0.25 --memory 128m --pids-limit 32 \
   --label "fcd-support.health-stdio-test=$scope" \
   --mount "type=bind,src=$workdir/secrets,dst=/secrets" \
@@ -363,7 +363,7 @@ run_lifecycle_case() {
       printf '%s\n' "$*" >>"$case_state/docker.calls"
       if [[ "${1:-}" == container && "${2:-}" == start && "${3:-}" == --attach ]]; then
         local actual_driver
-        actual_driver="$(command docker container inspect --format '{{.HostConfig.LogConfig.Type}}' "$4")" || return 1
+        actual_driver="$(command docker container inspect --format '{{.HostConfig.LogConfig.Type}}' "${@: -1}")" || return 1
         printf '%s\n' "$actual_driver" >"$case_state/log-driver"
         if [[ "$drop_attached" == 1 ]]; then
           operations_docker_real "$@" >/dev/null
