@@ -299,7 +299,9 @@ describe('owning lifecycle with real dist/operations/health-main.js and CI trace
     secondAttempt?: boolean;
   }) {
     expect(existsSync(healthEntry)).toBe(true);
-    const root = await mkdtemp(join(tmpdir(), 'fcd-health-lifecycle-built-'));
+    const archiveRoot = process.env.BACKUP_TEST_ARCHIVE_ROOT;
+    const scratchBase = archiveRoot !== undefined && archiveRoot !== '' ? archiveRoot : tmpdir();
+    const root = await mkdtemp(join(scratchBase, 'fcd-health-lifecycle-built-'));
     roots.push(root);
     await chmod(root, 0o700);
     const bin = join(root, 'bin');
