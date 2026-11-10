@@ -1,0 +1,14 @@
+# Fast Cyber Defense Support — Mandatory Code Ownership
+* @redwan-cse
+
+# High-risk security, persistence, migration, and operational paths
+/AGENTS.md @redwan-cse
+/SECURITY.md @redwan-cse
+/.github/ @redwan-cse
+/migrations/ @redwan-cse
+/infra/ @redwan-cse
+/scripts/ @redwan-cse
+/src/safety/ @redwan-cse
+/src/persistence/ @redwan-cse
+/src/operations/ @redwan-cse
+/src/admin/ @redwan-cse
