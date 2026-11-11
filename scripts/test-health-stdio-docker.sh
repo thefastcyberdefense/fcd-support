@@ -30,6 +30,10 @@ init_defaults() {
   created_network_id="${created_network_id:-}"
   created_backup_volume="${created_backup_volume:-}"
   created_pg_volume="${created_pg_volume:-}"
+  created_backup_volume_meta="${created_backup_volume_meta:-}"
+  created_pg_volume_meta="${created_pg_volume_meta:-}"
+  if ! declare -p created_operation_records >/dev/null 2>&1; then declare -gA created_operation_records=(); fi
+  if ! declare -p created_container_images >/dev/null 2>&1; then declare -gA created_container_images=(); fi
   if ! declare -p created_containers >/dev/null 2>&1; then created_containers=(); fi
   if ! declare -p declarable_secrets >/dev/null 2>&1; then declarable_secrets=(); fi
   before_containers="${before_containers:-}"
@@ -126,11 +130,13 @@ assert_clean_start() {
 verify_and_remove_container() {
   local id="$1" expected_kind="${2:-fixture}" meta expected_name
   [[ "$id" =~ ^[a-f0-9]{64}$ ]] || return 1
-  meta="$(docker container inspect --format '{{.Id}}|{{.Name}}|{{index .Config.Labels "fcd-support.health-stdio-test"}}|{{index .Config.Labels "fcd-support.operation.parent"}}|{{index .Config.Labels "fcd-support.operation.ref"}}|{{index .Config.Labels "org.opencontainers.image.revision"}}|{{.Image}}' "$id" 2>/dev/null)" || return 1
+  meta="$(docker container inspect --format '{{.Id}}|{{.Name}}|{{index .Config.Labels "fcd-support.health-stdio-test"}}|{{index .Config.Labels "fcd-support.operation.parent"}}|{{index .Config.Labels "fcd-support.operation.ref"}}|{{index .Config.Labels "org.opencontainers.image.revision"}}|{{.Image}}|{{index .Config.Labels "fcd-support.operation.service"}}|{{index .Config.Labels "fcd-support.operation.command"}}|{{.Config.Image}}' "$id" 2>/dev/null)" || return 1
   if [[ "$expected_kind" == operation ]]; then
-    local actual_id actual_name label_test label_parent label_ref label_rev actual_image
-    IFS='|' read -r actual_id actual_name label_test label_parent label_ref label_rev actual_image <<<"$meta"
-    [[ "$actual_id" == "$id" && "$label_parent" == "$scope" && "$label_ref" =~ ^operation_[a-f0-9]{32}$ && "$label_rev" == "$revision" && "$actual_image" == "$ops_image_id" ]] || return 1
+    local actual_id actual_name label_test label_parent label_ref label_rev actual_image service command config_image expected_ref expected_service expected_command
+    IFS='|' read -r actual_id actual_name label_test label_parent label_ref label_rev actual_image service command config_image <<<"$meta"
+    [[ -n "${created_operation_records[$id]:-}" ]] || return 1
+    IFS='|' read -r expected_ref expected_service expected_command <<<"${created_operation_records[$id]}"
+    [[ "$actual_id" == "$id" && "$label_parent" == "$scope" && "$label_ref" == "$expected_ref" && "$label_rev" == "$revision" && "$actual_image" == "$ops_image_id" && "$service" == "$expected_service" && "$command" == "$expected_command" && "$actual_name" == "/fcd-support-operation-${expected_ref#operation_}-$expected_service-1" ]] || return 1
   else
     expected_name="${3:-}"
     local actual_id actual_name label_test rest
@@ -139,6 +145,7 @@ verify_and_remove_container() {
     if [[ -n "$expected_name" ]]; then
       [[ "$actual_name" == "/$expected_name" ]] || return 1
     fi
+    [[ -n "${created_container_images[$id]:-}" && "${meta##*|}" == "${created_container_images[$id]}" ]] || return 1
   fi
   docker rm --force --volumes "$id" >/dev/null 2>&1 || return 1
 }
@@ -159,14 +166,13 @@ cleanup() {
     fi
   done
 
-  if op_ids="$(docker ps --all --quiet --no-trunc --filter "label=fcd-support.operation.parent=$scope" 2>/dev/null)"; then
-    while IFS= read -r op_id; do
-      [[ -n "$op_id" ]] || continue
+  # Only a complete protected journal verified after the controller exits may
+  # bind an operation actor. Same-parent labels alone never authorize removal.
+  for op_id in "${!created_operation_records[@]}"; do
+    if docker container inspect --format '{{.Id}}' "$op_id" >/dev/null 2>&1; then
       verify_and_remove_container "$op_id" operation || cleanup_status=1
-    done <<<"$op_ids"
-  else
-    cleanup_status=1
-  fi
+    fi
+  done
 
   if [[ -n "${created_network_id:-}" ]]; then
     if net_meta="$(docker network inspect --format '{{.Id}}|{{.Name}}|{{index .Labels "fcd-support.health-stdio-test"}}' "$created_network_id" 2>/dev/null)"; then
@@ -180,11 +186,13 @@ cleanup() {
     fi
   fi
 
+  local expected_volume_meta
   for vol in "${created_backup_volume:-}" "${created_pg_volume:-}"; do
     [[ -n "$vol" ]] || continue
-    if vol_meta="$(docker volume inspect --format '{{.Name}}|{{.Driver}}|{{.Scope}}|{{index .Labels "fcd-support.health-stdio-test"}}' "$vol" 2>/dev/null)"; then
+    if vol_meta="$(docker volume inspect --format '{{.Name}}|{{.Driver}}|{{.Scope}}|{{index .Labels "fcd-support.health-stdio-test"}}|{{.CreatedAt}}' "$vol" 2>/dev/null)"; then
       users="$(docker ps --all --quiet --filter "volume=$vol" 2>/dev/null)" || cleanup_status=1
-      if [[ "$vol_meta" == "$vol|local|local|$scope" && -z "$users" ]]; then
+      if [[ "$vol" == "${created_backup_volume:-}" ]]; then expected_volume_meta="${created_backup_volume_meta:-}"; else expected_volume_meta="${created_pg_volume_meta:-}"; fi
+      if [[ -n "$expected_volume_meta" && "$vol_meta" == "$vol|local|local|$scope|"* && "${vol_meta##*|}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]+(\.[0-9]+)?(Z|[+-][0-9:]{5})$ && "$vol_meta" == "$expected_volume_meta" && -z "$users" ]]; then
         docker volume rm "$vol" >/dev/null 2>&1 || cleanup_status=1
       else
         cleanup_status=1
@@ -437,6 +445,7 @@ verify_active_job_record() {
   [[ "${parsed[JOB_COMMAND_SHA256]}" =~ ^[a-f0-9]{64}$ ]]
   [[ "${parsed[JOB_CONTAINER]}" =~ ^[a-f0-9]{64}$ ]]
   [[ "${parsed[JOB_PHASE]}" == "$expected_phase" ]]
+  created_operation_records["${parsed[JOB_CONTAINER]}"]="${parsed[JOB_REF]}|${parsed[JOB_SERVICE]}|${parsed[JOB_COMMAND_SHA256]}"
 }
 
 run_lifecycle_case() {
@@ -838,7 +847,21 @@ assert_no_secrets_in_case() {
   done
 }
 
-main() {
+publish_outer_stderr() {
+  local line filtered=0
+  while IFS= read -r line; do
+    case "$line" in
+      health_stdio_docker_arguments_invalid|health_stdio_docker_collision_detected|health_stdio_docker_native_uid1000_required) printf '%s\n' "$line" >&2 ;;
+      *)
+        if [[ "$line" =~ ^health_stdio_docker_failed_line=[0-9]{1,6}\ status=[0-9]{1,3}$ ]]; then printf '%s\n' "$line" >&2
+        else ((filtered += 1)) || true; fi ;;
+    esac
+  done
+  (( filtered == 0 )) || printf 'health_stdio_docker_output_redacted=true\n' >&2
+  return 0
+}
+
+main_impl() {
   [[ "$#" == 2 && "$2" =~ ^[a-f0-9]{40}$ ]] || {
     echo health_stdio_docker_arguments_invalid >&2
     exit 1
@@ -904,12 +927,14 @@ main() {
   [[ "$(docker network inspect --format '{{.Id}}|{{.Name}}|{{.Driver}}|{{.Internal}}|{{index .Labels "fcd-support.health-stdio-test"}}' "$created_network_id")" == "$created_network_id|$network|bridge|true|$scope" ]]
 
   docker volume create --label "fcd-support.health-stdio-test=$scope" "$backup_volume" >/dev/null
-  [[ "$(docker volume inspect --format '{{.Name}}|{{.Driver}}|{{.Scope}}|{{index .Labels "fcd-support.health-stdio-test"}}' "$backup_volume")" == "$backup_volume|local|local|$scope" ]]
   created_backup_volume="$backup_volume"
+  created_backup_volume_meta="$(docker volume inspect --format '{{.Name}}|{{.Driver}}|{{.Scope}}|{{index .Labels "fcd-support.health-stdio-test"}}|{{.CreatedAt}}' "$backup_volume")"
+  [[ "$created_backup_volume_meta" == "$backup_volume|local|local|$scope|"* && "${created_backup_volume_meta##*|}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]+(\.[0-9]+)?(Z|[+-][0-9:]{5})$ ]]
 
   docker volume create --label "fcd-support.health-stdio-test=$scope" "$pg_volume" >/dev/null
-  [[ "$(docker volume inspect --format '{{.Name}}|{{.Driver}}|{{.Scope}}|{{index .Labels "fcd-support.health-stdio-test"}}' "$pg_volume")" == "$pg_volume|local|local|$scope" ]]
   created_pg_volume="$pg_volume"
+  created_pg_volume_meta="$(docker volume inspect --format '{{.Name}}|{{.Driver}}|{{.Scope}}|{{index .Labels "fcd-support.health-stdio-test"}}|{{.CreatedAt}}' "$pg_volume")"
+  [[ "$created_pg_volume_meta" == "$pg_volume|local|local|$scope|"* && "${created_pg_volume_meta##*|}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]+(\.[0-9]+)?(Z|[+-][0-9:]{5})$ ]]
 
   # Replace anonymous --rm initializers with tracked container creation, identity verification, and removal.
   local chown_backups_cid chown_exit
@@ -921,8 +946,10 @@ main() {
       --mount "type=volume,src=$backup_volume,dst=/var/lib/fcd-support/backups" \
       --entrypoint sh "$ops_image_id" -c 'chown 1000:1000 /var/lib/fcd-support/backups && chmod 0700 /var/lib/fcd-support/backups'
   )"
-  verify_created_container "$chown_backups_cid" '' "$ops_image_id"
+  [[ "$chown_backups_cid" =~ ^[a-f0-9]{64}$ ]]
   created_containers+=("$chown_backups_cid")
+  created_container_images["$chown_backups_cid"]="$ops_image_id"
+  verify_created_container "$chown_backups_cid" '' "$ops_image_id"
   docker start --attach "$chown_backups_cid" >/dev/null
   chown_exit="$(docker container inspect --format '{{.State.Status}}|{{.State.ExitCode}}' "$chown_backups_cid")"
   [[ "$chown_exit" == 'exited|0' ]]
@@ -946,8 +973,9 @@ main() {
       "$postgres_image"
   )"
   [[ "$pg_cid" =~ ^[a-f0-9]{64}$ ]]
-  [[ "$(docker container inspect --format '{{.Id}}|{{.Name}}|{{index .Config.Labels "fcd-support.health-stdio-test"}}|{{.Config.Image}}' "$pg_cid")" == "$pg_cid|/$pg_container|$scope|$postgres_image" ]]
   created_containers+=("$pg_cid")
+  created_container_images["$pg_cid"]="$postgres_image"
+  [[ "$(docker container inspect --format '{{.Id}}|{{.Name}}|{{index .Config.Labels "fcd-support.health-stdio-test"}}|{{.Config.Image}}' "$pg_cid")" == "$pg_cid|/$pg_container|$scope|$postgres_image" ]]
   docker start "$pg_cid" >/dev/null
 
   local attempt
@@ -1176,6 +1204,20 @@ writeFileSync(join(work, "secrets-list.txt"), [passwords.health, passwords.migra
     health_stdio_docker_trace_parity=true \
     health_stdio_docker_fault_uncertainty=true
 }
+
+# Wait for the whole inner invocation and its EXIT trap before publishing any
+# diagnostics. No asynchronous publisher can outlive cleanup or escape filtering.
+health_stdio_closed_run() (
+  local private_output result
+  private_output="$(mktemp "${TMPDIR:-/tmp}/fcd-health-output.XXXXXXXX" 2>/dev/null)" || {
+    printf 'health_stdio_docker_output_capture_failed\n' >&2
+    exit 1
+  }
+  trap 'result=$?; publish_outer_stderr <"$private_output"; if ! rm -f -- "$private_output" 2>/dev/null; then printf "health_stdio_docker_output_cleanup_failed\n" >&2; result=1; fi; exit "$result"' EXIT
+  ( "$@" ) 2>"$private_output"
+)
+
+main() { health_stdio_closed_run main_impl "$@"; }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   main "$@"

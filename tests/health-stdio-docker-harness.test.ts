@@ -322,7 +322,7 @@ if (args[0] === 'volume') {
     const fmt = args[args.indexOf('--format') + 1] ?? '';
     const sep = fmt.includes('|') ? '|' : '/';
     process.stdout.write(
-      [found.name, found.driver, found.scope, found.labels['fcd-support.health-stdio-test'] ?? ''].join(sep) + '\\n',
+      [found.name, found.driver, found.scope, found.labels['fcd-support.health-stdio-test'] ?? '', ...(fmt.includes('.CreatedAt') ? [found.createdAt ?? '2026-11-11T00:00:01Z'] : [])].join(sep) + '\\n',
     );
     process.exit(0);
   }
@@ -352,6 +352,7 @@ if (args[0] === 'container' && args[1] === 'inspect') {
         c.labels['fcd-support.operation.ref'] ?? '',
         c.labels['org.opencontainers.image.revision'] ?? '',
         c.image,
+        ...(fmt.includes('operation.service') ? [c.labels['fcd-support.operation.service'] ?? '', c.labels['fcd-support.operation.command'] ?? '', c.configImage ?? c.image] : []),
       ].join(sep) + '\\n',
     );
   } else {
@@ -521,11 +522,13 @@ describe('scripts/test-health-stdio-docker.sh harness controls', () => {
       const containers = s.containers as Record<string, unknown>;
       containers[opChildId] = {
         id: opChildId,
-        name: 'op-child-1',
+        name: `fcd-support-operation-${'c'.repeat(32)}-health-1`,
         image: imageId,
         labels: {
           'fcd-support.operation.parent': scope,
           'fcd-support.operation.ref': `operation_${'c'.repeat(32)}`,
+          'fcd-support.operation.service': 'health',
+          'fcd-support.operation.command': 'd'.repeat(64),
           'org.opencontainers.image.revision': revision,
         },
       };
@@ -555,9 +558,13 @@ describe('scripts/test-health-stdio-docker.sh harness controls', () => {
           `ops_image_id="${imageId}"`,
           'precreation_passed=1',
           `created_containers=("${pgId}")`,
+          `created_container_images["${pgId}"]="${postgresImage}"`,
           `created_network_id="${netId}"`,
+          `created_operation_records["${opChildId}"]="operation_${'c'.repeat(32)}|health|${'d'.repeat(64)}"`,
           `created_backup_volume="${scope}-backups"`,
           `created_pg_volume="${scope}-postgres"`,
+          `created_backup_volume_meta="${scope}-backups|local|local|${scope}|2026-11-11T00:00:01Z"`,
+          `created_pg_volume_meta="${scope}-postgres|local|local|${scope}|2026-11-11T00:00:01Z"`,
           `before_containers="${'e'.repeat(64)}"`,
           `before_networks="${'f'.repeat(64)}"`,
           'before_volumes="canary_unrelated_volume"',
@@ -676,6 +683,7 @@ describe('scripts/test-health-stdio-docker.sh harness controls', () => {
           `ops_image_id="${imageId}"`,
           'precreation_passed=1',
           `created_containers=("${pgId}")`,
+          `created_container_images["${pgId}"]="${postgresImage}"`,
           'cleanup',
         ].join('; '),
       ],
@@ -761,5 +769,125 @@ describe('scripts/test-health-stdio-docker.sh harness controls', () => {
     expect(result.stderr).not.toContain('c'.repeat(64));
     expect(result.stderr).not.toContain('secret_value_here');
     expect(result.stderr).not.toContain('secret_leak_value');
+  });
+  test('cleanup refuses an unrecorded same-label operation actor', async () => {
+    const f = await createHermeticDockerFixture('unrecorded-operation');
+    const scope = 'fcd-support-health-stdio-synthetic-scope';
+    const operationId = '2'.repeat(64);
+    await seedFakeDockerState(f.stateFile, (state) => {
+      (state.containers as Record<string, unknown>)[operationId] = {
+        id: operationId,
+        name: `${scope}-unrecorded`,
+        image: imageId,
+        labels: {
+          'fcd-support.operation.parent': scope,
+          'fcd-support.operation.ref': `operation_${'a'.repeat(32)}`,
+          'org.opencontainers.image.revision': revision,
+        },
+      };
+    });
+    const result = await runBoundedHarness(
+      [
+        '--noprofile',
+        '--norc',
+        '-c',
+        `set -Eeuo pipefail; source "${scriptPath}"; scope="${scope}"; revision="${revision}"; ops_image_id="${imageId}"; precreation_passed=1; cleanup`,
+      ],
+      {
+        PATH: f.bin + delimiter + (process.env.PATH ?? process.env.Path ?? ''),
+        SystemRoot: process.env.SystemRoot,
+      },
+    );
+    expect(result.status).not.toBe(0);
+    expect(await readFile(join(f.stateDir, 'mutations.log'), 'utf8').catch(() => '')).toBe('');
+  });
+
+  test('cleanup refuses a same-name volume with changed creation metadata', async () => {
+    const f = await createHermeticDockerFixture('replaced-volume');
+    const scope = 'fcd-support-health-stdio-synthetic-scope';
+    const name = `${scope}-backups`;
+    await seedFakeDockerState(f.stateFile, (state) => {
+      (state.volumes as Record<string, unknown>)[name] = {
+        name,
+        driver: 'local',
+        scope: 'local',
+        createdAt: '2026-11-11T00:00:02Z',
+        labels: { 'fcd-support.health-stdio-test': scope },
+      };
+    });
+    const result = await runBoundedHarness(
+      [
+        '--noprofile',
+        '--norc',
+        '-c',
+        `set -Eeuo pipefail; source "${scriptPath}"; scope="${scope}"; precreation_passed=1; created_backup_volume="${name}"; created_backup_volume_meta="${name}|local|local|${scope}|2026-11-11T00:00:01Z"; cleanup`,
+      ],
+      {
+        PATH: f.bin + delimiter + (process.env.PATH ?? process.env.Path ?? ''),
+        SystemRoot: process.env.SystemRoot,
+      },
+    );
+    expect(result.status).not.toBe(0);
+    expect(await readFile(join(f.stateDir, 'mutations.log'), 'utf8').catch(() => '')).toBe('');
+  });
+
+  test('cleanup refuses provisional metadata carrying a foreign ownership label', async () => {
+    const f = await createHermeticDockerFixture('replaced-volume');
+    const scope = 'fcd-support-health-stdio-synthetic-scope';
+    const name = `${scope}-backups`;
+    await seedFakeDockerState(f.stateFile, (state) => {
+      (state.volumes as Record<string, unknown>)[name] = {
+        name,
+        driver: 'local',
+        scope: 'local',
+        createdAt: '2026-11-11T00:00:02Z',
+        labels: { 'fcd-support.health-stdio-test': 'synthetic-foreign-scope' },
+      };
+    });
+    const result = await runBoundedHarness(
+      [
+        '--noprofile',
+        '--norc',
+        '-c',
+        `set -Eeuo pipefail; source "${scriptPath}"; scope="${scope}"; precreation_passed=1; created_backup_volume="${name}"; created_backup_volume_meta="${name}|local|local|synthetic-foreign-scope|2026-11-11T00:00:02Z"; cleanup`,
+      ],
+      {
+        PATH: f.bin + delimiter + (process.env.PATH ?? process.env.Path ?? ''),
+        SystemRoot: process.env.SystemRoot,
+      },
+    );
+    expect(result.status).not.toBe(0);
+    expect(await readFile(join(f.stateDir, 'mutations.log'), 'utf8').catch(() => '')).toBe('');
+  });
+
+  test('outer setup refusal never publishes Docker stderr bodies', async () => {
+    const result = await runBoundedHarness(
+      [
+        '--noprofile',
+        '--norc',
+        '-c',
+        `set -Eeuo pipefail; source "${scriptPath}"; docker() { printf '%s\\n' SYNTHETIC_SETUP_OUTPUT_MUST_STAY_PRIVATE >&2; return 1; }; main "${imageId}" "${revision}"`,
+      ],
+      { PATH: process.env.PATH ?? process.env.Path, SystemRoot: process.env.SystemRoot },
+    );
+    expect(result.status).not.toBe(0);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).not.toContain('SYNTHETIC_SETUP_OUTPUT_MUST_STAY_PRIVATE');
+    expect(result.stderr).toContain('health_stdio_docker_failed_line=');
+  });
+  test('final cleanup refusal never publishes stderr bodies', async () => {
+    const result = await runBoundedHarness(
+      [
+        '--noprofile',
+        '--norc',
+        '-c',
+        `set -Eeuo pipefail; source "${scriptPath}"; cleanup() { printf '%s\\n' SYNTHETIC_SETUP_OUTPUT_MUST_STAY_PRIVATE >&2; return 1; }; synthetic_success() { register_traps; }; health_stdio_closed_run synthetic_success`,
+      ],
+      { PATH: process.env.PATH ?? process.env.Path, SystemRoot: process.env.SystemRoot },
+    );
+    expect(result.status).not.toBe(0);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).not.toContain('SYNTHETIC_SETUP_OUTPUT_MUST_STAY_PRIVATE');
+    expect(result.stderr).toContain('health_stdio_docker_output_redacted=true');
   });
 });
