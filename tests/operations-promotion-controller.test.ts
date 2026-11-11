@@ -1,8 +1,32 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { expect, test } from 'vitest';
+import {
+  reapChildProcess,
+  runBoundedCommand,
+  waitForBarrier,
+  waitForExit,
+} from './helpers/process-lifecycle.js';
+
+const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash';
+const CHILD_DEADLINE_MS = 3500;
+const CHILD_TERM_GRACE_MS = 500;
+const CHILD_KILL_GRACE_MS = 500;
+
+async function runBoundedPromotionBash(
+  args: string[],
+  env: Record<string, string | undefined>,
+  timeoutMs = CHILD_DEADLINE_MS,
+) {
+  return runBoundedCommand(bash, args, {
+    env,
+    timeoutMs,
+    termTimeoutMs: CHILD_TERM_GRACE_MS,
+    killTimeoutMs: CHILD_KILL_GRACE_MS,
+  });
+}
 
 const revision = 'a'.repeat(40);
 const app = `sha256:${'b'.repeat(64)}`;
@@ -31,13 +55,15 @@ const host = JSON.stringify({
 });
 const token = Buffer.from('{"synthetic":true}').toString('base64');
 
-async function fixture(fault = 'none', initial = 'quiescent') {
+async function fixture(fault = 'none', initial = 'quiescent', timeoutMs = CHILD_DEADLINE_MS) {
   const root = await mkdtemp(join(tmpdir(), 'fcd-promotion-controller-test-'));
-  await writeFile(join(root, 'phase'), initial);
-  const script = join(root, 'scenario.sh');
-  await writeFile(
-    script,
-    `
+  let child: ChildProcess | null = null;
+  try {
+    await writeFile(join(root, 'phase'), initial);
+    const script = join(root, 'scenario.sh');
+    await writeFile(
+      script,
+      `
 source "$TASK_COMMON"
 source "$TASK_LIBRARY" || exit 1
 trace() { printf '%s\\n' "$1" >> "$TASK_ROOT/trace"; }
@@ -51,7 +77,9 @@ OPS_RESTORE_REF=${original}
 operations_controller_images() { trace images; OPS_CONTROLLER_APPLICATION=${app}; OPS_CONTROLLER_OPERATIONS=${operations}; OPS_CONTROLLER_POSTGRES=${postgres}; }
 operations_job_state_root() { OPS_JOB_STATE_FILE=$TASK_ROOT/active-job; }
 operations_selection_apply() {
- declare -gA OPS_SELECTION=([STATE_REF]=${selection} [STATE_PHASE]="$(cat "$TASK_ROOT/phase")"
+ local _phase=''
+ read -r _phase < "$TASK_ROOT/phase"
+ declare -gA OPS_SELECTION=([STATE_REF]=${selection} [STATE_PHASE]="$_phase"
  [STATE_VOLUME]=fcd-support-source-data [STATE_SYSTEM_IDENTIFIER]=${sourceSystem} [STATE_DATABASE_NAME]=fcd_support_test
  [STATE_SCHEMA_NAME]=public [STATE_REVISION]=${revision} [STATE_SCHEMA_REVISION]=000016
  [STATE_WRITES_POSSIBLE]=yes [STATE_RESTORE_REF]=none)
@@ -100,40 +128,37 @@ operations_execute_job() {
  fi
  trace promote-job
  [[ "$*" == 'promote promote ${original} ${verification} ${backup} ${freshCheckpoint} ${token}' && "$OPS_DATABASE_SYSTEM_IDENTIFIER" == ${sourceSystem} && "$OPS_RESTORE_TARGET_SYSTEM_IDENTIFIER" == ${targetSystem} ]] || return 1
- touch "$TASK_ROOT/active-job"
+ : > "$TASK_ROOT/active-job"
  operations_promotion_host_check || return 1
  trace challenge-one
  operations_promotion_host_check || return 1
  trace challenge-two
  [[ "$TASK_FAULT" != promote-fail ]] || return 1
- rm "$TASK_ROOT/active-job"; touch "$TASK_ROOT/promoted"
+ rm -f "$TASK_ROOT/active-job"; : > "$TASK_ROOT/promoted"
  if [[ "$TASK_FAULT" == acknowledgement ]]; then printf synthetic_invalid_ack; else printf '%s' '{"status":"completed","processed":1,"reasonCode":"ok"}'; fi
 }
 operations_promotion_capture_postgres() { trace "capture:$1"; [[ "$TASK_FAULT" != capture ]]; }
 operations_selection_switch() {
  trace switching
  [[ "$*" == '${selection} ${switched} ${targetVolume} ${project} 2030-04-01T00:00:00Z ${targetSystem} fcd_support_test ${verification} ${revision} 000016' && "$TASK_FAULT" != switch-fail ]] || return 1
- touch "$TASK_ROOT/switched"; printf switching > "$TASK_ROOT/phase"
+ : > "$TASK_ROOT/switched"; printf switching > "$TASK_ROOT/phase"
 }
-operations_promotion_remove_postgres() { trace "remove:$1"; [[ -e "$TASK_ROOT/switched" && "$TASK_FAULT" != stop-fail ]] || return 1; touch "$TASK_ROOT/removed-$1"; }
+operations_promotion_remove_postgres() { trace "remove:$1"; [[ -e "$TASK_ROOT/switched" && "$TASK_FAULT" != stop-fail ]] || return 1; : > "$TASK_ROOT/removed-$1"; }
 operations_compose() { trace runtime-postgres; [[ "$*" == 'runtime up --detach --wait --wait-timeout 5 --no-deps --no-build --pull never postgres' && -e "$TASK_ROOT/removed-${sourceId}" && -e "$TASK_ROOT/removed-${targetId}" && "$TASK_FAULT" != create-fail && "$TASK_FAULT" != create-lost-ack ]]; }
 operations_inspect_bootstrap_database() { trace bootstrap-proof; [[ "$TASK_FAULT" != bootstrap-proof && "$TASK_FAULT" != create-fail ]]; }
 operations_read_database_identity() { trace physical-proof; if [[ "$TASK_FAULT" == physical-proof ]]; then printf 3333333333333333333; else printf '%s' ${targetSystem}; fi; }
 operations_start_private_runtime() { trace startup; [[ "$*" == '${app} ${operations} ${postgres}' && "\${OPS_CONFIG[FCD_POSTGRES_VOLUME]}" == ${targetVolume} && "$TASK_FAULT" != startup ]] || return 1; printf ready > "$TASK_ROOT/phase"; }
 operations_selection_uncertain() { trace uncertain; printf uncertain > "$TASK_ROOT/phase"; }
 operations_docker() { trace unexpected-docker; return 19; }
-od() { if [[ ! -e "$TASK_ROOT/random-one" ]]; then touch "$TASK_ROOT/random-one"; printf '%s' '${'a'.repeat(32)}'; else printf '%s' '${'b'.repeat(32)}'; fi; }
+od() { if [[ ! -e "$TASK_ROOT/random-one" ]]; then : > "$TASK_ROOT/random-one"; printf '%s' '${'a'.repeat(32)}'; else printf '%s' '${'b'.repeat(32)}'; fi; }
 ${fault === 'reference' ? 'OPS_RESTORE_REF=restore_invalid' : ''}
+if [[ "$TASK_FAULT" == stall ]]; then trace stalled; sleep 10; fi
 operations_promote
 `,
-  );
-  const result = spawnSync(
-    process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash',
-    ['--noprofile', '--norc', script.replaceAll('\\', '/')],
-    {
-      encoding: 'utf8',
-      timeout: 15000,
-      env: {
+    );
+    const result = await runBoundedPromotionBash(
+      ['--noprofile', '--norc', script.replaceAll('\\', '/')],
+      {
         PATH: process.env.PATH,
         SystemRoot: process.env.SystemRoot,
         TASK_ROOT: root.replaceAll('\\', '/'),
@@ -141,17 +166,38 @@ operations_promote
         TASK_LIBRARY: resolve('scripts/operations-promotion-controller.sh').replaceAll('\\', '/'),
         TASK_FAULT: fault,
       },
-    },
-  );
-  return {
-    result,
-    trace: (await readFile(join(root, 'trace'), 'utf8').catch(() => ''))
-      .trim()
-      .split('\n')
-      .filter(Boolean),
-    phase: await readFile(join(root, 'phase'), 'utf8'),
-    dispose: () => rm(root, { recursive: true, force: true }),
-  };
+      timeoutMs,
+    );
+    child = result.child;
+    return {
+      result: { status: result.status, stdout: result.stdout, stderr: result.stderr },
+      trace: (await readFile(join(root, 'trace'), 'utf8').catch(() => ''))
+        .trim()
+        .split('\n')
+        .filter(Boolean),
+      phase: await readFile(join(root, 'phase'), 'utf8'),
+      dispose: async () => {
+        if (child) {
+          await reapChildProcess(child, {
+            termTimeoutMs: CHILD_TERM_GRACE_MS,
+            killTimeoutMs: CHILD_KILL_GRACE_MS,
+            processGroup: true,
+          });
+        }
+        await rm(root, { recursive: true, force: true });
+      },
+    };
+  } catch (error) {
+    if (child) {
+      await reapChildProcess(child, {
+        termTimeoutMs: CHILD_TERM_GRACE_MS,
+        killTimeoutMs: CHILD_KILL_GRACE_MS,
+        processGroup: true,
+      });
+    }
+    await rm(root, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 test.each(['quiescent', 'ready'])(
@@ -271,12 +317,14 @@ test.each([
   },
 );
 
-async function actorFixture(fault: string) {
+async function actorFixture(fault: string, timeoutMs = CHILD_DEADLINE_MS) {
   const root = await mkdtemp(join(tmpdir(), 'fcd-promotion-actor-test-'));
-  const script = join(root, 'actor.sh');
-  await writeFile(
-    script,
-    `
+  let child: ChildProcess | null = null;
+  try {
+    const script = join(root, 'actor.sh');
+    await writeFile(
+      script,
+      `
 source "$TASK_COMMON"
 source "$TASK_LIBRARY"
 trace() { printf '%s\\n' "$1" >> "$TASK_ROOT/trace"; }
@@ -301,7 +349,7 @@ operations_docker() {
        if [[ -e "$TASK_ROOT/captured" ]]; then
          printf '%s\n%s\n%s\n' "$h" "$m2" "$m1";
        else
-         touch "$TASK_ROOT/captured";
+         : > "$TASK_ROOT/captured";
          printf '%s\n%s\n%s\n' "$h" "$m1" "$m2";
        fi
      else printf '%s\n%s\n%s\n' "$h" "$m1" "$m2"; fi
@@ -320,10 +368,10 @@ operations_docker() {
    else trace unexpected; return 19; fi ;;
   'stop --time')
    trace stop; [[ "$*" == 'stop --time 1 ${targetId}' ]] || return 19
-   [[ "$TASK_FAULT" == stop-no-effect ]] || touch "$TASK_ROOT/stopped"
-   [[ "$TASK_FAULT" != active-job ]] || touch "$TASK_ROOT/active-job"
+   [[ "$TASK_FAULT" == stop-no-effect ]] || : > "$TASK_ROOT/stopped"
+   [[ "$TASK_FAULT" != active-job ]] || : > "$TASK_ROOT/active-job"
    [[ "$TASK_FAULT" != stop-lost-ack ]] ;;
-  'rm ${targetId}') trace rm; touch "$TASK_ROOT/removed"; [[ "$TASK_FAULT" != rm-lost-ack ]] ;;
+  'rm ${targetId}') trace rm; : > "$TASK_ROOT/removed"; [[ "$TASK_FAULT" != rm-lost-ack ]] ;;
   *) trace unexpected; return 19 ;;
  esac
 }
@@ -331,14 +379,10 @@ if operations_promotion_capture_postgres ${targetId} ${project} ${targetVolume} 
 printf '%s\\n' promotion_actor_refused >&2
 exit 1
 `,
-  );
-  const result = spawnSync(
-    process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash',
-    ['--noprofile', '--norc', script.replaceAll('\\', '/')],
-    {
-      encoding: 'utf8',
-      timeout: 10000,
-      env: {
+    );
+    const result = await runBoundedPromotionBash(
+      ['--noprofile', '--norc', script.replaceAll('\\', '/')],
+      {
         PATH: process.env.PATH,
         SystemRoot: process.env.SystemRoot,
         TASK_ROOT: root.replaceAll('\\', '/'),
@@ -346,16 +390,37 @@ exit 1
         TASK_LIBRARY: resolve('scripts/operations-promotion-controller.sh').replaceAll('\\', '/'),
         TASK_FAULT: fault,
       },
-    },
-  );
-  return {
-    result,
-    trace: (await readFile(join(root, 'trace'), 'utf8').catch(() => ''))
-      .trim()
-      .split('\n')
-      .filter(Boolean),
-    dispose: () => rm(root, { recursive: true, force: true }),
-  };
+      timeoutMs,
+    );
+    child = result.child;
+    return {
+      result: { status: result.status, stdout: result.stdout, stderr: result.stderr },
+      trace: (await readFile(join(root, 'trace'), 'utf8').catch(() => ''))
+        .trim()
+        .split('\n')
+        .filter(Boolean),
+      dispose: async () => {
+        if (child) {
+          await reapChildProcess(child, {
+            termTimeoutMs: CHILD_TERM_GRACE_MS,
+            killTimeoutMs: CHILD_KILL_GRACE_MS,
+            processGroup: true,
+          });
+        }
+        await rm(root, { recursive: true, force: true });
+      },
+    };
+  } catch (error) {
+    if (child) {
+      await reapChildProcess(child, {
+        termTimeoutMs: CHILD_TERM_GRACE_MS,
+        killTimeoutMs: CHILD_KILL_GRACE_MS,
+        processGroup: true,
+      });
+    }
+    await rm(root, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 test.each(['none', 'stop-lost-ack', 'rm-lost-ack', 'mount-order'])(
@@ -397,5 +462,57 @@ test.each([
     expect(f.trace.filter((entry) => entry === 'stop').length).toBeLessThanOrEqual(1);
   } finally {
     await f.dispose();
+  }
+});
+
+test('stalled promotion child execution is bounded and reaped before fixture cleanup within 5000ms contract', async () => {
+  const start = Date.now();
+  await expect(fixture('stall', 'quiescent', 1500)).rejects.toThrow(
+    /Process exit timed out after 1500ms/u,
+  );
+  expect(Date.now() - start).toBeLessThan(3500);
+});
+
+test('failed promotion initialization and interrupted barrier paths reap children before cleanup', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'fcd-promotion-reap-test-'));
+  let hanging: ChildProcess | null = null;
+  try {
+    const failedSpawn = spawn('synthetic-missing-promotion-bin-xyz', [], {
+      cwd: root,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    await expect(waitForExit(failedSpawn, { timeoutMs: 500 })).rejects.toThrow();
+    await expect(reapChildProcess(failedSpawn)).resolves.toBeUndefined();
+
+    hanging = spawn(bash, ['--noprofile', '--norc', '-c', 'sleep 10'], {
+      cwd: root,
+      detached: process.platform !== 'win32',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const start = Date.now();
+    try {
+      await expect(waitForBarrier(hanging, 'READY\n', { timeoutMs: 300 })).rejects.toThrow(
+        /Process barrier timed out after 300ms/u,
+      );
+    } finally {
+      await reapChildProcess(hanging, {
+        termTimeoutMs: CHILD_TERM_GRACE_MS,
+        killTimeoutMs: CHILD_KILL_GRACE_MS,
+        processGroup: true,
+      });
+    }
+    expect(Date.now() - start).toBeLessThan(2000);
+    expect(hanging.stdout?.closed).toBe(true);
+    expect(hanging.stderr?.closed).toBe(true);
+    await expect(rm(root, { recursive: true })).resolves.toBeUndefined();
+  } finally {
+    if (hanging) {
+      await reapChildProcess(hanging, {
+        termTimeoutMs: CHILD_TERM_GRACE_MS,
+        killTimeoutMs: CHILD_KILL_GRACE_MS,
+        processGroup: true,
+      });
+    }
+    await rm(root, { recursive: true, force: true });
   }
 });
