@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, type ChildProcess, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import net from 'node:net';
@@ -7,6 +7,7 @@ import { delimiter, join, resolve } from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
 import { operationsEnvironment } from './helpers/operations-fixtures.js';
 import {
+  captureProcessTreeOwnership,
   reapChildProcess,
   reapChildProcesses,
   waitForBarrier,
@@ -27,6 +28,13 @@ const hostSecretMarker = 'synthetic_host_input_marker_do_not_echo';
 const roots: string[] = [];
 const children: ChildProcess[] = [];
 const servers: net.Server[] = [];
+const healthExecutionDeadlines = new WeakMap<ChildProcess, number>();
+
+function healthExecutionBudget(child: ChildProcess, capMs = 3500): number {
+  const deadline = healthExecutionDeadlines.get(child);
+  if (deadline === undefined) throw new Error('synthetic_health_deadline_missing');
+  return Math.max(0, Math.min(capMs, deadline - Date.now()));
+}
 
 afterEach(async () => {
   await reapChildProcesses(children.splice(0), {
@@ -155,6 +163,41 @@ function validHostInputFrame(): string {
   );
 }
 
+// Hold the real Node actor on a separate IPC channel until its ownership is
+// captured. Invalid configuration can otherwise exit before a Windows snapshot.
+// Disconnect before importing the unchanged built entrypoint so stdin framing
+// and natural process exit are still the actual health process's contract.
+async function spawnOwnedHealthProcess(env: Record<string, string | undefined>) {
+  const launcher = `
+    import { pathToFileURL } from 'node:url';
+    const start = await new Promise(resolve => process.once('message', resolve));
+    if (start !== 'SYNTHETIC_HEALTH_START') process.exit(1);
+    process.disconnect();
+    const entry = process.argv[1];
+    process.argv = [process.execPath, entry, 'health'];
+    await import(pathToFileURL(entry).href);
+  `;
+  const executionDeadline = Date.now() + 3500;
+  const child = spawn(process.execPath, ['--input-type=module', '-e', launcher, healthEntry], {
+    detached: process.platform !== 'win32',
+    stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
+    env,
+  }) as ChildProcessWithoutNullStreams;
+  children.push(child);
+  healthExecutionDeadlines.set(child, executionDeadline);
+  const ownership = await captureProcessTreeOwnership(child, {
+    timeoutMs: healthExecutionBudget(child, 1500),
+  });
+  if (process.platform === 'win32') expect(ownership?.observedRoot).toBe(true);
+  await new Promise<void>((done, reject) => {
+    child.send('SYNTHETIC_HEALTH_START', (error) => {
+      if (error) reject(error);
+      else done();
+    });
+  });
+  return child;
+}
+
 describe('built dist/operations/health-main.js stdio and fault contract', () => {
   test('consumes authored newline-framed input while writer remains open until natural exit 0', async () => {
     expect(existsSync(healthEntry)).toBe(true);
@@ -169,12 +212,7 @@ describe('built dist/operations/health-main.js stdio and fault contract', () => 
       { mode: 0o600 },
     );
 
-    const child = spawn(process.execPath, [healthEntry, 'health'], {
-      detached: process.platform !== 'win32',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: healthRoleEnvironment(dbFile),
-    });
-    children.push(child);
+    const child = await spawnOwnedHealthProcess(healthRoleEnvironment(dbFile));
 
     let stdout = '';
     let stderr = '';
@@ -190,13 +228,13 @@ describe('built dist/operations/health-main.js stdio and fault contract', () => 
     const ackBarrier = waitForBarrier(
       child,
       '{"status":"completed","processed":0,"reasonCode":"dependency_unavailable"}\n',
-      { timeoutMs: 3500 },
+      { timeoutMs: healthExecutionBudget(child) },
     );
     child.stdin.write(validHostInputFrame());
     await ackBarrier;
     // Writer must remain open through stdout acknowledgement and natural exit.
     expect(child.stdin.writableEnded).toBe(false);
-    const exit = await waitForExit(child, { timeoutMs: 1500 });
+    const exit = await waitForExit(child, { timeoutMs: healthExecutionBudget(child, 1500) });
     expect(exit).toEqual({ code: 0, signal: null });
     expect(child.stdin.writableEnded).toBe(false);
     expect(stdout).toBe(
@@ -244,12 +282,7 @@ describe('built dist/operations/health-main.js stdio and fault contract', () => 
         { mode: 0o600 },
       );
 
-      const child = spawn(process.execPath, [healthEntry, 'health'], {
-        detached: process.platform !== 'win32',
-        stdio: ['pipe', 'pipe', 'pipe'],
-        env: healthRoleEnvironment(dbFile, extraEnv),
-      });
-      children.push(child);
+      const child = await spawnOwnedHealthProcess(healthRoleEnvironment(dbFile, extraEnv));
 
       let stdout = '';
       let stderr = '';
@@ -266,7 +299,7 @@ describe('built dist/operations/health-main.js stdio and fault contract', () => 
         if (closeStdin) child.stdin.end(payload);
         else child.stdin.write(payload);
       }
-      const exit = await waitForExit(child, { timeoutMs: 3500 });
+      const exit = await waitForExit(child, { timeoutMs: healthExecutionBudget(child) });
       expect(exit.code).toBe(1);
       expect(stdout).toBe('');
       expect(JSON.parse(stderr.trim()) as unknown).toMatchObject({
