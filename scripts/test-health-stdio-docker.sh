@@ -384,9 +384,10 @@ setup_uid1000_environment() {
   }
   if [[ "$(id -u)" == 1000 && "$(id -g)" == 1000 ]]; then
     use_ci_operator=0
+    local home_base="${HOME:-${TMPDIR:-/tmp}}"
     home_scope="/home/$scope"
     if [[ ! -w /home ]]; then
-      home_scope="${HOME}/$scope"
+      home_scope="${home_base%/}/$scope"
     fi
     return 0
   fi
@@ -587,7 +588,6 @@ run_lifecycle_case() {
       [FCD_MAINTENANCE_PIDS]=128
       [FCD_MAINTENANCE_TMPFS_MIB]=64
     )
-    local cfg_key
     for cfg_key in "${!OPS_CONFIG[@]}"; do
       operations_config_field "$cfg_key" "${OPS_CONFIG[$cfg_key]}"
     done
@@ -704,7 +704,6 @@ run_lifecycle_case() {
         [FCD_MAINTENANCE_PIDS]=128
         [FCD_MAINTENANCE_TMPFS_MIB]=64
       )
-      local cfg_key
       for cfg_key in "${!OPS_CONFIG[@]}"; do
         operations_config_field "$cfg_key" "${OPS_CONFIG[$cfg_key]}"
       done
@@ -794,7 +793,6 @@ run_direct_job() {
       [FCD_MAINTENANCE_PIDS]=128
       [FCD_MAINTENANCE_TMPFS_MIB]=64
     )
-    local cfg_key
     for cfg_key in "${!OPS_CONFIG[@]}"; do
       operations_config_field "$cfg_key" "${OPS_CONFIG[$cfg_key]}"
     done
@@ -851,9 +849,10 @@ main() {
   [[ "$(docker image inspect --format '{{if .Config.Volumes}}has_volumes{{else}}none{{end}}/{{.Config.User}}' "$ops_image_id")" == none/node ]]
 
   if [[ "$(uname -s)" == Linux ]]; then
+    local home_base="${HOME:-${TMPDIR:-/tmp}}"
     home_scope="/home/$scope"
     if [[ "$(id -u)" == 1000 && ! -w /home ]]; then
-      home_scope="${HOME}/$scope"
+      home_scope="${home_base%/}/$scope"
     fi
   fi
   assert_clean_start

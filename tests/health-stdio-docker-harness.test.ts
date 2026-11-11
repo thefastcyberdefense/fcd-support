@@ -450,11 +450,14 @@ describe('scripts/test-health-stdio-docker.sh harness controls', () => {
       ['--noprofile', '--norc', scriptPath, imageId, revision],
       {
         PATH: f.bin + delimiter + (process.env.PATH ?? process.env.Path ?? ''),
+        HOME: f.tmp,
+        TMPDIR: f.tmp,
         SystemRoot: process.env.SystemRoot,
       },
     );
 
     expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('health_stdio_docker_collision_detected');
     const mutations = await readFile(join(f.stateDir, 'mutations.log'), 'utf8').catch(() => '');
     expect(mutations).toBe('');
     const state = JSON.parse(await readFile(f.stateFile, 'utf8')) as {
