@@ -42,3 +42,34 @@ Executed on `J:\DevDrive\fcd-support-agy-health-stdio` (Node `v24.19.0`, npm `11
 
 - **Disposable Linux/PostgreSQL/Docker CI execution:** Pending Draft PR CI completion (`native-operations` in `.github/workflows/postgres.yml`, `ci`, `CodeQL Advanced`, `agy quality and security gate`). Immutable run/job URLs will be attached once CI completes.
 - **Historical attached-output uncertainty:** As noted in `docs/handoffs/2026-11-09-antigravity-health-stdio-contract.md`, a local Docker differential did not reproduce the old reader's attached-output loss; that historical uncertainty and shared-server uncertain jobs remain unresolved and outside this task's scope.
+
+---
+
+## Follow-up Review Corrections (2026-11-11)
+
+Addressed all PR #19 review findings in [`docs/reviews/2026-11-10-agy-followup-review.md`](../reviews/2026-11-10-agy-followup-review.md) (`lines 42–74`) and [`docs/handoffs/2026-11-10-antigravity-pr-19-review-fixes.md`](../handoffs/2026-11-10-antigravity-pr-19-review-fixes.md) after merging `origin/main` (`304b64c1ee3a551a9ea9cd07d145ca45a0de0895`) on top of reviewed head `22b4377`:
+
+### Follow-up Fixes Implemented
+
+1. **Collision Preservation & Exact Resource Ledger Cleanup (`scripts/test-health-stdio-docker.sh`):**
+   - `cleanup()` refuses all Docker deletions while `precreation_passed != 1`, preventing cleanup from mutating pre-existing colliding resources or unrelated containers/networks/volumes (`before_containers`, `before_networks`, `before_volumes`).
+   - Replaced anonymous `docker run --rm` volume/config initializers with tracked `docker create` + image/ID/label inspection + explicit ledger registration (`created_containers`, `created_network_id`, `created_backup_volume`, `created_pg_volume`) and host-side UID `1000:1000` `0600` Node generation (`config/*`, `secrets/*`).
+   - `verify_and_remove_container()` and network/volume teardown inspect exact immutable IDs, names, image digests, driver/scope, and `fcd-support.health-stdio-test` / `fcd-support.operation.*` labels using `|`-delimited `--format` templates (avoiding `{{.Name}}` leading-`/` `IFS` field shifting), refuse foreign or replaced IDs, verify zero remaining labeled/named resources, and propagate nonzero exit on any leftover actor.
+2. **Real UID `1000:1000` Durable Journal & `flock` Proof + Honest Unit-Stub Labeling (`scripts/test-health-stdio-docker.sh`, `tests/health-stdio-regression.test.ts`):**
+   - Removed every mock of `operations_config_field`, `operations_job_state_*`, `stat`, `dd`, and `timeout` from `scripts/test-health-stdio-docker.sh`.
+   - `setup_uid1000_environment()` + `run_as_operator()` execute real `operations-common.sh`, `operations-job-state.sh`, `operations-job-lifecycle.sh`, and a separate second UID `1000:1000` controller process over Linux `ext2/ext3`/`ext4`/`btrfs`/`xfs`/`zfs` `/home/<scope>` with `0700` dirs, `0600` files, and real `deployment.lock` `flock` (`sudo -n --set-home --user "$task_operator" --group '#1000'` when `GITHUB_ACTIONS=true && id -u == 1001`); `verify_active_job_record()` checks `1000:1000:600:1` and all 9 `JOB_*` keys while confirming second-controller `operations_job_pending` refusal with unchanged `sha256sum`/`stat` and zero Docker retry calls.
+   - Clarified the `describe` label and doc comment in `tests/health-stdio-regression.test.ts` so mocked `operations_job_state_*`/`stat` stubs are explicitly documented as mock-backed unit checks rather than durable host journal proof.
+3. **True TRACE-Off Omission (`scripts/test-health-stdio-docker.sh`, `tests/health-stdio-regression.test.ts`):**
+   - When `trace_active == 0` (`traceActive === false`), `trace-entry.bash` (`traceTrap`) is omitted completely; verified `functrace=off`, `debug_trap=absent`, empty `trace3`, parity across `ack` and `out4`, and `+11` PostgreSQL rows.
+4. **Closed Failure Publication (`scripts/test-health-stdio-docker.sh`):**
+   - Replaced `grep -E '^[a-z0-9_:-]{1,64}$'` in `report_failure_state()` with strict `case` allowlists and bounded regex patterns (`publish_allowed_stderr_lines`, `publish_allowed_docker_calls`, `publish_allowed_trace_lines`, bounded `exit`, closed `log_driver`, allowlisted `JOB_SERVICE`/`JOB_PHASE`), blocking arbitrary stderr tokens and secret sentinels on `ERR`/`EXIT`.
+
+### Follow-up Deterministic RED -> GREEN Proof (`tests/health-stdio-docker-harness.test.ts`)
+
+- **RED Controls (captured against unmodified `22b4377`/`304b64c` script):**
+  1. Collision control exited and deleted pre-existing container/network (`container/rm aaaa...`, `network/rm ...-operations-data`).
+  2. Closed-reporting control leaked unallowlisted stderr tokens (`err=arbitrary_valid_looking_stderr_token_99`, `err=synthetic_leak_host_token:1`).
+- **GREEN Verification on Final Local Code:**
+  - `bash -n scripts/test-health-stdio-docker.sh` — exited `0`.
+  - `npx vitest run tests/health-stdio-docker-harness.test.ts tests/health-stdio-regression.test.ts --reporter=verbose` — **2 files passed (2); 19 passed (19)** (6 harness controls including collision preservation with canary intact, precreation/foreign/replaced-ID/leftover cleanup checks, and closed `ERR`/`EXIT` publication; 13 built-process/lifecycle regression checks).
+  - `npx vitest run tests/health-stdio-docker-harness.test.ts tests/health-stdio-regression.test.ts tests/integration/postgres-health-stdio.test.ts tests/backup-cleanup-regression.test.ts tests/health-transport-stress.test.ts tests/health-main.test.ts tests/operations-health-host.test.ts tests/operations-job-lifecycle.test.ts --maxWorkers=4 --reporter=verbose` — **6 files passed, 1 skipped (7); 108 passed, 38 skipped (146)** in `18.95s` (`tests/integration/postgres-health-stdio.test.ts` is excluded outside the PostgreSQL integration config and `tests/operations-job-lifecycle.test.ts` skips outside `RUN_ENCRYPTED_BACKUP_TESTS=synthetic-operations-toolchain-only`, leaving real Docker + PostgreSQL + UID `1000:1000` proof pending `native-operations` in Linux CI).

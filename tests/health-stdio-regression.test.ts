@@ -287,7 +287,9 @@ describe('built dist/operations/health-main.js stdio and fault contract', () => 
   );
 });
 
-describe('owning lifecycle with real dist/operations/health-main.js and CI trace', () => {
+// Unit lifecycle suite using mocked operations_job_state_* and stat stubs;
+// genuine durable ext4 journal/lock proof runs natively in scripts/test-health-stdio-docker.sh.
+describe('owning lifecycle with real dist/operations/health-main.js (mocked state stubs) and CI trace', () => {
   async function runLifecycleWithBuiltHealth(options: {
     logsUnavailable?: boolean;
     dropAttachedOutput?: boolean;
@@ -567,10 +569,14 @@ declare -A OPS_CONFIG=(
 )
 OPS_DATABASE_SYSTEM_IDENTIFIER=7300000000000000000
 export OPS_HEALTH_INPUT_JSON
-exec 3>"$TASK_ROOT/trace3" 4>"$TASK_ROOT/out4"
-${inputOverride}
-${traceTrap}
-if acknowledgement="$(operations_execute_job health health)"; then
+    exec 3>"$TASK_ROOT/trace3" 4>"$TASK_ROOT/out4"
+    ${inputOverride}
+    ${options.traceActive === false ? '' : traceTrap}
+    {
+      if shopt -qo functrace; then printf 'functrace=on\n'; else printf 'functrace=off\n'; fi
+      if [[ -n "$(trap -p DEBUG)" ]]; then printf 'debug_trap=present\n'; else printf 'debug_trap=absent\n'; fi
+    } > "$TASK_ROOT/trace_state"
+    if acknowledgement="$(operations_execute_job health health)"; then
   printf '%s\\n' "$acknowledgement" > "$TASK_ROOT/ack"
   printf 'synthetic_schedule=successor\\n' >&4
   exit 0
@@ -618,6 +624,7 @@ fi
       retryExit: (await readOptional('retry_exit')).trim(),
       retryStderr: await readOptional('retry_stderr'),
       healthStderr: await readOptional('health-stderr.log'),
+      traceState: await readOptional('trace_state'),
     };
   }
 
@@ -669,6 +676,9 @@ fi
     expect(active.ack).toBe(inactive.ack);
     expect(active.out4).toBe(inactive.out4);
     expect(active.trace3).toContain('synthetic_health_ack_diagnostic=dependency_unavailable\n');
+    expect(active.traceState).toBe('functrace=on\ndebug_trap=present\n');
+    expect(inactive.traceState).toBe('functrace=off\ndebug_trap=absent\n');
+    expect(inactive.trace3).toBe('');
     expect(inactive.trace3).not.toContain('synthetic_health_ack_diagnostic');
     expect(inactive.trace3).not.toContain('synthetic_health_daemon_diagnostic');
     expect(active.trace3 + inactive.trace3 + active.stderr + inactive.stderr).not.toContain(
