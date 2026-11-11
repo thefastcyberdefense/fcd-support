@@ -2,6 +2,22 @@
 
 Last reviewed: 2026-11-10 (Asia/Dhaka)
 
+**2026-11-10 AGY review: PR 20 accepted; PRs 18 and 19 require corrections.**
+PR #20 exact head ac7c17d is accepted as merge c249133 after independent review,
+a fresh four-worker full gate (2,212 passed / 461 skips, 236.68 seconds), and
+all 18 final-head checks. All 95 production lock entries remain unchanged.
+PR #18's 149-test focused gate passes but misses duplicated Windows cleanup
+budgets and descendants surviving an exited root with closed stdio. PR #19's
+13-test suite passes but needs collision-safe cleanup, actual durable journal
+proof, real tracing-off parity and closed failure diagnostics. Both remain
+draft; green CI does not dispose of these findings. Exact review:
+`docs/reviews/2026-11-10-agy-followup-review.md`. AGY can begin the separate
+PR 18 and PR 19 correction checklists linked there from freshly fetched main.
+No server/provider/alert action or uncertainty settlement occurred. The deployed
+health hold and dashboard rollout remain Codex-owned.
+
+Earlier same-day checkpoint:
+
 **2026-11-10: governance and runtime corrections accepted; server hold remains.**
 PR #13 is merged as 6091621 and PR #10 as d4cfddd after exact-head review.
 PR #10 source f108b02 passes all five applicable workflows and all 19 checks,
