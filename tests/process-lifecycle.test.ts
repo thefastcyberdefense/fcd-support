@@ -499,10 +499,11 @@ it.skipIf(process.platform !== 'win32')(
         tools.killPath,
         [targetBgPid, canaryBgPid].filter((value): value is number => value !== null),
       );
-      await reapChildProcess(canaryChild, {
-        termTimeoutMs: 200,
-        killTimeoutMs: 200,
-      }).catch(() => undefined);
+      await reapChildProcesses([child, canaryChild], {
+        termTimeoutMs: 500,
+        killTimeoutMs: 500,
+        processGroup: true,
+      });
     }
   },
 );
@@ -583,6 +584,90 @@ it('never kills a reused WinPID whose CreationDate mismatches captured ownership
       return Promise.resolve({
         ok: true,
         rows: [{ pid: 55556, parentPid: 1, creationUs: 999999n }],
+      });
+    },
+    killWinPid(winPid) {
+      killedWinPids.push(winPid);
+      return Promise.resolve();
+    },
+    killMsysTargets(targets) {
+      killedMsys.push(targets);
+      return Promise.resolve();
+    },
+  };
+
+  const captured = await captureProcessTreeOwnership(child, {
+    timeoutMs: 500,
+    _winTreeOps: fakeOps,
+  });
+  expect(captured?.observedRoot).toBe(true);
+  phase = 'after-exit';
+  child.exitCode = 0;
+  child.stdin.closed = true;
+  child.stdout.closed = true;
+  child.stderr.closed = true;
+
+  await expect(
+    reapChildProcess(child, {
+      termTimeoutMs: 250,
+      killTimeoutMs: 250,
+      processGroup: true,
+      _winTreeOps: fakeOps,
+    }),
+  ).resolves.toBeUndefined();
+  expect(killedWinPids).toEqual([]);
+  expect(killedMsys).toEqual([]);
+});
+
+it('never kills an unknown WinPID in a recycled MSYS group after all captured actors exit', async () => {
+  const child = Object.assign(new EventEmitter(), {
+    pid: 55555,
+    exitCode: null as number | null,
+    signalCode: null,
+    kill: () => false,
+    stdin: { closed: false, destroy: () => undefined },
+    stdout: { closed: false, destroy: () => undefined },
+    stderr: { closed: false, destroy: () => undefined },
+  }) as unknown as ChildProcess & {
+    exitCode: number | null;
+    stdin: { closed: boolean };
+    stdout: { closed: boolean };
+    stderr: { closed: boolean };
+  };
+
+  let phase: 'capture' | 'after-exit' = 'capture';
+  const killedWinPids: number[] = [];
+  const killedMsys: { msysPids: number[]; pgids: number[] }[] = [];
+  const fakeOps: WinTreeTestOps = {
+    readMsysSnapshot() {
+      if (phase === 'capture') {
+        return Promise.resolve({
+          ok: true,
+          rows: [
+            { pid: 100, ppid: 1, pgid: 100, winPid: 55555, uid: 1000 },
+            { pid: 101, ppid: 100, pgid: 100, winPid: 55556, uid: 1000 },
+          ],
+        });
+      }
+      // All captured actors are gone; only the numeric MSYS group has been recycled.
+      return Promise.resolve({
+        ok: true,
+        rows: [{ pid: 9999, ppid: 1, pgid: 100, winPid: 55557, uid: 1000 }],
+      });
+    },
+    readWmiSnapshot() {
+      if (phase === 'capture') {
+        return Promise.resolve({
+          ok: true,
+          rows: [
+            { pid: 55555, parentPid: 1, creationUs: 2000n },
+            { pid: 55556, parentPid: 55555, creationUs: 2010n },
+          ],
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        rows: [{ pid: 55557, parentPid: 1, creationUs: 999999n }],
       });
     },
     killWinPid(winPid) {

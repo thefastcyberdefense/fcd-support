@@ -99,9 +99,7 @@ const confirmedTreeReapSet = new WeakSet<ChildProcess>();
 
 function startAutoOwnershipCapture(child: ChildProcess, timeoutMs: number): void {
   if (process.platform === 'win32' && child.pid !== undefined) {
-    void captureProcessTreeOwnership(child, { timeoutMs: Math.max(timeoutMs, 1500) }).catch(
-      () => null,
-    );
+    void captureProcessTreeOwnership(child, { timeoutMs }).catch(() => null);
   }
 }
 
@@ -854,6 +852,21 @@ async function inspectAndOptionallyReapWinTree(
     }
   }
 
+  // Freeze group anchors before admitting any new candidate. A group number and
+  // later birth alone do not establish ownership after all captured actors exit.
+  const liveCapturedGroups = new Set<string>();
+  for (const row of msysResult.rows) {
+    const captured = ownership.ownedWinNodes.get(row.winPid);
+    if (
+      captured !== undefined &&
+      wmiByPid.get(row.winPid)?.creationUs === captured &&
+      ownership.ownedMsysPgids.has(row.pgid) &&
+      ownership.ownedMsysUids.has(row.uid)
+    ) {
+      liveCapturedGroups.add(`${String(row.pgid)}:${String(row.uid)}`);
+    }
+  }
+
   // Expand newly spawned Win32 children of verified live nodes without crossing reused PIDs.
   let expanded = true;
   while (expanded) {
@@ -883,7 +896,9 @@ async function inspectAndOptionallyReapWinTree(
       liveWmi !== undefined &&
       (knownCreation !== undefined
         ? liveWmi.creationUs === knownCreation
-        : rootCreationUs !== null && liveWmi.creationUs >= rootCreationUs);
+        : liveCapturedGroups.has(`${String(row.pgid)}:${String(row.uid)}`) &&
+          rootCreationUs !== null &&
+          liveWmi.creationUs >= rootCreationUs);
 
     if (isVerified) {
       ownership.ownedWinNodes.set(row.winPid, liveWmi.creationUs);
