@@ -448,11 +448,14 @@ run_lifecycle_case() {
   local case_state="$case_dir/state"
 
   run_as_operator bash -Eeuo pipefail -c '
+    umask 077
     mkdir -p -m 0700 "$1" "$2" "$3"
+    [[ "$(stat -c "%u:%g:%a" -- "$1")" == 1000:1000:700 && "$(stat -c "%u:%g:%a" -- "$3")" == 1000:1000:700 ]]
     cp -a "$4/." "$2/"
     if [[ -n "$5" ]]; then printf "OPS_MAX_CALL_MS=%s\n" "$5" >"$2/health.env"; fi
     chmod 0600 "$2/"*
-    (umask 077; : >"$3/deployment.lock")
+    : >"$3/deployment.lock"
+    chmod 0600 "$3/deployment.lock"
     [[ "$(stat -c "%u:%g:%a:%h" -- "$3/deployment.lock")" == 1000:1000:600:1 ]]
   ' bash "$case_dir" "$case_config" "$case_state" "$state_base/config" "$extra_timeout_ms"
 
@@ -733,10 +736,13 @@ run_direct_job() {
   local name="$1"; shift
   local dir="$state_base/direct-$name"
   run_as_operator bash -Eeuo pipefail -c '
-    mkdir -p -m 0700 "$1/config" "$1/state"
+    umask 077
+    mkdir -p -m 0700 "$1" "$1/config" "$1/state"
+    [[ "$(stat -c "%u:%g:%a" -- "$1")" == 1000:1000:700 && "$(stat -c "%u:%g:%a" -- "$1/state")" == 1000:1000:700 ]]
     cp -a "$2/." "$1/config/"
     chmod 0600 "$1/config/"*
-    (umask 077; : >"$1/state/deployment.lock")
+    : >"$1/state/deployment.lock"
+    chmod 0600 "$1/state/deployment.lock"
     [[ "$(stat -c "%u:%g:%a:%h" -- "$1/state/deployment.lock")" == 1000:1000:600:1 ]]
   ' bash "$dir" "$state_base/config"
 
@@ -884,11 +890,13 @@ main() {
   fi
   run_as_operator bash -Eeuo pipefail -c '
     set -Eeuo pipefail
+    umask 077
     [[ "$(id -u):$(id -g)" == 1000:1000 ]]
     [[ "$(stat -c "%u:%g:%a" -- "$1")" == 1000:1000:700 ]]
     fs="$(stat -f -c "%T" -- "$1")"
     case "$fs" in ext2/ext3|ext4|btrfs|xfs|zfs) ;; *) exit 1 ;; esac
     mkdir -p -m 0700 "$1/config" "$1/secrets" "$1/cases"
+    [[ "$(stat -c "%u:%g:%a" -- "$1/cases")" == 1000:1000:700 ]]
   ' bash "$state_base"
 
   created_network_id="$(docker network create --internal --label "fcd-support.health-stdio-test=$scope" "$network")"
@@ -962,6 +970,7 @@ import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 const [work, ownerPassword] = process.argv.slice(1);
+process.umask(0o077);
 const roles = [
   "webhook", "admin", "reply", "outbound", "notification", "maintenance",
   "health", "backup", "verify_backup", "checkpoint", "archive_reader", "migrator",
