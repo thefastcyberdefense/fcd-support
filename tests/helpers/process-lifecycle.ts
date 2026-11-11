@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -641,10 +641,60 @@ function awaitWithDeadline<T>(promise: Promise<T>, deadlineMs: number, fallback:
 function isPosixGroupGone(pgid: number): boolean {
   try {
     process.kill(-pgid, 0);
-    return false;
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === 'ESRCH';
   }
+  if (process.platform !== 'linux') {
+    return false;
+  }
+  // In Linux containers without an init reaper (--init), killed descendants
+  // reparented to PID 1 remain in state Z/X with FDs/locks closed while
+  // kill(-pgid, 0) still returns 0. Inspect /proc/<pid>/stat so only live
+  // non-zombie members keep the process group considered active.
+  let entries: string[];
+  try {
+    entries = readdirSync('/proc');
+  } catch {
+    return false;
+  }
+  let sawReadableStat = false;
+  for (const entry of entries) {
+    if (!/^\d+$/u.test(entry)) continue;
+    let raw: string;
+    try {
+      raw = readFileSync(`/proc/${entry}/stat`, 'utf8');
+    } catch {
+      continue;
+    }
+    const rparen = raw.lastIndexOf(')');
+    if (rparen === -1) continue;
+    sawReadableStat = true;
+    const fields = raw
+      .slice(rparen + 2)
+      .trimStart()
+      .split(/\s+/u);
+    const state = fields[0];
+    const taskPgrp = Number(fields[2]);
+    if (taskPgrp === pgid && state !== 'Z' && state !== 'X') {
+      return false;
+    }
+  }
+  return sawReadableStat;
+}
+
+async function waitForPosixGroupGone(pgid: number, deadlineMs: number): Promise<boolean> {
+  if (isPosixGroupGone(pgid)) {
+    return true;
+  }
+  while (remainingMs(deadlineMs) > 0) {
+    const stepMs = Math.min(15, remainingMs(deadlineMs));
+    if (stepMs <= 0) break;
+    await new Promise((resolve) => setTimeout(resolve, stepMs));
+    if (isPosixGroupGone(pgid)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function collectCandidateMsys(
@@ -1048,7 +1098,7 @@ export async function reapChildProcess(child: ChildProcess, options?: ReapOption
     const signaled = signal('SIGKILL');
     confirmed = await waitForClosureUntil(overallDeadline);
     if (posixProcessGroup) {
-      if (!signaled || !isPosixGroupGone(pid)) {
+      if (!signaled || !(await waitForPosixGroupGone(pid, overallDeadline))) {
         confirmed = false;
       }
     }
