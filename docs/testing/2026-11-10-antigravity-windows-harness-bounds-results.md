@@ -114,3 +114,29 @@ This package completes the bounded test-harness and process-reaping fixes for th
 - **Non-Delegated Production/Server Scopes:** No edits or runs touched production controllers, PostgreSQL/Docker daemon state, shared server health hold, dashboard rollout, tunnels, Meta, Manifest, n8n, or ClickUp.
 - **2026-11-07 Machine-Load Reproduction Uncertainty:** As noted in Section 2, the pre-fix 4-worker baseline did not reproduce the historical 2026-11-07 timeout failure on its own, though per-test margin before optimization (`4,256`–`4,765 ms` isolated) and synchronous `10,000`–`15,000 ms` child timeouts explained the failure envelope.
 - **Linux / Native CI Portability Check:** Pending draft PR workflow results on `codex/agy-windows-harness-bounds`. Any pre-existing or unrelated runtime/health CI failures will be reported independently without relaxing validators or replaying uncertain scopes.
+
+---
+
+## 5. Follow-up Review Corrections (2026-11-11)
+
+Addressed the PR #18 review findings in [`docs/reviews/2026-11-10-agy-followup-review.md`](../reviews/2026-11-10-agy-followup-review.md) (`lines 21–41`) and [`docs/handoffs/2026-11-10-antigravity-pr-18-review-fixes.md`](../handoffs/2026-11-10-antigravity-pr-18-review-fixes.md) after merging `origin/main` (`304b64c1ee3a551a9ea9cd07d145ca45a0de0895`) on top of reviewed head `e7c44a24497e8be994f1e64b4e8c61fe4ebf5bc4`:
+
+### Follow-up Fixes Implemented
+
+1. **Single Shared Cleanup & Execution Deadline (`tests/helpers/process-lifecycle.ts`):**
+   - `reapChildProcess` computes one wall-clock `overallDeadline` (`min(deadlineAtMs, reapStart + termTimeoutMs + killTimeoutMs)`) and `termDeadline` (`min(overallDeadline, termDeadlineAtMs ?? reapStart + termTimeoutMs)`), never clamping `remainingMs` up to `25 ms` past expiry and never spawning subprocesses after deadline exhaustion.
+   - `runBoundedCommand` anchors ONE total budget (`totalStartMs + timeoutMs + termTimeoutMs + killTimeoutMs`, defaulting to `3,500 + 500 + 500 = 4,500 ms` inside the `5,000 ms` Vitest timeout) shared across `waitForExit`, capped post-exit stdio drainage (`drainStartedAt`), and `finally` `reapChildProcess`.
+2. **Pre-Exit Ownership Capture & Closed-Stdio Descendant Reaping (`tests/helpers/process-lifecycle.ts`, `tests/helpers/win32-process-snapshot.vbs`):**
+   - Added [`tests/helpers/win32-process-snapshot.vbs`](../../tests/helpers/win32-process-snapshot.vbs) querying strictly numeric `ProcessId, ParentProcessId, CreationDate` (no command lines, paths, arguments, or credentials).
+   - Exported `captureProcessTreeOwnership(child)` and initiated background capture automatically at spawn/`waitForBarrier`/`waitForExit` entry, capturing root WMI `CreationDate`, Win32 descendant `(pid, creationUs)` links, and MSYS2 `PID/PPID/PGID/UID` groups while the root process is alive.
+   - Removed the `!closed()` bypass when `winProcessTree` or `posixProcessGroup` cleanup is requested; verified closed-stdio Windows/MSYS2 cleanup terminates verified WinPIDs in-process via `process.kill(winPid, 'SIGKILL')` (with `taskkill.exe /T /F` fallback only on non-`ESRCH` errors) after prefetched parallel MSYS/WMI `CreationDate` ownership verification, never terminates reused WinPIDs whose `CreationDate` differs, re-polls MSYS/WMI and POSIX `kill(-pid, 0) === ESRCH` to confirm zero survivors, and fails closed with `test_child_reap_unconfirmed` if ownership was never captured before closure or confirmation fails.
+
+### Follow-up Deterministic RED -> GREEN Proof
+
+- **RED Controls (captured against pre-fix code after adding new tests to `tests/process-lifecycle.test.ts`):**
+  1. `enforces one shared cleanup deadline across tree inspection, signal waits, and escalation`: failed (`expected 1234 to be less than 760`).
+  2. `reaps closed-stdio MSYS2 background descendants after clean root exit while preserving canaries`: failed (`expected true to be false`, leaving MSYS2 `sleep 15 </dev/null >/dev/null 2>&1 &` alive after clean root exit and closed stdio).
+  3. `fails closed when processGroup cleanup runs on a closed child whose ownership was never captured`: failed (`promise resolved "undefined" instead of rejecting`).
+- **GREEN Verification on Final Local Code:**
+  - `npx vitest run tests/process-lifecycle.test.ts tests/backup-harness-containment.test.ts tests/native-test-harness.test.ts tests/operations-promotion-controller.test.ts tests/health-main.test.ts tests/systemd-contract.test.ts --maxWorkers=4 --reporter=verbose` — **6 files passed (6); 158 passed, 8 Linux-only skipped (166 total)** in `75.69s` (including closed-stdio MSYS2 survivor reaping with canary survival, paired normal completion control, reused WinPID non-termination, fail-closed uncaptured exit, shared slow-hook deadline `503 ms`, `stalled child harness execution...` `2,065 ms`, and `stalled promotion child execution...` `2,017 ms`).
+  - `npx vitest run --maxWorkers=4` — **121 files passed, 14 Linux/PostgreSQL-only skipped (135 total); 2,227 passed, 461 skipped (2,688 total)** in `253.14s` (`stalled child harness execution hits bounded deadline and reaps before fixture cleanup`: `2,119 ms`, confirming shared `1,500 + 1,000 ms` cleanup budget completes cleanly under 4-worker load).
