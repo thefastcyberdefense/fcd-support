@@ -2,6 +2,22 @@
 
 Last reviewed: 2026-11-13 (Asia/Dhaka)
 
+**2026-11-13: fresh successor admission implemented; disk capacity blocks deployment.**
+The read-only helper passes 25 hermetic controls and actual SSH inspection
+preserves the held journal, source, effective backup/maintenance/health bindings,
+configuration fingerprints and observed container/network/volume metadata.
+The recorded health actor remains absent; the old connected stack runs and
+private admin remains unhealthy. Admission exits 1 at `resources`: memory
+passes, but Docker has a sampled 1,609 MiB shortfall against the unchanged
+12 GiB minimum. Of 33 unused FCD test images, 31 are referenced by retained
+records; even full sizes of the other two cannot fill that shortfall. No image,
+container, file, service, timer or filesystem was changed. Privileged LVM
+inspection requires an operator password. Task 1 is complete; fresh deployment
+and dashboard access are still blocked. Exact evidence:
+`docs/testing/2026-11-13-private-successor-admission.md`.
+
+Earlier checkpoint:
+
 **2026-11-13: corrected source verified; Windows four-worker issue remains open.**
 PRs #18/#19 are merged as f6ca679/2e24997; direct integration fix 5ede82c also
 passes all five GitHub workflows and ten commit checks. Linux CI: 2,316 passed /

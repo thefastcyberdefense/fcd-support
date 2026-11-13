@@ -28,15 +28,28 @@
 4. New network/storage/source paths may alias existing projects: prove disjointness and nonoverlap before any new resource action.
 5. Deployment success is not authentication or live messaging proof: require separate private browser/role checks and keep public routing untouched.
 
+## Execution checkpoint: 2026-11-13
+
+Task 1 is complete. The final read-only server inspection exits 1 at
+`resources`: preservation checks pass, but Docker free capacity is below the
+unchanged 12 GiB requirement. Task 2 resource actions and Tasks 3–4 have not
+started. No successor deployment or bootstrap is claimed.
+
+Evidence: `docs/testing/2026-11-13-private-successor-admission.md`. The new helper
+has only `--inspect`; no mutation route exists. Resolving capacity requires a
+separately reviewed storage action or sufficient newly available disk space.
+Noninteractive privileged LVM inspection requires an operator password; no
+privileged command or filesystem change succeeded.
+
 ## Task 1: Read-only successor admission and preservation contract
 
 Files: create `docs/operations/actions/2026-11-13-private-successor.py` and `docs/operations/actions/2026-11-13-private-successor-test.py`.
 
-- [ ] Add RED unit controls for canonical path/symlink refusal, namespace/resource collisions, changed held journal, changed scheduler binding, unrelated actor/storage/network drift and malformed observations. Fixtures must be authored, never copied from the server.
-- [ ] Implement pure admission/comparison functions and an `--inspect` mode. Use fixed argv without shell interpolation, bounded subprocesses, restricted metadata projections and closed output. Server observations remain private in memory or owner-only action records; emit no identifiers or bodies.
-- [ ] Inspect the actual server fresh: UID/GID, Docker endpoint, disk/memory admission, source cleanliness, existing mount roots, networks, connected stack and held scope, installed unit bytes/bindings and the complete protected job shape/fingerprint. Do not reuse November 11 observations as a current baseline.
-- [ ] Verify existing controllers admit an independent clean checkout through their actual root/revision checks. The old synthetic convenience script and historical one-use final-server action are not execution alternatives.
-- [ ] Run `python -B docs/operations/actions/2026-11-13-private-successor-test.py`, syntax/static checks and independent action review. Commit/push before any mutation mode is used.
+- [x] Add RED unit controls for canonical path/symlink refusal, namespace/resource collisions, changed held journal, changed scheduler binding, unrelated actor/storage/network drift and malformed observations. Fixtures must be authored, never copied from the server.
+- [x] Implement pure admission/comparison functions and an `--inspect` mode. Use fixed argv without shell interpolation, bounded subprocesses, restricted metadata projections and closed output. Server observations remain private in memory or owner-only action records; emit no identifiers or bodies.
+- [x] Inspect the actual server fresh: UID/GID, Docker endpoint, disk/memory admission, source cleanliness, existing mount roots, networks, connected stack and held scope, installed unit bytes/bindings and the complete protected job shape/fingerprint. Do not reuse November 11 observations as a current baseline.
+- [x] Verify existing controllers admit an independent clean checkout through their actual root/revision checks. The old synthetic convenience script and historical one-use final-server action are not execution alternatives.
+- [x] Run `python -B docs/operations/actions/2026-11-13-private-successor-test.py`, syntax/static checks and independent action review. Commit/push before any mutation mode is used.
 
 ## Task 2: Fresh-source and fixture construction
 

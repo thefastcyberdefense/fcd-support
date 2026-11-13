@@ -2357,3 +2357,20 @@ handoff. The reviewed one-use helper, source/hash pins, privilege boundary and
 exact owner terminal command are in `docs/operations/phase-6-root-timers.md`.
 Its code must be committed/pushed and the private mode-0400 copy verified before
 root execution. No installed/enabled timer result is claimed in advance.
+
+## 2026-11-13: successor read-only admission; capacity refusal
+
+The first task of the fresh private successor rollout is implemented and tested.
+Actual SSH inspection preserves the uncertain health journal, old clean source,
+all three effective scheduler bindings and protected configuration, observed
+container attachments/mounts and network/volume identities. The connected test
+stack remains running; old private admin remains unhealthy. No resource changed.
+
+Admission exits 1 at `resources`: the unchanged 12 GiB Docker free-space minimum
+has a sampled 1,609 MiB shortfall. The two unused FCD images not found referenced
+by retained records cannot cover that shortfall even at their combined full-image
+size upper bound; the other 31 unused images remain referenced and preserved.
+No prune or image deletion is appropriate. Privileged LVM free-capacity inspection
+needs the operator's terminal password. No root query, resize or deployment has
+succeeded. Exact commands, 25-test evidence, review corrections and limits:
+`../testing/2026-11-13-private-successor-admission.md`.

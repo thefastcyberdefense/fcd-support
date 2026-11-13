@@ -58,3 +58,15 @@ markers. Its socket exists with expected 1000:1000 ownership and mode 0600 but
 refuses connections. No internal failure cause is inferred from that symptom.
 No server resource, permission, file, timer, socket, network or other project
 was changed. Current review: `../../reviews/2026-11-11-corrected-harness-review.md`.
+
+## 2026-11-13 read-only preservation follow-up
+
+Fresh successor admission confirms the protected held journal is unchanged
+across the observation, still uncertain with its recorded actor absent. The
+connected old test stack runs; the held scope's private admin is not running
+healthy. All three effective scheduled bindings and protected configuration
+fingerprints are preserved. The new successor remains absent and admission
+refuses disk capacity. No replay, settlement, source transition, socket recovery
+or service/container mutation occurred. See
+`../../testing/2026-11-13-private-successor-admission.md` for exact evidence and
+resource limits. This incident remains open.
