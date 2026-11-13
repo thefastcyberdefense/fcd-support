@@ -1,6 +1,43 @@
 # Project Context
 
-Last reviewed: 2026-11-10 (Asia/Dhaka)
+Last reviewed: 2026-11-13 (Asia/Dhaka)
+
+**2026-11-13: corrected source verified; Windows four-worker issue remains open.**
+PRs #18/#19 are merged as f6ca679/2e24997; direct integration fix 5ede82c also
+passes all five GitHub workflows and ten commit checks. Linux CI: 2,316 passed /
+397 skips; actual native PostgreSQL/health stdio and all recovery lanes pass.
+Fresh full two-worker Windows check passes 2,252 / 461 skips in 302.93 seconds.
+Four-worker Windows run retains two cleanup-confirmation failures; no equivalent
+four-worker pass is claimed. AGY's capture-consistency and Phase 7 runbook
+assignments are ready under docs/handoffs. Exact review:
+`docs/reviews/2026-11-11-corrected-harness-review.md`.
+Last server observation (November 11) retains health/uncertain, absent actor and
+unchanged journal; private admin is unhealthy while other three private services
+and all three older connected test-stack actors run. No fresh server outcome or
+recovery is inferred. Next Codex task: tested read-only successor admission,
+then reviewed fresh private deployment from an independent checkout; see
+`docs/superpowers/plans/2026-11-13-private-test-successor-rollout.md`.
+
+Earlier checkpoint:
+
+**2026-11-11: corrected harnesses accepted; server admin unhealthy.**
+Independent review of AGY's corrected heads found remaining ownership and output
+publication gaps. Codex pushed PR #18 c12716f (full four-worker check 2,228 /
+461 skips) and PR #19 d0a65df (24 focused / 0 skips), with RED controls and
+independent correction review. PR #18 is accepted as merge f6ca679 after all
+18 final-head checks pass. PR #19 is accepted as merge 2e24997 after all
+18 final-head checks, actual Docker/PostgreSQL health proof and four runtime
+lanes pass. Combined verification exposed three fast-exit Windows ownership
+failures; direct test-only fix 5ede82c gates startup before ownership capture.
+Its 13 focused tests pass; full combined verification is completing.
+Read-only SSH confirms health/uncertain, absent recorded actor and unchanged
+journal fingerprint. Webhook, reply and PostgreSQL are healthy; admin is
+restarting/unhealthy and its existing owner-only socket refuses connections.
+No server mutation, replay, settlement or provider call occurred. Exact review:
+`docs/reviews/2026-11-11-corrected-harness-review.md`. Codex retains the reviewed
+server disposition and dashboard rollout; earlier bounded P6 closeout stands.
+
+Earlier checkpoint:
 
 **2026-11-10 AGY review: PR 20 accepted; PRs 18 and 19 require corrections.**
 PR #20 exact head ac7c17d is accepted as merge c249133 after independent review,

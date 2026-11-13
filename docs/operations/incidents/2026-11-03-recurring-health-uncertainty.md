@@ -46,3 +46,15 @@ Source corrections and synthetic stress verification in PRs #9–#11 are separat
 from this current-server disposition. The additional promotion diagnosis in
 PR #12 identifies an observability gap but does not establish the historical
 promotion root cause. See `../../reviews/2026-11-04-pr-12-promotion-diagnosis-review.md`.
+
+## Read-only follow-up, 2026-11-11
+
+The protected latest-scope journal remains health/uncertain with its recorded
+actor absent. Device/inode/mtime/size/content fingerprint is unchanged across
+the read-only inspection. No settlement, clear, retry or outcome is inferred.
+Webhooks, reply and PostgreSQL are running/healthy. The private admin container
+is restarting/unhealthy; its last-60-line log sample contains 60 startup-failure
+markers. Its socket exists with expected 1000:1000 ownership and mode 0600 but
+refuses connections. No internal failure cause is inferred from that symptom.
+No server resource, permission, file, timer, socket, network or other project
+was changed. Current review: `../../reviews/2026-11-11-corrected-harness-review.md`.
