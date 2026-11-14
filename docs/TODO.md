@@ -2,6 +2,21 @@
 
 ## Current Phase 6 checkpoint
 
+**2026-11-14: PRs 22/23 reviewed; both require corrections and remain draft.**
+Both exact heads have 18/18 GitHub checks green. Codex independently ran PR 22
+fc5bfd8 full four-worker check: 2,257 passed / 461 skips, 280.62 seconds of tests
+(336.52 seconds whole command). Authored base/head probes nevertheless reproduce
+two P1 ownership regressions: unrelated recycled identity adoption/signaling and
+false cleanup success with a surviving native grandchild. PR 23 0060fc8 needs
+CLI/bootstrap/publication/redaction/restore/acceptance and profile-boundary
+corrections; 28 links pass but both documents fail forced formatting. Both PRs
+stay unmerged. Two bounded AGY correction checklists and exact evidence are in
+`docs/reviews/2026-11-14-pr-22-23-review.md`. No server action occurred. Operator
+reports the 116.95g LVM group has 0g unallocated; this does not change the last
+Docker filesystem shortfall or authorize resizing, prune or evidence deletion.
+
+Earlier checkpoint:
+
 **2026-11-13: fresh successor admission implemented; disk capacity blocks deployment.**
 The read-only helper passes 25 hermetic controls and actual SSH inspection
 preserves the held journal, source, effective backup/maintenance/health bindings,
