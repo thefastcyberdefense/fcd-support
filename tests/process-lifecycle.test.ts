@@ -535,239 +535,189 @@ it.skipIf(process.platform !== 'win32')(
   },
 );
 
-it('never kills a reused WinPID whose CreationDate mismatches captured ownership', async () => {
-  const child = Object.assign(new EventEmitter(), {
-    pid: 55555,
+type FakeChild = ChildProcess & {
+  exitCode: number | null;
+  stdin: { closed: boolean; destroy: () => void };
+  stdout: { closed: boolean; destroy: () => void };
+  stderr: { closed: boolean; destroy: () => void };
+};
+interface MsysRow {
+  pid: number;
+  ppid: number;
+  pgid: number;
+  winPid: number;
+  uid: number;
+}
+interface WmiRow {
+  pid: number;
+  parentPid: number;
+  creationUs: bigint;
+}
+
+const delayMs = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+const msys = (pid: number, winPid: number, ppid = 1, pgid = pid, uid = 1000): MsysRow => ({
+  pid,
+  ppid,
+  pgid,
+  winPid,
+  uid,
+});
+const wmi = (pid: number, parentPid: number, creationUs: bigint): WmiRow => ({
+  pid,
+  parentPid,
+  creationUs,
+});
+const okRows = <T>(rows: T[]) => Promise.resolve({ ok: true, rows });
+const filterWmi = (rows: WmiRow[], filterPids?: readonly number[], byParent = false) =>
+  rows.filter(
+    (r) =>
+      filterPids === undefined ||
+      filterPids.includes(r.pid) ||
+      (byParent && filterPids.includes(r.parentPid)),
+  );
+const waitWork = async (workMs: number, timeoutMs: number): Promise<boolean> => {
+  if (workMs <= 0) return true;
+  await delayMs(Math.min(workMs, Math.max(0, timeoutMs)));
+  return workMs <= timeoutMs;
+};
+const makeFakeChild = (winPid: number, killResult = false): FakeChild =>
+  Object.assign(new EventEmitter(), {
+    pid: winPid,
     exitCode: null as number | null,
     signalCode: null,
-    kill: () => false,
+    kill: () => killResult,
     stdin: { closed: false, destroy: () => undefined },
     stdout: { closed: false, destroy: () => undefined },
     stderr: { closed: false, destroy: () => undefined },
-  }) as unknown as ChildProcess & {
-    exitCode: number | null;
-    stdin: { closed: boolean };
-    stdout: { closed: boolean };
-    stderr: { closed: boolean };
-  };
-
-  let phase: 'capture' | 'after-exit' = 'capture';
-  const killedWinPids: number[] = [];
-  const killedMsys: { msysPids: number[]; pgids: number[] }[] = [];
-  const fakeOps: WinTreeTestOps = {
-    readMsysSnapshot() {
-      if (phase === 'capture') {
-        return Promise.resolve({
-          ok: true,
-          rows: [
-            { pid: 100, ppid: 1, pgid: 100, winPid: 55555, uid: 1000 },
-            { pid: 101, ppid: 100, pgid: 100, winPid: 55556, uid: 1000 },
-          ],
-        });
-      }
-      // After exit, OS recycled WinPID 55556 to a brand-new unrelated process.
-      return Promise.resolve({
-        ok: true,
-        rows: [{ pid: 9999, ppid: 1, pgid: 100, winPid: 55556, uid: 1000 }],
-      });
-    },
-    readWmiSnapshot() {
-      if (phase === 'capture') {
-        return Promise.resolve({
-          ok: true,
-          rows: [
-            { pid: 55555, parentPid: 1, creationUs: 2000n },
-            { pid: 55556, parentPid: 55555, creationUs: 2010n },
-          ],
-        });
-      }
-      return Promise.resolve({
-        ok: true,
-        rows: [{ pid: 55556, parentPid: 1, creationUs: 999999n }],
-      });
-    },
-    killWinPid(winPid) {
-      killedWinPids.push(winPid);
-      return Promise.resolve();
-    },
-    killMsysTargets(targets) {
-      killedMsys.push(targets);
-      return Promise.resolve();
-    },
-  };
-
-  const captured = await captureProcessTreeOwnership(child, {
-    timeoutMs: 500,
-    _winTreeOps: fakeOps,
-  });
-  expect(captured?.observedRoot).toBe(true);
-  phase = 'after-exit';
+  }) as unknown as FakeChild;
+const closeFakeChild = (child: FakeChild): void => {
   child.exitCode = 0;
   child.stdin.closed = true;
   child.stdout.closed = true;
   child.stderr.closed = true;
+};
+const noopKill = () => Promise.resolve();
+const captureFake = (child: FakeChild, ops: WinTreeTestOps) =>
+  captureProcessTreeOwnership(child, { timeoutMs: 500, _winTreeOps: ops });
+const reapFake = (child: FakeChild, ops: WinTreeTestOps, termMs = 150) =>
+  reapChildProcess(child, {
+    termTimeoutMs: termMs,
+    killTimeoutMs: termMs,
+    processGroup: true,
+    _winTreeOps: ops,
+  });
+const recordKills = () => {
+  const killedWinPids: number[] = [];
+  const killedMsys: { msysPids: number[]; pgids: number[] }[] = [];
+  return {
+    killedWinPids,
+    killedMsys,
+    killWinPid: (winPid: number) => {
+      killedWinPids.push(winPid);
+      return noopKill();
+    },
+    killMsysTargets: (targets: { msysPids: number[]; pgids: number[] }) => {
+      killedMsys.push(targets);
+      return noopKill();
+    },
+  };
+};
+const wmiFromMap = (
+  liveWin: Map<number, { parentPid: number; creationUs: bigint }>,
+  filterPids?: readonly number[],
+) =>
+  okRows(
+    filterWmi(
+      [...liveWin.entries()].map(([pid, info]) => wmi(pid, info.parentPid, info.creationUs)),
+      filterPids,
+      true,
+    ),
+  );
 
-  await expect(
-    reapChildProcess(child, {
-      termTimeoutMs: 250,
-      killTimeoutMs: 250,
-      processGroup: true,
-      _winTreeOps: fakeOps,
-    }),
-  ).resolves.toBeUndefined();
-  expect(killedWinPids).toEqual([]);
-  expect(killedMsys).toEqual([]);
+it('never kills a reused WinPID whose CreationDate mismatches captured ownership', async () => {
+  const child = makeFakeChild(55555);
+  let phase: 'capture' | 'after-exit' = 'capture';
+  const rec = recordKills();
+  const fakeOps: WinTreeTestOps = {
+    readMsysSnapshot: () =>
+      okRows(
+        phase === 'capture'
+          ? [msys(100, 55555), msys(101, 55556, 100, 100)]
+          : [msys(9999, 55556, 1, 100)],
+      ),
+    readWmiSnapshot: () =>
+      okRows(
+        phase === 'capture'
+          ? [wmi(55555, 1, 2000n), wmi(55556, 55555, 2010n)]
+          : [wmi(55556, 1, 999999n)],
+      ),
+    killWinPid: rec.killWinPid,
+    killMsysTargets: rec.killMsysTargets,
+  };
+
+  expect((await captureFake(child, fakeOps))?.observedRoot).toBe(true);
+  phase = 'after-exit';
+  closeFakeChild(child);
+
+  await expect(reapFake(child, fakeOps, 250)).resolves.toBeUndefined();
+  expect(rec.killedWinPids).toEqual([]);
+  expect(rec.killedMsys).toEqual([]);
 });
 
 it('never kills an unknown WinPID in a recycled MSYS group after all captured actors exit', async () => {
-  const child = Object.assign(new EventEmitter(), {
-    pid: 55555,
-    exitCode: null as number | null,
-    signalCode: null,
-    kill: () => false,
-    stdin: { closed: false, destroy: () => undefined },
-    stdout: { closed: false, destroy: () => undefined },
-    stderr: { closed: false, destroy: () => undefined },
-  }) as unknown as ChildProcess & {
-    exitCode: number | null;
-    stdin: { closed: boolean };
-    stdout: { closed: boolean };
-    stderr: { closed: boolean };
-  };
-
+  const child = makeFakeChild(55555);
   let phase: 'capture' | 'after-exit' = 'capture';
-  const killedWinPids: number[] = [];
-  const killedMsys: { msysPids: number[]; pgids: number[] }[] = [];
+  const rec = recordKills();
   const fakeOps: WinTreeTestOps = {
-    readMsysSnapshot() {
-      if (phase === 'capture') {
-        return Promise.resolve({
-          ok: true,
-          rows: [
-            { pid: 100, ppid: 1, pgid: 100, winPid: 55555, uid: 1000 },
-            { pid: 101, ppid: 100, pgid: 100, winPid: 55556, uid: 1000 },
-          ],
-        });
-      }
-      // All captured actors are gone; only the numeric MSYS group has been recycled.
-      return Promise.resolve({
-        ok: true,
-        rows: [{ pid: 9999, ppid: 1, pgid: 100, winPid: 55557, uid: 1000 }],
-      });
-    },
-    readWmiSnapshot() {
-      if (phase === 'capture') {
-        return Promise.resolve({
-          ok: true,
-          rows: [
-            { pid: 55555, parentPid: 1, creationUs: 2000n },
-            { pid: 55556, parentPid: 55555, creationUs: 2010n },
-          ],
-        });
-      }
-      return Promise.resolve({
-        ok: true,
-        rows: [{ pid: 55557, parentPid: 1, creationUs: 999999n }],
-      });
-    },
-    killWinPid(winPid) {
-      killedWinPids.push(winPid);
-      return Promise.resolve();
-    },
-    killMsysTargets(targets) {
-      killedMsys.push(targets);
-      return Promise.resolve();
-    },
+    readMsysSnapshot: () =>
+      okRows(
+        phase === 'capture'
+          ? [msys(100, 55555), msys(101, 55556, 100, 100)]
+          : [msys(9999, 55557, 1, 100)],
+      ),
+    readWmiSnapshot: () =>
+      okRows(
+        phase === 'capture'
+          ? [wmi(55555, 1, 2000n), wmi(55556, 55555, 2010n)]
+          : [wmi(55557, 1, 999999n)],
+      ),
+    killWinPid: rec.killWinPid,
+    killMsysTargets: rec.killMsysTargets,
   };
 
-  const captured = await captureProcessTreeOwnership(child, {
-    timeoutMs: 500,
-    _winTreeOps: fakeOps,
-  });
-  expect(captured?.observedRoot).toBe(true);
+  expect((await captureFake(child, fakeOps))?.observedRoot).toBe(true);
   phase = 'after-exit';
-  child.exitCode = 0;
-  child.stdin.closed = true;
-  child.stdout.closed = true;
-  child.stderr.closed = true;
+  closeFakeChild(child);
 
-  await expect(
-    reapChildProcess(child, {
-      termTimeoutMs: 250,
-      killTimeoutMs: 250,
-      processGroup: true,
-      _winTreeOps: fakeOps,
-    }),
-  ).resolves.toBeUndefined();
-  expect(killedWinPids).toEqual([]);
-  expect(killedMsys).toEqual([]);
+  await expect(reapFake(child, fakeOps, 250)).resolves.toBeUndefined();
+  expect(rec.killedWinPids).toEqual([]);
+  expect(rec.killedMsys).toEqual([]);
 });
 
 it('fails closed if an owned descendant with matching CreationDate survives after closed stdio', async () => {
-  const child = Object.assign(new EventEmitter(), {
-    pid: 66666,
-    exitCode: null as number | null,
-    signalCode: null,
-    kill: () => false,
-    stdin: { closed: false, destroy: () => undefined },
-    stdout: { closed: false, destroy: () => undefined },
-    stderr: { closed: false, destroy: () => undefined },
-  }) as unknown as ChildProcess & {
-    exitCode: number | null;
-    stdin: { closed: boolean };
-    stdout: { closed: boolean };
-    stderr: { closed: boolean };
-  };
+  const child = makeFakeChild(66666);
   let phase: 'capture' | 'survivor' = 'capture';
   const unkillableOps: WinTreeTestOps = {
-    readMsysSnapshot() {
-      if (phase === 'capture') {
-        return Promise.resolve({
-          ok: true,
-          rows: [
-            { pid: 200, ppid: 1, pgid: 200, winPid: 66666, uid: 1000 },
-            { pid: 201, ppid: 200, pgid: 200, winPid: 66667, uid: 1000 },
-          ],
-        });
-      }
-      return Promise.resolve({
-        ok: true,
-        rows: [{ pid: 201, ppid: 1, pgid: 200, winPid: 66667, uid: 1000 }],
-      });
-    },
-    readWmiSnapshot() {
-      if (phase === 'capture') {
-        return Promise.resolve({
-          ok: true,
-          rows: [
-            { pid: 66666, parentPid: 1, creationUs: 3000n },
-            { pid: 66667, parentPid: 66666, creationUs: 3010n },
-          ],
-        });
-      }
-      return Promise.resolve({
-        ok: true,
-        rows: [{ pid: 66667, parentPid: 66666, creationUs: 3010n }],
-      });
-    },
-    killWinPid: () => Promise.resolve(),
-    killMsysTargets: () => Promise.resolve(),
+    readMsysSnapshot: () =>
+      okRows(
+        phase === 'capture'
+          ? [msys(200, 66666), msys(201, 66667, 200, 200)]
+          : [msys(201, 66667, 1, 200)],
+      ),
+    readWmiSnapshot: () =>
+      okRows(
+        phase === 'capture'
+          ? [wmi(66666, 1, 3000n), wmi(66667, 66666, 3010n)]
+          : [wmi(66667, 66666, 3010n)],
+      ),
+    killWinPid: noopKill,
+    killMsysTargets: noopKill,
   };
-  await captureProcessTreeOwnership(child, { timeoutMs: 500, _winTreeOps: unkillableOps });
+  await captureFake(child, unkillableOps);
   phase = 'survivor';
-  child.exitCode = 0;
-  child.stdin.closed = true;
-  child.stdout.closed = true;
-  child.stderr.closed = true;
+  closeFakeChild(child);
 
-  await expect(
-    reapChildProcess(child, {
-      termTimeoutMs: 100,
-      killTimeoutMs: 100,
-      processGroup: true,
-      _winTreeOps: unkillableOps,
-    }),
-  ).rejects.toThrow('test_child_reap_unconfirmed');
+  await expect(reapFake(child, unkillableOps, 100)).rejects.toThrow('test_child_reap_unconfirmed');
 });
 
 it.skipIf(process.platform !== 'win32')(
@@ -796,332 +746,207 @@ it.skipIf(process.platform !== 'win32')(
 );
 
 it('captures newly spawned MSYS descendants born between WMI and MSYS capture before closed-root reap', async () => {
-  const fakeChild = Object.assign(new EventEmitter(), {
-    pid: 77771,
-    exitCode: null as number | null,
-    signalCode: null,
-    kill: () => true,
-    stdin: { closed: false, destroy: () => undefined },
-    stdout: { closed: false, destroy: () => undefined },
-    stderr: { closed: false, destroy: () => undefined },
-  });
-  const child = fakeChild as unknown as ChildProcess;
-
+  const fakeChild = makeFakeChild(77771, true);
   let wmiCallCount = 0;
   let descendantAlive = true;
   const killedWinPids: number[] = [];
 
   const raceOps: WinTreeTestOps = {
-    readMsysSnapshot() {
-      const rows = descendantAlive
-        ? [
-            ...(fakeChild.exitCode === null
-              ? [{ pid: 910, ppid: 1, pgid: 910, winPid: 77771, uid: 1000 }]
-              : []),
-            { pid: 920, ppid: 910, pgid: 910, winPid: 77772, uid: 1000 },
-          ]
-        : [];
-      return Promise.resolve({ ok: true, rows });
-    },
-    readWmiSnapshot(_timeoutMs, filterPids) {
+    readMsysSnapshot: () =>
+      okRows(
+        descendantAlive
+          ? [...(fakeChild.exitCode === null ? [msys(910, 77771)] : []), msys(920, 77772, 910, 910)]
+          : [],
+      ),
+    readWmiSnapshot: (_timeoutMs, filterPids) => {
       wmiCallCount += 1;
-      if (wmiCallCount === 1) {
-        return Promise.resolve({
-          ok: true,
-          rows: [{ pid: 77771, parentPid: 1, creationUs: 1000n }],
-        });
-      }
-      const rows = [
-        ...(fakeChild.exitCode === null ? [{ pid: 77771, parentPid: 1, creationUs: 1000n }] : []),
-        ...(descendantAlive ? [{ pid: 77772, parentPid: 1, creationUs: 1050n }] : []),
-      ].filter((row) => filterPids === undefined || filterPids.includes(row.pid));
-      return Promise.resolve({ ok: true, rows });
+      if (wmiCallCount === 1) return okRows([wmi(77771, 1, 1000n)]);
+      return okRows(
+        filterWmi(
+          [
+            ...(fakeChild.exitCode === null ? [wmi(77771, 1, 1000n)] : []),
+            ...(descendantAlive ? [wmi(77772, 1, 1050n)] : []),
+          ],
+          filterPids,
+        ),
+      );
     },
-    killWinPid(winPid) {
+    killWinPid: (winPid) => {
       killedWinPids.push(winPid);
       if (winPid === 77772) descendantAlive = false;
-      return Promise.resolve();
+      return noopKill();
     },
-    killMsysTargets(targets) {
-      if (targets.msysPids.includes(920) || targets.pgids.includes(910)) {
-        descendantAlive = false;
-      }
-      return Promise.resolve();
+    killMsysTargets: (targets) => {
+      if (targets.msysPids.includes(920) || targets.pgids.includes(910)) descendantAlive = false;
+      return noopKill();
     },
   };
 
-  const ownership = await captureProcessTreeOwnership(child, {
-    timeoutMs: 500,
-    _winTreeOps: raceOps,
-  });
+  const ownership = await captureFake(fakeChild, raceOps);
   expect(ownership?.observedRoot).toBe(true);
   expect(ownership?.ownedWinNodes.has(77772)).toBe(true);
 
-  fakeChild.exitCode = 0;
-  fakeChild.stdin.closed = true;
-  fakeChild.stdout.closed = true;
-  fakeChild.stderr.closed = true;
-
-  await reapChildProcess(child, {
-    termTimeoutMs: 150,
-    killTimeoutMs: 150,
-    processGroup: true,
-    _winTreeOps: raceOps,
-  });
+  closeFakeChild(fakeChild);
+  await reapFake(fakeChild, raceOps);
 
   expect(killedWinPids).toContain(77772);
   expect(descendantAlive).toBe(false);
 });
 
 it('does not reuse stale recent WMI rows or poison owned PGIDs when a child spawns after capture', async () => {
-  const fakeChild = Object.assign(new EventEmitter(), {
-    pid: 77781,
-    exitCode: null as number | null,
-    signalCode: null,
-    kill: () => true,
-    stdin: { closed: false, destroy: () => undefined },
-    stdout: { closed: false, destroy: () => undefined },
-    stderr: { closed: false, destroy: () => undefined },
-  });
-  const child = fakeChild as unknown as ChildProcess;
-
+  const fakeChild = makeFakeChild(77781, true);
   let phase: 'capture' | 'reap' = 'capture';
   let childAlive = true;
   const killedWinPids: number[] = [];
 
   const birthOps: WinTreeTestOps = {
-    readMsysSnapshot() {
-      if (phase === 'capture') {
-        return Promise.resolve({
-          ok: true,
-          rows: [{ pid: 930, ppid: 1, pgid: 930, winPid: 77781, uid: 1000 }],
-        });
-      }
-      const rows = [
-        ...(fakeChild.exitCode === null
-          ? [{ pid: 930, ppid: 1, pgid: 930, winPid: 77781, uid: 1000 }]
-          : []),
-        ...(childAlive ? [{ pid: 931, ppid: 930, pgid: 930, winPid: 77782, uid: 1000 }] : []),
-      ];
-      return Promise.resolve({ ok: true, rows });
-    },
-    readWmiSnapshot(_timeoutMs, filterPids) {
-      if (phase === 'capture') {
-        return Promise.resolve({
-          ok: true,
-          rows: [{ pid: 77781, parentPid: 1, creationUs: 2000n }],
-        });
-      }
-      const rows = [
-        ...(fakeChild.exitCode === null ? [{ pid: 77781, parentPid: 1, creationUs: 2000n }] : []),
-        ...(childAlive ? [{ pid: 77782, parentPid: 77781, creationUs: 2050n }] : []),
-      ].filter((row) => filterPids === undefined || filterPids.includes(row.pid));
-      return Promise.resolve({ ok: true, rows });
-    },
-    killWinPid(winPid) {
+    readMsysSnapshot: () =>
+      okRows(
+        phase === 'capture'
+          ? [msys(930, 77781)]
+          : [
+              ...(fakeChild.exitCode === null ? [msys(930, 77781)] : []),
+              ...(childAlive ? [msys(931, 77782, 930, 930)] : []),
+            ],
+      ),
+    readWmiSnapshot: (_timeoutMs, filterPids) =>
+      okRows(
+        phase === 'capture'
+          ? [wmi(77781, 1, 2000n)]
+          : filterWmi(
+              [
+                ...(fakeChild.exitCode === null ? [wmi(77781, 1, 2000n)] : []),
+                ...(childAlive ? [wmi(77782, 77781, 2050n)] : []),
+              ],
+              filterPids,
+            ),
+      ),
+    killWinPid: (winPid) => {
       killedWinPids.push(winPid);
-      if (winPid === 77781) {
-        fakeChild.exitCode = 0;
-        fakeChild.stdin.closed = true;
-        fakeChild.stdout.closed = true;
-        fakeChild.stderr.closed = true;
-      }
-      if (winPid === 77782) {
-        childAlive = false;
-      }
-      return Promise.resolve();
+      if (winPid === 77781) closeFakeChild(fakeChild);
+      if (winPid === 77782) childAlive = false;
+      return noopKill();
     },
-    killMsysTargets(targets) {
-      if (targets.msysPids.includes(931) || targets.pgids.includes(930)) {
-        childAlive = false;
-      }
-      return Promise.resolve();
+    killMsysTargets: (targets) => {
+      if (targets.msysPids.includes(931) || targets.pgids.includes(930)) childAlive = false;
+      return noopKill();
     },
   };
 
-  await captureProcessTreeOwnership(child, { timeoutMs: 500, _winTreeOps: birthOps });
+  await captureFake(fakeChild, birthOps);
   phase = 'reap';
-
-  await reapChildProcess(child, {
-    termTimeoutMs: 150,
-    killTimeoutMs: 150,
-    processGroup: true,
-    _winTreeOps: birthOps,
-  });
+  await reapFake(fakeChild, birthOps);
 
   expect(killedWinPids).toContain(77782);
   expect(childAlive).toBe(false);
 });
 
 it('overlaps closed-root MSYS and filtered WMI inspection within shared reap budget', async () => {
-  const fakeChild = Object.assign(new EventEmitter(), {
-    pid: 77791,
-    exitCode: null as number | null,
-    signalCode: null,
-    kill: () => false,
-    stdin: { closed: false, destroy: () => undefined },
-    stdout: { closed: false, destroy: () => undefined },
-    stderr: { closed: false, destroy: () => undefined },
-  });
-  const child = fakeChild as unknown as ChildProcess;
-
-  const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+  const fakeChild = makeFakeChild(77791);
   let bgAlive = true;
   let phase: 'capture' | 'reap' = 'capture';
 
   const overlapOps: WinTreeTestOps = {
     async readMsysSnapshot(timeoutMs) {
-      const workMs = bgAlive ? 180 : 80;
-      if (phase === 'reap') {
-        if (workMs > timeoutMs) {
-          await delay(Math.max(0, timeoutMs));
-          return { ok: false, rows: [] };
-        }
-        await delay(workMs);
+      if (phase === 'reap' && !(await waitWork(bgAlive ? 180 : 80, timeoutMs))) {
+        return { ok: false, rows: [] };
       }
-      const rows = [
-        ...(fakeChild.exitCode === null
-          ? [{ pid: 940, ppid: 1, pgid: 940, winPid: 77791, uid: 1000 }]
-          : []),
-        ...(bgAlive ? [{ pid: 941, ppid: 940, pgid: 940, winPid: 77792, uid: 1000 }] : []),
-      ];
-      return { ok: true, rows };
+      return {
+        ok: true,
+        rows: [
+          ...(fakeChild.exitCode === null ? [msys(940, 77791)] : []),
+          ...(bgAlive ? [msys(941, 77792, 940, 940)] : []),
+        ],
+      };
     },
     async readWmiSnapshot(timeoutMs, filterPids) {
-      const workMs = 340;
-      if (phase === 'reap') {
-        if (workMs > timeoutMs) {
-          await delay(Math.max(0, timeoutMs));
-          return { ok: false, rows: [] };
-        }
-        await delay(workMs);
+      if (phase === 'reap' && !(await waitWork(340, timeoutMs))) {
+        return { ok: false, rows: [] };
       }
-      const rows = [
-        ...(fakeChild.exitCode === null ? [{ pid: 77791, parentPid: 1, creationUs: 3000n }] : []),
-        ...(bgAlive ? [{ pid: 77792, parentPid: 1, creationUs: 3010n }] : []),
-      ].filter((row) => filterPids === undefined || filterPids.includes(row.pid));
-      return { ok: true, rows };
+      return {
+        ok: true,
+        rows: filterWmi(
+          [
+            ...(fakeChild.exitCode === null ? [wmi(77791, 1, 3000n)] : []),
+            ...(bgAlive ? [wmi(77792, 1, 3010n)] : []),
+          ],
+          filterPids,
+        ),
+      };
     },
-    killWinPid(winPid) {
+    killWinPid: (winPid) => {
       if (winPid === 77792) bgAlive = false;
-      return Promise.resolve();
+      return noopKill();
     },
-    killMsysTargets(targets) {
-      if (targets.msysPids.includes(941) || targets.pgids.includes(940)) {
-        bgAlive = false;
-      }
-      return Promise.resolve();
+    killMsysTargets: (targets) => {
+      if (targets.msysPids.includes(941) || targets.pgids.includes(940)) bgAlive = false;
+      return noopKill();
     },
   };
 
-  await captureProcessTreeOwnership(child, { timeoutMs: 500, _winTreeOps: overlapOps });
+  await captureFake(fakeChild, overlapOps);
   phase = 'reap';
-  fakeChild.exitCode = 0;
-  fakeChild.stdin.closed = true;
-  fakeChild.stdout.closed = true;
-  fakeChild.stderr.closed = true;
+  closeFakeChild(fakeChild);
 
   const start = Date.now();
-  await reapChildProcess(child, {
-    termTimeoutMs: 250,
-    killTimeoutMs: 250,
-    processGroup: true,
-    _winTreeOps: overlapOps,
-  });
+  await reapFake(fakeChild, overlapOps, 250);
 
   expect(Date.now() - start).toBeLessThan(480);
   expect(bgAlive).toBe(false);
 });
 
 it('avoids duplicate sequential WMI calls when an older live root spawns a descendant before reap', async () => {
-  const fakeChild = Object.assign(new EventEmitter(), {
-    pid: 77801,
-    exitCode: null as number | null,
-    signalCode: null,
-    kill: () => true,
-    stdin: { closed: false, destroy: () => undefined },
-    stdout: { closed: false, destroy: () => undefined },
-    stderr: { closed: false, destroy: () => undefined },
-  });
-  const child = fakeChild as unknown as ChildProcess;
-
-  const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+  const fakeChild = makeFakeChild(77801, true);
   let phase: 'capture' | 'reap' = 'capture';
   let childAlive = true;
   const reapWmiFilters: (readonly number[] | undefined)[] = [];
 
   const liveOps: WinTreeTestOps = {
     async readMsysSnapshot(timeoutMs) {
-      const workMs = phase === 'reap' ? (childAlive ? 80 : 60) : 0;
-      if (workMs > 0) {
-        if (workMs > timeoutMs) {
-          await delay(Math.max(0, timeoutMs));
-          return { ok: false, rows: [] };
-        }
-        await delay(workMs);
-      }
-      if (phase === 'capture') {
-        return {
-          ok: true,
-          rows: [{ pid: 950, ppid: 1, pgid: 950, winPid: 77801, uid: 1000 }],
-        };
+      if (phase === 'reap' && !(await waitWork(childAlive ? 80 : 60, timeoutMs))) {
+        return { ok: false, rows: [] };
       }
       return {
         ok: true,
-        rows: [
-          ...(fakeChild.exitCode === null
-            ? [{ pid: 950, ppid: 1, pgid: 950, winPid: 77801, uid: 1000 }]
-            : []),
-          ...(childAlive ? [{ pid: 951, ppid: 950, pgid: 950, winPid: 77802, uid: 1000 }] : []),
-        ],
+        rows:
+          phase === 'capture'
+            ? [msys(950, 77801)]
+            : [
+                ...(fakeChild.exitCode === null ? [msys(950, 77801)] : []),
+                ...(childAlive ? [msys(951, 77802, 950, 950)] : []),
+              ],
       };
     },
     async readWmiSnapshot(timeoutMs, filterPids) {
-      if (phase === 'capture') {
-        return {
-          ok: true,
-          rows: [{ pid: 77801, parentPid: 1, creationUs: 4000n }],
-        };
-      }
+      if (phase === 'capture') return { ok: true, rows: [wmi(77801, 1, 4000n)] };
       reapWmiFilters.push(filterPids);
-      const workMs = 460;
-      if (workMs > timeoutMs) {
-        await delay(Math.max(0, timeoutMs));
-        return { ok: false, rows: [] };
-      }
-      await delay(workMs);
-      const rows = [
-        ...(fakeChild.exitCode === null ? [{ pid: 77801, parentPid: 1, creationUs: 4000n }] : []),
-        ...(childAlive ? [{ pid: 77802, parentPid: 77801, creationUs: 4050n }] : []),
-      ].filter((row) => filterPids === undefined || filterPids.includes(row.pid));
-      return { ok: true, rows };
+      if (!(await waitWork(460, timeoutMs))) return { ok: false, rows: [] };
+      return {
+        ok: true,
+        rows: filterWmi(
+          [
+            ...(fakeChild.exitCode === null ? [wmi(77801, 1, 4000n)] : []),
+            ...(childAlive ? [wmi(77802, 77801, 4050n)] : []),
+          ],
+          filterPids,
+        ),
+      };
     },
-    killWinPid(winPid) {
-      if (winPid === 77801) {
-        fakeChild.exitCode = 0;
-        fakeChild.stdin.closed = true;
-        fakeChild.stdout.closed = true;
-        fakeChild.stderr.closed = true;
-      }
+    killWinPid: (winPid) => {
+      if (winPid === 77801) closeFakeChild(fakeChild);
       if (winPid === 77802) childAlive = false;
-      return Promise.resolve();
+      return noopKill();
     },
-    killMsysTargets(targets) {
+    killMsysTargets: (targets) => {
       if (targets.msysPids.includes(951) || targets.pgids.includes(950)) childAlive = false;
-      return Promise.resolve();
+      return noopKill();
     },
   };
 
-  await captureProcessTreeOwnership(child, { timeoutMs: 500, _winTreeOps: liveOps });
-  await delay(270);
+  await captureFake(fakeChild, liveOps);
+  await delayMs(270);
   phase = 'reap';
-
-  await reapChildProcess(child, {
-    termTimeoutMs: 450,
-    killTimeoutMs: 450,
-    processGroup: true,
-    _winTreeOps: liveOps,
-  });
+  await reapFake(fakeChild, liveOps, 450);
 
   expect(reapWmiFilters).toHaveLength(1);
   expect(reapWmiFilters[0]).toEqual(expect.arrayContaining([77801, 77802]));
@@ -1129,396 +954,190 @@ it('avoids duplicate sequential WMI calls when an older live root spawns a desce
 });
 
 it('does not let an exited transient child in an owned PGID block group signaling', async () => {
-  const fakeChild = Object.assign(new EventEmitter(), {
-    pid: 77811,
-    exitCode: null as number | null,
-    signalCode: null,
-    kill: () => true,
-    stdin: { closed: false, destroy: () => undefined },
-    stdout: { closed: false, destroy: () => undefined },
-    stderr: { closed: false, destroy: () => undefined },
-  });
-  const child = fakeChild as unknown as ChildProcess;
-
+  const fakeChild = makeFakeChild(77811, true);
   let phase: 'capture' | 'reap' = 'capture';
   let reapMsysCalls = 0;
   let descendantAlive = true;
   const recordedPgids: number[] = [];
 
   const pgidOps: WinTreeTestOps = {
-    readMsysSnapshot() {
-      if (phase === 'capture') {
-        return Promise.resolve({
-          ok: true,
-          rows: [{ pid: 960, ppid: 1, pgid: 960, winPid: 77811, uid: 1000 }],
-        });
-      }
+    readMsysSnapshot: () => {
+      if (phase === 'capture') return okRows([msys(960, 77811)]);
       reapMsysCalls += 1;
       if (reapMsysCalls === 1) {
-        return Promise.resolve({
-          ok: true,
-          rows: [
-            { pid: 960, ppid: 1, pgid: 960, winPid: 77811, uid: 1000 },
-            // Transient owned child present in MSYS snapshot that exits before WMI runs.
-            { pid: 961, ppid: 960, pgid: 960, winPid: 77812, uid: 1000 },
-          ],
-        });
+        // Transient owned child present in MSYS snapshot that exits before WMI runs.
+        return okRows([msys(960, 77811), msys(961, 77812, 960, 960)]);
       }
-      return Promise.resolve({
-        ok: true,
-        rows: [
-          ...(fakeChild.exitCode === null
-            ? [{ pid: 960, ppid: 1, pgid: 960, winPid: 77811, uid: 1000 }]
-            : []),
-          ...(descendantAlive
-            ? [{ pid: 962, ppid: 960, pgid: 960, winPid: 77813, uid: 1000 }]
-            : []),
-        ],
-      });
+      return okRows([
+        ...(fakeChild.exitCode === null ? [msys(960, 77811)] : []),
+        ...(descendantAlive ? [msys(962, 77813, 960, 960)] : []),
+      ]);
     },
-    readWmiSnapshot(_timeoutMs, filterPids) {
-      if (phase === 'capture') {
-        return Promise.resolve({
-          ok: true,
-          rows: [{ pid: 77811, parentPid: 1, creationUs: 2000n }],
-        });
-      }
+    readWmiSnapshot: (_timeoutMs, filterPids) => {
+      if (phase === 'capture') return okRows([wmi(77811, 1, 2000n)]);
       // 77812 already exited before WMI ran; late sibling 77813 was not in filterPids yet.
-      const rows = [
-        ...(fakeChild.exitCode === null ? [{ pid: 77811, parentPid: 1, creationUs: 2000n }] : []),
-      ].filter((row) => filterPids === undefined || filterPids.includes(row.pid));
-      return Promise.resolve({ ok: true, rows });
+      return okRows(
+        filterWmi(fakeChild.exitCode === null ? [wmi(77811, 1, 2000n)] : [], filterPids),
+      );
     },
-    killWinPid(winPid) {
-      if (winPid === 77811) {
-        fakeChild.exitCode = 0;
-        fakeChild.stdin.closed = true;
-        fakeChild.stdout.closed = true;
-        fakeChild.stderr.closed = true;
-      }
-      return Promise.resolve();
+    killWinPid: (winPid) => {
+      if (winPid === 77811) closeFakeChild(fakeChild);
+      return noopKill();
     },
-    killMsysTargets(targets) {
+    killMsysTargets: (targets) => {
       recordedPgids.push(...targets.pgids);
-      if (targets.pgids.includes(960)) {
-        descendantAlive = false;
-      }
-      return Promise.resolve();
+      if (targets.pgids.includes(960)) descendantAlive = false;
+      return noopKill();
     },
   };
 
-  await captureProcessTreeOwnership(child, { timeoutMs: 500, _winTreeOps: pgidOps });
+  await captureFake(fakeChild, pgidOps);
   phase = 'reap';
-
-  await reapChildProcess(child, {
-    termTimeoutMs: 250,
-    killTimeoutMs: 250,
-    processGroup: true,
-    _winTreeOps: pgidOps,
-  });
+  await reapFake(fakeChild, pgidOps, 250);
 
   expect(recordedPgids).toContain(960);
   expect(descendantAlive).toBe(false);
 });
 
 it('never adopts or signals an unrelated recycled WinPID when root exits during unresolved MSYS follow-up', async () => {
-  const fakeChild = Object.assign(new EventEmitter(), {
-    pid: 77821,
-    exitCode: null as number | null,
-    signalCode: null,
-    kill: () => false,
-    stdin: { closed: false, destroy: () => undefined },
-    stdout: { closed: false, destroy: () => undefined },
-    stderr: { closed: false, destroy: () => undefined },
-  });
-  const child = fakeChild as unknown as ChildProcess;
-
+  const fakeChild = makeFakeChild(77821);
   let msysCall = 0;
   let wmiCall = 0;
-  const killedWinPids: number[] = [];
-  const killedMsys: { msysPids: number[]; pgids: number[] }[] = [];
+  const rec = recordKills();
 
   const recycleOps: WinTreeTestOps = {
-    readMsysSnapshot() {
+    readMsysSnapshot: () => {
       msysCall += 1;
-      if (msysCall === 1) {
-        return Promise.resolve({
-          ok: true,
-          rows: [
-            { pid: 910, ppid: 1, pgid: 910, winPid: 77821, uid: 197609 },
-            { pid: 920, ppid: 910, pgid: 910, winPid: 77822, uid: 197609 },
-          ],
-        });
-      }
-      // Child 920 exited and unrelated process 9999 reused WinPID 77822.
-      return Promise.resolve({
-        ok: true,
-        rows: [{ pid: 9999, ppid: 1, pgid: 9999, winPid: 77822, uid: 197609 }],
-      });
-    },
-    readWmiSnapshot(_timeoutMs, filterPids) {
-      wmiCall += 1;
-      if (wmiCall === 1) {
-        return Promise.resolve({
-          ok: true,
-          rows: [{ pid: 77821, parentPid: 4000, creationUs: 100000n }],
-        });
-      }
-      if (wmiCall === 2) {
-        // Root exits during follow-up WMI and WinPID 77822 is recycled by an unrelated process.
-        fakeChild.exitCode = 0;
-        fakeChild.stdin.closed = true;
-        fakeChild.stdout.closed = true;
-        fakeChild.stderr.closed = true;
-      }
-      const rows = [{ pid: 77822, parentPid: 1, creationUs: 999999n }].filter(
-        (row) => filterPids === undefined || filterPids.includes(row.pid),
+      return okRows(
+        msysCall === 1
+          ? [msys(910, 77821, 1, 910, 197609), msys(920, 77822, 910, 910, 197609)]
+          : // Child 920 exited and unrelated process 9999 reused WinPID 77822.
+            [msys(9999, 77822, 1, 9999, 197609)],
       );
-      return Promise.resolve({ ok: true, rows });
     },
-    killWinPid(winPid) {
-      killedWinPids.push(winPid);
-      return Promise.resolve();
+    readWmiSnapshot: (_timeoutMs, filterPids) => {
+      wmiCall += 1;
+      if (wmiCall === 1) return okRows([wmi(77821, 4000, 100000n)]);
+      // Root exits during follow-up WMI and WinPID 77822 is recycled by an unrelated process.
+      if (wmiCall === 2) closeFakeChild(fakeChild);
+      return okRows(filterWmi([wmi(77822, 1, 999999n)], filterPids));
     },
-    killMsysTargets(targets) {
-      killedMsys.push(targets);
-      return Promise.resolve();
-    },
+    killWinPid: rec.killWinPid,
+    killMsysTargets: rec.killMsysTargets,
   };
 
-  const ownership = await captureProcessTreeOwnership(child, {
-    timeoutMs: 500,
-    _winTreeOps: recycleOps,
-  });
+  const ownership = await captureFake(fakeChild, recycleOps);
   expect(ownership?.observedRoot).toBe(true);
   expect(ownership?.ownedWinNodes.has(77822)).toBe(false);
 
-  fakeChild.exitCode = 0;
-  fakeChild.stdin.closed = true;
-  fakeChild.stdout.closed = true;
-  fakeChild.stderr.closed = true;
-
-  await expect(
-    reapChildProcess(child, {
-      termTimeoutMs: 150,
-      killTimeoutMs: 150,
-      processGroup: true,
-      _winTreeOps: recycleOps,
-    }),
-  ).resolves.toBeUndefined();
-
-  expect(killedWinPids).toEqual([]);
-  expect(killedMsys).toEqual([]);
+  closeFakeChild(fakeChild);
+  await expect(reapFake(fakeChild, recycleOps)).resolves.toBeUndefined();
+  expect(rec.killedWinPids).toEqual([]);
+  expect(rec.killedMsys).toEqual([]);
 });
 
 it('never adopts or signals an unrelated recycled WinPID while root remains alive', async () => {
-  const makeChild = (winPid: number) =>
-    Object.assign(new EventEmitter(), {
-      pid: winPid,
-      exitCode: null as number | null,
-      signalCode: null,
-      kill: () => false,
-      stdin: { closed: false, destroy: () => undefined },
-      stdout: { closed: false, destroy: () => undefined },
-      stderr: { closed: false, destroy: () => undefined },
-    });
-
   // Sub-case A: post-WMI MSYS snapshot shows child 920 gone and unrelated 9999 reusing 77832.
   {
-    const fakeChild = makeChild(77831);
-    const child = fakeChild as unknown as ChildProcess;
+    const fakeChild = makeFakeChild(77831);
     let msysCall = 0;
     let wmiCall = 0;
-    const killedWinPids: number[] = [];
-    const killedMsys: { msysPids: number[]; pgids: number[] }[] = [];
+    const rec = recordKills();
 
     const liveRecycleOps: WinTreeTestOps = {
-      readMsysSnapshot() {
+      readMsysSnapshot: () => {
         msysCall += 1;
-        if (msysCall === 1) {
-          return Promise.resolve({
-            ok: true,
-            rows: [
-              { pid: 910, ppid: 1, pgid: 910, winPid: 77831, uid: 197609 },
-              { pid: 920, ppid: 910, pgid: 910, winPid: 77832, uid: 197609 },
-            ],
-          });
-        }
-        return Promise.resolve({
-          ok: true,
-          rows: [
-            ...(fakeChild.exitCode === null
-              ? [{ pid: 910, ppid: 1, pgid: 910, winPid: 77831, uid: 197609 }]
-              : []),
-            { pid: 9999, ppid: 1, pgid: 9999, winPid: 77832, uid: 197609 },
-          ],
-        });
+        return okRows(
+          msysCall === 1
+            ? [msys(910, 77831, 1, 910, 197609), msys(920, 77832, 910, 910, 197609)]
+            : [
+                ...(fakeChild.exitCode === null ? [msys(910, 77831, 1, 910, 197609)] : []),
+                msys(9999, 77832, 1, 9999, 197609),
+              ],
+        );
       },
-      readWmiSnapshot(_timeoutMs, filterPids) {
+      readWmiSnapshot: (_timeoutMs, filterPids) => {
         wmiCall += 1;
-        if (wmiCall === 1) {
-          return Promise.resolve({
-            ok: true,
-            rows: [{ pid: 77831, parentPid: 4000, creationUs: 100000n }],
-          });
-        }
-        const rows = [
-          ...(fakeChild.exitCode === null
-            ? [{ pid: 77831, parentPid: 4000, creationUs: 100000n }]
-            : []),
-          { pid: 77832, parentPid: 1, creationUs: 999999n },
-        ].filter((row) => filterPids === undefined || filterPids.includes(row.pid));
-        return Promise.resolve({ ok: true, rows });
+        if (wmiCall === 1) return okRows([wmi(77831, 4000, 100000n)]);
+        return okRows(
+          filterWmi(
+            [
+              ...(fakeChild.exitCode === null ? [wmi(77831, 4000, 100000n)] : []),
+              wmi(77832, 1, 999999n),
+            ],
+            filterPids,
+          ),
+        );
       },
-      killWinPid(winPid) {
-        killedWinPids.push(winPid);
-        return Promise.resolve();
-      },
-      killMsysTargets(targets) {
-        killedMsys.push(targets);
-        return Promise.resolve();
-      },
+      killWinPid: rec.killWinPid,
+      killMsysTargets: rec.killMsysTargets,
     };
 
-    const ownership = await captureProcessTreeOwnership(child, {
-      timeoutMs: 500,
-      _winTreeOps: liveRecycleOps,
-    });
+    const ownership = await captureFake(fakeChild, liveRecycleOps);
     expect(ownership?.observedRoot).toBe(true);
     expect(ownership?.ownedWinNodes.has(77832)).toBe(false);
 
-    fakeChild.exitCode = 0;
-    fakeChild.stdin.closed = true;
-    fakeChild.stdout.closed = true;
-    fakeChild.stderr.closed = true;
-
-    await expect(
-      reapChildProcess(child, {
-        termTimeoutMs: 150,
-        killTimeoutMs: 150,
-        processGroup: true,
-        _winTreeOps: liveRecycleOps,
-      }),
-    ).resolves.toBeUndefined();
-
-    expect(killedWinPids).toEqual([]);
-    expect(killedMsys).toEqual([]);
+    closeFakeChild(fakeChild);
+    await expect(reapFake(fakeChild, liveRecycleOps)).resolves.toBeUndefined();
+    expect(rec.killedWinPids).toEqual([]);
+    expect(rec.killedMsys).toEqual([]);
   }
 
   // Sub-case B: post-WMI MSYS confirmation snapshot fails -> unresolved 77834 is NOT adopted.
   {
-    const fakeChild = makeChild(77833);
-    const child = fakeChild as unknown as ChildProcess;
+    const fakeChild = makeFakeChild(77833);
     let msysCall = 0;
     let wmiCall = 0;
 
     const failedConfirmOps: WinTreeTestOps = {
-      readMsysSnapshot() {
+      readMsysSnapshot: () => {
         msysCall += 1;
-        if (msysCall === 1) {
-          return Promise.resolve({
-            ok: true,
-            rows: [
-              { pid: 910, ppid: 1, pgid: 910, winPid: 77833, uid: 197609 },
-              { pid: 920, ppid: 910, pgid: 910, winPid: 77834, uid: 197609 },
-            ],
-          });
-        }
-        return Promise.resolve({ ok: false, rows: [] });
+        return msysCall === 1
+          ? okRows([msys(910, 77833, 1, 910, 197609), msys(920, 77834, 910, 910, 197609)])
+          : Promise.resolve({ ok: false, rows: [] });
       },
-      readWmiSnapshot(_timeoutMs, filterPids) {
+      readWmiSnapshot: (_timeoutMs, filterPids) => {
         wmiCall += 1;
-        if (wmiCall === 1) {
-          return Promise.resolve({
-            ok: true,
-            rows: [{ pid: 77833, parentPid: 4000, creationUs: 100000n }],
-          });
-        }
-        const rows = [
-          { pid: 77833, parentPid: 4000, creationUs: 100000n },
-          { pid: 77834, parentPid: 1, creationUs: 999999n },
-        ].filter((row) => filterPids === undefined || filterPids.includes(row.pid));
-        return Promise.resolve({ ok: true, rows });
+        if (wmiCall === 1) return okRows([wmi(77833, 4000, 100000n)]);
+        return okRows(filterWmi([wmi(77833, 4000, 100000n), wmi(77834, 1, 999999n)], filterPids));
       },
-      killWinPid: () => Promise.resolve(),
-      killMsysTargets: () => Promise.resolve(),
+      killWinPid: noopKill,
+      killMsysTargets: noopKill,
     };
 
-    const ownership = await captureProcessTreeOwnership(child, {
-      timeoutMs: 500,
-      _winTreeOps: failedConfirmOps,
-    });
+    const ownership = await captureFake(fakeChild, failedConfirmOps);
     expect(ownership?.observedRoot).toBe(true);
     expect(ownership?.ownedWinNodes.has(77834)).toBe(false);
   }
 });
 
 it('adopts unresolved MSYS child only when post-WMI MSYS snapshot confirms unchanged live identity', async () => {
-  const fakeChild = Object.assign(new EventEmitter(), {
-    pid: 77841,
-    exitCode: null as number | null,
-    signalCode: null,
-    kill: () => false,
-    stdin: { closed: false, destroy: () => undefined },
-    stdout: { closed: false, destroy: () => undefined },
-    stderr: { closed: false, destroy: () => undefined },
-  });
-  const child = fakeChild as unknown as ChildProcess;
-
+  const fakeChild = makeFakeChild(77841);
   let captureMsysCalls = 0;
   let wmiCall = 0;
 
   const coherentOps: WinTreeTestOps = {
-    readMsysSnapshot() {
+    readMsysSnapshot: () => {
       captureMsysCalls += 1;
-      return Promise.resolve({
-        ok: true,
-        rows: [
-          { pid: 910, ppid: 1, pgid: 910, winPid: 77841, uid: 197609 },
-          { pid: 920, ppid: 910, pgid: 910, winPid: 77842, uid: 197609 },
-        ],
-      });
+      return okRows([msys(910, 77841, 1, 910, 197609), msys(920, 77842, 910, 910, 197609)]);
     },
-    readWmiSnapshot(_timeoutMs, filterPids) {
+    readWmiSnapshot: (_timeoutMs, filterPids) => {
       wmiCall += 1;
-      if (wmiCall === 1) {
-        return Promise.resolve({
-          ok: true,
-          rows: [{ pid: 77841, parentPid: 4000, creationUs: 100000n }],
-        });
-      }
-      const rows = [
-        { pid: 77841, parentPid: 4000, creationUs: 100000n },
-        { pid: 77842, parentPid: 77841, creationUs: 100050n },
-      ].filter((row) => filterPids === undefined || filterPids.includes(row.pid));
-      return Promise.resolve({ ok: true, rows });
+      if (wmiCall === 1) return okRows([wmi(77841, 4000, 100000n)]);
+      return okRows(filterWmi([wmi(77841, 4000, 100000n), wmi(77842, 77841, 100050n)], filterPids));
     },
-    killWinPid: () => Promise.resolve(),
-    killMsysTargets: () => Promise.resolve(),
+    killWinPid: noopKill,
+    killMsysTargets: noopKill,
   };
 
-  const ownership = await captureProcessTreeOwnership(child, {
-    timeoutMs: 500,
-    _winTreeOps: coherentOps,
-  });
+  const ownership = await captureFake(fakeChild, coherentOps);
   expect(captureMsysCalls).toBeGreaterThanOrEqual(2);
   expect(ownership?.observedRoot).toBe(true);
   expect(ownership?.ownedWinNodes.get(77842)).toBe(100050n);
 });
 
 it('discovers and kills multi-generation post-capture native descendants before confirming exit', async () => {
-  const fakeChild = Object.assign(new EventEmitter(), {
-    pid: 77851,
-    exitCode: null as number | null,
-    signalCode: null,
-    kill: () => false,
-    stdin: { closed: false, destroy: () => undefined },
-    stdout: { closed: false, destroy: () => undefined },
-    stderr: { closed: false, destroy: () => undefined },
-  });
-  const child = fakeChild as unknown as ChildProcess;
-
-  const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+  const fakeChild = makeFakeChild(77851);
   let phase: 'capture' | 'reap' = 'capture';
   const liveWin = new Map<number, { parentPid: number; creationUs: bigint }>([
     [77851, { parentPid: 4000, creationUs: 100000n }],
@@ -1527,61 +1146,30 @@ it('discovers and kills multi-generation post-capture native descendants before 
   const killedWinPids: number[] = [];
 
   const multiHopOps: WinTreeTestOps = {
-    readMsysSnapshot() {
+    readMsysSnapshot: () =>
       // Only MSYS root exists in ps.exe; 77852 and 77853 are native Win32 descendants.
-      const rows = liveWin.has(77851)
-        ? [{ pid: 910, ppid: 1, pgid: 910, winPid: 77851, uid: 197609 }]
-        : [];
-      return Promise.resolve({ ok: true, rows });
+      okRows(liveWin.has(77851) ? [msys(910, 77851, 1, 910, 197609)] : []),
+    readWmiSnapshot: (_timeoutMs, filterPids) => {
+      if (phase === 'reap') reapWmiFilters.push(filterPids);
+      return wmiFromMap(liveWin, filterPids);
     },
-    readWmiSnapshot(_timeoutMs, filterPids) {
-      if (phase === 'reap') {
-        reapWmiFilters.push(filterPids);
-      }
-      const rows = [...liveWin.entries()]
-        .map(([pid, info]) => ({ pid, parentPid: info.parentPid, creationUs: info.creationUs }))
-        .filter(
-          (row) =>
-            filterPids === undefined ||
-            filterPids.includes(row.pid) ||
-            filterPids.includes(row.parentPid),
-        );
-      return Promise.resolve({ ok: true, rows });
-    },
-    killWinPid(winPid) {
+    killWinPid: (winPid) => {
       killedWinPids.push(winPid);
       liveWin.delete(winPid);
-      if (winPid === 77851) {
-        fakeChild.exitCode = 0;
-        fakeChild.stdin.closed = true;
-        fakeChild.stdout.closed = true;
-        fakeChild.stderr.closed = true;
-      }
-      return Promise.resolve();
+      if (winPid === 77851) closeFakeChild(fakeChild);
+      return noopKill();
     },
-    killMsysTargets: () => Promise.resolve(),
+    killMsysTargets: noopKill,
   };
 
-  const ownership = await captureProcessTreeOwnership(child, {
-    timeoutMs: 500,
-    _winTreeOps: multiHopOps,
-  });
-  expect(ownership?.observedRoot).toBe(true);
+  expect((await captureFake(fakeChild, multiHopOps))?.observedRoot).toBe(true);
 
-  await delay(270);
+  await delayMs(270);
   liveWin.set(77852, { parentPid: 77851, creationUs: 100010n });
   liveWin.set(77853, { parentPid: 77852, creationUs: 100020n });
   phase = 'reap';
 
-  await expect(
-    reapChildProcess(child, {
-      termTimeoutMs: 400,
-      killTimeoutMs: 400,
-      processGroup: true,
-      _winTreeOps: multiHopOps,
-    }),
-  ).resolves.toBeUndefined();
-
+  await expect(reapFake(fakeChild, multiHopOps, 400)).resolves.toBeUndefined();
   expect([...liveWin.keys()]).toEqual([]);
   expect(killedWinPids).toEqual([77853, 77852, 77851]);
   // Confirmation WMI must have run even though ps.exe is empty once 77851 exited.
@@ -1589,131 +1177,66 @@ it('discovers and kills multi-generation post-capture native descendants before 
 });
 
 it('fails closed without killing ancestors if native frontier fails or if a native grandchild survives', async () => {
-  const makeChild = (winPid: number) =>
-    Object.assign(new EventEmitter(), {
-      pid: winPid,
-      exitCode: null as number | null,
-      signalCode: null,
-      kill: () => false,
-      stdin: { closed: false, destroy: () => undefined },
-      stdout: { closed: false, destroy: () => undefined },
-      stderr: { closed: false, destroy: () => undefined },
-    });
-  const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
   // Case A: Native grandchild 77863 refuses to die even after root 77861 and child 77862 exit.
   {
-    const fakeChild = makeChild(77861);
-    const child = fakeChild as unknown as ChildProcess;
+    const fakeChild = makeFakeChild(77861);
     const liveWin = new Map<number, { parentPid: number; creationUs: bigint }>([
       [77861, { parentPid: 4000, creationUs: 100000n }],
     ]);
 
     const survivorOps: WinTreeTestOps = {
-      readMsysSnapshot() {
-        const rows = liveWin.has(77861)
-          ? [{ pid: 910, ppid: 1, pgid: 910, winPid: 77861, uid: 197609 }]
-          : [];
-        return Promise.resolve({ ok: true, rows });
+      readMsysSnapshot: () => okRows(liveWin.has(77861) ? [msys(910, 77861, 1, 910, 197609)] : []),
+      readWmiSnapshot: (_timeoutMs, filterPids) => wmiFromMap(liveWin, filterPids),
+      killWinPid: (winPid) => {
+        if (winPid !== 77863) liveWin.delete(winPid);
+        if (winPid === 77861) closeFakeChild(fakeChild);
+        return noopKill();
       },
-      readWmiSnapshot(_timeoutMs, filterPids) {
-        const rows = [...liveWin.entries()]
-          .map(([pid, info]) => ({ pid, parentPid: info.parentPid, creationUs: info.creationUs }))
-          .filter(
-            (row) =>
-              filterPids === undefined ||
-              filterPids.includes(row.pid) ||
-              filterPids.includes(row.parentPid),
-          );
-        return Promise.resolve({ ok: true, rows });
-      },
-      killWinPid(winPid) {
-        if (winPid !== 77863) {
-          liveWin.delete(winPid);
-        }
-        if (winPid === 77861) {
-          fakeChild.exitCode = 0;
-          fakeChild.stdin.closed = true;
-          fakeChild.stdout.closed = true;
-          fakeChild.stderr.closed = true;
-        }
-        return Promise.resolve();
-      },
-      killMsysTargets: () => Promise.resolve(),
+      killMsysTargets: noopKill,
     };
 
-    await captureProcessTreeOwnership(child, { timeoutMs: 500, _winTreeOps: survivorOps });
-    await delay(270);
+    await captureFake(fakeChild, survivorOps);
+    await delayMs(270);
     liveWin.set(77862, { parentPid: 77861, creationUs: 100010n });
     liveWin.set(77863, { parentPid: 77862, creationUs: 100020n });
 
-    await expect(
-      reapChildProcess(child, {
-        termTimeoutMs: 400,
-        killTimeoutMs: 400,
-        processGroup: true,
-        _winTreeOps: survivorOps,
-      }),
-    ).rejects.toThrow('test_child_reap_unconfirmed');
+    await expect(reapFake(fakeChild, survivorOps, 400)).rejects.toThrow(
+      'test_child_reap_unconfirmed',
+    );
     expect(liveWin.has(77863)).toBe(true);
   }
 
   // Case B: Frontier WMI lookup fails before closing -> must not kill ancestors 77871/77872.
   {
-    const fakeChild = makeChild(77871);
-    const child = fakeChild as unknown as ChildProcess;
+    const fakeChild = makeFakeChild(77871);
     let phase: 'capture' | 'reap' = 'capture';
     let reapWmiCount = 0;
     const killedWinPids: number[] = [];
 
     const frontierFailOps: WinTreeTestOps = {
-      readMsysSnapshot() {
-        return Promise.resolve({
-          ok: true,
-          rows: [{ pid: 910, ppid: 1, pgid: 910, winPid: 77871, uid: 197609 }],
-        });
-      },
-      readWmiSnapshot(_timeoutMs, filterPids) {
-        if (phase === 'capture') {
-          return Promise.resolve({
-            ok: true,
-            rows: [{ pid: 77871, parentPid: 4000, creationUs: 100000n }],
-          });
-        }
+      readMsysSnapshot: () => okRows([msys(910, 77871, 1, 910, 197609)]),
+      readWmiSnapshot: (_timeoutMs, filterPids) => {
+        if (phase === 'capture') return okRows([wmi(77871, 4000, 100000n)]);
         reapWmiCount += 1;
-        if (reapWmiCount >= 2) {
-          return Promise.resolve({ ok: false, rows: [] });
-        }
-        const rows = [
-          { pid: 77871, parentPid: 4000, creationUs: 100000n },
-          { pid: 77872, parentPid: 77871, creationUs: 100010n },
-        ].filter(
-          (row) =>
-            filterPids === undefined ||
-            filterPids.includes(row.pid) ||
-            filterPids.includes(row.parentPid),
+        if (reapWmiCount >= 2) return Promise.resolve({ ok: false, rows: [] });
+        return okRows(
+          filterWmi([wmi(77871, 4000, 100000n), wmi(77872, 77871, 100010n)], filterPids, true),
         );
-        return Promise.resolve({ ok: true, rows });
       },
-      killWinPid(winPid) {
+      killWinPid: (winPid) => {
         killedWinPids.push(winPid);
-        return Promise.resolve();
+        return noopKill();
       },
-      killMsysTargets: () => Promise.resolve(),
+      killMsysTargets: noopKill,
     };
 
-    await captureProcessTreeOwnership(child, { timeoutMs: 500, _winTreeOps: frontierFailOps });
-    await delay(270);
+    await captureFake(fakeChild, frontierFailOps);
+    await delayMs(270);
     phase = 'reap';
 
-    await expect(
-      reapChildProcess(child, {
-        termTimeoutMs: 400,
-        killTimeoutMs: 400,
-        processGroup: true,
-        _winTreeOps: frontierFailOps,
-      }),
-    ).rejects.toThrow('test_child_reap_unconfirmed');
+    await expect(reapFake(fakeChild, frontierFailOps, 400)).rejects.toThrow(
+      'test_child_reap_unconfirmed',
+    );
     expect(killedWinPids).toEqual([]);
   }
 });
