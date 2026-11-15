@@ -1,7 +1,18 @@
 import { spawnSync } from 'node:child_process';
-import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  access,
+  copyFile,
+  cp,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { afterEach, describe, expect, test } from 'vitest';
@@ -10,22 +21,257 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const validatorPath = join(repositoryRoot, 'scripts', 'validate-phase0-gate.ts');
 const temporaryRoots: string[] = [];
 
+const phaseZeroIds = new Set([
+  ...Array.from({ length: 16 }, (_, index) => `P0-${String(index + 3).padStart(3, '0')}`),
+  'P0-GATE',
+]);
+
 interface ValidationResult {
   readonly status: number | null;
   readonly stderr: string;
   readonly stdout: string;
 }
 
-async function createFixture(): Promise<string> {
+interface ValidatorInputs {
+  readonly requiredEvidenceFiles: readonly string[];
+  readonly citedEvidenceFiles: readonly string[];
+  readonly requiredSectionPaths: readonly string[];
+}
+
+function extractValidatorBlock(validatorSource: string, constantName: string): string {
+  const pattern = new RegExp(
+    `const ${constantName}(?:\\s*:[^=]+)?\\s*=\\s*\\[([\\s\\S]*?)\\n\\]`,
+    'u',
+  );
+  const match = pattern.exec(validatorSource);
+  if (match?.[1] === undefined) {
+    throw new Error(`Could not extract ${constantName} from ${validatorPath}`);
+  }
+  return match[1];
+}
+
+function extractSingleQuotedValues(block: string, fieldName: string): readonly string[] {
+  const values = Array.from(block.matchAll(/'([^']+)'/gu), (entry) => entry[1]).filter(
+    (value): value is string => value !== undefined,
+  );
+  if (values.length === 0) {
+    throw new Error(`Validator list ${fieldName} in ${validatorPath} is empty`);
+  }
+  return values;
+}
+
+async function readValidatorInputs(): Promise<ValidatorInputs> {
+  const validatorSource = await readFile(validatorPath, 'utf8');
+  const requiredEvidenceBlock = extractValidatorBlock(validatorSource, 'requiredEvidenceFiles');
+  const citedEvidenceBlock = extractValidatorBlock(validatorSource, 'citedEvidenceFiles');
+  const requiredSectionsBlock = extractValidatorBlock(validatorSource, 'requiredSections');
+  const sectionPaths = Array.from(
+    requiredSectionsBlock.matchAll(/\bpath:\s*'([^']+)'/gu),
+    (entry) => entry[1],
+  ).filter((value): value is string => value !== undefined);
+  if (sectionPaths.length === 0) {
+    throw new Error(`Validator list requiredSections paths in ${validatorPath} is empty`);
+  }
+  return {
+    requiredEvidenceFiles: extractSingleQuotedValues(
+      requiredEvidenceBlock,
+      'requiredEvidenceFiles',
+    ),
+    citedEvidenceFiles: extractSingleQuotedValues(citedEvidenceBlock, 'citedEvidenceFiles'),
+    requiredSectionPaths: sectionPaths,
+  };
+}
+
+function resolveBoundedRelativePath(sourceRoot: string, rawRelativePath: string): string {
+  const trimmed = rawRelativePath.trim();
+  if (trimmed.length === 0 || isAbsolute(trimmed)) {
+    throw new Error(`Invalid validator dependency path: ${rawRelativePath}`);
+  }
+  const resolvedRoot = resolve(sourceRoot);
+  const resolvedTarget = resolve(resolvedRoot, trimmed);
+  const relativeTarget = relative(resolvedRoot, resolvedTarget);
+  if (
+    relativeTarget.length === 0 ||
+    relativeTarget.startsWith('..') ||
+    isAbsolute(relativeTarget)
+  ) {
+    throw new Error(`Validator dependency escapes source root: ${rawRelativePath}`);
+  }
+  return relativeTarget.replace(/\\/gu, '/');
+}
+
+/**
+ * Derives the exact repository-relative paths read by `scripts/validate-phase0-gate.ts`.
+ */
+async function collectValidatorDependencies(sourceRoot: string): Promise<readonly string[]> {
+  const inputs = await readValidatorInputs();
+  const dependencies = new Set<string>();
+  const addDependency = (rawPath: string): string => {
+    const normalized = resolveBoundedRelativePath(sourceRoot, rawPath);
+    dependencies.add(normalized);
+    return normalized;
+  };
+
+  addDependency('AGENTS.md');
+  const trackerRelativePath = addDependency('docs/TODO.md');
+  for (const requiredPath of [...inputs.requiredEvidenceFiles, ...inputs.requiredSectionPaths]) {
+    addDependency(requiredPath);
+  }
+
+  const citedRelativePaths = inputs.citedEvidenceFiles.map((filePath) => addDependency(filePath));
+  const tracker = await readFile(resolve(sourceRoot, trackerRelativePath), 'utf8');
+  for (const line of tracker.split(/\r?\n/u)) {
+    const rowMatch = /^\|\s*(P0-(?:\d{3}|GATE))\s*\|/u.exec(line);
+    const id = rowMatch?.[1];
+    if (id === undefined || !phaseZeroIds.has(id)) continue;
+    for (const evidenceMatch of line.matchAll(/`(docs\/[^`]+)`/gu)) {
+      if (evidenceMatch[1] !== undefined) {
+        addDependency(evidenceMatch[1]);
+      }
+    }
+  }
+
+  for (const citedPath of citedRelativePaths) {
+    const evidence = await readFile(resolve(sourceRoot, citedPath), 'utf8');
+    for (const citationMatch of evidence.matchAll(/`([^`\n]+\.(?:md|ts|sh)):(\d+)`/gu)) {
+      if (citationMatch[1] !== undefined) {
+        addDependency(citationMatch[1]);
+      }
+    }
+  }
+
+  return [...dependencies].sort();
+}
+
+async function copyBoundedDependency(
+  sourceRoot: string,
+  fixtureRoot: string,
+  relativePath: string,
+): Promise<void> {
+  const sourcePath = resolve(sourceRoot, relativePath);
+  const destinationPath = join(fixtureRoot, relativePath);
+  const entryStat = await lstat(sourcePath);
+  if (entryStat.isSymbolicLink()) {
+    throw new Error(`Refusing symlink validator dependency: ${relativePath}`);
+  }
+  await mkdir(dirname(destinationPath), { recursive: true });
+  if (entryStat.isDirectory()) {
+    await cp(sourcePath, destinationPath, { recursive: true });
+    return;
+  }
+  await copyFile(sourcePath, destinationPath);
+}
+
+async function createFixture(sourceRoot: string = repositoryRoot): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'fcd-phase0-gate-'));
   temporaryRoots.push(root);
-  await cp(join(repositoryRoot, 'docs'), join(root, 'docs'), { recursive: true });
-  await cp(join(repositoryRoot, 'AGENTS.md'), join(root, 'AGENTS.md'));
-  await cp(join(repositoryRoot, 'README.md'), join(root, 'README.md'));
-  for (const directory of ['migrations', 'scripts', 'src', 'tests']) {
-    await cp(join(repositoryRoot, directory), join(root, directory), { recursive: true });
-  }
+  const dependencies = await collectValidatorDependencies(sourceRoot);
+  await Promise.all(
+    dependencies.map(async (relativePath) => copyBoundedDependency(sourceRoot, root, relativePath)),
+  );
   return root;
+}
+
+async function listRelativeFiles(root: string, prefix = ''): Promise<string[]> {
+  const directory = prefix.length === 0 ? root : join(root, prefix);
+  const entries = await readdir(directory, { withFileTypes: true });
+  const files: string[] = [];
+  for (const entry of entries) {
+    const relativeEntry = prefix.length === 0 ? entry.name : `${prefix}/${entry.name}`;
+    if (entry.isDirectory()) {
+      files.push(...(await listRelativeFiles(root, relativeEntry)));
+    } else {
+      files.push(relativeEntry);
+    }
+  }
+  return files.sort();
+}
+
+async function createSyntheticSourceRoot(options?: {
+  readonly extraCitation?: string;
+}): Promise<string> {
+  const sourceRoot = await mkdtemp(join(tmpdir(), 'fcd-phase0-source-'));
+  temporaryRoots.push(sourceRoot);
+  const writeRepoFile = async (relativePath: string, content: string): Promise<void> => {
+    const targetPath = join(sourceRoot, relativePath);
+    await mkdir(dirname(targetPath), { recursive: true });
+    await writeFile(targetPath, content, 'utf8');
+  };
+
+  await writeRepoFile(
+    'AGENTS.md',
+    '# Synthetic Policy\n\nNo production launch until the smoke-gate tests pass.\n',
+  );
+  const phaseZeroRows = [...phaseZeroIds].map((id) => {
+    if (id === 'P0-003') {
+      return `| ${id} | Dynamic tracker target | None | Codex | COMPLETE | \`docs/decisions/dynamic-tracker-target.md\` | None |`;
+    }
+    if (id === 'P0-017') {
+      return `| ${id} | Threat model | P0-003 | Codex | COMPLETE | \`docs/security/threat-model.md\` | None |`;
+    }
+    if (id === 'P0-018') {
+      return `| ${id} | Acceptance matrix | P0-017 | Codex | COMPLETE | \`docs/testing/acceptance-matrix.md\` | None |`;
+    }
+    if (id === 'P0-GATE') {
+      return `| ${id} | Phase 0 review | P0-018 | Owner | COMPLETE | \`docs/reviews/phase-0-gate.md\` \`docs/reviews/phase-0-gate-validation.md\` | Explicit |`;
+    }
+    return `| ${id} | Synthetic step | None | Codex | COMPLETE | Recorded | None |`;
+  });
+  await writeRepoFile(
+    'docs/TODO.md',
+    [
+      '# Tracker',
+      '| ID | Task | Depends On | Owner | Status | Evidence | Boundary |',
+      '|---|---|---|---|---|---|---|',
+      ...phaseZeroRows,
+    ].join('\n'),
+  );
+  await writeRepoFile('docs/decisions/dynamic-tracker-target.md', '# Dynamic Tracker Target\n');
+  await writeRepoFile(
+    'src/dynamic-citation-target.ts',
+    'export const line1 = 1;\nexport const line2 = 2;\n',
+  );
+  await writeRepoFile('tests/unrelated-synthetic.test.ts', '// should not be copied\n');
+  await writeRepoFile(
+    'docs/security/threat-model.md',
+    [
+      '# Threat Model',
+      '## 1. Overview',
+      '## 2. Threat Model, Trust Boundaries, And Assumptions',
+      '## 3. Attack Surface, Mitigations, And Attacker Stories',
+      '## 4. Severity Calibration',
+      'Reference `AGENTS.md:3`.',
+    ].join('\n\n'),
+  );
+  await writeRepoFile(
+    'docs/testing/acceptance-matrix.md',
+    [
+      '# Acceptance Matrix',
+      '## AGENTS.md Launch-Gate Matrix',
+      '| ID | Gate |',
+      '|---|---|',
+      '| AC-01 | Smoke gate |',
+      '## Security, Policy, And Operational Matrix',
+    ].join('\n\n'),
+  );
+  await writeRepoFile(
+    'docs/reviews/phase-0-gate.md',
+    [
+      '# Phase 0 Gate',
+      'Authority scope: planning_only',
+      'Production action authorization: false',
+      '## Evidence Review',
+      '## Exit-Gate Findings',
+      '## Deferred Risks And Their Binding Gates',
+      '## Gate Decision',
+    ].join('\n\n'),
+  );
+  const citationLine = options?.extraCitation ?? '`src/dynamic-citation-target.ts:2`';
+  await writeRepoFile(
+    'docs/reviews/phase-0-gate-validation.md',
+    `# Phase 0 Gate Validation\n\nCited target: ${citationLine}\n`,
+  );
+  return sourceRoot;
 }
 
 function runValidator(root: string): ValidationResult {
@@ -174,5 +420,70 @@ describe('Phase 0 gate validator', () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('Citation out of range: AGENTS.md:9999');
+  });
+
+  test('copies only validator-required inputs and citations instead of unrelated repository trees', async () => {
+    const expectedDependencies = await collectValidatorDependencies(repositoryRoot);
+    const root = await createFixture();
+    const copiedFiles = await listRelativeFiles(root);
+
+    expect(runValidator(root)).toMatchObject({ status: 0, stderr: '' });
+    expect(copiedFiles).toEqual(expectedDependencies);
+    expect(copiedFiles.length).toBeLessThan(60);
+
+    for (const requiredPath of [
+      'AGENTS.md',
+      'README.md',
+      'docs/TODO.md',
+      'docs/decisions/0001-runtime-and-toolchain.md',
+      'docs/reviews/phase-0-gate-validation.md',
+      'scripts/validate-phase0-gate.ts',
+      'tests/phase0-gate-validator.test.ts',
+    ]) {
+      expect(copiedFiles).toContain(requiredPath);
+    }
+
+    for (const unrelatedPath of [
+      'docs/PLAN.md',
+      'src/main.ts',
+      'tests/admin-app.test.ts',
+      'tests/operations-scripts.test.ts',
+    ]) {
+      await expect(access(join(root, unrelatedPath))).rejects.toMatchObject({ code: 'ENOENT' });
+    }
+  });
+
+  test('dynamically includes tracker and citation targets and fails when a required target is missing', async () => {
+    const sourceRoot = await createSyntheticSourceRoot();
+    const boundedRoot = await createFixture(sourceRoot);
+    const copiedFiles = await listRelativeFiles(boundedRoot);
+
+    expect(runValidator(boundedRoot)).toMatchObject({ status: 0, stderr: '' });
+    expect(copiedFiles).toContain('docs/decisions/dynamic-tracker-target.md');
+    expect(copiedFiles).toContain('src/dynamic-citation-target.ts');
+    await expect(
+      access(join(boundedRoot, 'tests/unrelated-synthetic.test.ts')),
+    ).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+
+    await rm(join(sourceRoot, 'src/dynamic-citation-target.ts'));
+    await expect(createFixture(sourceRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+
+    await writeFile(
+      join(sourceRoot, 'src/dynamic-citation-target.ts'),
+      'export const line1 = 1;\nexport const line2 = 2;\n',
+      'utf8',
+    );
+    await rm(join(sourceRoot, 'docs/decisions/dynamic-tracker-target.md'));
+    await expect(createFixture(sourceRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  test('rejects citation targets that escape the source repository root', async () => {
+    const escapingSource = await createSyntheticSourceRoot({
+      extraCitation: '`../outside-repo.ts:1`',
+    });
+
+    await expect(createFixture(escapingSource)).rejects.toThrow(/escapes source root/u);
   });
 });
