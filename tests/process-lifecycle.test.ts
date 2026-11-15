@@ -1795,3 +1795,320 @@ it('bounds auto-capture observer lifecycle inside short custom caller budgets', 
   expect(observedSignals.length).toBeGreaterThanOrEqual(2);
   expect(observedSignals.every((s) => s?.aborted === true)).toBe(true);
 });
+
+it('discovers and kills native children born immediately after recent capture (< 250 ms) and rejects closed-root unverified orphans', async () => {
+  const makeChild = (winPid: number) =>
+    Object.assign(new EventEmitter(), {
+      pid: winPid,
+      exitCode: null as number | null,
+      signalCode: null,
+      kill: () => false,
+      stdin: { closed: false, destroy: () => undefined },
+      stdout: { closed: false, destroy: () => undefined },
+      stderr: { closed: false, destroy: () => undefined },
+    });
+
+  // Case A: Native child born immediately after capture (< 250 ms) is discovered and killed before root.
+  {
+    const fakeChild = makeChild(77901);
+    const child = fakeChild as unknown as ChildProcess;
+    let phase: 'capture' | 'reap' = 'capture';
+    const liveWin = new Map<number, { parentPid: number; creationUs: bigint }>([
+      [77901, { parentPid: 4000, creationUs: 100000n }],
+    ]);
+    const reapWmiFilters: (readonly number[] | undefined)[] = [];
+    const killedWinPids: number[] = [];
+
+    const recentOps: WinTreeTestOps = {
+      readMsysSnapshot() {
+        const rows = liveWin.has(77901)
+          ? [{ pid: 910, ppid: 1, pgid: 910, winPid: 77901, uid: 197609 }]
+          : [];
+        return Promise.resolve({ ok: true, rows });
+      },
+      readWmiSnapshot(_timeoutMs, filterPids) {
+        if (phase === 'reap') {
+          reapWmiFilters.push(filterPids);
+        }
+        const rows = [...liveWin.entries()]
+          .map(([pid, info]) => ({ pid, parentPid: info.parentPid, creationUs: info.creationUs }))
+          .filter(
+            (row) =>
+              filterPids === undefined ||
+              filterPids.includes(row.pid) ||
+              filterPids.includes(row.parentPid),
+          );
+        return Promise.resolve({ ok: true, rows });
+      },
+      killWinPid(winPid) {
+        killedWinPids.push(winPid);
+        liveWin.delete(winPid);
+        if (winPid === 77901) {
+          fakeChild.exitCode = 0;
+          fakeChild.stdin.closed = true;
+          fakeChild.stdout.closed = true;
+          fakeChild.stderr.closed = true;
+        }
+        return Promise.resolve();
+      },
+      killMsysTargets: () => Promise.resolve(),
+    };
+
+    const ownership = await captureProcessTreeOwnership(child, {
+      timeoutMs: 500,
+      _winTreeOps: recentOps,
+    });
+    expect(ownership?.observedRoot).toBe(true);
+
+    // Zero delay (< 250 ms recent-capture window): spawn non-MSYS native child + grandchild.
+    liveWin.set(77902, { parentPid: 77901, creationUs: 100010n });
+    liveWin.set(77903, { parentPid: 77902, creationUs: 100020n });
+    phase = 'reap';
+
+    await expect(
+      reapChildProcess(child, {
+        termTimeoutMs: 400,
+        killTimeoutMs: 400,
+        processGroup: true,
+        _winTreeOps: recentOps,
+      }),
+    ).resolves.toBeUndefined();
+
+    expect([...liveWin.keys()]).toEqual([]);
+    expect(killedWinPids).toEqual([77903, 77902, 77901]);
+    expect(reapWmiFilters.length).toBeGreaterThanOrEqual(4);
+  }
+
+  // Case B: If captured root exits leaving an unverified potential native child, fail closed without false resolution or signaling.
+  {
+    const fakeChild = makeChild(77911);
+    const child = fakeChild as unknown as ChildProcess;
+    let phase: 'capture' | 'reap' = 'capture';
+    const liveWin = new Map<number, { parentPid: number; creationUs: bigint }>([
+      [77911, { parentPid: 4000, creationUs: 100000n }],
+    ]);
+    const killedWinPids: number[] = [];
+
+    const orphanOps: WinTreeTestOps = {
+      readMsysSnapshot() {
+        const rows =
+          phase === 'capture' ? [{ pid: 910, ppid: 1, pgid: 910, winPid: 77911, uid: 197609 }] : [];
+        return Promise.resolve({ ok: true, rows });
+      },
+      readWmiSnapshot(_timeoutMs, filterPids) {
+        const rows = [...liveWin.entries()]
+          .map(([pid, info]) => ({ pid, parentPid: info.parentPid, creationUs: info.creationUs }))
+          .filter(
+            (row) =>
+              filterPids === undefined ||
+              filterPids.includes(row.pid) ||
+              filterPids.includes(row.parentPid),
+          );
+        return Promise.resolve({ ok: true, rows });
+      },
+      killWinPid(winPid) {
+        killedWinPids.push(winPid);
+        return Promise.resolve();
+      },
+      killMsysTargets: () => Promise.resolve(),
+    };
+
+    const ownership = await captureProcessTreeOwnership(child, {
+      timeoutMs: 500,
+      _winTreeOps: orphanOps,
+    });
+    expect(ownership?.observedRoot).toBe(true);
+
+    // Native child remains while root exits before reap runs.
+    liveWin.delete(77911);
+    liveWin.set(77912, { parentPid: 77911, creationUs: 100010n });
+    fakeChild.exitCode = 0;
+    fakeChild.stdin.closed = true;
+    fakeChild.stdout.closed = true;
+    fakeChild.stderr.closed = true;
+    phase = 'reap';
+
+    await expect(
+      reapChildProcess(child, {
+        termTimeoutMs: 400,
+        killTimeoutMs: 400,
+        processGroup: true,
+        _winTreeOps: orphanOps,
+      }),
+    ).rejects.toThrow('test_child_reap_unconfirmed');
+
+    expect(killedWinPids).toEqual([]);
+    expect(liveWin.has(77912)).toBe(true);
+  }
+});
+
+it('invalidates stale WMI rows and never adopts or signals unrelated processes when a parent PID recycles during frontier or prefetch', async () => {
+  const makeChild = (winPid: number) =>
+    Object.assign(new EventEmitter(), {
+      pid: winPid,
+      exitCode: null as number | null,
+      signalCode: null,
+      kill: () => false,
+      stdin: { closed: false, destroy: () => undefined },
+      stdout: { closed: false, destroy: () => undefined },
+      stderr: { closed: false, destroy: () => undefined },
+    });
+
+  // Case A: Frontier WMI detects recycled native parent 77952 -> must invalidate proof, fail closed, and never adopt/signal 77952 or 77953.
+  {
+    const fakeChild = makeChild(77951);
+    const child = fakeChild as unknown as ChildProcess;
+    let phase: 'capture' | 'reap' = 'capture';
+    let reapWmiCall = 0;
+    const killedWinPids: number[] = [];
+
+    const frontierRecycleOps: WinTreeTestOps = {
+      readMsysSnapshot() {
+        return Promise.resolve({
+          ok: true,
+          rows: [{ pid: 910, ppid: 1, pgid: 910, winPid: 77951, uid: 197609 }],
+        });
+      },
+      readWmiSnapshot(_timeoutMs, filterPids) {
+        if (phase === 'capture') {
+          return Promise.resolve({
+            ok: true,
+            rows: [{ pid: 77951, parentPid: 4000, creationUs: 100000n }],
+          });
+        }
+        reapWmiCall += 1;
+        const rows =
+          reapWmiCall === 1
+            ? [
+                { pid: 77951, parentPid: 4000, creationUs: 100000n },
+                { pid: 77952, parentPid: 77951, creationUs: 100010n },
+              ]
+            : [
+                // 77952 exited and PID recycled to unrelated process (999999n) with unrelated child 77953.
+                { pid: 77952, parentPid: 1, creationUs: 999999n },
+                { pid: 77953, parentPid: 77952, creationUs: 1000000n },
+              ];
+        return Promise.resolve({
+          ok: true,
+          rows: rows.filter(
+            (row) =>
+              filterPids === undefined ||
+              filterPids.includes(row.pid) ||
+              filterPids.includes(row.parentPid),
+          ),
+        });
+      },
+      killWinPid(winPid) {
+        killedWinPids.push(winPid);
+        return Promise.resolve();
+      },
+      killMsysTargets: () => Promise.resolve(),
+    };
+
+    const ownership = await captureProcessTreeOwnership(child, {
+      timeoutMs: 500,
+      _winTreeOps: frontierRecycleOps,
+    });
+    phase = 'reap';
+
+    await expect(
+      reapChildProcess(child, {
+        termTimeoutMs: 400,
+        killTimeoutMs: 400,
+        processGroup: true,
+        _winTreeOps: frontierRecycleOps,
+      }),
+    ).rejects.toThrow('test_child_reap_unconfirmed');
+
+    expect(killedWinPids).toEqual([]);
+    expect(ownership?.ownedWinNodes.has(77952)).toBe(false);
+    expect(ownership?.ownedWinNodes.has(77953)).toBe(false);
+  }
+
+  // Case B: Missing-filter WMI batch after closed-root prefetch observes recycled 77962 and new unrelated child 77964 -> never adopt/signal.
+  {
+    const fakeChild = makeChild(77961);
+    const child = fakeChild as unknown as ChildProcess;
+    let phase: 'capture' | 'reap' = 'capture';
+    let reapWmiCall = 0;
+    const killedWinPids: number[] = [];
+
+    const prefetchRecycleOps: WinTreeTestOps = {
+      readMsysSnapshot() {
+        if (phase === 'capture') {
+          return Promise.resolve({
+            ok: true,
+            rows: [
+              { pid: 910, ppid: 1, pgid: 910, winPid: 77961, uid: 197609 },
+              { pid: 920, ppid: 910, pgid: 910, winPid: 77962, uid: 197609 },
+            ],
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          rows: [
+            { pid: 920, ppid: 910, pgid: 910, winPid: 77962, uid: 197609 },
+            { pid: 921, ppid: 920, pgid: 910, winPid: 77964, uid: 197609 },
+          ],
+        });
+      },
+      readWmiSnapshot(_timeoutMs, filterPids) {
+        if (phase === 'capture') {
+          return Promise.resolve({
+            ok: true,
+            rows: [
+              { pid: 77961, parentPid: 4000, creationUs: 100000n },
+              { pid: 77962, parentPid: 77961, creationUs: 100010n },
+            ],
+          });
+        }
+        reapWmiCall += 1;
+        const rows =
+          reapWmiCall === 1
+            ? [{ pid: 77962, parentPid: 77961, creationUs: 100010n }]
+            : [
+                { pid: 77962, parentPid: 1, creationUs: 999999n },
+                { pid: 77964, parentPid: 77962, creationUs: 1000000n },
+              ];
+        return Promise.resolve({
+          ok: true,
+          rows: rows.filter(
+            (row) =>
+              filterPids === undefined ||
+              filterPids.includes(row.pid) ||
+              filterPids.includes(row.parentPid),
+          ),
+        });
+      },
+      killWinPid(winPid) {
+        killedWinPids.push(winPid);
+        return Promise.resolve();
+      },
+      killMsysTargets: () => Promise.resolve(),
+    };
+
+    const ownership = await captureProcessTreeOwnership(child, {
+      timeoutMs: 500,
+      _winTreeOps: prefetchRecycleOps,
+    });
+    expect(ownership?.ownedWinNodes.has(77962)).toBe(true);
+
+    fakeChild.exitCode = 0;
+    fakeChild.stdin.closed = true;
+    fakeChild.stdout.closed = true;
+    fakeChild.stderr.closed = true;
+    phase = 'reap';
+
+    await expect(
+      reapChildProcess(child, {
+        termTimeoutMs: 400,
+        killTimeoutMs: 400,
+        processGroup: true,
+        _winTreeOps: prefetchRecycleOps,
+      }),
+    ).rejects.toThrow('test_child_reap_unconfirmed');
+
+    expect(killedWinPids).toEqual([]);
+    expect(ownership?.ownedWinNodes.has(77964)).toBe(false);
+  }
+});

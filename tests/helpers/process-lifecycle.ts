@@ -32,9 +32,6 @@ export interface ProcessTreeOwnership {
   ownedWinNodes: Map<number, bigint>;
   ownedMsysPgids: Set<number>;
   ownedMsysUids: Set<number>;
-  capturedAtMs?: number;
-  recentWmiRows?: Win32ProcessRow[];
-  initialMsysRows?: Map<number, MsysProcessRow>;
 }
 
 export interface WinTreeTestOps {
@@ -58,6 +55,8 @@ export interface WinTreeTestOps {
 export interface CaptureOwnershipOptions {
   timeoutMs?: number;
   _winTreeOps?: WinTreeTestOps;
+  /** Internal flag: auto-capture at spawn filters initial WMI to [rootPid] to avoid full-host scans. */
+  _initialFilterRootPid?: boolean;
 }
 
 export interface ReapOptions {
@@ -103,6 +102,8 @@ interface ActiveCaptureControl {
 }
 
 const ownershipByChild = new WeakMap<ChildProcess, Promise<ProcessTreeOwnership | null>>();
+const autoCapturePromises = new WeakSet<Promise<ProcessTreeOwnership | null>>();
+const settledCapturePromises = new WeakSet<Promise<ProcessTreeOwnership | null>>();
 const activeCaptureControls = new WeakMap<ChildProcess, ActiveCaptureControl>();
 const confirmedDirectReapSet = new WeakSet<ChildProcess>();
 const confirmedTreeReapSet = new WeakSet<ChildProcess>();
@@ -122,7 +123,12 @@ function startAutoOwnershipCapture(
         : requestedFloorMs;
     void captureProcessTreeOwnership(child, {
       timeoutMs: boundedCaptureMs,
+      _initialFilterRootPid: true,
     }).catch(() => null);
+    const storedPromise = ownershipByChild.get(child);
+    if (storedPromise !== undefined) {
+      autoCapturePromises.add(storedPromise);
+    }
   }
 }
 
@@ -345,6 +351,7 @@ async function execBounded(
     };
     const killHard = () => {
       try {
+        proc.stdout?.destroy();
         proc.kill('SIGKILL');
       } catch {
         // Ignore termination failure after expiry/abort.
@@ -523,12 +530,14 @@ function expandOwnedWinNodes(
   ownedWinNodes: Map<number, bigint>,
   wmiRows: readonly Win32ProcessRow[],
   wmiByPid: ReadonlyMap<number, Win32ProcessRow>,
+  conflictedPids?: ReadonlySet<number>,
 ): void {
   let added = true;
   while (added) {
     added = false;
     for (const row of wmiRows) {
-      if (row.pid <= 4 || ownedWinNodes.has(row.pid)) continue;
+      if (row.pid <= 4 || ownedWinNodes.has(row.pid) || conflictedPids?.has(row.pid)) continue;
+      if (conflictedPids?.has(row.parentPid)) continue;
       const parentCreationUs = ownedWinNodes.get(row.parentPid);
       if (parentCreationUs === undefined) continue;
       const liveParent = wmiByPid.get(row.parentPid);
@@ -539,6 +548,45 @@ function expandOwnedWinNodes(
       }
     }
   }
+}
+
+/**
+ * Merge newly observed WMI rows into existing snapshot storage, replacing any
+ * stale row when a PID is re-observed and flagging conflicting identities.
+ */
+function mergeWmiSnapshotRows(
+  wmiRows: Win32ProcessRow[],
+  wmiByPid: Map<number, Win32ProcessRow>,
+  incomingRows: readonly Win32ProcessRow[],
+  conflictedPids: Set<number>,
+  expectedCreations?: ReadonlyMap<number, bigint>,
+): Set<number> {
+  const rowIndexByPid = new Map<number, number>();
+  for (const [index, existingRow] of wmiRows.entries()) {
+    rowIndexByPid.set(existingRow.pid, index);
+  }
+  const newConflictPids = new Set<number>();
+  for (const row of incomingRows) {
+    const existingIndex = rowIndexByPid.get(row.pid);
+    const prev = existingIndex !== undefined ? wmiRows[existingIndex] : undefined;
+    const expectedCreation = expectedCreations?.get(row.pid);
+    if (
+      (prev !== undefined &&
+        (prev.creationUs !== row.creationUs || prev.parentPid !== row.parentPid)) ||
+      (expectedCreation !== undefined && row.creationUs !== expectedCreation)
+    ) {
+      conflictedPids.add(row.pid);
+      newConflictPids.add(row.pid);
+    }
+    if (existingIndex !== undefined) {
+      wmiRows[existingIndex] = row;
+    } else {
+      rowIndexByPid.set(row.pid, wmiRows.length);
+      wmiRows.push(row);
+    }
+    wmiByPid.set(row.pid, row);
+  }
+  return newConflictPids;
 }
 
 function sameMsysIdentity(a: MsysProcessRow, b: MsysProcessRow): boolean {
@@ -625,9 +673,10 @@ export async function captureProcessTreeOwnership(
       return emptyOwnership;
     }
 
+    const initialWmiFilter = options?._initialFilterRootPid === true ? [pid] : undefined;
     const [wmiResult, msysResult] = await awaitAbortable(
       Promise.all([
-        ops.readWmiSnapshot(getRemainingMs(), undefined, abortSignal),
+        ops.readWmiSnapshot(getRemainingMs(), initialWmiFilter, abortSignal),
         ops.readMsysSnapshot(getRemainingMs(), abortSignal),
       ]),
       abortSignal,
@@ -708,6 +757,8 @@ export async function captureProcessTreeOwnership(
       }
     }
 
+    const queriedWinParents = new Set<number>(initialWmiFilter ?? []);
+
     // Coherent t1 -> t2 -> t3 verification for MSYS children absent from t1 WMI:
     // require an unchanged post-WMI MSYS identity and continuously live MSYS anchors
     // before adopting any newly returned WinPID, preventing WinPID recycle adoption.
@@ -717,6 +768,9 @@ export async function captureProcessTreeOwnership(
         unresolvedWinPids.add(row.winPid);
       }
       const followUpFilterPids = [...new Set([...ownedWinNodes.keys(), ...unresolvedWinPids])];
+      for (const qPid of followUpFilterPids) {
+        queriedWinParents.add(qPid);
+      }
       const missingWmi = await awaitAbortable(
         ops.readWmiSnapshot(getRemainingMs(), followUpFilterPids, abortSignal),
         abortSignal,
@@ -730,15 +784,30 @@ export async function captureProcessTreeOwnership(
         getRemainingMs() > 0 &&
         !isAborted()
       ) {
+        const captureConflictedPids = new Set<number>();
+        mergeWmiSnapshotRows(
+          wmiResult.rows,
+          wmiByPid,
+          missingWmi.rows,
+          captureConflictedPids,
+          ownedWinNodes,
+        );
         const missingWmiByPid = new Map<number, Win32ProcessRow>();
         for (const row of missingWmi.rows) {
           missingWmiByPid.set(row.pid, row);
         }
         const missingRoot = missingWmiByPid.get(pid);
         const hasLiveUnresolvedCandidate = missingWmi.rows.some(
-          (row) => unresolvedWinPids.has(row.pid) && row.creationUs >= rootRow.creationUs,
+          (row) =>
+            unresolvedWinPids.has(row.pid) &&
+            !captureConflictedPids.has(row.pid) &&
+            row.creationUs >= rootRow.creationUs,
         );
-        if (missingRoot?.creationUs === rootRow.creationUs && hasLiveUnresolvedCandidate) {
+        if (
+          !captureConflictedPids.has(pid) &&
+          missingRoot?.creationUs === rootRow.creationUs &&
+          hasLiveUnresolvedCandidate
+        ) {
           const confirmMsys = await awaitAbortable(
             ops.readMsysSnapshot(getRemainingMs(), abortSignal),
             abortSignal,
@@ -759,6 +828,7 @@ export async function captureProcessTreeOwnership(
               const expectedCreation = ownedWinNodes.get(initRow.winPid);
               const t2Win = missingWmiByPid.get(initRow.winPid);
               const anchorIntact =
+                !captureConflictedPids.has(initRow.winPid) &&
                 confirmRow !== undefined &&
                 sameMsysIdentity(initRow, confirmRow) &&
                 expectedCreation !== undefined &&
@@ -779,10 +849,12 @@ export async function captureProcessTreeOwnership(
               while (adoptedThisRound) {
                 adoptedThisRound = false;
                 for (const [msysPid, t1Row] of unresolvedByMsysPid.entries()) {
+                  if (captureConflictedPids.has(t1Row.winPid)) continue;
                   const t3Row = confirmByPid.get(msysPid);
                   const t2Win = missingWmiByPid.get(t1Row.winPid);
                   if (t3Row === undefined || !sameMsysIdentity(t1Row, t3Row)) continue;
                   if (t2Win === undefined || t2Win.creationUs < rootRow.creationUs) continue;
+                  if (captureConflictedPids.has(t2Win.parentPid)) continue;
 
                   const expectedParentCreation = ownedWinNodes.get(t2Win.parentPid);
                   if (expectedParentCreation !== undefined) {
@@ -801,10 +873,6 @@ export async function captureProcessTreeOwnership(
                       liveAnchorGroupKeys.has(`${String(t3Row.pgid)}:${String(t3Row.uid)}`));
                   if (!hasLiveAnchor) continue;
 
-                  if (!wmiByPid.has(t2Win.pid)) {
-                    wmiResult.rows.push(t2Win);
-                    wmiByPid.set(t2Win.pid, t2Win);
-                  }
                   ownedWinNodes.set(t1Row.winPid, t2Win.creationUs);
                   recordVerifiedMsys(t3Row);
                   liveAnchorMsysPids.add(t3Row.pid);
@@ -817,7 +885,7 @@ export async function captureProcessTreeOwnership(
                 }
               }
               if (adoptedAny) {
-                expandOwnedWinNodes(ownedWinNodes, wmiResult.rows, wmiByPid);
+                expandOwnedWinNodes(ownedWinNodes, wmiResult.rows, wmiByPid, captureConflictedPids);
               }
             }
           }
@@ -825,9 +893,65 @@ export async function captureProcessTreeOwnership(
       }
     }
 
-    const initialMsysRows = new Map<number, MsysProcessRow>();
-    for (const [msysPid, row] of verifiedMsysByPid.entries()) {
-      initialMsysRows.set(msysPid, row);
+    if (
+      options?._initialFilterRootPid === true &&
+      isRootAlive() &&
+      getRemainingMs() > 0 &&
+      !isAborted()
+    ) {
+      const unqueriedDepth1Pids = [...ownedWinNodes.keys()].filter(
+        (winPid) => Number.isSafeInteger(winPid) && winPid > 4 && !queriedWinParents.has(winPid),
+      );
+      if (unqueriedDepth1Pids.length > 0 && unqueriedDepth1Pids.length <= 23) {
+        const depthFilterPids = [...new Set([pid, ...unqueriedDepth1Pids])].slice(0, 24);
+        const depthAbortController = new AbortController();
+        const abortDepth = () => {
+          depthAbortController.abort();
+        };
+        if (abortSignal.aborted || !isRootAlive()) {
+          abortDepth();
+        } else {
+          abortSignal.addEventListener('abort', abortDepth, { once: true });
+          child.once('exit', abortDepth);
+        }
+        try {
+          const depthWmi = await awaitAbortable(
+            ops.readWmiSnapshot(getRemainingMs(), depthFilterPids, depthAbortController.signal),
+            depthAbortController.signal,
+            { ok: false, rows: [] },
+          );
+          if (depthWmi.ok && depthWmi.rows.length > 0 && isRootAlive() && !isAborted()) {
+            const depthConflicts = new Set<number>();
+            mergeWmiSnapshotRows(
+              wmiResult.rows,
+              wmiByPid,
+              depthWmi.rows,
+              depthConflicts,
+              ownedWinNodes,
+            );
+            const depthByPid = new Map<number, Win32ProcessRow>();
+            for (const row of depthWmi.rows) {
+              depthByPid.set(row.pid, row);
+            }
+            const depthRoot = depthByPid.get(pid);
+            if (
+              depthConflicts.has(pid) ||
+              (depthRoot !== undefined && depthRoot.creationUs !== rootRow.creationUs)
+            ) {
+              return emptyOwnership;
+            }
+            for (const conflictedPid of depthConflicts) {
+              ownedWinNodes.delete(conflictedPid);
+            }
+            if (depthRoot?.creationUs === rootRow.creationUs) {
+              expandOwnedWinNodes(ownedWinNodes, wmiResult.rows, wmiByPid, depthConflicts);
+            }
+          }
+        } finally {
+          abortSignal.removeEventListener('abort', abortDepth);
+          child.off('exit', abortDepth);
+        }
+      }
     }
 
     return {
@@ -837,21 +961,28 @@ export async function captureProcessTreeOwnership(
       ownedWinNodes,
       ownedMsysPgids,
       ownedMsysUids,
-      capturedAtMs: Date.now(),
-      recentWmiRows: wmiResult.rows,
-      initialMsysRows,
     };
   };
 
   const promise = runCapture()
-    .then((result) => {
-      if (!result?.observedRoot) {
+    .then(
+      (result) => {
+        settledCapturePromises.add(promise);
+        if (!result?.observedRoot) {
+          if (ownershipByChild.get(child) === promise) {
+            ownershipByChild.delete(child);
+          }
+        }
+        return result;
+      },
+      (error: unknown) => {
+        settledCapturePromises.add(promise);
         if (ownershipByChild.get(child) === promise) {
           ownershipByChild.delete(child);
         }
-      }
-      return result;
-    })
+        throw error;
+      },
+    )
     .finally(() => {
       if (deadlineTimer !== null) {
         clearTimeout(deadlineTimer);
@@ -961,12 +1092,20 @@ async function waitForPosixGroupGone(pgid: number, deadlineMs: number): Promise<
 function collectCandidateMsys(
   rows: readonly MsysProcessRow[],
   ownership: ProcessTreeOwnership,
+  bootstrapRootMsysRow?: MsysProcessRow,
+  extraSeedWinNodes?: ReadonlyMap<number, bigint>,
 ): Map<number, MsysProcessRow> {
   const isCandidateMsys = (row: MsysProcessRow) =>
     ownership.ownedWinNodes.has(row.winPid) ||
+    extraSeedWinNodes?.has(row.winPid) === true ||
+    row.winPid === bootstrapRootMsysRow?.winPid ||
     (row.pgid > 1 &&
       ownership.ownedMsysPgids.has(row.pgid) &&
-      ownership.ownedMsysUids.has(row.uid));
+      ownership.ownedMsysUids.has(row.uid)) ||
+    (bootstrapRootMsysRow !== undefined &&
+      bootstrapRootMsysRow.pgid > 1 &&
+      row.pgid === bootstrapRootMsysRow.pgid &&
+      row.uid === bootstrapRootMsysRow.uid);
 
   const candidates = new Map<number, MsysProcessRow>();
   for (const row of rows) {
@@ -987,6 +1126,37 @@ function collectCandidateMsys(
   return candidates;
 }
 
+function hasOwnedOrUnverifiedDescendantInWmi(
+  rows: readonly Win32ProcessRow[],
+  rowByPid: ReadonlyMap<number, Win32ProcessRow>,
+  baseOwnedWinNodes: ReadonlyMap<number, bigint>,
+  rootPid: number,
+  conflictedPids: ReadonlySet<number>,
+): boolean {
+  return rows.some((row) => {
+    if (row.pid <= 4 || conflictedPids.has(row.pid)) {
+      return false;
+    }
+    const knownSelf = baseOwnedWinNodes.get(row.pid);
+    if (row.pid !== rootPid && knownSelf !== undefined && row.creationUs === knownSelf) {
+      return true;
+    }
+    const knownParent = baseOwnedWinNodes.get(row.parentPid);
+    if (knownParent !== undefined && row.creationUs >= knownParent) {
+      const liveParent = rowByPid.get(row.parentPid);
+      // An orphan born in [knownParent, liveParent.creationUs) preceded any parent PID reuse.
+      const childOfRecycledParent =
+        liveParent !== undefined &&
+        liveParent.creationUs !== knownParent &&
+        row.creationUs >= liveParent.creationUs;
+      if (!childOfRecycledParent) {
+        return true;
+      }
+    }
+    return false;
+  });
+}
+
 async function inspectAndOptionallyReapWinTree(
   child: ChildProcess,
   ownership: ProcessTreeOwnership,
@@ -996,29 +1166,30 @@ async function inspectAndOptionallyReapWinTree(
   performKill: boolean,
   waitClosureUntilMs: (untilMs: number) => Promise<boolean>,
   requireWmiConfirmation = false,
+  bootstrapLiveOwnership = false,
 ): Promise<boolean> {
   const rootStillRunning = child.exitCode === null && child.signalCode === null;
+  const baseOwnedWinNodes = new Map<number, bigint>(ownership.ownedWinNodes);
 
-  const canReuseRecentWmiWindow =
-    performKill &&
-    rootStillRunning &&
-    ownership.recentWmiRows !== undefined &&
-    ownership.capturedAtMs !== undefined &&
-    Date.now() - ownership.capturedAtMs < 250;
-
-  const knownOwnedWinPids = [...ownership.ownedWinNodes.keys()].filter(
+  const knownOwnedWinPids = [...baseOwnedWinNodes.keys()].filter(
     (winPid) => Number.isSafeInteger(winPid) && winPid > 4,
   );
   const prefetchFilterPids =
-    knownOwnedWinPids.length > 0 && knownOwnedWinPids.length <= 24 ? knownOwnedWinPids : undefined;
+    !bootstrapLiveOwnership && knownOwnedWinPids.length > 0 && knownOwnedWinPids.length <= 24
+      ? knownOwnedWinPids
+      : undefined;
 
-  // Overlap MSYS and filtered WMI for closed-root reap (where children stopped spawning),
-  // or confirmation that inspects non-MSYS native descendants.
-  // For an older still-running tree, read MSYS first so one filtered WMI query covers new children.
-  const shouldOverlapClosedWmi =
-    (performKill && !canReuseRecentWmiWindow && !rootStillRunning) ||
-    (!performKill && rootClosed() && requireWmiConfirmation);
-  const [msysInitial, prefetchedWmi] = shouldOverlapClosedWmi
+  // Overlap MSYS and WMI for closed-root reap (where children stopped spawning),
+  // confirmation of non-MSYS native descendants, or live uncaptured bootstrap (where
+  // one unfiltered WMI scan resolves multi-level wrappers/subshells without sequential
+  // frontier hops). For an already-captured live root tree, read MSYS first so one
+  // filtered WMI query covers newly spawned MSYS children too.
+  const shouldOverlapWmi =
+    (bootstrapLiveOwnership && winOps === defaultWinTreeOps) ||
+    (!bootstrapLiveOwnership &&
+      ((performKill && !rootStillRunning) ||
+        (!performKill && rootClosed() && requireWmiConfirmation)));
+  const [msysInitial, prefetchedWmi] = shouldOverlapWmi
     ? await Promise.all([
         winOps.readMsysSnapshot(remainingMs(deadlineMs)),
         winOps.readWmiSnapshot(remainingMs(deadlineMs), prefetchFilterPids),
@@ -1028,30 +1199,29 @@ async function inspectAndOptionallyReapWinTree(
   let msysResult = msysInitial;
   if (!msysResult.ok) return false;
 
-  let candidateMsys = collectCandidateMsys(msysResult.rows, ownership);
+  const bootstrapRootMsys = bootstrapLiveOwnership
+    ? msysResult.rows.find((row) => row.winPid === ownership.rootPid)
+    : undefined;
+  let candidateMsys = collectCandidateMsys(msysResult.rows, ownership, bootstrapRootMsys);
 
   const prefetchedShowsOwnedOrChild = (): boolean => {
     if (prefetchedWmi === null) return false;
     if (!prefetchedWmi.ok) return true;
-    return prefetchedWmi.rows.some((row) => {
-      const knownSelf = ownership.ownedWinNodes.get(row.pid);
-      if (
-        row.pid !== ownership.rootPid &&
-        knownSelf !== undefined &&
-        row.creationUs === knownSelf
-      ) {
-        return true;
-      }
-      const knownParent = ownership.ownedWinNodes.get(row.parentPid);
-      if (knownParent !== undefined && row.creationUs >= knownParent) {
-        return true;
-      }
-      return false;
-    });
+    const prefetchedByPid = new Map<number, Win32ProcessRow>();
+    for (const row of prefetchedWmi.rows) {
+      prefetchedByPid.set(row.pid, row);
+    }
+    return hasOwnedOrUnverifiedDescendantInWmi(
+      prefetchedWmi.rows,
+      prefetchedByPid,
+      baseOwnedWinNodes,
+      ownership.rootPid,
+      new Set<number>(),
+    );
   };
 
   const canFastConfirmOnEmptyMsys = (): boolean => {
-    if (candidateMsys.size > 0 || !rootClosed()) {
+    if (!ownership.observedRoot || candidateMsys.size > 0 || !rootClosed()) {
       return false;
     }
     if (prefetchedWmi !== null) {
@@ -1069,6 +1239,7 @@ async function inspectAndOptionallyReapWinTree(
   // Poll ps.exe once before spending a full WMI snapshot on confirmation.
   if (
     !performKill &&
+    ownership.observedRoot &&
     rootClosed() &&
     !requireWmiConfirmation &&
     prefetchedWmi === null &&
@@ -1092,62 +1263,10 @@ async function inspectAndOptionallyReapWinTree(
     [...candidateMsys.values()].map((row) => row.winPid),
   );
 
-  const allLiveCandidatesUnchanged =
-    performKill &&
-    canReuseRecentWmiWindow &&
-    prefetchedWmi === null &&
-    winOps === defaultWinTreeOps &&
-    ownership.initialMsysRows !== undefined &&
-    candidateMsys.size > 0 &&
-    knownOwnedWinPids.every(
-      (winPid) => winPid === ownership.rootPid || candidateMsysWinPids.has(winPid),
-    ) &&
-    [...candidateMsys.values()].every((row) => {
-      if (row.winPid === ownership.rootPid) return true;
-      const initial = ownership.initialMsysRows?.get(row.pid);
-      return (
-        initial?.ppid === row.ppid &&
-        initial.pgid === row.pgid &&
-        initial.winPid === row.winPid &&
-        initial.uid === row.uid
-      );
-    });
-
-  if (allLiveCandidatesUnchanged) {
-    const fastWinPids = [...new Set([ownership.rootPid, ...candidateMsysWinPids])];
-    const fastMsysPids = [...candidateMsys.keys()];
-    const fastPgids = [...ownership.ownedMsysPgids];
-    const fastBudgetMs = remainingMs(deadlineMs);
-    const fastTasks: Promise<unknown>[] = [
-      winOps.killWinPids !== undefined
-        ? winOps.killWinPids(fastWinPids, fastBudgetMs)
-        : Promise.all(fastWinPids.map((wp) => winOps.killWinPid(wp, fastBudgetMs))),
-    ];
-    if (fastMsysPids.length > 0 || fastPgids.length > 0) {
-      fastTasks.push(
-        winOps.killMsysTargets({ msysPids: fastMsysPids, pgids: fastPgids }, fastBudgetMs),
-      );
-    }
-    await Promise.all(fastTasks);
-    await waitClosureUntilMs(deadlineMs);
-    if (!rootClosed() || remainingMs(deadlineMs) <= 0) {
-      return false;
-    }
-    return inspectAndOptionallyReapWinTree(
-      child,
-      ownership,
-      winOps,
-      rootClosed,
-      deadlineMs,
-      false,
-      waitClosureUntilMs,
-      false,
-    );
-  }
-
   const filterPids = [
     ...new Set([
-      ...ownership.ownedWinNodes.keys(),
+      ...(bootstrapLiveOwnership ? [ownership.rootPid] : []),
+      ...baseOwnedWinNodes.keys(),
       ...[...candidateMsys.values()].map((row) => row.winPid),
     ]),
   ];
@@ -1155,28 +1274,52 @@ async function inspectAndOptionallyReapWinTree(
     filterPids.filter((winPid) => Number.isSafeInteger(winPid) && winPid > 4),
   );
   const queriedParentPids = new Set<number>();
+  const conflictedWinPids = new Set<number>();
+  let proofInvalidatedByConflict = false;
 
-  const recentWmiRows = ownership.recentWmiRows ?? [];
-  const recentWmiPidSet = new Set(recentWmiRows.map((row) => row.pid));
-  const candidateWinPidsOwned = [...candidateMsys.values()].every((row) =>
-    ownership.ownedWinNodes.has(row.winPid),
-  );
-  const canReuseRecentWmi =
-    canReuseRecentWmiWindow &&
-    candidateWinPidsOwned &&
-    filterPids.every((winPid) => recentWmiPidSet.has(winPid));
+  const wmiRows: Win32ProcessRow[] = [];
+  const wmiByPid = new Map<number, Win32ProcessRow>();
+  let wmiRound = 0;
+  const wmiFirstRoundByPid = new Map<number, number>();
+  const wmiLastRoundByPid = new Map<number, number>();
 
-  let skippedFreshWmi = false;
-  let wmiResult: { ok: boolean; rows: Win32ProcessRow[] };
-  if (canReuseRecentWmi) {
-    skippedFreshWmi = true;
-    wmiResult = { ok: true, rows: [...recentWmiRows] };
-    for (const qPid of queriedWmiPidSet) {
-      queriedParentPids.add(qPid);
+  const recordWmiMerge = (
+    incomingRows: readonly Win32ProcessRow[],
+    expectedCreations?: ReadonlyMap<number, bigint>,
+  ): Set<number> => {
+    wmiRound += 1;
+    const conflicts = mergeWmiSnapshotRows(
+      wmiRows,
+      wmiByPid,
+      incomingRows,
+      conflictedWinPids,
+      expectedCreations,
+    );
+    for (const row of incomingRows) {
+      if (!wmiFirstRoundByPid.has(row.pid)) {
+        wmiFirstRoundByPid.set(row.pid, wmiRound);
+      }
+      wmiLastRoundByPid.set(row.pid, wmiRound);
     }
-  } else if (prefetchedWmi !== null) {
+    return conflicts;
+  };
+
+  const hasConflictInTrackedSet = (
+    conflictSet: ReadonlySet<number>,
+    trackedPids: ReadonlySet<number>,
+  ): boolean => {
+    for (const pid of conflictSet) {
+      if (trackedPids.has(pid)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  if (prefetchedWmi !== null) {
     if (!prefetchedWmi.ok) return false;
-    const wmiRows = [...prefetchedWmi.rows];
+    const prefetchedRowPidSet = new Set(prefetchedWmi.rows.map((row) => row.pid));
+    recordWmiMerge(prefetchedWmi.rows, baseOwnedWinNodes);
     if (prefetchFilterPids !== undefined) {
       for (const qPid of prefetchFilterPids) {
         if (Number.isSafeInteger(qPid) && qPid > 4) {
@@ -1184,7 +1327,6 @@ async function inspectAndOptionallyReapWinTree(
         }
       }
       const prefetchFilterSet = new Set(prefetchFilterPids);
-      const prefetchedRowPidSet = new Set(wmiRows.map((row) => row.pid));
       const missingFilterPids = filterPids.filter(
         (winPid) =>
           Number.isSafeInteger(winPid) &&
@@ -1203,20 +1345,30 @@ async function inspectAndOptionallyReapWinTree(
               !prefetchFilterSet.has(winPid) &&
               !missingSet.has(winPid),
           );
+        const refreshedBatchSet = new Set<number>([
+          ...missingFilterPids,
+          ...extraUnqueriedChildren,
+          ...prefetchFilterSet,
+        ]);
         const batchPids =
-          missingFilterPids.length + extraUnqueriedChildren.length <= 24
-            ? [...missingFilterPids, ...extraUnqueriedChildren]
-            : missingFilterPids;
+          refreshedBatchSet.size <= 24
+            ? [...refreshedBatchSet]
+            : missingFilterPids.length + extraUnqueriedChildren.length <= 24
+              ? [...missingFilterPids, ...extraUnqueriedChildren]
+              : missingFilterPids;
         const missingWmi = await winOps.readWmiSnapshot(remainingMs(deadlineMs), batchPids);
         if (!missingWmi.ok) return false;
+        const trackedBeforeMissing = new Set<number>([
+          ...baseOwnedWinNodes.keys(),
+          ...candidateMsysWinPids,
+          ...prefetchedRowPidSet,
+        ]);
         for (const qPid of batchPids) {
           queriedParentPids.add(qPid);
         }
-        for (const row of missingWmi.rows) {
-          if (!prefetchedRowPidSet.has(row.pid)) {
-            prefetchedRowPidSet.add(row.pid);
-            wmiRows.push(row);
-          }
+        const missingConflicts = recordWmiMerge(missingWmi.rows, baseOwnedWinNodes);
+        if (hasConflictInTrackedSet(missingConflicts, trackedBeforeMissing)) {
+          proofInvalidatedByConflict = true;
         }
       }
     } else {
@@ -1227,38 +1379,162 @@ async function inspectAndOptionallyReapWinTree(
         queriedParentPids.add(row.pid);
       }
     }
-    wmiResult = { ok: true, rows: wmiRows };
   } else {
-    wmiResult = await winOps.readWmiSnapshot(remainingMs(deadlineMs), filterPids);
-    if (!wmiResult.ok) return false;
+    const freshWmi = await winOps.readWmiSnapshot(remainingMs(deadlineMs), filterPids);
+    if (!freshWmi.ok) return false;
+    recordWmiMerge(freshWmi.rows, baseOwnedWinNodes);
     for (const qPid of queriedWmiPidSet) {
       queriedParentPids.add(qPid);
     }
     if ((filterPids.length === 0 || filterPids.length > 24) && winOps === defaultWinTreeOps) {
-      for (const row of wmiResult.rows) {
+      for (const row of wmiRows) {
         queriedParentPids.add(row.pid);
       }
     }
   }
-  if (!wmiResult.ok) return false;
 
-  const wmiByPid = new Map<number, Win32ProcessRow>();
+  if (bootstrapLiveOwnership) {
+    const rootRow = wmiByPid.get(ownership.rootPid);
+    if (rootRow === undefined) {
+      return false;
+    }
+    ownership.observedRoot = true;
+    ownership.rootCreationUs = rootRow.creationUs;
+    ownership.ownedWinNodes.set(rootRow.pid, rootRow.creationUs);
+    baseOwnedWinNodes.set(rootRow.pid, rootRow.creationUs);
+
+    const win32Verified = new Map<number, bigint>([[rootRow.pid, rootRow.creationUs]]);
+    expandOwnedWinNodes(win32Verified, wmiRows, wmiByPid, conflictedWinPids);
+    for (const [verifiedPid, verifiedCreationUs] of win32Verified.entries()) {
+      ownership.ownedWinNodes.set(verifiedPid, verifiedCreationUs);
+      baseOwnedWinNodes.set(verifiedPid, verifiedCreationUs);
+    }
+
+    // Admit PGID/UID seeds from the live root MSYS row and Win32-linked MSYS rows before
+    // recomputing candidates; require post-WMI MSYS identity confirmation for detached PGID candidates.
+    if (bootstrapRootMsys !== undefined && bootstrapRootMsys.pgid > 1) {
+      ownership.ownedMsysPgids.add(bootstrapRootMsys.pgid);
+      ownership.ownedMsysUids.add(bootstrapRootMsys.uid);
+    }
+    for (const row of msysResult.rows) {
+      if (win32Verified.has(row.winPid) && row.pgid > 1) {
+        ownership.ownedMsysPgids.add(row.pgid);
+        ownership.ownedMsysUids.add(row.uid);
+      }
+    }
+    candidateMsys = collectCandidateMsys(msysResult.rows, ownership, undefined, win32Verified);
+    for (const row of candidateMsys.values()) {
+      candidateMsysWinPids.add(row.winPid);
+      if (Number.isSafeInteger(row.winPid) && row.winPid > 4) {
+        queriedWmiPidSet.add(row.winPid);
+      }
+    }
+    const detachedMsysCandidates: MsysProcessRow[] = [];
+    for (const row of candidateMsys.values()) {
+      if (!win32Verified.has(row.winPid)) {
+        const liveWmi = wmiByPid.get(row.winPid);
+        if (liveWmi !== undefined && liveWmi.creationUs >= rootRow.creationUs) {
+          detachedMsysCandidates.push(row);
+        }
+      }
+    }
+    if (detachedMsysCandidates.length > 0) {
+      if (remainingMs(deadlineMs) <= 0) {
+        return false;
+      }
+      const confirmMsys = await winOps.readMsysSnapshot(remainingMs(deadlineMs));
+      if (!confirmMsys.ok) {
+        return false;
+      }
+      const confirmByPid = new Map<number, MsysProcessRow>();
+      for (const row of confirmMsys.rows) {
+        confirmByPid.set(row.pid, row);
+      }
+      if (bootstrapRootMsys !== undefined) {
+        const confirmedRoot = confirmByPid.get(bootstrapRootMsys.pid);
+        if (confirmedRoot === undefined || !sameMsysIdentity(bootstrapRootMsys, confirmedRoot)) {
+          return false;
+        }
+      }
+      const verifiedMsysByPid = new Map<number, MsysProcessRow>();
+      for (const row of candidateMsys.values()) {
+        const confirmed = confirmByPid.get(row.pid);
+        if (
+          win32Verified.has(row.winPid) &&
+          confirmed !== undefined &&
+          sameMsysIdentity(row, confirmed)
+        ) {
+          verifiedMsysByPid.set(row.pid, confirmed);
+        }
+      }
+      let addedDetached = true;
+      while (addedDetached) {
+        addedDetached = false;
+        for (const row of detachedMsysCandidates) {
+          if (verifiedMsysByPid.has(row.pid) || conflictedWinPids.has(row.winPid)) continue;
+          const confirmed = confirmByPid.get(row.pid);
+          const liveWmi = wmiByPid.get(row.winPid);
+          if (
+            confirmed === undefined ||
+            !sameMsysIdentity(row, confirmed) ||
+            liveWmi === undefined ||
+            liveWmi.creationUs < rootRow.creationUs
+          ) {
+            continue;
+          }
+          const hasLiveAnchor =
+            verifiedMsysByPid.has(row.ppid) ||
+            (row.pgid > 1 &&
+              ownership.ownedMsysPgids.has(row.pgid) &&
+              ownership.ownedMsysUids.has(row.uid));
+          if (!hasLiveAnchor) continue;
+          verifiedMsysByPid.set(row.pid, confirmed);
+          if (row.pgid > 1) {
+            ownership.ownedMsysPgids.add(row.pgid);
+            ownership.ownedMsysUids.add(row.uid);
+          }
+          addedDetached = true;
+        }
+      }
+      const prunedCandidates = new Map<number, MsysProcessRow>();
+      for (const [msysPid, row] of candidateMsys.entries()) {
+        if (win32Verified.has(row.winPid) || verifiedMsysByPid.has(msysPid)) {
+          prunedCandidates.set(msysPid, row);
+        }
+      }
+      candidateMsys = prunedCandidates;
+      candidateMsysWinPids.clear();
+      for (const row of candidateMsys.values()) {
+        candidateMsysWinPids.add(row.winPid);
+      }
+    }
+    ownershipByChild.set(child, Promise.resolve(ownership));
+  }
+
+  const candidateOwnedWinNodes = new Map<number, bigint>();
   const verifiedWinPids = new Set<number>();
   const liveCapturedGroups = new Set<string>();
-  const verifiedMsysPids: number[] = [];
-  const verifiedMsysPidSet = new Set<number>();
+  let verifiedMsysPids: number[] = [];
+  let verifiedMsysPidSet = new Set<number>();
   const candidatePgidsWithUnownedMember = new Set<number>();
   const verifiedCandidatePgids = new Set<number>();
   const rootCreationUs = ownership.rootCreationUs;
 
   const recomputeVerifiedTree = () => {
-    wmiByPid.clear();
-    for (const row of wmiResult.rows) {
-      wmiByPid.set(row.pid, row);
+    candidateOwnedWinNodes.clear();
+    for (const [winPid, capturedCreationUs] of baseOwnedWinNodes.entries()) {
+      if (!conflictedWinPids.has(winPid)) {
+        candidateOwnedWinNodes.set(winPid, capturedCreationUs);
+      }
     }
 
     verifiedWinPids.clear();
-    for (const [winPid, capturedCreationUs] of ownership.ownedWinNodes.entries()) {
+    verifiedMsysPids = [];
+    verifiedMsysPidSet = new Set<number>();
+    verifiedCandidatePgids.clear();
+
+    for (const [winPid, capturedCreationUs] of baseOwnedWinNodes.entries()) {
+      if (conflictedWinPids.has(winPid)) continue;
       const liveRow = wmiByPid.get(winPid);
       if (liveRow?.creationUs === capturedCreationUs) {
         verifiedWinPids.add(winPid);
@@ -1269,7 +1545,8 @@ async function inspectAndOptionallyReapWinTree(
     // later birth alone do not establish ownership after all captured actors exit.
     liveCapturedGroups.clear();
     for (const row of msysResult.rows) {
-      const captured = ownership.ownedWinNodes.get(row.winPid);
+      if (conflictedWinPids.has(row.winPid)) continue;
+      const captured = baseOwnedWinNodes.get(row.winPid);
       if (
         captured !== undefined &&
         wmiByPid.get(row.winPid)?.creationUs === captured &&
@@ -1283,18 +1560,25 @@ async function inspectAndOptionallyReapWinTree(
     let converged = true;
     while (converged) {
       converged = false;
-      // Expand newly spawned Win32 children of verified live nodes without crossing reused PIDs.
+      // Expand newly spawned Win32 children of verified live nodes without crossing reused/conflicted PIDs.
       let expanded = true;
       while (expanded) {
         expanded = false;
-        for (const row of wmiResult.rows) {
-          if (row.pid <= 4 || verifiedWinPids.has(row.pid)) continue;
+        for (const row of wmiRows) {
+          if (
+            row.pid <= 4 ||
+            verifiedWinPids.has(row.pid) ||
+            conflictedWinPids.has(row.pid) ||
+            conflictedWinPids.has(row.parentPid)
+          ) {
+            continue;
+          }
           if (!verifiedWinPids.has(row.parentPid)) continue;
           const parentRow = wmiByPid.get(row.parentPid);
           if (parentRow === undefined || row.creationUs < parentRow.creationUs) continue;
-          const previouslyCaptured = ownership.ownedWinNodes.get(row.pid);
+          const previouslyCaptured = baseOwnedWinNodes.get(row.pid);
           if (previouslyCaptured !== undefined && previouslyCaptured !== row.creationUs) continue;
-          ownership.ownedWinNodes.set(row.pid, row.creationUs);
+          candidateOwnedWinNodes.set(row.pid, row.creationUs);
           verifiedWinPids.add(row.pid);
           expanded = true;
           converged = true;
@@ -1302,8 +1586,10 @@ async function inspectAndOptionallyReapWinTree(
       }
 
       for (const row of candidateMsys.values()) {
+        if (conflictedWinPids.has(row.winPid)) continue;
         const liveWmi = wmiByPid.get(row.winPid);
-        const knownCreation = ownership.ownedWinNodes.get(row.winPid);
+        const knownCreation =
+          candidateOwnedWinNodes.get(row.winPid) ?? baseOwnedWinNodes.get(row.winPid);
         const isVerified =
           liveWmi !== undefined &&
           (knownCreation !== undefined
@@ -1314,7 +1600,7 @@ async function inspectAndOptionallyReapWinTree(
 
         if (isVerified) {
           const wasVerified = verifiedWinPids.has(row.winPid);
-          ownership.ownedWinNodes.set(row.winPid, liveWmi.creationUs);
+          candidateOwnedWinNodes.set(row.winPid, liveWmi.creationUs);
           verifiedWinPids.add(row.winPid);
           if (!wasVerified) {
             converged = true;
@@ -1333,8 +1619,10 @@ async function inspectAndOptionallyReapWinTree(
     candidatePgidsWithUnownedMember.clear();
     for (const row of candidateMsys.values()) {
       const liveWmi = wmiByPid.get(row.winPid);
-      const knownCreation = ownership.ownedWinNodes.get(row.winPid);
+      const knownCreation =
+        candidateOwnedWinNodes.get(row.winPid) ?? baseOwnedWinNodes.get(row.winPid);
       const isVerified =
+        !conflictedWinPids.has(row.winPid) &&
         liveWmi !== undefined &&
         (knownCreation !== undefined
           ? liveWmi.creationUs === knownCreation
@@ -1356,6 +1644,7 @@ async function inspectAndOptionallyReapWinTree(
       if (verifiedCandidatePgids.has(row.pgid)) {
         const liveWmi = wmiByPid.get(row.winPid);
         if (
+          conflictedWinPids.has(row.winPid) ||
           !ownership.ownedMsysUids.has(row.uid) ||
           (liveWmi === undefined && !queriedWmiPidSet.has(row.winPid)) ||
           (liveWmi !== undefined && rootCreationUs !== null && liveWmi.creationUs < rootCreationUs)
@@ -1366,51 +1655,116 @@ async function inspectAndOptionallyReapWinTree(
     }
   };
 
+  if (proofInvalidatedByConflict) {
+    return false;
+  }
+
   recomputeVerifiedTree();
 
   // Expand the Win32 discovery frontier recursively before killing any ancestor
-  // so multi-generation native descendants are discovered and never orphaned.
-  const getUnqueriedVerifiedPids = () =>
-    [...verifiedWinPids].filter(
-      (winPid) => Number.isSafeInteger(winPid) && winPid > 4 && !queriedParentPids.has(winPid),
-    );
+  // and re-verify any parent whose child was introduced in a later WMI snapshot.
+  const getFrontierRequests = (): {
+    allPids: number[];
+    parentReverifyMinRound: Map<number, number>;
+  } => {
+    const pidSet = new Set<number>();
+    const parentReverifyMinRound = new Map<number, number>();
+    for (const winPid of verifiedWinPids) {
+      if (
+        Number.isSafeInteger(winPid) &&
+        winPid > 4 &&
+        !conflictedWinPids.has(winPid) &&
+        !queriedParentPids.has(winPid)
+      ) {
+        pidSet.add(winPid);
+      }
+    }
+    for (const childPid of verifiedWinPids) {
+      if (childPid === ownership.rootPid || conflictedWinPids.has(childPid)) continue;
+      const childRow = wmiByPid.get(childPid);
+      if (childRow === undefined) continue;
+      const parentPid = childRow.parentPid;
+      if (!verifiedWinPids.has(parentPid) || conflictedWinPids.has(parentPid)) continue;
+      const childFirstRound = wmiFirstRoundByPid.get(childPid) ?? 0;
+      const parentLastRound = wmiLastRoundByPid.get(parentPid) ?? 0;
+      if (parentLastRound < childFirstRound) {
+        pidSet.add(parentPid);
+        const existingMin = parentReverifyMinRound.get(parentPid) ?? 0;
+        if (childFirstRound > existingMin) {
+          parentReverifyMinRound.set(parentPid, childFirstRound);
+        }
+      }
+    }
+    return { allPids: [...pidSet], parentReverifyMinRound };
+  };
+
   for (
-    let unqueriedVerifiedPids = getUnqueriedVerifiedPids();
-    unqueriedVerifiedPids.length > 0;
-    unqueriedVerifiedPids = getUnqueriedVerifiedPids()
+    let frontierReq = getFrontierRequests();
+    frontierReq.allPids.length > 0;
+    frontierReq = getFrontierRequests()
   ) {
     if (remainingMs(deadlineMs) <= 0) {
       return false;
     }
-    const frontierArgs = unqueriedVerifiedPids.length > 24 ? undefined : unqueriedVerifiedPids;
+    const frontierArgs = frontierReq.allPids.length > 24 ? undefined : frontierReq.allPids;
     const frontierWmi = await winOps.readWmiSnapshot(remainingMs(deadlineMs), frontierArgs);
     if (!frontierWmi.ok) {
       return false;
     }
-    for (const qPid of unqueriedVerifiedPids) {
+    const trackedBeforeFrontier = new Set<number>([
+      ...baseOwnedWinNodes.keys(),
+      ...candidateOwnedWinNodes.keys(),
+      ...verifiedWinPids,
+      ...candidateMsysWinPids,
+      ...queriedParentPids,
+    ]);
+    for (const qPid of frontierReq.allPids) {
       queriedParentPids.add(qPid);
       queriedWmiPidSet.add(qPid);
     }
-    if (unqueriedVerifiedPids.length > 24 && winOps === defaultWinTreeOps) {
+    if (frontierReq.allPids.length > 24 && winOps === defaultWinTreeOps) {
       for (const row of frontierWmi.rows) {
         queriedParentPids.add(row.pid);
       }
     }
-    for (const row of frontierWmi.rows) {
-      if (!wmiByPid.has(row.pid)) {
-        wmiResult.rows.push(row);
-        wmiByPid.set(row.pid, row);
+    const frontierConflicts = recordWmiMerge(frontierWmi.rows, candidateOwnedWinNodes);
+    const frontierInvalidated = hasConflictInTrackedSet(frontierConflicts, trackedBeforeFrontier);
+    let missingReverifiedParent = false;
+    for (const [parentPid, minRound] of frontierReq.parentReverifyMinRound.entries()) {
+      if ((wmiLastRoundByPid.get(parentPid) ?? 0) < minRound) {
+        missingReverifiedParent = true;
+        break;
       }
     }
     recomputeVerifiedTree();
+    if (frontierInvalidated || missingReverifiedParent) {
+      return false;
+    }
   }
 
   if (verifiedWinPids.size === 0 && verifiedMsysPids.length === 0) {
+    if (
+      hasOwnedOrUnverifiedDescendantInWmi(
+        wmiRows,
+        wmiByPid,
+        baseOwnedWinNodes,
+        ownership.rootPid,
+        conflictedWinPids,
+      )
+    ) {
+      return false;
+    }
     return rootClosed();
   }
 
   if (!performKill) {
     return false;
+  }
+
+  for (const [winPid, creationUs] of candidateOwnedWinNodes.entries()) {
+    if (!conflictedWinPids.has(winPid) && verifiedWinPids.has(winPid)) {
+      ownership.ownedWinNodes.set(winPid, creationUs);
+    }
   }
 
   const verifiedPgids = [...verifiedCandidatePgids].filter(
@@ -1469,7 +1823,7 @@ async function inspectAndOptionallyReapWinTree(
     deadlineMs,
     false,
     waitClosureUntilMs,
-    skippedFreshWmi || killedNonMsysNativeDescendant,
+    killedNonMsysNativeDescendant,
   );
 }
 
@@ -1582,17 +1936,54 @@ export async function reapChildProcess(child: ChildProcess, options?: ReapOption
 
     if (winProcessTree) {
       const effectiveOps = winOps ?? defaultWinTreeOps;
-      let ownershipPromise = ownershipByChild.get(child);
-      if (ownershipPromise === undefined && closed()) {
-        throw new Error('test_child_reap_unconfirmed');
+      let ownership: ProcessTreeOwnership | null = null;
+      const existingPromise = ownershipByChild.get(child);
+      let bootstrapPendingAutoCapture = false;
+      if (existingPromise !== undefined) {
+        const settledNow = settledCapturePromises.has(existingPromise);
+        if (
+          !settledNow &&
+          autoCapturePromises.has(existingPromise) &&
+          !closed() &&
+          child.exitCode === null &&
+          child.signalCode === null
+        ) {
+          // Abort still-in-flight auto-capture before live reaping so tight caller budgets do not
+          // stall waiting for a full unfiltered capture scan before filtered root discovery begins.
+          activeCaptureControls.get(child)?.abortController.abort();
+          ownershipByChild.delete(child);
+          activeCaptureControls.delete(child);
+          bootstrapPendingAutoCapture = true;
+          ownership = {
+            observedRoot: false,
+            rootPid: pid,
+            rootCreationUs: null,
+            ownedWinNodes: new Map<number, bigint>(),
+            ownedMsysPgids: new Set<number>(),
+            ownedMsysUids: new Set<number>(),
+          };
+        } else {
+          ownership = await awaitWithDeadline(existingPromise, overallDeadline, null);
+        }
+      } else if (closed() || child.exitCode !== null || child.signalCode !== null) {
+        ownership = null;
+      } else {
+        // Bootstrap ownership directly from the live root during reap to avoid
+        // spending a full unfiltered capture snapshot before discovery within tight budgets.
+        ownership = {
+          observedRoot: false,
+          rootPid: pid,
+          rootCreationUs: null,
+          ownedWinNodes: new Map<number, bigint>(),
+          ownedMsysPgids: new Set<number>(),
+          ownedMsysUids: new Set<number>(),
+        };
       }
-      ownershipPromise ??= captureProcessTreeOwnership(child, {
-        timeoutMs: remainingMs(overallDeadline),
-        ...(winOps !== undefined ? { _winTreeOps: winOps } : {}),
-      });
 
-      const ownership = await awaitWithDeadline(ownershipPromise, overallDeadline, null);
-      if (!ownership?.observedRoot) {
+      if (
+        ownership === null ||
+        (!ownership.observedRoot && existingPromise !== undefined && !bootstrapPendingAutoCapture)
+      ) {
         if (!closed()) {
           signal('SIGKILL');
           await waitForClosureUntil(overallDeadline);
@@ -1601,6 +1992,7 @@ export async function reapChildProcess(child: ChildProcess, options?: ReapOption
       }
 
       while (remainingMs(overallDeadline) > 0) {
+        const shouldBootstrap = !ownership.observedRoot;
         const reaped = await inspectAndOptionallyReapWinTree(
           child,
           ownership,
@@ -1609,11 +2001,20 @@ export async function reapChildProcess(child: ChildProcess, options?: ReapOption
           overallDeadline,
           true,
           waitForClosureUntil,
+          false,
+          shouldBootstrap,
         );
         if (reaped) {
           confirmedTreeReapSet.add(child);
           closeStdio();
           return;
+        }
+        if (!ownership.observedRoot) {
+          if (!closed()) {
+            signal('SIGKILL');
+            await waitForClosureUntil(overallDeadline);
+          }
+          throw new Error('test_child_reap_unconfirmed');
         }
         // Prevent hot-spinning if snapshot calls fail immediately while budget remains.
         await waitForClosureUntil(Math.min(overallDeadline, Date.now() + 25));
