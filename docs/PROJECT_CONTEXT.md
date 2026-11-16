@@ -1,6 +1,29 @@
 # Project Context
 
-Last reviewed: 2026-11-14 (Asia/Dhaka)
+## 2026-11-16: owner-authorized retirement and private version-one preparation
+
+The owner explicitly approved retiring all FCD test stacks, retained test
+PostgreSQL/backups/recovery data and FCD timers, followed by a fresh private
+deployment and a record of unfinished work. Production WhatsApp and unrelated
+projects remain protected. This supersedes earlier test-resource preservation
+for retirement; it does not establish successful outcomes for uncertain jobs.
+
+SSH works after restart. The connected legacy test stack is healthy; private
+admin remains unhealthy and its Unix socket refuses connections. Three unused
+test image tags were removed, reclaiming approximately 506 MiB; no test volume
+or stack retirement has executed. Interactive sudo is required to disable the
+three still-enabled FCD timers. The operator prerequisite is pending.
+
+A separate isolated branch prepares exact scoped retirement and fresh
+private-disabled deployment of accepted application `c2d8225`, with 23 authored
+controls passing and a fresh-context source review. Actual retirement,
+deployment, administrator bootstrap/authentication and owned SSH access remain
+UNEXECUTED. PR22/23/24 remain draft/unmerged; P7-005/P7-GATE and production gates
+stay BLOCKED. See
+[the status and unfinished-work record](testing/2026-11-16-retirement-private-v1-status.md)
+and [execution plan](superpowers/plans/2026-11-16-retire-tests-private-v1.md).
+
+Last reviewed: 2026-11-16 (Asia/Dhaka)
 
 **2026-11-14: PRs 22/23 reviewed; both require corrections and remain draft.**
 Both exact heads have 18/18 GitHub checks green. Codex independently ran PR 22
