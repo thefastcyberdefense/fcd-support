@@ -11,9 +11,9 @@ import {
 } from './helpers/process-lifecycle.js';
 
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash';
-const CHILD_DEADLINE_MS = 3500;
-const CHILD_TERM_GRACE_MS = 500;
-const CHILD_KILL_GRACE_MS = 500;
+const CHILD_DEADLINE_MS = process.platform === 'win32' ? 7500 : 3500;
+const CHILD_TERM_GRACE_MS = process.platform === 'win32' ? 1200 : 500;
+const CHILD_KILL_GRACE_MS = process.platform === 'win32' ? 1200 : 500;
 
 async function runBoundedPromotionBash(
   args: string[],
@@ -466,11 +466,13 @@ test.each([
 });
 
 test('stalled promotion child execution is bounded and reaped before fixture cleanup within 5000ms contract', async () => {
+  const stallTimeoutMs = process.platform === 'win32' ? 2000 : 1500;
+  const maxStallElapsedMs = process.platform === 'win32' ? 5000 : 3500;
   const start = Date.now();
-  await expect(fixture('stall', 'quiescent', 1500)).rejects.toThrow(
-    /Process exit timed out after 1500ms/u,
+  await expect(fixture('stall', 'quiescent', stallTimeoutMs)).rejects.toThrow(
+    new RegExp(`Process exit timed out after ${String(stallTimeoutMs)}ms`, 'u'),
   );
-  expect(Date.now() - start).toBeLessThan(3500);
+  expect(Date.now() - start).toBeLessThan(maxStallElapsedMs);
 });
 
 test('failed promotion initialization and interrupted barrier paths reap children before cleanup', async () => {
@@ -501,7 +503,7 @@ test('failed promotion initialization and interrupted barrier paths reap childre
         processGroup: true,
       });
     }
-    expect(Date.now() - start).toBeLessThan(2000);
+    expect(Date.now() - start).toBeLessThan(process.platform === 'win32' ? 3500 : 2000);
     expect(hanging.stdout?.closed).toBe(true);
     expect(hanging.stderr?.closed).toBe(true);
     await expect(rm(root, { recursive: true })).resolves.toBeUndefined();

@@ -2023,6 +2023,9 @@ export async function reapChildProcess(child: ChildProcess, options?: ReapOption
         }
       }
 
+      if (!closed()) {
+        signal('SIGKILL');
+      }
       throw new Error('test_child_reap_unconfirmed');
     }
 

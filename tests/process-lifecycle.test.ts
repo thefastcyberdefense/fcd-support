@@ -1635,3 +1635,43 @@ it('invalidates stale WMI rows and never adopts or signals unrelated processes w
     expect(ownership?.ownedWinNodes.has(77964)).toBe(false);
   }
 });
+
+it('sends non-blocking root SIGKILL before throwing test_child_reap_unconfirmed when reap deadline expires on a live root', async () => {
+  const signals: (NodeJS.Signals | number | undefined)[] = [];
+  const fakeChild = makeFakeChild(77971);
+  fakeChild.kill = (sig?: NodeJS.Signals | number) => {
+    signals.push(sig);
+    return true;
+  };
+
+  let phase: 'capture' | 'reap' = 'capture';
+  const stallingReapOps: WinTreeTestOps = {
+    readMsysSnapshot: async (timeoutMs) => {
+      if (phase === 'capture') {
+        return okRows([msys(930, 77971)]);
+      }
+      await waitWork(300, timeoutMs);
+      return { ok: false, rows: [] };
+    },
+    readWmiSnapshot: async (timeoutMs) => {
+      if (phase === 'capture') {
+        return okRows([wmi(77971, 4000, 100000n)]);
+      }
+      await waitWork(300, timeoutMs);
+      return { ok: false, rows: [] };
+    },
+    killWinPid: noopKill,
+    killMsysTargets: noopKill,
+  };
+
+  const ownership = await captureFake(fakeChild, stallingReapOps);
+  expect(ownership?.observedRoot).toBe(true);
+  phase = 'reap';
+
+  const start = Date.now();
+  await expect(reapFake(fakeChild, stallingReapOps, 80)).rejects.toThrow(
+    'test_child_reap_unconfirmed',
+  );
+  expect(Date.now() - start).toBeLessThan(400);
+  expect(signals).toEqual(['SIGKILL']);
+});
