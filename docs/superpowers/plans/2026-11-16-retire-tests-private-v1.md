@@ -13,16 +13,16 @@
 
 ## Sequence and evidence
 
-- [ ] Operator disables/stops the three FCD timers and three operation instances. Independently verify inactive services and disabled timers before retirement. Interactive sudo credentials never enter chat or tool arguments.
-- [ ] Add an exact, one-use retirement executor and authored fake-port controls. Bind current Docker IDs, project/synthetic labels, named volumes, networks and FCD-only image tags. Reject resources used by foreign containers, symlinks/aliased roots, active schedulers, changed facts and repeated execution.
-- [ ] Commit/push reviewed executor before server mutation. Record private owner-only intent and checkpoints. Stop/remove only admitted FCD containers, then their unused owned networks/volumes and exclusive test images. No prune, rm --force, volume force, daemon restart or global filesystem delete.
-- [ ] Remove only canonical enumerated old FCD fixture roots after their resources are absent; explicitly exclude unrelated mounts/source and the new action/deployment roots. Preserve a content-free retirement audit, not old credentials or payloads. Compare all unrelated container/storage/network facts before/after.
-- [ ] Recheck unchanged admission floor: 12 GiB Docker filesystem free and 2 GiB available memory. Record actual reclaimed space, not summed image sizes.
-- [ ] Prepare a fresh immutable source checkout and fresh private fixture with the existing generator. Build the three pinned image definitions, generate offline age keys, create disjoint scoped networks/backup storage and the required bounded ingress peer. Use a one-use intent; stop on ambiguity without automatic retry.
-- [ ] Invoke deploy-runtime.sh and verify-runtime.sh with exact source and private-disabled mode. Verify healthy private services, Unix login route and zero host published application/admin ports. Record provider execution remains disabled.
-- [ ] Provision/verify first private administrator using existing bootstrap API with credentials generated/stored only in protected server memory/storage or the operator's masked terminal. Verify login/MFA/dashboard/logout without credential or cookie output.
-- [ ] Establish owned SSH loopback access and document operator access/setup instructions without secrets.
-- [ ] Update the current tracker/context and a dated results/unfinished-work record with exact outcomes and boundaries; commit/push completed changes. Keep P7/P8 and production gates blocked unless their own evidence is actually satisfied.
+- [x] Operator disables/stops the three FCD timers and three operation instances. Independently verify inactive services and disabled timers before retirement. Interactive sudo credentials never enter chat or tool arguments.
+- [x] Add an exact, one-use retirement executor and authored fake-port controls. Bind current Docker IDs, project/synthetic labels, named volumes, networks and FCD-only image tags. Reject resources used by foreign containers, symlinks/aliased roots, active schedulers, changed facts and repeated execution.
+- [x] Commit/push reviewed executor before server mutation. Record private owner-only intent and checkpoints. Stop/remove only admitted FCD containers, then their unused owned networks/volumes and exclusive test images. No prune, rm --force, volume force, daemon restart or global filesystem delete.
+- [x] Remove only canonical enumerated old FCD fixture roots after their resources are absent; explicitly exclude unrelated mounts/source and the new action/deployment roots. Preserve a content-free retirement audit, not old credentials or payloads. Compare all unrelated container/storage/network facts before/after.
+- [x] Recheck unchanged admission floor: 12 GiB Docker filesystem free and 2 GiB available memory. Record actual reclaimed space, not summed image sizes.
+- [x] Prepare a fresh immutable source checkout and fresh private fixture with the existing generator. Build the three pinned image definitions, generate offline age keys, create disjoint scoped networks/backup storage and the required bounded ingress peer. Use a one-use intent; stop on ambiguity without automatic retry.
+- [x] Invoke deploy-runtime.sh and verify-runtime.sh with exact source and private-disabled mode. Verify healthy private services, Unix login route and zero host published application/admin ports. Record provider execution remains disabled.
+- [x] Provision/verify first private administrator using existing bootstrap API with credentials generated/stored only in protected server memory/storage or the operator's masked terminal. Verify login/MFA/dashboard/logout without credential or cookie output.
+- [x] Establish owned SSH loopback access and document operator access/setup instructions without secrets.
+- [x] Update the current tracker/context and a dated results/unfinished-work record with exact outcomes and boundaries; commit/push completed changes. Keep P7/P8 and production gates blocked unless their own evidence is actually satisfied.
 
 ## Unfinished work to preserve explicitly
 
@@ -64,3 +64,13 @@ application compilation/runtime still use the unchanged pinned Node 24.18.0
 container definitions. No host npm validation or container version downgrade.
 Use --inspect-prepared-source / --deploy-prepared-source with a new R2 action
 root; never replay --deploy or delete its old action marker.
+
+## Completion checkpoint
+
+The retirement and R2 private preview deployment completed. All four services are
+healthy; first administrator bootstrap/MFA/seven pages/logout and owned loopback
+HTTP access passed. The current results and remaining work are in
+`docs/testing/2026-11-16-retirement-private-v1-status.md`. Old tests/timers remain
+retired, current public test-asset and enabled-worker acceptance remain blocked,
+and no production permission is implied. Fresh scheduled operations are future
+work rather than automatic reuse of the disabled old timers.

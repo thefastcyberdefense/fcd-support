@@ -1,49 +1,148 @@
-# Test retirement and private version-one status — 2026-11-16
+# Private version-one deployment and unfinished work — 2026-11-16
 
-## Owner decision
+## Current result
 
-The owner explicitly selected retirement of every FCD test stack, including connected legacy test containers, retained test PostgreSQL/backup volumes, uncertain test-recovery data and the three FCD timers, followed by a fresh private deployment and an unfinished-work record. This supersedes earlier preservation instructions for those test resources. Production WhatsApp registration/assets and unrelated projects remain protected. Old uncertain operations will be retired, not represented as resolved or successful.
+The first private preview is deployed and accessible. Application source is
+`c2d8225d2a096e2d4f406c35f8ab170a6dad2f80` (package version `0.1.0`). Public
+lifecycle deploy and verify passed. API, administrator, reply and PostgreSQL are
+healthy; one bounded ingress peer completes the private topology. All 23
+unrelated containers were preserved. No application/admin host ports or public
+tunnel were created. Model, outbound and notification execution flags are false.
 
-## Actual server observations and completed work
+Browser access on the operator computer:
+[private administration](http://127.0.0.1:13004/login).
+The loopback listener and an established HTTP connection were bound to the SSH
+process created by this task; the login response was `200`. This is HTTP access
+proof, not a rendered browser/viewport/accessibility audit.
 
-- SSH works after the server restart.
-- Legacy connected test API/PostgreSQL/cloudflared were healthy on application revision `207a5e6`.
-- Private API/reply/PostgreSQL were healthy on `24e5667`; admin was unhealthy/restarting and its Unix socket refused connection.
-- Eight FCD containers and 23 unrelated containers were present; 38 FCD volumes and multiple historical test networks remain.
-- Previous narrow cleanup removed three unused/unreferenced test image tags and preserved all existing containers and the held journal. Docker filesystem free space increased from 10,505 to 11,011 MiB (approximately 506 MiB reclaimed). No volumes were deleted.
-- Noninteractive sudo is unavailable. The three FCD timers remain active/enabled at the latest read-only check. Operation instances were failed/inactive.
-- Full retirement has NOT executed. Fresh version-one deployment has NOT executed.
+First administrator creation, password/MFA authentication, Origin/CSRF rejection,
+all seven existing authenticated pages, logout and revoked-session rejection
+passed over the private Unix socket. Credentials and TOTP seed were generated
+only in server memory and retained in an owner-only `0600` file under a `0700`
+action directory. No secret, OTP, cookie, page body or raw database record was
+printed or committed.
 
-## Prepared and verified implementation
+The operator can read the protected credentials in their own SSH terminal at
+`/home/redwan/fcd-support-v1-admin-20261116/initial-admin.json`; fields are `login`,
+`password` and `seed` (TOTP enrollment). Do not paste that file into chat/Git/logs.
+The seeded account is a private-preview account; production account/role
+provisioning remains separate.
 
-- Isolated branch: `codex/retire-tests-private-v1`; primary checkout/main and PR22/23/24 are unchanged.
-- `2026-11-16-retire-tests.py`: one-use full test-retirement executor, binds the observed eight actor names and 38 volume names, checks scheduler inactivity, foreign consumers, shared images, root aliases and foreign volume bind-backed data; uses exact non-force Docker actions and private intent/checkpoint records. The current Docker identities are captured and rechecked immediately before mutation.
-- `2026-11-16-private-v1.py`: fresh private-disabled deployment of accepted application `c2d8225d2a096e2d4f406c35f8ab170a6dad2f80`, using a new immutable source checkout, fresh fixture/secrets, pinned build definitions, disjoint network allocation and public lifecycle deploy/verify entrypoints. Requires completed retirement, unchanged 12 GiB disk / 2 GiB memory floors, absent target paths/resources/image tags, false model/outbound/notification flags and no published admin/application ports.
-- Fresh authored tests: 15 retirement + 8 deployment controls PASS. Initial missing-implementation RED controls, recreated-volume RED, byte-level line-writing RED, real namespace-collector RED and foreign bind-backed volume RED were observed before correction.
-- Fresh-context review found and verified correction of foreign bind-backed root overlap, incorrect line termination and missing image-tag namespace admission. No remaining must-fix source findings were reported. This is not live execution proof.
-- Never substitute historical one-use executors, remove state markers to retry, invoke broad prune, alter daemon settings or enable providers to make this deployment appear ready.
-
-## Required operator prerequisite
-
-Run in the server's own terminal and enter sudo credentials there, never in chat/tools:
+The background SSH forward is local to the current operator computer/session.
+After a reboot/disconnect, reconnect with an unoccupied local port using:
 
 ```bash
-sudo systemctl disable --now fcd-support-backup.timer fcd-support-maintenance.timer fcd-support-health.timer
-sudo systemctl stop fcd-support-operation@backup.service fcd-support-operation@maintenance.service fcd-support-operation@health.service
+ssh -N -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=yes -L 127.0.0.1:13004:/home/redwan/fcd-support-host-test-v1-c2d8225/socket/admin.sock redwan@192.168.10.40
 ```
 
-Codex must independently recheck inactive/disabled timer state and inactive operation instances before the destructive executor. Then commit/push the exact reviewed code, upload it into a fresh protected execution directory, run read-only admission and execute the exact one-use retirement. Recheck preservation and capacity before source construction or deployment. No new user approval for the already authorized retirement/deployment is required.
+## Owner-authorized retirement
+
+The owner's explicit November 16 decision superseded earlier preservation of all
+FCD test deployments, their PostgreSQL/backup/recovery data and FCD timers.
+Production WhatsApp registration/assets and unrelated projects stayed protected.
+Uncertain old jobs were retired, not declared successfully resolved.
+
+- The operator disabled/stopped all three FCD timers and operation instances;
+  Codex independently verified the states before destructive work.
+- Retired all 8 old FCD containers, 38 database/backup/restore volumes, 70 networks,
+  53 remaining FCD images and 25 historical fixture/action directories. A prior
+  narrow cleanup had removed 3 additional unused image tags.
+- Post-retirement checks found zero old FCD containers, volumes, networks or image
+  tags; unrelated container count remained 23. No global prune, daemon restart,
+  unknown-process kill or production-number action occurred.
+- Docker free space rose from 11,011 to 21,294 MiB during full retirement,
+  approximately 10.0 GiB reclaimed. After fresh builds/deployment it was
+  19,147 MiB (about 18.7 GiB free), above the unchanged 12 GiB admission floor.
+- Shared non-FCD images/caches, repository source and unrelated resources were
+  preserved. Old systemd timer files remain installed but disabled; they are not
+  silently retargeted or re-enabled for the new preview.
+
+## Execution provenance and retained failures
+
+1. Initial retirement executor `edc404a` removed five private containers, then
+   the legacy API's graceful stop remained unacknowledged after 80 seconds.
+   No volumes/networks/images/fixture roots had been removed. The uncertain
+   checkpoint remains unchanged.
+2. Independently reviewed completion `ccdbd11` bound the exact three remaining
+   legacy identities and the five recorded removals. A new one-use action used
+   a 30-second Docker stop timeout for those three IDs only, then completed
+   retirement. No `rm --force` or old action replay.
+3. First deployment prepared the exact clean source, then refused before fixture
+   or service creation because restricted PATH omitted the existing Node binary.
+   Its uncertain checkpoint remains unchanged.
+4. Reviewed R2 `6046d92` preflighted the exact absolute host Node 24.16.0 binary
+   for the existing fixture generator only, reused the verified clean source,
+   and used a new action root. Application build/runtime remain on the unchanged
+   pinned Node 24.18.0 container definitions. Disk/memory, path, namespace and
+   image-tag absence checks passed before fresh resources were created.
+5. First-admin executor `49f0afb` used the accepted exported bootstrap API with
+   stdin-only server-generated credentials, then verified authentication and
+   seven existing pages. No historical Python action or old credential was used.
+
+Exact live commands:
+
+```text
+python3 -B /home/redwan/fcd-support-v1-executors-20261116/2026-11-16-retire-tests.py --inspect
+python3 -B /home/redwan/fcd-support-v1-executors-20261116/2026-11-16-retire-tests.py --retire-all-test-data
+python3 -B /home/redwan/fcd-support-v1-completion-executors-20261116/2026-11-16-finish-retirement.py --inspect
+python3 -B /home/redwan/fcd-support-v1-completion-executors-20261116/2026-11-16-finish-retirement.py --finish-approved-legacy-retirement
+python3 -B /home/redwan/fcd-support-v1-r2-executors-20261116/2026-11-16-private-v1.py --inspect-prepared-source
+python3 -B /home/redwan/fcd-support-v1-r2-executors-20261116/2026-11-16-private-v1.py --deploy-prepared-source
+python3 -B /home/redwan/fcd-support-v1-r2-executors-20261116/2026-11-16-private-v1-admin.py --create-first-private-admin
+python3 -B /home/redwan/fcd-support-v1-r2-executors-20261116/2026-11-16-private-v1.py --verify-prepared-source
+```
+
+Do not replay destructive or first-admin commands. Their owner-only intent and
+completion records survive on the server. `--verify-prepared-source` is the
+read-only public-verifier path after deployment.
+
+## Validation scope
+
+- 33 authored local controls passed: retirement 15, completion 4, deployment 9,
+  first administrator 5. Relevant suites also passed on Linux before execution.
+- Observed RED controls preceded implementation and the fixes for recreated
+  volumes, foreign bind-backed data, line termination, image namespace collision
+  and Node preflight. Fresh-context source reviews verified the corrections.
+- Phase 0, formatting/forced Markdown formatting, lint, strict typecheck, build,
+  runtime dependency audit and heuristic security-policy checks passed during
+  preparation. No fresh full four-worker Windows PASS is claimed.
+- Live proof covers scoped retirement, fresh private lifecycle verification,
+  healthy services, authentication/HTTP routes and owned SSH access. It closes
+  neither the full Phase 7 acceptance matrix nor production readiness.
 
 ## Still unfinished
 
-1. Operator scheduler stop; full resource retirement; measured reclaimed capacity.
-2. Fresh immutable source/fixture construction, pinned image builds and actual deploy/verify.
-3. First administrator provisioning and real login/MFA/dashboard/logout proof; owned SSH loopback access. The prepared deployment currently verifies the unauthenticated Unix login route and deliberately reports administrator bootstrap pending.
-4. PR24 ancestor-link and directory-dependency corrections, plus unresolved solo four-worker Windows integration failures. Draft PR22/23/24 remain unmerged and are not the deployment source.
-5. Formal P1 gate review record.
-6. Signed synthetic probes, content-free DB proof tooling, private reviewer/resume/privacy/consent/template controls and approved production correction handlers, separate role provisioning.
-7. Reviewed enabled-worker lifecycle and actual T-01–T-11 acceptance, including independent bilingual scoring, test-device delivery, provider fallback, takeover, consent/privacy, outages and restore drills.
-8. Meta permission/token ownership/coexistence/manual-echo decisions, customer-facing disclosures, backup/alert/manual-coverage ownership and separately approved production rollout.
-9. Operator inbox/staff lifecycle UI, public Support/Trust Center and direct external notifications remain unapproved proposals.
+1. PR24 ancestor-link and directory-dependency corrections; unresolved solo
+   four-worker Windows integration failures; final review/integration of draft
+   PR22/23/24. They remain unmerged and are not this deployment's source.
+2. Formal P1 gate review record.
+3. A separately approved current test tunnel/webhook route and Meta test-asset
+   binding. The old connected stack is retired; the new preview has no public
+   callback. Current P7-003/P7-004 are BLOCKED despite historical old-stack proof.
+4. Signed synthetic probes and content-free database proof tooling; private
+   reviewer/resume/privacy/consent/template controls; approved production
+   correction handlers; separate role-account provisioning.
+5. Reviewed enabled-worker lifecycle and all current T-01–T-11 acceptance:
+   independent bilingual scoring, device delivery, signatures/replay/stale
+   events, provider fallback, human takeover, consent/privacy, outage/restart
+   and encrypted backup/deletion/restore drills.
+6. Bind and verify fresh scheduled backup/maintenance/health operations. The old
+   timers remain disabled. This preview does not claim fresh backup/restore or
+   unattended operations acceptance.
+7. Meta permissions/token ownership/coexistence/manual-echo decisions,
+   customer-facing disclosures, backup/alert/manual-coverage ownership and a
+   separately approved production rollout.
+8. Operator inbox/staff lifecycle UI, public Support/Trust Center and direct
+   external notifications remain unapproved proposals.
 
-P7-005, P7-GATE and production readiness remain BLOCKED. A working private login page is not proof of live automatic support replies.
+P7-005, P7-GATE and production readiness remain BLOCKED. No live automatic
+WhatsApp/Facebook support reply, Manifest call or provider failover is claimed.
+
+## Rollback
+
+Retired test databases/backups cannot be restored from the deleted resources;
+that destruction was explicitly owner-authorized. Never reconstruct old outcomes
+from missing actors or clear uncertain markers. The new private preview can be
+retired only by its exact current identities under a new reviewed action. Do not
+replay old constructors or turn providers on as a rollback shortcut. Preserve
+production assets and unrelated projects throughout.

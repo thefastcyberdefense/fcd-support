@@ -1,26 +1,31 @@
 # Fast Cyber Defense Support Task Tracker
 
-## 2026-11-16: owner-authorized retirement and private version-one preparation
+## 2026-11-16: old tests retired; first private preview deployed
 
-The owner explicitly approved retiring all FCD test stacks, retained test
-PostgreSQL/backups/recovery data and FCD timers, followed by a fresh private
-deployment and a record of unfinished work. Production WhatsApp and unrelated
-projects remain protected. This supersedes earlier test-resource preservation
-for retirement; it does not establish successful outcomes for uncertain jobs.
+The owner explicitly approved full retirement of all FCD test stacks and their
+retained test data/timers, superseding earlier test-resource preservation for
+retirement only. Production WhatsApp registration/assets and unrelated projects
+remain protected; uncertain old jobs were retired, not declared resolved.
 
-SSH works after restart. The connected legacy test stack is healthy; private
-admin remains unhealthy and its Unix socket refuses connections. Three unused
-test image tags were removed, reclaiming approximately 506 MiB; no test volume
-or stack retirement has executed. Interactive sudo is required to disable the
-three still-enabled FCD timers. The operator prerequisite is pending.
+All 8 old containers, 38 volumes, 70 networks, 53 remaining images and 25 old
+fixture/action directories were retired; all 23 unrelated containers were
+preserved. Post-cleanup Docker free space was 21,294 MiB; after fresh deployment
+it was 19,147 MiB. Old FCD timers are disabled and not retargeted.
 
-A separate isolated branch prepares exact scoped retirement and fresh
-private-disabled deployment of accepted application `c2d8225`, with 23 authored
-controls passing and a fresh-context source review. Actual retirement,
-deployment, administrator bootstrap/authentication and owned SSH access remain
-UNEXECUTED. PR22/23/24 remain draft/unmerged; P7-005/P7-GATE and production gates
-stay BLOCKED. See
-[the status and unfinished-work record](testing/2026-11-16-retirement-private-v1-status.md)
+Accepted application `c2d8225` is now a fresh private preview: four healthy
+services, no host application/admin port publication, no public tunnel, all
+model/outbound/notification execution flags false. First administrator creation,
+password/MFA/Origin/CSRF checks, seven authenticated pages and logout/session
+revocation passed. The owned SSH loopback login at
+[http://127.0.0.1:13004/login](http://127.0.0.1:13004/login) returns 200.
+Credentials/TOTP seed remain only in protected server storage; no secret output.
+
+The initial graceful-stop and Node-PATH failures and their separately marked,
+reviewed completions are preserved. 33 authored controls pass; no fresh full
+four-worker Windows pass is claimed. PR22/23/24 remain draft/unmerged.
+Current test tunnel/Meta binding (P7-003/P7-004), enabled-worker and acceptance
+work, fresh scheduled operations, P7-005/P7-GATE and production readiness remain
+BLOCKED. See [the actual result and unfinished-work record](testing/2026-11-16-retirement-private-v1-status.md)
 and [execution plan](superpowers/plans/2026-11-16-retire-tests-private-v1.md).
 
 ## Current Phase 6 checkpoint
@@ -730,9 +735,9 @@ Phase 7 current live/test-asset integration and production decisions remain sepa
 | ID      | Task                                                                                   | Depends On                     | Owner            | Status   | Evidence / Completion Rule                                                                                                                                                                                                                                                                                                                                           | Approval Boundary                 |
 | ------- | -------------------------------------------------------------------------------------- | ------------------------------ | ---------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
 | P7-001  | Approve the exact test deployment runbook                                              | P6-GATE, P0-013 through P0-016 | Project owner    | COMPLETE | Approved only under the recorded narrow exception; the committed runbook fixes exact non-production targets, verification, migration notes, and rollback                                                                                                                                                                                                             | Explicit external-action approval |
-| P7-002  | Deploy to the local Ubuntu server test stack                                           | P7-001                         | Operator + Codex | COMPLETE | Redeployed 2026-08-26 only under the recorded narrow exception at exact revision `207a5e6357c1e1a7c75918793262d835574d898d`; sanitized health, topology, callback, signature, v26 identity, and retry evidence passes; no production assets                                                                                                                          | Server mutation approval          |
-| P7-003  | Create test tunnel/DNS with two paths and a catch-all 404                              | P7-001                         | Operator + Codex | COMPLETE | Completed only under the recorded narrow exception; exact callback works and non-webhook paths receive ingress-level `404`                                                                                                                                                                                                                                           | Public DNS/tunnel approval        |
-| P7-004  | Connect only the WhatsApp test number and Messenger test Page                          | P7-002, P7-003                 | Operator         | COMPLETE | Sanitized 2026-08-26 callback and subscription evidence; production number and Page untouched                                                                                                                                                                                                                                                                        | Meta test-asset approval          |
+| P7-002  | Deploy to the local Ubuntu server test stack                                           | P7-001                         | Operator + Codex | COMPLETE | Current private preview deployed 2026-11-16 on `c2d8225`: four healthy services, first-admin/MFA/seven pages/logout proof, owned SSH login `200`, execution flags false. Historical `207a5e6`/`24e5667` test stacks retired. `docs/testing/2026-11-16-retirement-private-v1-status.md`                                                                               | Server mutation approval          |
+| P7-003  | Create test tunnel/DNS with two paths and a catch-all 404                              | P7-001                         | Operator + Codex | BLOCKED  | Old local tunnel connector retired with owner approval on 2026-11-16; no new public test tunnel/DNS wiring is approved or executed. Prior webhook-only/catch-all proof is historical. `docs/testing/2026-11-16-retirement-private-v1-status.md`                                                                                                                      | Public DNS/tunnel approval        |
+| P7-004  | Connect only the WhatsApp test number and Messenger test Page                          | P7-002, P7-003                 | Operator         | BLOCKED  | Old connected test stack retired; new private preview is not bound to live Meta test assets. Historical callback/subscription proof remains historical; production registration/assets were not changed. `docs/testing/2026-11-16-retirement-private-v1-status.md`                                                                                                   | Meta test-asset approval          |
 | P7-005  | Execute the full acceptance matrix, outage tests, restart tests, and manual-echo tests | P7-004                         | Codex + operator | BLOCKED  | Partial evidence covers v26.0 incoming/status samples, deployed phone-unavailable identity normalization, exact retry deduplication, Messenger role-scoped customer delivery, and durable manual Page-echo ingestion. Echo-to-pause application, WhatsApp device-originated delivery, outage, restart, bilingual, and the remaining policy matrix are still unproven | Test assets only                  |
 | P7-GATE | Review test-asset evidence                                                             | P7-005                         | Project owner    | BLOCKED  | Every required gate passes or has approved disposition                                                                                                                                                                                                                                                                                                               | Explicit review                   |
 
