@@ -13,11 +13,13 @@
 
 ## Bounded Fixture Implementation (GREEN)
 
-- **Derived validator dependency graph ([`tests/phase0-gate-validator.test.ts`](../../tests/phase0-gate-validator.test.ts#L63-L173)):**
+- **Derived validator dependency graph and containment enforcement ([`tests/phase0-gate-validator.test.ts`](../../tests/phase0-gate-validator.test.ts#L64-L241)):**
   - `readValidatorInputs()` extracts `requiredEvidenceFiles`, `citedEvidenceFiles`, and `requiredSections` artifact paths directly from [`scripts/validate-phase0-gate.ts`](../../scripts/validate-phase0-gate.ts) alongside `AGENTS.md` and `docs/TODO.md`.
-  - `collectValidatorDependencies(sourceRoot)` dynamically resolves every `` `(docs/...)` `` target referenced by `P0-003`..`P0-018` and `P0-GATE` rows of `docs/TODO.md` and every `` `path:line` `` source citation inside `citedEvidenceFiles`.
-  - `resolveBoundedRelativePath()` and `copyBoundedDependency()` reject empty, absolute, escaping (`..`), or symlink paths, create real parent directories, and fail closed (`ENOENT`) via `lstat`/`copyFile` if any required target is missing—never creating placeholders.
-- **Preserved and added tests ([`tests/phase0-gate-validator.test.ts`](../../tests/phase0-gate-validator.test.ts#L294-L488)):** All nine existing validator tests and assertions remain verbatim, plus three focused tests covering repository bounded-copy exactness (`< 60` files, excludes unrelated trees), dynamic tracker/citation discovery and missing-target `ENOENT` failures, and root-escape rejection (`12/12` passed in `1.67s`).
+  - `resolveBoundedRelativePath(sourceRoot, rawPath)` normalizes relative inputs and rejects empty paths, NUL bytes, Windows drive prefixes, absolute paths, and lexical root escapes (`..`).
+  - `assertBoundedRegularFile(sourceRoot, relativePath)` verifies `sourceRoot` is a real non-symlink directory, checks `realpath` containment inside `sourceRoot`, walks segment-by-segment with `lstat` to reject symbolic links or non-directories on every ancestor segment, and refuses symbolic links, directories, and any non-regular file at the leaf (failing closed with `ENOENT` when missing).
+  - `collectValidatorDependencies(sourceRoot)` validates `docs/TODO.md` and every discovered `citedEvidenceFiles` document through `assertBoundedRegularFile()` before calling `readFile`, then resolves every `` `(docs/...)` `` target referenced by `P0-003`..`P0-018` and `P0-GATE` rows of `docs/TODO.md` and every `` `path:line` `` source citation inside `citedEvidenceFiles`.
+  - `copyBoundedDependency(sourceRoot, destinationRoot, relativePath)` and `createFixture(sourceRoot)` enforce `assertBoundedRegularFile()` (removing recursive `cp` directory expansion), create real parent directories, copy regular files only via `copyFile`, and settle all concurrent copies via `settleAllOrThrow()` (`Promise.allSettled`) so any rejection finishes before `afterEach` cleanup deletes the temporary directory.
+- **Preserved and added tests ([`tests/phase0-gate-validator.test.ts`](../../tests/phase0-gate-validator.test.ts#L310-L680)):** All nine existing validator tests and assertions plus the three bounded-fixture headroom tests remain intact, joined by three regression tests covering ancestor-directory symlinks/junctions (including `docs/TODO.md`, cited evidence files, leaf dependencies, leaf junctions, and a symlinked `sourceRoot`), refusal of directory dependencies across both top-level and cited subtrees, and POSIX leaf-file symlink rejection (`test.skipIf(process.platform === 'win32')` on Windows where file symlinks require elevation, enforced natively on Linux).
 
 ## Fixture Sizing Comparison
 
@@ -27,21 +29,22 @@ Sizing sums 4 KiB-aligned regular file allocations (`max(4096, ceil(bytes / 4096
 | ------------------------------------------------------------- | -----------: | ----------: | ----------: | -----------------: |
 | Full repo on `origin/main` (`c2d8225`)                        |          713 |          37 |   7,830,557 |          9,424,896 |
 | Full repo on pre-fix combined (`5cb57f7`)                     |          716 |          37 |   7,998,133 |          9,596,928 |
-| **Bounded follow-up (`tests/phase0-gate-validator.test.ts`)** |       **29** |      **16** | **550,349** |        **696,320** |
+| **Bounded follow-up (`tests/phase0-gate-validator.test.ts`)** |       **29** |      **17** | **570,687** |        **716,800** |
 
-The bounded fixture keeps the required 29 files (including `AGENTS.md`, `README.md`, `docs/TODO.md`, Phase 0 evidence/review docs, and cited `migrations/`, `scripts/`, `src/`, `tests/` targets) at **`696,320` bytes (`~0.66 MiB`, `-92.7%` vs `5cb57f7`)**, freeing `~8.49 MiB` inside `/tmp` (`size=16m`) with `node-compile-cache` intact and zero changes to production code, validator policy, Docker mounts, tmpfs limits, dependencies, `docs/TODO.md`, or `docs/PROJECT_CONTEXT.md`.
+The bounded fixture keeps the required 29 files (including `AGENTS.md`, `docs/TODO.md`, Phase 0 evidence/review docs, and cited `infra/`, `migrations/`, `scripts/`, `src/`, and `tests/` targets) at **`716,800` bytes (`~0.68 MiB`, `-92.5%` vs `5cb57f7`)**, freeing `~8.47 MiB` inside `/tmp` (`size=16m`) with `node-compile-cache` intact and zero changes to production code, validator policy, Docker mounts, tmpfs limits, dependencies, `docs/TODO.md`, or `docs/PROJECT_CONTEXT.md`.
 
-## Follow-Up Verification Before Final Commit
+## Follow-Up Verification Before Commit
 
-| Check                                                                                          | Outcome                | Scope / Notes                                                  |
-| ---------------------------------------------------------------------------------------------- | ---------------------- | -------------------------------------------------------------- |
-| `npx vitest run tests/phase0-gate-validator.test.ts`                                           | **PASS** (`12 passed`) | 9 preserved negative/positive controls + 3 new tests (`1.67s`) |
-| `npm run validate:phase0`                                                                      | **PASS**               | Exit `0` against repository `HEAD` dependencies                |
-| `npm run format:check` & explicit `prettier --ignore-path .gitignore --check` on this Markdown | **PASS**               | Re-verified before final commit                                |
-| `npm run lint && npm run typecheck && npm run build`                                           | **PASS**               | Strict TypeScript + ESLint + build cleanly zero-error          |
-| `node scripts/verify-security-policy.ts`                                                       | **PASS**               | Secret & synthetic-fixture heuristic scan clean                |
+| Check                                                                                          | Scope / Notes                                                                              |
+| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `npx vitest run tests/phase0-gate-validator.test.ts` (Windows host)                            | 9 preserved controls + 3 headroom tests + 3 containment/directory-refusal regression tests |
+| `bash scripts/test-encrypted-backup.sh unit` (Linux container, unchanged `16 MiB /tmp`)        | Executes full unit suite including POSIX leaf-file-symlink test                            |
+| `npm run validate:phase0`                                                                      | Exit `0` against repository `HEAD` dependencies                                            |
+| `npm run format:check` & explicit `prettier --ignore-path .gitignore --check` on this Markdown | Verified on final committed tree                                                           |
+| `npm run lint && npm run typecheck && npm run build`                                           | Strict TypeScript + ESLint + production build                                              |
+| `npm audit --omit=dev --audit-level=high` & `node scripts/verify-security-policy.ts`           | Production dependency audit + secret/synthetic-fixture heuristic scan                      |
 
-Final-tree combined-candidate validation (PR #22 `cc5c723` + PR #23 `46c0e6d` + this final follow-up commit across isolated Linux `validate` CI with `16 MiB /tmp` and one solo four-worker Windows `npm test` run), immutable CI links, and rollback notes are recorded in the follow-up Draft PR handoff summary.
+Exact pass counts, container timings, immutable CI links, combined-candidate validation (integrating this headroom fix before combining PR #22 `cc5c723` and PR #23 `46c0e6d`), and rollback notes are recorded in the Draft PR handoff summaries.
 
 ## Scope & Governance Boundaries
 

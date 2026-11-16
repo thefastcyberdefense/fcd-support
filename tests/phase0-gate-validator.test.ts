@@ -2,13 +2,14 @@ import { spawnSync } from 'node:child_process';
 import {
   access,
   copyFile,
-  cp,
   lstat,
   mkdir,
   mkdtemp,
   readdir,
   readFile,
+  realpath,
   rm,
+  symlink,
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -84,7 +85,12 @@ async function readValidatorInputs(): Promise<ValidatorInputs> {
 
 function resolveBoundedRelativePath(sourceRoot: string, rawRelativePath: string): string {
   const trimmed = rawRelativePath.trim();
-  if (trimmed.length === 0 || isAbsolute(trimmed)) {
+  if (
+    trimmed.length === 0 ||
+    trimmed.includes('\0') ||
+    /^[A-Za-z]:/u.test(trimmed) ||
+    isAbsolute(trimmed)
+  ) {
     throw new Error(`Invalid validator dependency path: ${rawRelativePath}`);
   }
   const resolvedRoot = resolve(sourceRoot);
@@ -98,6 +104,60 @@ function resolveBoundedRelativePath(sourceRoot: string, rawRelativePath: string)
     throw new Error(`Validator dependency escapes source root: ${rawRelativePath}`);
   }
   return relativeTarget.replace(/\\/gu, '/');
+}
+
+/**
+ * Verifies that every path component inside `sourceRoot` is a real directory
+ * leading to a regular file (never a symlink, junction, or directory target).
+ */
+async function assertBoundedRegularFile(
+  sourceRoot: string,
+  rawRelativePath: string,
+): Promise<{ readonly normalizedPath: string; readonly sourcePath: string }> {
+  const normalizedPath = resolveBoundedRelativePath(sourceRoot, rawRelativePath);
+  const resolvedRoot = resolve(sourceRoot);
+  const rootStat = await lstat(resolvedRoot);
+  if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
+    throw new Error(`Invalid validator source root: ${sourceRoot}`);
+  }
+  const canonicalRoot = await realpath(resolvedRoot);
+  const segments = normalizedPath.split('/');
+  let current = resolvedRoot;
+
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index];
+    if (segment === undefined || segment.length === 0) {
+      throw new Error(`Invalid validator dependency path: ${rawRelativePath}`);
+    }
+    current = join(current, segment);
+    const entryStat = await lstat(current);
+    if (entryStat.isSymbolicLink()) {
+      throw new Error(`Refusing symlink validator dependency: ${normalizedPath}`);
+    }
+    const isLeaf = index === segments.length - 1;
+    if (isLeaf) {
+      if (entryStat.isDirectory()) {
+        throw new Error(`Refusing directory validator dependency: ${normalizedPath}`);
+      }
+      if (!entryStat.isFile()) {
+        throw new Error(`Refusing non-file validator dependency: ${normalizedPath}`);
+      }
+    } else if (!entryStat.isDirectory()) {
+      throw new Error(`Refusing non-directory validator ancestor: ${normalizedPath}`);
+    }
+  }
+
+  const canonicalTarget = await realpath(current);
+  const canonicalRelative = relative(canonicalRoot, canonicalTarget);
+  if (
+    canonicalRelative.length === 0 ||
+    canonicalRelative.startsWith('..') ||
+    isAbsolute(canonicalRelative)
+  ) {
+    throw new Error(`Validator dependency escapes source root: ${normalizedPath}`);
+  }
+
+  return { normalizedPath, sourcePath: current };
 }
 
 /**
@@ -119,7 +179,8 @@ async function collectValidatorDependencies(sourceRoot: string): Promise<readonl
   }
 
   const citedRelativePaths = inputs.citedEvidenceFiles.map((filePath) => addDependency(filePath));
-  const tracker = await readFile(resolve(sourceRoot, trackerRelativePath), 'utf8');
+  const boundedTracker = await assertBoundedRegularFile(sourceRoot, trackerRelativePath);
+  const tracker = await readFile(boundedTracker.sourcePath, 'utf8');
   for (const line of tracker.split(/\r?\n/u)) {
     const rowMatch = /^\|\s*(P0-(?:\d{3}|GATE))\s*\|/u.exec(line);
     const id = rowMatch?.[1];
@@ -132,7 +193,8 @@ async function collectValidatorDependencies(sourceRoot: string): Promise<readonl
   }
 
   for (const citedPath of citedRelativePaths) {
-    const evidence = await readFile(resolve(sourceRoot, citedPath), 'utf8');
+    const boundedCited = await assertBoundedRegularFile(sourceRoot, citedPath);
+    const evidence = await readFile(boundedCited.sourcePath, 'utf8');
     for (const citationMatch of evidence.matchAll(/`([^`\n]+\.(?:md|ts|sh)):(\d+)`/gu)) {
       if (citationMatch[1] !== undefined) {
         addDependency(citationMatch[1]);
@@ -148,25 +210,32 @@ async function copyBoundedDependency(
   fixtureRoot: string,
   relativePath: string,
 ): Promise<void> {
-  const sourcePath = resolve(sourceRoot, relativePath);
-  const destinationPath = join(fixtureRoot, relativePath);
-  const entryStat = await lstat(sourcePath);
-  if (entryStat.isSymbolicLink()) {
-    throw new Error(`Refusing symlink validator dependency: ${relativePath}`);
-  }
+  const { normalizedPath, sourcePath } = await assertBoundedRegularFile(sourceRoot, relativePath);
+  const destinationPath = join(fixtureRoot, normalizedPath);
   await mkdir(dirname(destinationPath), { recursive: true });
-  if (entryStat.isDirectory()) {
-    await cp(sourcePath, destinationPath, { recursive: true });
-    return;
-  }
   await copyFile(sourcePath, destinationPath);
 }
 
+async function settleAllOrThrow(tasks: readonly Promise<void>[]): Promise<void> {
+  const results = await Promise.allSettled(tasks);
+  const firstFailure = results.find(
+    (result): result is PromiseRejectedResult => result.status === 'rejected',
+  );
+  if (firstFailure !== undefined) {
+    throw firstFailure.reason;
+  }
+}
+
 async function createFixture(sourceRoot: string = repositoryRoot): Promise<string> {
+  const dependencies = await collectValidatorDependencies(sourceRoot);
+  await settleAllOrThrow(
+    dependencies.map(async (relativePath) => {
+      await assertBoundedRegularFile(sourceRoot, relativePath);
+    }),
+  );
   const root = await mkdtemp(join(tmpdir(), 'fcd-phase0-gate-'));
   temporaryRoots.push(root);
-  const dependencies = await collectValidatorDependencies(sourceRoot);
-  await Promise.all(
+  await settleAllOrThrow(
     dependencies.map(async (relativePath) => copyBoundedDependency(sourceRoot, root, relativePath)),
   );
   return root;
@@ -486,4 +555,126 @@ describe('Phase 0 gate validator', () => {
 
     await expect(createFixture(escapingSource)).rejects.toThrow(/escapes source root/u);
   });
+
+  test('rejects ancestor directory symlinks or junctions pointing outside or inside the source root', async () => {
+    const linkType = process.platform === 'win32' ? 'junction' : 'dir';
+    const outsideRoot = await mkdtemp(join(tmpdir(), 'fcd-phase0-outside-'));
+    temporaryRoots.push(outsideRoot);
+    await writeFile(join(outsideRoot, 'dynamic-tracker-target.md'), '# Outside tracker\n', 'utf8');
+    await writeFile(
+      join(outsideRoot, 'dynamic-citation-target.ts'),
+      'export const x = 1;\n',
+      'utf8',
+    );
+
+    // Case 1: ancestor symlink under tracker evidence path (docs/decisions -> outsideRoot)
+    const trackerAncestorLinkSource = await createSyntheticSourceRoot();
+    await rm(join(trackerAncestorLinkSource, 'docs', 'decisions'), {
+      force: true,
+      recursive: true,
+    });
+    await symlink(outsideRoot, join(trackerAncestorLinkSource, 'docs', 'decisions'), linkType);
+    await expect(createFixture(trackerAncestorLinkSource)).rejects.toThrow(/symlink/iu);
+
+    // Case 2: ancestor symlink under cited file path (src -> outsideRoot)
+    const citationAncestorLinkSource = await createSyntheticSourceRoot();
+    await rm(join(citationAncestorLinkSource, 'src'), { force: true, recursive: true });
+    await symlink(outsideRoot, join(citationAncestorLinkSource, 'src'), linkType);
+    await expect(createFixture(citationAncestorLinkSource)).rejects.toThrow(/symlink/iu);
+
+    // Case 3: ancestor symlink under cited evidence markdown read during dependency collection
+    const citedDocAncestorSource = await createSyntheticSourceRoot();
+    const reviewsCopy = join(outsideRoot, 'reviews-copy');
+    await mkdir(reviewsCopy, { recursive: true });
+    await copyFile(
+      join(citedDocAncestorSource, 'docs', 'reviews', 'phase-0-gate.md'),
+      join(reviewsCopy, 'phase-0-gate.md'),
+    );
+    await copyFile(
+      join(citedDocAncestorSource, 'docs', 'reviews', 'phase-0-gate-validation.md'),
+      join(reviewsCopy, 'phase-0-gate-validation.md'),
+    );
+    await rm(join(citedDocAncestorSource, 'docs', 'reviews'), { force: true, recursive: true });
+    await symlink(reviewsCopy, join(citedDocAncestorSource, 'docs', 'reviews'), linkType);
+    await expect(createFixture(citedDocAncestorSource)).rejects.toThrow(/symlink/iu);
+
+    // Case 4: internal ancestor symlink inside sourceRoot
+    const internalAncestorSource = await createSyntheticSourceRoot();
+    const internalTarget = join(internalAncestorSource, 'docs', 'real-decisions');
+    await mkdir(internalTarget, { recursive: true });
+    await writeFile(join(internalTarget, 'dynamic-tracker-target.md'), '# Internal\n', 'utf8');
+    await rm(join(internalAncestorSource, 'docs', 'decisions'), {
+      force: true,
+      recursive: true,
+    });
+    await symlink(internalTarget, join(internalAncestorSource, 'docs', 'decisions'), linkType);
+    await expect(createFixture(internalAncestorSource)).rejects.toThrow(/symlink/iu);
+
+    // Case 5: leaf directory symlink/junction replacing a target file
+    const leafLinkSource = await createSyntheticSourceRoot();
+    await rm(join(leafLinkSource, 'docs', 'decisions', 'dynamic-tracker-target.md'));
+    await symlink(
+      outsideRoot,
+      join(leafLinkSource, 'docs', 'decisions', 'dynamic-tracker-target.md'),
+      linkType,
+    );
+    await expect(createFixture(leafLinkSource)).rejects.toThrow(/symlink/iu);
+
+    // Case 6: symlink/junction as sourceRoot itself
+    const realSource = await createSyntheticSourceRoot();
+    const linkParent = await mkdtemp(join(tmpdir(), 'fcd-phase0-rootlink-'));
+    temporaryRoots.push(linkParent);
+    const linkedSourceRoot = join(linkParent, 'linked-root');
+    await symlink(realSource, linkedSourceRoot, linkType);
+    await expect(createFixture(linkedSourceRoot)).rejects.toThrow(/Invalid validator source root/u);
+  });
+
+  test('rejects directory dependencies instead of recursively expanding them', async () => {
+    const dirTrackerSource = await createSyntheticSourceRoot();
+    const todoPath = join(dirTrackerSource, 'docs', 'TODO.md');
+    const todoContent = await readFile(todoPath, 'utf8');
+    await writeFile(
+      todoPath,
+      todoContent.replace('`docs/decisions/dynamic-tracker-target.md`', '`docs/decisions`'),
+      'utf8',
+    );
+    await mkdir(join(dirTrackerSource, 'docs', 'decisions', 'nested'), { recursive: true });
+    await writeFile(
+      join(dirTrackerSource, 'docs', 'decisions', 'nested', 'extra.md'),
+      '# Extra\n',
+      'utf8',
+    );
+
+    await expect(createFixture(dirTrackerSource)).rejects.toThrow(/directory|non-file/iu);
+
+    const dirCitationSource = await createSyntheticSourceRoot({
+      extraCitation: '`src/dir-as-file.ts:1`',
+    });
+    await mkdir(join(dirCitationSource, 'src', 'dir-as-file.ts', 'nested'), { recursive: true });
+    await writeFile(
+      join(dirCitationSource, 'src', 'dir-as-file.ts', 'nested', 'leak.ts'),
+      'export const leak = true;\n',
+      'utf8',
+    );
+
+    await expect(createFixture(dirCitationSource)).rejects.toThrow(/directory|non-file/iu);
+  });
+
+  test.skipIf(process.platform === 'win32')(
+    'rejects leaf file symlinks during both collection and copy',
+    async () => {
+      const outsideRoot = await mkdtemp(join(tmpdir(), 'fcd-phase0-leaf-'));
+      temporaryRoots.push(outsideRoot);
+      await writeFile(join(outsideRoot, 'secret.md'), '# Outside secret\n', 'utf8');
+
+      const leafSymlinkSource = await createSyntheticSourceRoot();
+      await rm(join(leafSymlinkSource, 'docs', 'decisions', 'dynamic-tracker-target.md'));
+      await symlink(
+        join(outsideRoot, 'secret.md'),
+        join(leafSymlinkSource, 'docs', 'decisions', 'dynamic-tracker-target.md'),
+      );
+
+      await expect(createFixture(leafSymlinkSource)).rejects.toThrow(/symlink/iu);
+    },
+  );
 });
