@@ -17,7 +17,7 @@ BUNDLE = HOME / 'fcd-support-v1-source.bundle'
 PROJECT = 'fcd-support-host-test-v1-c2d8225'
 FIXTURE = HOME / PROJECT
 ACTION = HOME / 'fcd-support-v1-action-20261116'
-RETIREMENT = HOME / 'fcd-support-retirement-20261116/retirement.json'
+RETIREMENT = HOME / 'fcd-support-retirement-completion-20261116/retirement.json'
 ENDPOINT = 'unix:///var/run/docker.sock'
 FLAGS = {'MODEL_EXECUTION_ENABLED': 'false', 'OUTBOUND_EXECUTION_ENABLED': 'false', 'N8N_EXECUTION_ENABLED': 'false'}
 

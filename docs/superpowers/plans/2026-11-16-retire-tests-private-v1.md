@@ -31,3 +31,18 @@ PR24 copy-boundary corrections; unresolved solo four-worker Windows failures; fo
 ## Rollback and failure
 
 Retirement is destructive and owner-authorized; no recovery of deleted test databases/backups is promised. Partial retirement/deployment stops with a private action checkpoint and closed diagnostics. Do not replay failed one-use deployment or fabricate successful recovery. Retiring old tests does not authorize production-number changes or live provider calls.
+
+## Recorded graceful-stop timeout and bounded completion
+
+The original one-use retirement removed five private containers, then its legacy
+webhook API stop remained unacknowledged after 80 seconds. No volume/network/image
+or directory deletion occurred. Preserve that action's uncertain checkpoint.
+
+A separate one-use completion binds the exact original three legacy IDs, images,
+mounts and networks, confirms the other five removal acknowledgements and the
+same protected actor IDs, and uses Docker stop with a 30-second timeout for those
+three IDs only (Docker may then send SIGKILL). This is covered by the owner's
+explicit full test retirement, not a recovery-success inference. No rm --force,
+global kill, state-marker reset or old one-use action replay is permitted. The new
+completion record, plus actual old resource absence, becomes deployment admission
+proof. The original uncertain checkpoint remains unchanged.
