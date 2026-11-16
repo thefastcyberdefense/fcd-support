@@ -46,3 +46,21 @@ explicit full test retirement, not a recovery-success inference. No rm --force,
 global kill, state-marker reset or old one-use action replay is permitted. The new
 completion record, plus actual old resource absence, becomes deployment admission
 proof. The original uncertain checkpoint remains unchanged.
+
+## Prepared-source deployment attempt
+
+Retirement completion passed: 8 total old containers, 38 volumes, 70 networks,
+53 images and 25 fixture/action roots retired; 23 unrelated containers preserved.
+Post-retirement Docker free space was 21,294 MiB. No old FCD resources remained.
+
+The first fresh deployment cloned and pinned the source successfully, then
+refused at fixture construction because its restricted PATH omitted the host's
+existing Node binary. No fixture or deployment service was created. Preserve
+that uncertain attempt record. A separately marked R2 may reuse only that exact
+clean prepared source after matching the original pre-resource failure record,
+checking namespace/path/image absence and all admission floors again. Verify the
+absolute existing Node 24.16.0 binary for fixture generation before intent;
+application compilation/runtime still use the unchanged pinned Node 24.18.0
+container definitions. No host npm validation or container version downgrade.
+Use --inspect-prepared-source / --deploy-prepared-source with a new R2 action
+root; never replay --deploy or delete its old action marker.

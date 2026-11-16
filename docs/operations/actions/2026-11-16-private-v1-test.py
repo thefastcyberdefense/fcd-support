@@ -12,7 +12,7 @@ m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
 def fixture():
     return {'retirement_complete': True, 'disk_mib': 12288, 'memory_mib': 2048,
             'old_fcd_resources': False, 'namespace_absent': True, 'paths_absent': True,
-            'paths_disjoint': True, 'network_blocks': ['172.18.0.0/16']}
+            'paths_disjoint': True, 'fixture_node_ready': True, 'network_blocks': ['172.18.0.0/16']}
 
 
 class PrivateDeploymentTests(unittest.TestCase):
@@ -20,7 +20,7 @@ class PrivateDeploymentTests(unittest.TestCase):
         self.assertEqual(m.admit(fixture()), '198.19.0.0/20')
 
     def test_incomplete_retirement_and_collisions_refuse(self):
-        for key in ['retirement_complete', 'namespace_absent', 'paths_absent', 'paths_disjoint']:
+        for key in ['retirement_complete', 'namespace_absent', 'paths_absent', 'paths_disjoint', 'fixture_node_ready']:
             value = fixture(); value[key] = False
             with self.assertRaises(m.Refusal): m.admit(value)
         value = fixture(); value['old_fcd_resources'] = True
@@ -63,6 +63,7 @@ class PrivateDeploymentTests(unittest.TestCase):
             def is_fcd(value): return value.startswith('fcd-support')
         class FakeReader(m.Reader):
             def resources(self): return state, Retirement
+            def fixture_node(self): return 'synthetic_fixture_node'
             def docker(self, *args): return ''
             def run(self, args, **kwargs):
                 if args[0] == 'df': return 'Filesystem 1K-blocks Used Available Capacity Mounted\nsynthetic 99999999 1 12582912 1% /'
@@ -76,6 +77,14 @@ class PrivateDeploymentTests(unittest.TestCase):
             observation, _ = FakeReader().admission()
         self.assertFalse(observation['namespace_absent'])
         with self.assertRaises(m.Refusal): m.admit(observation)
+
+    def test_prepared_source_requires_the_exact_pre_resource_failure(self):
+        valid = {'phase':'uncertain','stage':'fixture','revision':m.REVISION}
+        self.assertTrue(m.prepared_source_allowed(valid,m.REVISION,False))
+        for field,value in [('stage','images'),('phase','complete'),('revision','a'*40)]:
+            changed = dict(valid); changed[field]=value
+            with self.assertRaises(m.Refusal): m.prepared_source_allowed(changed,m.REVISION,False)
+        with self.assertRaises(m.Refusal):m.prepared_source_allowed(valid,m.REVISION,True)
 
     def test_bad_network_is_rejected(self):
         value = fixture(); value['network_blocks'] = ['synthetic_invalid_cidr']

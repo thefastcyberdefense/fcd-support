@@ -17,6 +17,9 @@ BUNDLE = HOME / 'fcd-support-v1-source.bundle'
 PROJECT = 'fcd-support-host-test-v1-c2d8225'
 FIXTURE = HOME / PROJECT
 ACTION = HOME / 'fcd-support-v1-action-20261116'
+PREVIOUS_ACTION = ACTION
+SECOND_ACTION = HOME / 'fcd-support-v1-action-20261116-r2'
+HOST_NODE = HOME / '.nvm/versions/node/v24.16.0/bin/node'
 RETIREMENT = HOME / 'fcd-support-retirement-completion-20261116/retirement.json'
 ENDPOINT = 'unix:///var/run/docker.sock'
 FLAGS = {'MODEL_EXECUTION_ENABLED': 'false', 'OUTBOUND_EXECUTION_ENABLED': 'false', 'N8N_EXECUTION_ENABLED': 'false'}
@@ -33,7 +36,7 @@ def require(value):
 
 def admit(value):
     require(value['retirement_complete'] and not value['old_fcd_resources'])
-    require(value['namespace_absent'] and value['paths_absent'] and value['paths_disjoint'])
+    require(value['namespace_absent'] and value['paths_absent'] and value['paths_disjoint'] and value['fixture_node_ready'])
     require(value['disk_mib'] >= 12288 and value['memory_mib'] >= 2048)
     try:
         existing = [ipaddress.ip_network(item, strict=False) for item in value['network_blocks']]
@@ -62,7 +65,22 @@ def lifecycle_commands():
             ['bash', str(SOURCE / 'scripts/verify-runtime.sh'), REVISION, config]]
 
 
+def prepared_source_allowed(record, revision, dirty):
+    require(record.get('phase') == 'uncertain' and record.get('stage') == 'fixture' and record.get('revision') == REVISION)
+    require(revision == REVISION and not dirty)
+    return True
+
+
 class Reader:
+    def __init__(self, prepared_source=False):
+        self.prepared_source = prepared_source
+
+    def fixture_node(self):
+        require(HOST_NODE.is_file() and not HOST_NODE.is_symlink() and HOST_NODE.resolve(strict=True) == HOST_NODE)
+        require(HOST_NODE.stat().st_uid == 1000 and not HOST_NODE.stat().st_mode & 0o022)
+        require(self.run([str(HOST_NODE), '--version']) == 'v24.16.0')
+        return str(HOST_NODE)
+
     def run(self, args, timeout=30, cwd=None):
         process = subprocess.run(args, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout, cwd=cwd,
                                  env={'PATH': '/usr/local/bin:/usr/bin:/bin', 'HOME': str(HOME), 'LC_ALL': 'C', 'GIT_TERMINAL_PROMPT': '0'})
@@ -80,6 +98,15 @@ class Reader:
     def admission(self):
         state, retirement = self.resources()
         paths = [SOURCE, FIXTURE, ACTION]
+        if self.prepared_source:
+            previous = PREVIOUS_ACTION / 'deployment.json'
+            require(PREVIOUS_ACTION.resolve(strict=True) == PREVIOUS_ACTION and not PREVIOUS_ACTION.is_symlink())
+            require(previous.is_file() and not previous.is_symlink() and previous.stat().st_uid == 1000 and previous.stat().st_nlink == 1 and previous.stat().st_size <= 16384)
+            require(SOURCE.is_dir() and not SOURCE.is_symlink() and SOURCE.resolve(strict=True) == SOURCE and SOURCE.stat().st_uid == 1000)
+            revision = self.run(['git', '-c', 'core.fsmonitor=false', '-C', str(SOURCE), 'rev-parse', 'HEAD'])
+            dirty = bool(self.run(['git', '-c', 'core.fsmonitor=false', '-C', str(SOURCE), 'status', '--porcelain']))
+            prepared_source_allowed(json.loads(previous.read_text()), revision, dirty)
+            paths = [FIXTURE, ACTION]
         foreign_mounts = [m['Source'] for a in state['actors'] for m in a['mounts'] if m['Type'] == 'bind']
         blocks = []
         for ident in self.docker('network', 'ls', '--quiet').split():
@@ -98,10 +125,11 @@ class Reader:
                                  any(retirement.is_fcd(n['name']) for n in state['networks']),
             'namespace_absent': namespace_absent(state),
             'paths_absent': all(not p.exists() and not p.is_symlink() for p in paths),
-            'paths_disjoint': all(not retirement.overlaps(str(p), mount) for p in paths for mount in foreign_mounts),
+            'paths_disjoint': all(not retirement.overlaps(str(p), mount) for p in [SOURCE, FIXTURE, ACTION] for mount in foreign_mounts),
             'disk_mib': int(self.run(['df', '-Pk', '/var/lib/docker']).splitlines()[-1].split()[3]) // 1024,
             'memory_mib': int(mem['MemAvailable'].split()[0]) // 1024,
             'network_blocks': blocks,
+            'fixture_node_ready': bool(self.fixture_node()),
         }
         return observation, state
 
@@ -152,13 +180,14 @@ def execute(reader):
         write_private(temporary, json.dumps(record)); os.replace(temporary, ACTION / 'deployment.json')
     save()
     try:
-        reader.run(['git', '-c', 'core.hooksPath=/dev/null', 'clone', '--no-hardlinks', '--single-branch', '--branch', 'main', str(BUNDLE), str(SOURCE)], timeout=180)
-        require(reader.run(['git', '-C', str(SOURCE), 'rev-parse', 'HEAD']) == REVISION)
-        reader.run(['git', '-C', str(SOURCE), 'checkout', '--detach', REVISION])
-        require(not reader.run(['git', '-C', str(SOURCE), 'status', '--porcelain']))
+        if not reader.prepared_source:
+            reader.run(['git', '-c', 'core.hooksPath=/dev/null', 'clone', '--no-hardlinks', '--single-branch', '--branch', 'main', str(BUNDLE), str(SOURCE)], timeout=180)
+            require(reader.run(['git', '-C', str(SOURCE), 'rev-parse', 'HEAD']) == REVISION)
+            reader.run(['git', '-C', str(SOURCE), 'checkout', '--detach', REVISION])
+            require(not reader.run(['git', '-C', str(SOURCE), 'status', '--porcelain']))
         SOURCE.chmod(0o700)
         record['stage'] = 'fixture'; save()
-        reader.run(['node', str(SOURCE / 'tests/helpers/runtime-host-fixture.ts'), str(FIXTURE), PROJECT, REVISION], timeout=30)
+        reader.run([reader.fixture_node(), str(SOURCE / 'tests/helpers/runtime-host-fixture.ts'), str(FIXTURE), PROJECT, REVISION], timeout=30)
         validate_flags()
         record['stage'] = 'images'; save()
         for role, dockerfile in [('application', 'Dockerfile'), ('operations', 'infra/Dockerfile.operations'), ('postgres', 'infra/Dockerfile.postgres')]:
@@ -222,14 +251,17 @@ def execute(reader):
 
 
 def main(args):
+    global ACTION
     try:
-        reader = Reader()
-        if args == ['--inspect']:
+        prepared = args in [['--inspect-prepared-source'], ['--deploy-prepared-source'], ['--verify-prepared-source']]
+        if prepared: ACTION = SECOND_ACTION
+        reader = Reader(prepared_source=prepared)
+        if args in [['--inspect'], ['--inspect-prepared-source']]:
             observation, _ = reader.admission(); admit(observation)
             print('private_v1_admission_passed=true')
-        elif args == ['--deploy']:
+        elif args in [['--deploy'], ['--deploy-prepared-source']]:
             execute(reader)
-        elif args == ['--verify']:
+        elif args in [['--verify'], ['--verify-prepared-source']]:
             require(json.loads((ACTION / 'deployment.json').read_text())['phase'] == 'complete')
             reader.run(lifecycle_commands()[1], timeout=900, cwd=str(SOURCE)); validate_flags(); private_login_status()
             print('private_v1_verification_passed=true')
