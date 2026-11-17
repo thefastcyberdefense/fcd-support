@@ -1,8 +1,13 @@
 import pg from 'pg';
 
-import { createManifestClient } from '../model/manifest-client.js';
+import {
+  AesGcmGatewaySecretProtector,
+  decodeGatewayEncryptionKey,
+} from '../model/gateway-secret.js';
+import { createManifestClient, createOpenAiCompatibleClient } from '../model/manifest-client.js';
 import { PostgresConversationEventProcessor } from '../persistence/postgres-conversation-event-processor.js';
 import { PostgresModelAllowance } from '../persistence/postgres-model-allowance.js';
+import { PostgresModelGateway } from '../persistence/postgres-model-gateway.js';
 import { PostgresModelPolicy } from '../persistence/postgres-model-policy.js';
 import { PostgresOutboundIntentStore } from '../persistence/postgres-outbound-intent-store.js';
 import {
@@ -69,6 +74,15 @@ export async function createReplyRuntime(options: RoleRuntimeOptions): Promise<R
     inspectSensitiveText,
     faqResolver: new PostgresRuntimeFaqResolver(pool, settings.faq),
   });
+  const gatewayKeyEncoded = environment.MODEL_GATEWAY_ENCRYPTION_KEY;
+  const gatewayKeyVersion = environment.MODEL_GATEWAY_KEY_VERSION ?? 'gateway-v1';
+  const gatewayProtector =
+    gatewayKeyEncoded === undefined
+      ? undefined
+      : new AesGcmGatewaySecretProtector(
+          gatewayKeyVersion,
+          decodeGatewayEncryptionKey(gatewayKeyEncoded),
+        );
   const model =
     manifest === undefined || modelConfig === undefined
       ? undefined
@@ -79,6 +93,18 @@ export async function createReplyRuntime(options: RoleRuntimeOptions): Promise<R
           manifestAttestation: settings.attestation,
           policy: new PostgresModelPolicy(pool),
           allowance: new PostgresModelAllowance(pool),
+          gateway: new PostgresModelGateway(pool, gatewayProtector),
+          gatewayClientFactory: (gateway, maximumResponseBytes, totalTimeoutMs) =>
+            createOpenAiCompatibleClient({
+              apiKey: gateway.apiKey.reveal(),
+              baseUrl: gateway.endpointBaseUrl,
+              maximumResponseBytes,
+              totalTimeoutMs,
+              logger: options.logger,
+              ...(options.testTransports?.manifest === undefined
+                ? {}
+                : { fetch: options.testTransports.manifest }),
+            }),
           now: options.now,
         });
   const intent = new PostgresOutboundIntentStore(pool, keyring, settings.outboundBounds);

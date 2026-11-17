@@ -19,6 +19,11 @@ const environmentSchema = z.object({
     .string()
     .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/)
     .default('local-v1'),
+  MODEL_GATEWAY_ENCRYPTION_KEY: encodedKeySchema.optional(),
+  MODEL_GATEWAY_KEY_VERSION: z
+    .string()
+    .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/)
+    .default('gateway-v1'),
   ADMIN_ORIGIN: z.url().optional(),
   ADMIN_PASSWORD_BLOCK_SIZE: z.coerce.number().int().min(8).max(16).default(8),
   ADMIN_PASSWORD_COST: z.coerce.number().int().min(16_384).max(262_144).default(65_536),
@@ -68,6 +73,8 @@ const settingOrder = [
   'ADMIN_SESSION_HMAC_KEY',
   'ADMIN_MFA_ENCRYPTION_KEY',
   'ADMIN_MFA_KEY_VERSION',
+  'MODEL_GATEWAY_ENCRYPTION_KEY',
+  'MODEL_GATEWAY_KEY_VERSION',
   'ADMIN_PASSWORD_COST',
   'ADMIN_PASSWORD_BLOCK_SIZE',
   'ADMIN_PASSWORD_PARALLELIZATION',
@@ -101,6 +108,8 @@ export interface AdminConfig {
   readonly host: '127.0.0.1' | '::1' | '0.0.0.0';
   readonly mfaEncryptionKey: AdminSecretBytes;
   readonly mfaKeyVersion: string;
+  readonly gatewayEncryptionKey?: AdminSecretBytes;
+  readonly gatewayKeyVersion: string;
   readonly origin: string;
   readonly passwordPolicy: {
     readonly algorithm: 'scrypt_v1';
@@ -129,7 +138,10 @@ function fail(settings: readonly (typeof settingOrder)[number][]): never {
   throw new Error(`Invalid admin configuration: ${names.join(', ')}`);
 }
 
-function decodeKey(value: string, setting: 'ADMIN_MFA_ENCRYPTION_KEY' | 'ADMIN_SESSION_HMAC_KEY') {
+function decodeKey(
+  value: string,
+  setting: 'ADMIN_MFA_ENCRYPTION_KEY' | 'ADMIN_SESSION_HMAC_KEY' | 'MODEL_GATEWAY_ENCRYPTION_KEY',
+) {
   const bytes = Buffer.from(value, 'base64url');
   if (bytes.length !== 32) {
     bytes.fill(0);
@@ -232,6 +244,15 @@ export function loadAdminConfig(
     host,
     mfaEncryptionKey: decodeKey(result.data.ADMIN_MFA_ENCRYPTION_KEY, 'ADMIN_MFA_ENCRYPTION_KEY'),
     mfaKeyVersion: result.data.ADMIN_MFA_KEY_VERSION,
+    ...(result.data.MODEL_GATEWAY_ENCRYPTION_KEY === undefined
+      ? {}
+      : {
+          gatewayEncryptionKey: decodeKey(
+            result.data.MODEL_GATEWAY_ENCRYPTION_KEY,
+            'MODEL_GATEWAY_ENCRYPTION_KEY',
+          ),
+        }),
+    gatewayKeyVersion: result.data.MODEL_GATEWAY_KEY_VERSION,
     origin,
     passwordPolicy: {
       algorithm: 'scrypt_v1',

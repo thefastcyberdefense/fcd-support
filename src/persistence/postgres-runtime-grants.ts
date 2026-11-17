@@ -81,7 +81,13 @@ const groups = {
     'model_policy_versions',
     'model_policy_review_events',
     'model_usage_windows',
+    'model_budget_windows',
     'model_call_leases',
+  ],
+  modelGateway: [
+    'model_gateway_profiles',
+    'model_gateway_test_events',
+    'model_gateway_review_events',
   ],
   outbound: [
     'outbound_policy_versions',
@@ -424,6 +430,7 @@ export async function configureRuntimeGrants(
       ...groups.learning,
       ...groups.reply,
       ...groups.model,
+      'model_gateway_profiles',
       ...groups.outbound,
       'runtime_restore_quarantine',
     ]);
@@ -446,6 +453,7 @@ export async function configureRuntimeGrants(
       'knowledge_gap_observations',
       'model_call_leases',
       'model_usage_windows',
+      'model_budget_windows',
       'runtime_processing_work',
       'outbound_intents',
       'outbound_escalation_outcomes',
@@ -455,6 +463,7 @@ export async function configureRuntimeGrants(
       ...groups.admin,
       ...groups.learning,
       ...groups.model,
+      ...groups.modelGateway,
       ...groups.outbound,
       ...groups.runtime,
       ...groups.operations,
@@ -472,6 +481,9 @@ export async function configureRuntimeGrants(
       ...groups.learning,
       'model_policy_versions',
       'model_policy_review_events',
+      'model_gateway_profiles',
+      'model_gateway_test_events',
+      'model_gateway_review_events',
       'outbound_policy_versions',
       'outbound_policy_review_events',
       'outbound_template_versions',
@@ -513,11 +525,11 @@ export async function configureRuntimeGrants(
       'privacy_notification_intents',
     ]);
     await grant('notification', 'select(source_kind,source_id)', ['runtime_restore_quarantine']);
-    const adminTables = new Set<string>(groups.admin);
+    const restrictedTables = new Set<string>([...groups.admin, ...groups.modelGateway]);
     await grant(
       'maintenance',
       'select',
-      tables.filter((name) => !adminTables.has(name)),
+      tables.filter((name) => !restrictedTables.has(name)),
     );
     await grant('maintenance', 'select', ['notification_delivery_sources']);
     await write(

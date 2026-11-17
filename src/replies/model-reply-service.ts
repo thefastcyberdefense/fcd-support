@@ -2,9 +2,19 @@ import { createHash } from 'node:crypto';
 
 import { z } from 'zod';
 
-import type { ManifestClient, ManifestClientFailureReason } from '../model/manifest-client.js';
+import {
+  computeActualCallCostMicroUsd,
+  computeMaxEstimatedCostMicroUsd,
+} from '../model/gateway-budget.js';
+import type { ResolvedRuntimeGateway } from '../model/gateway-types.js';
+import {
+  createOpenAiCompatibleClient,
+  type ManifestClient,
+  type ManifestClientFailureReason,
+} from '../model/manifest-client.js';
 import { parseManifestOutput } from '../model/manifest-output.js';
 import {
+  buildGatewayRequest,
   buildManifestRequest,
   prepareManifestText,
   type ManifestRequestLimits,
@@ -13,6 +23,7 @@ import type { ManifestLimitAttestation } from '../model/model-policy-types.js';
 import type { ManifestKnowledgeRecord, ModelDeploymentCeilings } from '../model/model-types.js';
 import type {
   ModelAllowancePort,
+  ModelGatewayPort,
   ModelPolicyPort,
   ModelReplyDecisionResult,
   ModelReplyStore,
@@ -37,6 +48,12 @@ const inputSchema = z.strictObject({
 export interface ModelReplyServiceOptions {
   readonly allowance: ModelAllowancePort;
   readonly deployment: ModelDeploymentCeilings;
+  readonly gateway?: ModelGatewayPort;
+  readonly gatewayClientFactory?: (
+    gateway: Extract<ResolvedRuntimeGateway, { readonly gatewayKind: 'openai_compatible' }>,
+    maximumResponseBytes: number,
+    totalTimeoutMs: number,
+  ) => ManifestClient;
   readonly manifest: ManifestClient;
   readonly manifestAttestation: ManifestLimitAttestation | undefined;
   readonly now?: () => Date;
@@ -78,7 +95,12 @@ function invalidEnvelopeReason(reason: string): ModelEscalationReasonCode {
 }
 
 function denialReason(reason: string): ModelEscalationReasonCode {
-  if (reason === 'rate_limited' || reason === 'global_limit' || reason === 'queue_full') {
+  if (
+    reason === 'rate_limited' ||
+    reason === 'global_limit' ||
+    reason === 'budget_exceeded' ||
+    reason === 'queue_full'
+  ) {
     return reason;
   }
   return 'model_disabled';
@@ -133,6 +155,15 @@ export class ModelReplyService {
       return this.safeFailure(command, 'model_disabled', 'provider_unavailable');
     }
 
+    let gateway: ResolvedRuntimeGateway | undefined;
+    if (this.options.gateway !== undefined) {
+      try {
+        gateway = await this.options.gateway.resolveRuntimeGateway();
+      } catch {
+        return this.safeFailure(command, 'model_disabled', 'provider_unavailable');
+      }
+    }
+
     const knowledge = await this.options.store.loadPublishedKnowledge({
       evaluatedAt: command.evaluatedAt,
       language: command.language,
@@ -145,7 +176,7 @@ export class ModelReplyService {
         maximumInputCodePoints: this.options.deployment.inputCodePoints,
         maximumOutputTokens: policy.limits.outputTokens,
       };
-      request = buildManifestRequest({
+      const requestInput = {
         currentRequest: prepareManifestText(currentInspection),
         language: command.language,
         limits: requestLimits,
@@ -155,13 +186,36 @@ export class ModelReplyService {
           this.options.deployment.inputCodePoints,
         ),
         recentContext: [],
-      });
+      };
+      request =
+        gateway?.gatewayKind === 'openai_compatible'
+          ? buildGatewayRequest(requestInput, { model: gateway.modelName })
+          : buildManifestRequest(requestInput);
     } catch {
       return this.safeFailure(command, 'invalid_response', 'validation_failed');
     }
 
+    const requestCodePoints =
+      Array.from(request.messages[0].content).length +
+      Array.from(request.messages[1].content).length;
+    const budgetInput =
+      gateway?.gatewayProfileId === undefined
+        ? undefined
+        : {
+            budgetMicroUsd: gateway.budgetMicroUsd,
+            budgetWindowKind: gateway.budgetWindowKind,
+            estimatedMaxCostMicroUsd: computeMaxEstimatedCostMicroUsd({
+              inputCodePoints: requestCodePoints,
+              inputCostPerMillionMicroUsd: gateway.inputCostPerMillionMicroUsd,
+              maxOutputTokens: policy.limits.outputTokens,
+              outputCostPerMillionMicroUsd: gateway.outputCostPerMillionMicroUsd,
+            }),
+            gatewayProfileId: gateway.gatewayProfileId,
+          };
+
     const callKey = createModelLogicalCallKey(command.webhookEventId);
     const allowance = await this.options.allowance.acquireModelAllowance({
+      ...(budgetInput === undefined ? {} : { budget: budgetInput }),
       conversationId: claim.source.conversationId,
       effectivePolicy: policy,
       evaluatedAt: command.evaluatedAt,
@@ -188,7 +242,32 @@ export class ModelReplyService {
       }
     }
 
-    const manifestResult = await this.options.manifest.complete({
+    let client: ManifestClient;
+    try {
+      client =
+        gateway?.gatewayKind === 'openai_compatible'
+          ? (
+              this.options.gatewayClientFactory ??
+              ((target, maxBytes, timeoutMs) =>
+                createOpenAiCompatibleClient({
+                  apiKey: target.apiKey.reveal(),
+                  baseUrl: target.endpointBaseUrl,
+                  maximumResponseBytes: maxBytes,
+                  totalTimeoutMs: timeoutMs,
+                }))
+            )(gateway, this.options.deployment.responseBytes, policy.limits.totalTimeoutMs)
+          : this.options.manifest;
+    } catch {
+      const persisted = await this.safeFailure(command, 'model_disabled', 'provider_unavailable');
+      await this.options.allowance.completeLease({
+        completedAt: this.now(),
+        logicalCallKey: callKey,
+        outcomeCode: persisted.status === 'policy_blocked' ? 'guard_blocked' : 'invalid_request',
+      });
+      return persisted;
+    }
+
+    const manifestResult = await client.complete({
       logicalRequestId: callKey,
       request,
     });
@@ -203,6 +282,20 @@ export class ModelReplyService {
       });
       return persisted;
     }
+
+    const usageInput =
+      manifestResult.usage === undefined
+        ? undefined
+        : {
+            actualCostMicroUsd: computeActualCallCostMicroUsd({
+              completionTokens: manifestResult.usage.completionTokens,
+              inputCostPerMillionMicroUsd: gateway?.inputCostPerMillionMicroUsd ?? 0,
+              outputCostPerMillionMicroUsd: gateway?.outputCostPerMillionMicroUsd ?? 0,
+              promptTokens: manifestResult.usage.promptTokens,
+            }),
+            completionTokens: manifestResult.usage.completionTokens,
+            promptTokens: manifestResult.usage.promptTokens,
+          };
 
     const validation = parseManifestOutput(JSON.stringify(manifestResult.value), {
       knowledge,
@@ -219,6 +312,7 @@ export class ModelReplyService {
         completedAt: this.now(),
         logicalCallKey: callKey,
         outcomeCode: persisted.status === 'policy_blocked' ? 'guard_blocked' : 'invalid_envelope',
+        ...(usageInput === undefined ? {} : { usage: usageInput }),
       });
       return persisted;
     }
@@ -228,6 +322,7 @@ export class ModelReplyService {
         completedAt: this.now(),
         logicalCallKey: callKey,
         outcomeCode: persisted.status === 'policy_blocked' ? 'guard_blocked' : 'completed',
+        ...(usageInput === undefined ? {} : { usage: usageInput }),
       });
       return persisted;
     }
@@ -245,6 +340,7 @@ export class ModelReplyService {
         completedAt: this.now(),
         logicalCallKey: callKey,
         outcomeCode: fallback.status === 'policy_blocked' ? 'guard_blocked' : 'invalid_envelope',
+        ...(usageInput === undefined ? {} : { usage: usageInput }),
       });
       return fallback;
     }
@@ -252,6 +348,7 @@ export class ModelReplyService {
       completedAt: this.now(),
       logicalCallKey: callKey,
       outcomeCode: persisted.status === 'policy_blocked' ? 'guard_blocked' : 'completed',
+      ...(usageInput === undefined ? {} : { usage: usageInput }),
     });
     return persisted;
   }

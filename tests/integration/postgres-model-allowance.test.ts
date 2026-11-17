@@ -454,4 +454,111 @@ describe('PostgreSQL model allowance and leases', () => {
     ).resolves.toEqual({ status: 'denied', reasonCode: 'policy_disabled' });
     expect(nextPolicy.policyRef).toBe('POLICY_TEST_replacement');
   });
+
+  test('enforces unlimited budget 0 with safety limits and settles positive budget across completion, failure, and expiry', async () => {
+    const policy = await activePolicy({
+      concurrentCalls: 1,
+      globalUtcDayCalls: 10,
+      perContact15MinuteCalls: 10,
+      perContact24HourCalls: 10,
+      queueCapacity: 1,
+    });
+    const adminId = (
+      await pool.query<{ readonly id: string }>(
+        `select id from admin_accounts where account_ref = $1`,
+        [administrator.reviewerRef],
+      )
+    ).rows[0]?.id;
+    const gw = await pool.query<{ readonly id: string }>(
+      `insert into model_gateway_profiles
+         (gateway_ref, version_number, request_key, gateway_kind, display_label,
+          model_name, budget_micro_usd, budget_window_kind,
+          input_cost_per_million_micro_usd, output_cost_per_million_micro_usd,
+          state, activated_by_account_id, created_by_account_id, created_at, activated_at)
+       values ('GATEWAY_TEST_allowance', 1, 'REQUEST_TEST_gw_allow', 'manifest_default', 'Manifest Budget Override',
+               'auto', 1000, 'utc_month', 1000, 1000, 'active', $1, $1, $2, $2)
+       returning id`,
+      [adminId, baseAt],
+    );
+    const gatewayProfileId = gw.rows[0]?.id;
+    if (gatewayProfileId === undefined) throw new Error('Expected inserted gateway profile');
+
+    // Budget 0 call never denies on budget even if estimated cost exceeds 1000, while still subject to operational queue/concurrency limits
+    const zeroOne = await source('zero_one', new Date(baseAt.getTime() + 6000));
+    await expect(
+      allowance.acquireModelAllowance({
+        ...input(zeroOne, 'CALL_TEST_zero_1', policy, new Date(baseAt.getTime() + 6000)),
+        budget: {
+          budgetMicroUsd: 0,
+          budgetWindowKind: 'utc_month',
+          estimatedMaxCostMicroUsd: 50_000,
+          gatewayProfileId,
+        },
+      }),
+    ).resolves.toEqual({ status: 'acquired', leaseState: 'active' });
+
+    const zeroTwo = await source('zero_two', new Date(baseAt.getTime() + 6100));
+    await expect(
+      allowance.acquireModelAllowance({
+        ...input(zeroTwo, 'CALL_TEST_zero_2', policy, new Date(baseAt.getTime() + 6100)),
+        budget: {
+          budgetMicroUsd: 0,
+          budgetWindowKind: 'utc_month',
+          estimatedMaxCostMicroUsd: 50_000,
+          gatewayProfileId,
+        },
+      }),
+    ).resolves.toEqual({ status: 'acquired', leaseState: 'queued' });
+
+    // Expire both: queued (never sent) releases 50_000; active (dispatched) settles 50_000
+    await expect(allowance.expireLeases(new Date(baseAt.getTime() + 60_000))).resolves.toEqual({
+      expiredCount: 2,
+    });
+
+    // Fresh monthly window after expiry should have spent = 50_000, reserved = 0; positive budget 1000 denies immediately
+    const overBudget = await source('over_budget', new Date(baseAt.getTime() + 70_000));
+    await expect(
+      allowance.acquireModelAllowance({
+        ...input(overBudget, 'CALL_TEST_over', policy, new Date(baseAt.getTime() + 70_000)),
+        budget: {
+          budgetMicroUsd: 1000,
+          budgetWindowKind: 'utc_month',
+          estimatedMaxCostMicroUsd: 100,
+          gatewayProfileId,
+        },
+      }),
+    ).resolves.toEqual({ status: 'denied', reasonCode: 'budget_exceeded' });
+
+    // In next UTC month (fresh window), pre-send failure releases reservation cleanly
+    const nextMonth = new Date('2026-10-01T00:00:00.000Z');
+    const clean = await source('next_month', nextMonth);
+    await expect(
+      allowance.acquireModelAllowance({
+        ...input(clean, 'CALL_TEST_next_month', policy, nextMonth),
+        budget: {
+          budgetMicroUsd: 1000,
+          budgetWindowKind: 'utc_month',
+          estimatedMaxCostMicroUsd: 900,
+          gatewayProfileId,
+        },
+      }),
+    ).resolves.toEqual({ status: 'acquired', leaseState: 'active' });
+    await allowance.completeLease({
+      completedAt: new Date(nextMonth.getTime() + 500),
+      logicalCallKey: 'CALL_TEST_next_month',
+      outcomeCode: 'network_failure',
+    });
+    const retry = await source('next_month_retry', new Date(nextMonth.getTime() + 1000));
+    await expect(
+      allowance.acquireModelAllowance({
+        ...input(retry, 'CALL_TEST_next_month_retry', policy, new Date(nextMonth.getTime() + 1000)),
+        budget: {
+          budgetMicroUsd: 1000,
+          budgetWindowKind: 'utc_month',
+          estimatedMaxCostMicroUsd: 900,
+          gatewayProfileId,
+        },
+      }),
+    ).resolves.toEqual({ status: 'acquired', leaseState: 'active' });
+  });
 });

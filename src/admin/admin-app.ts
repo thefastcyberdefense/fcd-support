@@ -3,6 +3,12 @@ import { randomBytes } from 'node:crypto';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 
 import { noopSafeLogger, type SafeLogger } from '../logging.js';
+import {
+  MAX_BUDGET_MICRO_USD,
+  MAX_RATE_MICRO_USD,
+  parseUsdToMicroUsd,
+} from '../model/gateway-budget.js';
+import type { ModelGatewayBudgetSummary, ModelGatewayProfileView } from '../model/gateway-types.js';
 import { parseModelPolicyValues } from '../model/model-policy-input.js';
 import type {
   AdminAuthenticationResult,
@@ -10,6 +16,11 @@ import type {
   AdminRole,
   ResolvedAdminSession,
 } from '../persistence/postgres-admin-identity.js';
+import {
+  GatewayConfigurationError,
+  GatewayEncryptionKeyMissingError,
+  GatewayStateTransitionError,
+} from '../persistence/postgres-model-gateway.js';
 import {
   type AdminAuditSummary,
   type AdminEscalationCount,
@@ -70,6 +81,16 @@ export interface AdminDashboardPort {
     filter?: AdminProposalFilter,
   ) => Promise<readonly AdminProposalSummary[]>;
   readonly listQuestions: () => Promise<readonly AdminQuestionSummary[]>;
+  readonly listGatewayProfiles: () => Promise<readonly ModelGatewayProfileView[]>;
+  readonly readActiveGatewayBudgetSummary: (
+    evaluatedAt?: Date,
+  ) => Promise<ModelGatewayBudgetSummary | undefined>;
+  readonly createGatewayProfile: (input: unknown, actor: AdminActor) => Promise<void>;
+  readonly testGatewayProfile: (
+    input: { readonly gatewayRef: string; readonly requestKey: string; readonly testedAt: Date },
+    actor: AdminActor,
+  ) => Promise<void>;
+  readonly transitionGatewayProfile: (input: unknown, actor: AdminActor) => Promise<void>;
   readonly listModelPolicies: () => Promise<readonly AdminPolicySummary[]>;
   readonly createModelPolicy: (input: unknown, actor: AdminActor) => Promise<void>;
   readonly transitionModelPolicy: (input: unknown, actor: AdminActor) => Promise<void>;
@@ -302,7 +323,12 @@ export function buildAdminApp(options: BuildAdminAppOptions): FastifyInstance {
   });
 
   app.setErrorHandler(async (error, request, reply) => {
-    if (error instanceof AdminFormError) {
+    if (
+      error instanceof AdminFormError ||
+      error instanceof GatewayConfigurationError ||
+      error instanceof GatewayEncryptionKeyMissingError ||
+      error instanceof GatewayStateTransitionError
+    ) {
       const nonce = nonceSource();
       return html(reply, nonce, renderSafeErrorPage(nonce, 400), 400);
     }
@@ -825,8 +851,23 @@ export function buildAdminApp(options: BuildAdminAppOptions): FastifyInstance {
   app.get('/policy', async (request, reply) => {
     const context = await requireSession(request, reply, ['administrator']);
     if (context === undefined) return;
-    const policies = await options.dashboard.listModelPolicies();
+    const evaluatedAt = now();
+    const [policies, gatewayProfiles, gatewayBudgetSummary] = await Promise.all([
+      options.dashboard.listModelPolicies(),
+      options.dashboard.listGatewayProfiles(),
+      options.dashboard.readActiveGatewayBudgetSummary(evaluatedAt),
+    ]);
+    const query = request.query as Readonly<Record<string, unknown>>;
+    const editGatewayRef =
+      typeof query.editGateway === 'string' && referenceSchema.test(query.editGateway)
+        ? query.editGateway
+        : undefined;
+    const editGateway =
+      editGatewayRef === undefined
+        ? undefined
+        : gatewayProfiles.find((profile) => profile.gatewayRef === editGatewayRef);
     const createPolicyRef = `POLICY_admin_${randomBytes(18).toString('hex')}`;
+    const createGatewayRef = `GATEWAY_admin_${randomBytes(18).toString('hex')}`;
     const nonce = nonceSource();
     return html(
       reply,
@@ -844,14 +885,144 @@ export function buildAdminApp(options: BuildAdminAppOptions): FastifyInstance {
           ]),
         ),
         createActionToken: issueAction(context, 'policy_create', createPolicyRef),
+        createGatewayActionToken: issueAction(context, 'gateway_create', createGatewayRef),
+        createGatewayRef,
         createPolicyRef,
         csrfToken: context.csrfToken,
-        evaluatedAt: now(),
+        ...(editGateway === undefined ? {} : { editGateway }),
+        evaluatedAt,
+        gatewayActionTokens: Object.fromEntries(
+          gatewayProfiles.map((profile) => [
+            profile.gatewayRef,
+            Object.fromEntries(
+              (['test', 'activate', 'retire'] as const).map((action) => [
+                action,
+                issueAction(context, `gateway_${action}`, profile.gatewayRef),
+              ]),
+            ),
+          ]),
+        ),
+        ...(gatewayBudgetSummary === undefined ? {} : { gatewayBudgetSummary }),
+        gatewayProfiles,
         nonce,
         policies,
         session: context.session,
       }),
     );
+  });
+
+  app.post('/policy/gateway', async (request, reply) => {
+    const context = await requireMutation(request, reply, ['administrator']);
+    if (context === undefined) return;
+    const action = readAction(context, 'gateway_create');
+    const gatewayKind = formValue(context.form, 'gatewayKind', 32);
+    const displayLabel = formValue(context.form, 'displayLabel', 80)?.trim();
+    const modelName = formValue(context.form, 'modelName', 128)?.trim();
+    const budgetRaw = formValue(context.form, 'budgetUsd', 32);
+    const budgetWindowKind = formValue(context.form, 'budgetWindowKind', 16);
+    const inputCostRaw = formValue(context.form, 'inputCostPerMillionUsd', 32) ?? '0';
+    const outputCostRaw = formValue(context.form, 'outputCostPerMillionUsd', 32) ?? '0';
+    const endpointBaseUrl = formValue(context.form, 'endpointBaseUrl', 512)?.trim();
+    const rawApiKey = formValue(context.form, 'apiKey', 4096);
+
+    if (
+      (gatewayKind !== 'manifest_default' && gatewayKind !== 'openai_compatible') ||
+      displayLabel === undefined ||
+      modelName === undefined ||
+      budgetRaw === undefined ||
+      (budgetWindowKind !== 'utc_day' && budgetWindowKind !== 'utc_month')
+    ) {
+      const nonce = nonceSource();
+      return html(reply, nonce, renderSafeErrorPage(nonce, 400), 400);
+    }
+
+    let budgetMicroUsd: number;
+    let inputCostPerMillionMicroUsd: number;
+    let outputCostPerMillionMicroUsd: number;
+    try {
+      budgetMicroUsd = parseUsdToMicroUsd(budgetRaw, MAX_BUDGET_MICRO_USD);
+      inputCostPerMillionMicroUsd = parseUsdToMicroUsd(inputCostRaw, MAX_RATE_MICRO_USD);
+      outputCostPerMillionMicroUsd = parseUsdToMicroUsd(outputCostRaw, MAX_RATE_MICRO_USD);
+    } catch {
+      const nonce = nonceSource();
+      return html(reply, nonce, renderSafeErrorPage(nonce, 400), 400);
+    }
+    if (
+      budgetMicroUsd > 0 &&
+      inputCostPerMillionMicroUsd === 0 &&
+      outputCostPerMillionMicroUsd === 0
+    ) {
+      const nonce = nonceSource();
+      return html(reply, nonce, renderSafeErrorPage(nonce, 400), 400);
+    }
+
+    await options.dashboard.createGatewayProfile(
+      {
+        ...(gatewayKind === 'openai_compatible' && rawApiKey !== undefined
+          ? { apiKey: new AdminSecretText(rawApiKey.trim()) }
+          : {}),
+        budgetMicroUsd,
+        budgetWindowKind,
+        createdAt: new Date(action.effectiveAt),
+        createdByAccountRef: context.actor.accountRef,
+        displayLabel,
+        ...(gatewayKind === 'openai_compatible' && endpointBaseUrl !== undefined
+          ? { endpointBaseUrl }
+          : {}),
+        gatewayKind,
+        gatewayRef: action.reference,
+        inputCostPerMillionMicroUsd,
+        modelName,
+        outputCostPerMillionMicroUsd,
+        requestKey: action.requestKey,
+      },
+      context.actor,
+    );
+    return redirect(reply, '/policy');
+  });
+
+  app.post('/policy/gateway/:gatewayRef/test', async (request, reply) => {
+    const context = await requireMutation(request, reply, ['administrator']);
+    if (context === undefined) return;
+    const gatewayRef = routeReference(request, 'gatewayRef');
+    if (gatewayRef === undefined) {
+      const nonce = nonceSource();
+      return html(reply, nonce, renderSafeErrorPage(nonce, 400), 400);
+    }
+    const action = readAction(context, 'gateway_test', gatewayRef);
+    await options.dashboard.testGatewayProfile(
+      {
+        gatewayRef,
+        requestKey: action.requestKey,
+        testedAt: new Date(action.effectiveAt),
+      },
+      context.actor,
+    );
+    return redirect(reply, '/policy');
+  });
+
+  app.post('/policy/gateway/:gatewayRef/:gatewayAction', async (request, reply) => {
+    const context = await requireMutation(request, reply, ['administrator']);
+    if (context === undefined) return;
+    const gatewayRef = routeReference(request, 'gatewayRef');
+    const gatewayAction = routeReference(request, 'gatewayAction');
+    if (gatewayRef === undefined || (gatewayAction !== 'activate' && gatewayAction !== 'retire')) {
+      const nonce = nonceSource();
+      return html(reply, nonce, renderSafeErrorPage(nonce, 400), 400);
+    }
+    const action = readAction(context, `gateway_${gatewayAction}`, gatewayRef);
+    await options.dashboard.transitionGatewayProfile(
+      {
+        action: gatewayAction,
+        effectiveAt: new Date(action.effectiveAt),
+        gatewayRef,
+        reasonCode: `gateway_${gatewayAction}_reviewed`,
+        requestKey: action.requestKey,
+        reviewerAccountRef: context.actor.accountRef,
+      },
+      context.actor,
+    );
+    return redirect(reply, '/policy');
   });
 
   app.post('/policy', async (request, reply) => {

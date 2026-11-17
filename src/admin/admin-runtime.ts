@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import pg from 'pg';
 import { noopSafeLogger, type SafeLogger } from '../logging.js';
+import { AesGcmGatewaySecretProtector } from '../model/gateway-secret.js';
+import type { ManifestFetch } from '../model/manifest-client.js';
 import { PostgresAdminIdentity } from '../persistence/postgres-admin-identity.js';
 import { PostgresAdminDashboard } from '../persistence/postgres-admin-dashboard.js';
 import { PostgresAdminOperations } from '../persistence/postgres-admin-operations.js';
@@ -12,6 +14,7 @@ import { startAdminSocket, type AdminSocketHandle } from './admin-socket.js';
 
 export interface CreateAdminRuntimeOptions {
   readonly environment: Readonly<Record<string, string | undefined>>;
+  readonly gatewayFetch?: ManifestFetch;
   readonly logger?: SafeLogger;
   readonly now?: () => Date;
   readonly poolFactory?: (configuration: pg.PoolConfig) => pg.Pool;
@@ -54,8 +57,14 @@ export function createAdminRuntime(options: CreateAdminRuntimeOptions): AdminRun
     sessionTtlMilliseconds: config.sessionTtlMilliseconds,
     totpPolicy: config.totpPolicy,
   });
+  const gatewayProtector =
+    config.gatewayEncryptionKey === undefined
+      ? undefined
+      : new AesGcmGatewaySecretProtector(config.gatewayKeyVersion, config.gatewayEncryptionKey);
   const dashboard = new PostgresAdminDashboard(pool, identity, {
     ...(options.now === undefined ? {} : { now: options.now }),
+    ...(gatewayProtector === undefined ? {} : { gatewayProtector }),
+    ...(options.gatewayFetch === undefined ? {} : { gatewayFetch: options.gatewayFetch }),
     listLimit: config.listLimit,
     learningPolicy: config.learningPolicy,
   });

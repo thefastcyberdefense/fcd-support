@@ -23,20 +23,25 @@ export function emptyAdminDashboard(): AdminDashboardPort {
   const list = () => Promise.resolve([]);
   return {
     answerQuestion: done,
+    createGatewayProfile: done,
     createModelPolicy: done,
     createProposal: done,
     getProposal: () => Promise.reject(new Error('synthetic_unused')),
     listAudit: list,
     listEscalationCounts: list,
+    listGatewayProfiles: list,
     listInsights: list,
     listProposals: list,
     listQuestions: list,
     listModelPolicies: list,
     publishVersion: done,
+    readActiveGatewayBudgetSummary: () => Promise.resolve(undefined),
     retireVersion: done,
     reviewVersion: done,
     rollbackVersion: done,
     submitVersion: done,
+    testGatewayProfile: done,
+    transitionGatewayProfile: done,
     transitionModelPolicy: done,
   };
 }

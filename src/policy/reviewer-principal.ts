@@ -77,3 +77,16 @@ export function requireKnowledgeReviewer(input: unknown): ReviewerPrincipal {
 
   return principal;
 }
+
+export function requireAdministrator(
+  principal: ReviewerPrincipal,
+  actorReference: string,
+  label = 'Model policy',
+): void {
+  if (!principal.roles.includes('administrator')) {
+    throw new PolicyAuthorizationError(`${label} administrator role required`);
+  }
+  if (principal.reviewerRef !== actorReference) {
+    throw new PolicyAuthorizationError(`${label} actor identity mismatch`);
+  }
+}

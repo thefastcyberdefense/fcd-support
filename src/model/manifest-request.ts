@@ -35,9 +35,11 @@ export interface ManifestChatCompletionsRequest {
     { readonly content: string; readonly role: 'system' },
     { readonly content: string; readonly role: 'user' },
   ];
-  readonly model: 'auto';
+  readonly model: string;
   readonly stream: false;
 }
+
+const gatewayModelPattern = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/u;
 
 const preparedTexts = new WeakSet<object>();
 const builtRequests = new WeakMap<object, BuiltManifestRequestContext>();
@@ -124,6 +126,16 @@ function validateLimits(value: unknown): ManifestRequestLimits {
 }
 
 export function buildManifestRequest(inputValue: unknown): ManifestChatCompletionsRequest {
+  return buildGatewayRequest(inputValue, { model: 'auto' });
+}
+
+export function buildGatewayRequest(
+  inputValue: unknown,
+  target: { readonly model: string },
+): ManifestChatCompletionsRequest {
+  if (typeof target.model !== 'string' || !gatewayModelPattern.test(target.model)) {
+    throw new TypeError('Gateway model identifier is invalid');
+  }
   if (typeof inputValue !== 'object' || inputValue === null) {
     throw new TypeError('Manifest request input is invalid');
   }
@@ -216,7 +228,7 @@ export function buildManifestRequest(inputValue: unknown): ManifestChatCompletio
   const request = Object.freeze({
     max_tokens: limits.maximumOutputTokens,
     messages,
-    model: 'auto',
+    model: target.model,
     stream: false,
   });
   const knowledge = Object.freeze(

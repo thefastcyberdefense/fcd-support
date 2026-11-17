@@ -1,8 +1,16 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { createSafeLogger } from '../src/logging.js';
-import { createManifestClient } from '../src/model/manifest-client.js';
-import { buildManifestRequest, prepareManifestText } from '../src/model/manifest-request.js';
+import {
+  createManifestClient,
+  createOpenAiCompatibleClient,
+  probeGatewayConnection,
+} from '../src/model/manifest-client.js';
+import {
+  buildGatewayRequest,
+  buildManifestRequest,
+  prepareManifestText,
+} from '../src/model/manifest-request.js';
 import { inspectSensitiveText } from '../src/safety/sensitive-data-gate.js';
 import {
   startFakeManifestServer,
@@ -355,5 +363,100 @@ describe('tool-free Manifest HTTP client', () => {
     expect(result.status).toBe('completed');
     expect(server.requests).toHaveLength(1);
     expect(server.requests[0]?.authorizationWasSynthetic).toBe(true);
+  });
+
+  test('builds non-tool OpenAI-compatible requests, extracts token usage, and probes endpoints safely', async () => {
+    const customRequest = buildGatewayRequest(
+      {
+        currentRequest: prepared('How much is the reviewed plan?'),
+        language: 'en',
+        limits: {
+          maximumContextItems: 4,
+          maximumInputCodePoints: 2000,
+          maximumOutputTokens: 300,
+        },
+        publishedKnowledge: [
+          {
+            approvedUrls: [],
+            fact: prepared('The reviewed synthetic plan costs 100 BDT.'),
+            reference: 'VERSION_TEST_manifest_plan',
+          },
+        ],
+        recentContext: [],
+      },
+      { model: 'gpt-4o-mini' },
+    );
+    expect(customRequest.model).toBe('gpt-4o-mini');
+    expect('tools' in customRequest).toBe(false);
+
+    const calls: { url: string; body: unknown }[] = [];
+    const customClient = createOpenAiCompatibleClient({
+      apiKey: 'synthetic_openai_key_for_client_test',
+      baseUrl: 'https://gateway.example.test/api/v1/',
+      maximumResponseBytes: 4096,
+      totalTimeoutMs: 5000,
+      fetch: (url, init) => {
+        if (typeof init.body !== 'string') throw new Error('Expected string body');
+        calls.push({ url, body: JSON.parse(init.body) });
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              choices: [
+                {
+                  finish_reason: 'stop',
+                  message: { content: assistantContent(), role: 'assistant' },
+                },
+              ],
+              usage: { prompt_tokens: 120, completion_tokens: 45 },
+            }),
+            { status: 200 },
+          ),
+        );
+      },
+    });
+    const completed = await customClient.complete({
+      logicalRequestId: 'VERSION_TEST_gateway_custom',
+      request: customRequest,
+    });
+    expect(calls[0]?.url).toBe('https://gateway.example.test/api/v1/chat/completions');
+    expect((calls[0]?.body as Record<string, unknown>).model).toBe('gpt-4o-mini');
+    expect(completed).toMatchObject({
+      status: 'completed',
+      usage: { promptTokens: 120, completionTokens: 45 },
+    });
+
+    const passedProbe = await probeGatewayConnection({
+      apiKey: 'synthetic_openai_key_for_client_test',
+      baseUrl: 'https://gateway.example.test/api/v1',
+      gatewayKind: 'openai_compatible',
+      modelName: 'gpt-4o-mini',
+      fetch: () =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              choices: [{ finish_reason: 'stop', message: { content: 'pong', role: 'assistant' } }],
+            }),
+            { status: 200 },
+          ),
+        ),
+    });
+    expect(passedProbe).toMatchObject({
+      httpStatus: 200,
+      reasonCode: 'ok',
+      result: 'passed',
+    });
+
+    const failedProbe = await probeGatewayConnection({
+      apiKey: 'synthetic_openai_key_for_client_test',
+      baseUrl: 'https://gateway.example.test/api/v1',
+      gatewayKind: 'openai_compatible',
+      modelName: 'gpt-4o-mini',
+      fetch: () => Promise.resolve(new Response('secret body must never leak', { status: 401 })),
+    });
+    expect(failedProbe).toMatchObject({
+      httpStatus: 401,
+      reasonCode: 'unauthorized',
+      result: 'failed',
+    });
   });
 });

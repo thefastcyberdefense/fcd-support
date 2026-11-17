@@ -47,7 +47,7 @@ describe('PostgreSQL private operations dashboard', () => {
       now: () => operationsAt,
     });
     const view = await dashboard.read(fixture.actor);
-    expect(view.schemaRevision).toBe('000016');
+    expect(view.schemaRevision).toBe('000017');
     expect(view.queues).toEqual([
       {
         component: 'notification',
@@ -77,7 +77,7 @@ describe('PostgreSQL private operations dashboard', () => {
     expect(view.backup.state).toBe('not_verified');
     expect(view.host).toBeNull();
     const health = await postgresHealthDatabase(fixture.db.pool, () => operationsAt).read();
-    expect(health.schemaRevision).toBe('000016');
+    expect(health.schemaRevision).toBe('000017');
     expect(health.queues).toEqual(view.queues);
   });
   test('stale backups and observations are explicit and disabled paths take precedence', async () => {
@@ -86,7 +86,7 @@ describe('PostgreSQL private operations dashboard', () => {
       class: 'daily' as const,
       createdAt: new Date('2029-01-01T00:00:00.000Z'),
       gitRevision: 'a'.repeat(40),
-      schemaRevision: '000016',
+      schemaRevision: '000017',
       ciphertextBytes: 10,
       ciphertextSha256: '0'.repeat(64),
     };

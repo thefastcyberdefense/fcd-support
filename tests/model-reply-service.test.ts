@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from 'vitest';
 
 import type { ManifestCompleteInput } from '../src/model/manifest-client.js';
+import { SecretText } from '../src/safety/secret-bytes.js';
 import { ModelReplyService } from '../src/replies/model-reply-service.js';
 import { safeResponse } from '../src/safety/safe-responses.js';
 
@@ -225,6 +226,138 @@ describe('model reply composition', () => {
     });
     expect(allowance.completeLease).toHaveBeenCalledWith(
       expect.objectContaining({ outcomeCode: 'guard_blocked' }),
+    );
+  });
+
+  test('routes through active OpenAI-compatible gateway, forwards budget ceiling, and settles actual usage', async () => {
+    const base = fixture();
+    const customClient = {
+      complete: vi.fn().mockResolvedValue({
+        status: 'completed',
+        usage: { promptTokens: 200, completionTokens: 50 },
+        value: {
+          answer: published.fact,
+          decision: 'answer',
+          knowledgeReferences: [published.reference],
+          language: 'en',
+          needsHumanReview: false,
+          reasonCode: 'published_knowledge_answer',
+        },
+      }),
+    };
+    const service = new ModelReplyService({
+      allowance: base.allowance,
+      deployment,
+      gateway: {
+        resolveRuntimeGateway: vi.fn().mockResolvedValue({
+          apiKey: new SecretText('synthetic_custom_gateway_key_value'),
+          budgetMicroUsd: 50_000,
+          budgetWindowKind: 'utc_month',
+          endpointBaseUrl: 'https://gateway.example.test/v1',
+          gatewayKind: 'openai_compatible',
+          gatewayProfileId: '11',
+          gatewayRef: 'GATEWAY_TEST_custom',
+          inputCostPerMillionMicroUsd: 150_000,
+          modelName: 'gpt-4o-mini',
+          outputCostPerMillionMicroUsd: 600_000,
+        }),
+      },
+      gatewayClientFactory: () => customClient,
+      manifest: base.manifest,
+      manifestAttestation: { operationalLimits: limits, verified: true },
+      now: () => completedAt,
+      policy: base.policy,
+      store: base.store,
+    });
+
+    await expect(service.decide(command)).resolves.toMatchObject({
+      decisionType: 'model',
+      status: 'created',
+    });
+    expect(base.manifest.complete).not.toHaveBeenCalled();
+    expect(customClient.complete).toHaveBeenCalledTimes(1);
+    const calls = customClient.complete.mock.calls as unknown as readonly [ManifestCompleteInput][];
+    const customReq = calls[0]?.[0].request;
+    expect(customReq).toMatchObject({ model: 'gpt-4o-mini', stream: false, max_tokens: 120 });
+    expect(base.allowance.acquireModelAllowance).toHaveBeenCalledTimes(1);
+    const acquireArg = base.allowance.acquireModelAllowance.mock.calls[0]?.[0] as
+      { readonly budget?: Readonly<Record<string, unknown>> } | undefined;
+    expect(acquireArg?.budget).toMatchObject({
+      budgetMicroUsd: 50_000,
+      budgetWindowKind: 'utc_month',
+      gatewayProfileId: '11',
+    });
+    expect(base.allowance.completeLease).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcomeCode: 'completed',
+        usage: {
+          actualCostMicroUsd: 60,
+          completionTokens: 50,
+          promptTokens: 200,
+        },
+      }),
+    );
+  });
+
+  test('denies budget exhaustion safely without invoking upstream gateway or fails closed when key unavailable', async () => {
+    const base = fixture();
+    base.allowance.acquireModelAllowance.mockResolvedValueOnce({
+      reasonCode: 'budget_exceeded',
+      status: 'denied',
+    });
+    const deniedService = new ModelReplyService({
+      allowance: base.allowance,
+      deployment,
+      gateway: {
+        resolveRuntimeGateway: vi.fn().mockResolvedValue({
+          budgetMicroUsd: 1000,
+          budgetWindowKind: 'utc_day',
+          gatewayKind: 'manifest_default',
+          gatewayProfileId: '3',
+          gatewayRef: 'GATEWAY_TEST_budget',
+          inputCostPerMillionMicroUsd: 150_000,
+          modelName: 'auto',
+          outputCostPerMillionMicroUsd: 600_000,
+        }),
+      },
+      manifest: base.manifest,
+      manifestAttestation: { operationalLimits: limits, verified: true },
+      now: () => completedAt,
+      policy: base.policy,
+      store: base.store,
+    });
+    await deniedService.decide(command);
+    expect(base.manifest.complete).not.toHaveBeenCalled();
+    expect(base.store.persistModelDecision).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'safe_failure',
+        escalationReasonCode: 'budget_exceeded',
+        responseReason: 'limit_exhausted',
+      }),
+    );
+
+    const broken = fixture();
+    const unavailableService = new ModelReplyService({
+      allowance: broken.allowance,
+      deployment,
+      gateway: {
+        resolveRuntimeGateway: vi.fn().mockRejectedValue(new Error('gateway_key_unconfigured')),
+      },
+      manifest: broken.manifest,
+      manifestAttestation: { operationalLimits: limits, verified: true },
+      now: () => completedAt,
+      policy: broken.policy,
+      store: broken.store,
+    });
+    await unavailableService.decide(command);
+    expect(broken.allowance.acquireModelAllowance).not.toHaveBeenCalled();
+    expect(broken.manifest.complete).not.toHaveBeenCalled();
+    expect(broken.store.persistModelDecision).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'safe_failure',
+        escalationReasonCode: 'model_disabled',
+        responseReason: 'provider_unavailable',
+      }),
     );
   });
 });

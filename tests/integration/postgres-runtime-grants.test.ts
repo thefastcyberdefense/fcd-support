@@ -107,11 +107,11 @@ test('the nonsuperuser migrator validates its actual database identity without o
   expect(
     await runForwardMigrations(poolFor('migrator'), {
       schema: database.schema,
-      expectedSchemaRevision: '000016',
+      expectedSchemaRevision: '000017',
       timeoutMilliseconds: 10000,
       expectedDatabaseIdentity: { systemIdentifier: id, databaseName: 'fcd_support_test' },
     }),
-  ).toEqual({ schemaRevision: '000016' });
+  ).toEqual({ schemaRevision: '000017' });
 });
 
 test.each(runtimeDatabaseRoles)('%s cannot mint or mutate restore bindings', async (role) => {
@@ -222,7 +222,7 @@ test('backup is read-only for business data with only its required content-free 
     class: 'daily',
     createdAt: at,
     gitRevision: 'a'.repeat(40),
-    schemaRevision: '000016',
+    schemaRevision: '000017',
     ciphertextBytes: 100,
     ciphertextSha256: 'b'.repeat(64),
     state: 'created',
@@ -727,7 +727,7 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
         signingKey: new AdminSecretBytes(Buffer.from('synthetic_grants_manifest_key_'.repeat(2))),
         archiveDirectory: archive,
         sourceRevision: 'a'.repeat(40),
-        schemaRevision: '000016',
+        schemaRevision: '000017',
         now: at,
         timeoutMilliseconds: 10000,
         maximumRows: 100,
@@ -749,7 +749,7 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
         archiveDirectory: archive,
         temporaryDirectory: root,
         gitRevision: 'a'.repeat(40),
-        schemaRevision: '000016',
+        schemaRevision: '000017',
         backupClass: 'pre_migration',
         now: at,
         timeoutMilliseconds: 10000,
@@ -790,7 +790,7 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
             NODE_ENV: 'production',
             DATABASE_URL_FILE: databaseFile,
             OPS_GIT_REVISION: 'a'.repeat(40),
-            OPS_SCHEMA_REVISION: '000017',
+            OPS_SCHEMA_REVISION: '000018',
             OPS_DATABASE_SYSTEM_IDENTIFIER: actualSource.id,
             OPS_DATABASE_NAME: actualSource.name,
             BACKUP_ENCRYPTION_RECIPIENT_FILE: recipient,
@@ -819,9 +819,32 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
         await readFile(join(archive, output.trim(), 'manifest.json'), 'utf8'),
       ) as { schemaRevision: string };
       // The target setting must not rewrite the source archive's actual version.
-      expect(material.schemaRevision).toBe('000016');
+      expect(material.schemaRevision).toBe('000017');
     } finally {
       await rm(archive, { recursive: true, force: true });
     }
   },
 );
+
+test('webhook, health, and maintenance cannot read encrypted gateway secrets while admin and reply respect least privilege', async () => {
+  for (const deniedRole of [
+    'webhook',
+    'health',
+    'maintenance',
+    'outbound',
+    'notification',
+  ] as const) {
+    await expect(
+      poolFor(deniedRole).query('select encrypted_api_key from model_gateway_profiles where false'),
+    ).rejects.toMatchObject({ code: '42501' });
+  }
+  await expect(
+    poolFor('reply').query('insert into model_gateway_profiles default values'),
+  ).rejects.toMatchObject({ code: '42501' });
+  await expect(
+    poolFor('reply').query('select gateway_ref from model_gateway_profiles where false'),
+  ).resolves.toMatchObject({ rows: [] });
+  await expect(
+    poolFor('admin').query('select gateway_ref from model_gateway_profiles where false'),
+  ).resolves.toMatchObject({ rows: [] });
+});

@@ -15,6 +15,7 @@ const secretNames = [
   'PRIVACY_HMAC_KEYRING',
   'ADMIN_SESSION_HMAC_KEY',
   'ADMIN_MFA_ENCRYPTION_KEY',
+  'MODEL_GATEWAY_ENCRYPTION_KEY',
   'META_PAGE_ACCESS_TOKEN',
   'META_WHATSAPP_ACCESS_TOKEN',
   'META_MESSENGER_PAGE_ID',
@@ -175,6 +176,13 @@ function requiredSecrets(
   }
 }
 
+function optionalSecrets(role: RuntimeRole): readonly SecretName[] {
+  if (role === 'admin' || role === 'reply') {
+    return ['MODEL_GATEWAY_ENCRYPTION_KEY'];
+  }
+  return [];
+}
+
 export async function loadRoleEnvironment(
   role: RuntimeRole,
   environment: Readonly<Record<string, string | undefined>>,
@@ -215,6 +223,8 @@ export async function loadRoleEnvironment(
     }
   }
   const required = new Set(requiredSecrets(role, source));
+  const optional = new Set(optionalSecrets(role));
+  const allowed = new Set<SecretName>([...required, ...optional]);
   const known = new Set<string>(secretNames.flatMap((name) => [name, `${name}_FILE`]));
   for (const [name, value] of Object.entries(source)) {
     if (value === undefined || value === '') continue;
@@ -222,7 +232,7 @@ export async function loadRoleEnvironment(
       (candidate) => name === candidate || name === `${candidate}_FILE`,
     );
     if (
-      (secret !== undefined && !required.has(secret)) ||
+      (secret !== undefined && !allowed.has(secret)) ||
       (secret === undefined && credentialName.test(name))
     )
       throw new Error('secret_not_allowed');
@@ -231,7 +241,7 @@ export async function loadRoleEnvironment(
     Object.entries(source).filter(([name]) => !known.has(name)),
   );
   const fileOnly = source.NODE_ENV !== 'test' && source.NODE_ENV !== 'development';
-  for (const name of required) {
+  for (const name of allowed) {
     const file = source[`${name}_FILE`];
     const direct = source[name];
     let bytes: Uint8Array;
@@ -242,10 +252,13 @@ export async function loadRoleEnvironment(
       } catch {
         return invalidFile();
       }
-    } else {
-      if (fileOnly || direct === undefined || direct === '')
-        throw new Error('secret_file_required');
+    } else if (direct !== undefined && direct !== '') {
+      if (fileOnly) throw new Error('secret_file_required');
       bytes = new TextEncoder().encode(direct);
+    } else if (!required.has(name)) {
+      continue;
+    } else {
+      throw new Error('secret_file_required');
     }
     const decoded = decodeSecret(bytes, structuredSecrets.has(name));
     const value =

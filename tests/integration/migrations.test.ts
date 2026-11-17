@@ -162,7 +162,7 @@ describe('Phase 2 database migrations', () => {
       { table_name: 'knowledge_tags' },
       { table_name: 'knowledge_versions' },
     ]);
-    expect(migrations.rows[0]?.count).toBe(16);
+    expect(migrations.rows[0]?.count).toBe(17);
     expect(trigramExtension.rows).toEqual([{ installed: true }]);
     expect(aliasIndexes.rows.map(({ indexname }) => indexname)).toEqual(
       expect.arrayContaining([
@@ -222,7 +222,7 @@ describe('Phase 2 database migrations', () => {
       'support_reply_draft_knowledge',
       'support_reply_drafts',
     ]);
-    expect(migrations.rows[0]?.count).toBe(16);
+    expect(migrations.rows[0]?.count).toBe(17);
   });
 
   test('create customizable model policy, usage, and lease schema as migration eleven', async () => {
@@ -283,7 +283,7 @@ describe('Phase 2 database migrations', () => {
     expect(policyColumns.rows).toHaveLength(13);
     expect(policyColumns.rows.every(({ column_default }) => column_default === null)).toBe(true);
     expect(prohibitedColumns.rows).toEqual([]);
-    expect(migrations.rows[0]?.count).toBe(16);
+    expect(migrations.rows[0]?.count).toBe(17);
   });
 
   test('create the closed outbound messaging schema as migration twelve', async () => {
@@ -355,7 +355,7 @@ describe('Phase 2 database migrations', () => {
     expect(policyColumns.rows).toHaveLength(12);
     expect(policyColumns.rows.every(({ column_default }) => column_default === null)).toBe(true);
     expect(prohibitedColumns.rows).toEqual([]);
-    expect(migrations.rows[0]?.count).toBe(16);
+    expect(migrations.rows[0]?.count).toBe(17);
   });
 
   test('enforce outbound source, state, correlation, and append-only evidence constraints', async () => {
@@ -723,7 +723,7 @@ describe('Phase 2 database migrations', () => {
     expect((rollbackError as Error & { code?: string }).code).toBe('55000');
     await expect(
       pool.query(`select count(*)::int as count from pgmigrations`),
-    ).resolves.toMatchObject({ rows: [{ count: 16 }] });
+    ).resolves.toMatchObject({ rows: [{ count: 17 }] });
 
     await pool.query(`truncate table outbound_policy_versions restart identity cascade`);
     await migrateDownThrough(12);
@@ -901,7 +901,7 @@ describe('Phase 2 database migrations', () => {
     expect((rollbackError as Error & { code?: string }).code).toBe('55000');
     await expect(
       pool.query(`select count(*)::int as count from pgmigrations`),
-    ).resolves.toMatchObject({ rows: [{ count: 16 }] });
+    ).resolves.toMatchObject({ rows: [{ count: 17 }] });
 
     await pool.query(`truncate table model_policy_versions restart identity cascade`);
     await migrateDownThrough(11);
@@ -910,6 +910,72 @@ describe('Phase 2 database migrations', () => {
     ).resolves.toMatchObject({ rows: [{ table_name: null }] });
     await runMigrations('up');
     await pool.query(`truncate table admin_accounts restart identity cascade`);
+  });
+
+  test('enforces Track 2A gateway profile triggers, budget windows, and rollback protection in migration 17', async () => {
+    const account = await pool.query<{ readonly id: string }>(
+      `insert into admin_accounts
+         (account_ref, login_name, password_algorithm, password_cost,
+          password_block_size, password_parallelization, password_key_length,
+          password_salt, password_hash, state, created_at, updated_at,
+          password_changed_at)
+       values ('ADMIN_TEST_gw_mig', 'synthetic.gw.mig', 'scrypt_v1', 16384,
+               8, 1, 32, $1, $2, 'active',
+               '2030-04-01T00:00:00Z', '2030-04-01T00:00:00Z',
+               '2030-04-01T00:00:00Z')
+       returning id`,
+      [Buffer.alloc(16, 0x55), Buffer.alloc(32, 0x56)],
+    );
+    const inserted = await pool.query<{ readonly id: string }>(
+      `insert into model_gateway_profiles
+         (gateway_ref, version_number, request_key, gateway_kind, display_label,
+          endpoint_base_url, model_name, key_version, encrypted_api_key,
+          encryption_nonce, authentication_tag, api_key_sha256,
+          budget_micro_usd, budget_window_kind,
+          input_cost_per_million_micro_usd, output_cost_per_million_micro_usd,
+          state, created_by_account_id, created_at)
+       values ('GATEWAY_TEST_mig', 1, 'REQUEST_TEST_gw_mig', 'openai_compatible', 'Synthetic Gateway',
+               'https://gateway.example.test/v1', 'gpt-4o-mini', 'gateway-v1',
+               $1, $2, $3, repeat('b', 64), 1000, 'utc_month', 1000, 2000,
+               'draft', $4, '2030-04-01T00:01:00Z')
+       returning id`,
+      [Buffer.alloc(24, 0x11), Buffer.alloc(12, 0x12), Buffer.alloc(16, 0x13), account.rows[0]?.id],
+    );
+    const profileId = inserted.rows[0]?.id;
+
+    const activateUntested = await captureRolledBackMutation(
+      `insert into model_gateway_review_events
+         (gateway_profile_id, action, reviewer_account_id, reason_code, request_key, effective_at)
+       values ($1, 'activate', $2, 'untested', 'REQUEST_TEST_gw_mig_act', '2030-04-01T00:02:00Z')`,
+      [profileId, account.rows[0]?.id],
+    );
+    expect(activateUntested).toMatchObject({ code: '23514' });
+
+    const directUpdate = await captureRolledBackMutation(
+      `update model_gateway_profiles set last_test_status = 'passed' where id = $1`,
+      [profileId],
+    );
+    expect(directUpdate).toMatchObject({ code: '23514' });
+
+    let blocked: unknown;
+    try {
+      await migrateDownThrough(17);
+    } catch (error: unknown) {
+      blocked = error;
+    }
+    expect(blocked).toMatchObject({ code: '55000' });
+
+    await pool.query(
+      `truncate table model_gateway_profiles, admin_accounts restart identity cascade`,
+    );
+    await migrateDownThrough(17);
+    await expect(
+      pool.query(`select to_regclass('model_gateway_profiles') as table_name`),
+    ).resolves.toMatchObject({ rows: [{ table_name: null }] });
+    await runMigrations('up');
+    await expect(
+      pool.query(`select to_regclass('model_gateway_profiles') as table_name`),
+    ).resolves.not.toMatchObject({ rows: [{ table_name: null }] });
   });
 
   test('exclude plaintext admin credentials and enforce closed append-only evidence', async () => {
@@ -1039,7 +1105,7 @@ describe('Phase 2 database migrations', () => {
     expect((rollbackError as Error & { code?: string }).code).toBe('55000');
     await expect(
       pool.query(`select count(*)::int as count from pgmigrations`),
-    ).resolves.toMatchObject({ rows: [{ count: 16 }] });
+    ).resolves.toMatchObject({ rows: [{ count: 17 }] });
 
     await pool.query(`truncate table admin_accounts restart identity cascade`);
     await migrateDownThrough(10);
@@ -1186,7 +1252,7 @@ describe('Phase 2 database migrations', () => {
     expect((rollbackError as Error & { code?: string }).code).toBe('55000');
     await expect(
       pool.query(`select count(*)::int as count from pgmigrations`),
-    ).resolves.toMatchObject({ rows: [{ count: 16 }] });
+    ).resolves.toMatchObject({ rows: [{ count: 17 }] });
 
     await pool.query(`truncate table knowledge_sources restart identity cascade`);
     await migrateDownThrough(9);
@@ -1226,7 +1292,7 @@ describe('Phase 2 database migrations', () => {
       { table_name: 'privacy_suppressions' },
       { table_name: 'restore_deletion_gates' },
     ]);
-    expect(migrations.rows[0]?.count).toBe(16);
+    expect(migrations.rows[0]?.count).toBe(17);
   });
 
   test('create the bounded privacy rights workflow tables as migration five', async () => {
@@ -2703,7 +2769,7 @@ describe('Phase 2 database migrations', () => {
     expect((rollbackError as Error & { code?: string }).code).toBe('55000');
     await expect(
       pool.query(`select count(*)::int as count from pgmigrations`),
-    ).resolves.toMatchObject({ rows: [{ count: 16 }] });
+    ).resolves.toMatchObject({ rows: [{ count: 17 }] });
 
     await pool.query(`
       truncate table

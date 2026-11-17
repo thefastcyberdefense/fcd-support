@@ -16,7 +16,7 @@ import type {
   ModelPolicyWriteResult,
 } from '../model/model-policy-types.js';
 import type { ModelDeploymentCeilings } from '../model/model-types.js';
-import { PolicyAuthorizationError } from '../policy/reviewer-principal.js';
+import { PolicyAuthorizationError, requireAdministrator } from '../policy/reviewer-principal.js';
 import type { ReviewerPrincipal } from '../policy/policy-types.js';
 import {
   PolicyIdempotencyConflictError,
@@ -122,15 +122,6 @@ function createMatches(row: PolicyRow, input: ModelPolicyCreateInput): boolean {
     sameDate(row.created_at, input.createdAt) &&
     JSON.stringify(valuesFromRow(row)) === JSON.stringify(input.values)
   );
-}
-
-function requireAdministrator(principal: ReviewerPrincipal, actorReference: string): void {
-  if (!principal.roles.includes('administrator')) {
-    throw new PolicyAuthorizationError('Model policy administrator role required');
-  }
-  if (principal.reviewerRef !== actorReference) {
-    throw new PolicyAuthorizationError('Model policy actor identity mismatch');
-  }
 }
 
 const policySelect = `

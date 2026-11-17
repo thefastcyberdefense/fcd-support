@@ -91,7 +91,7 @@ export async function writeRuntimeHostFixture(
       BACKUP_MONTHLY_RETENTION: '6',
       BACKUP_CALENDAR: '*-*-* 02:00:00 UTC',
       MAINTENANCE_CALENDAR: '*-*-* *:00/5:00 UTC',
-      OPS_SCHEMA_REVISION: '000016',
+      OPS_SCHEMA_REVISION: '000017',
     };
     await put('config/common.env', serialize(common));
     for (const role of resourceRoles.filter((role) => role !== 'migrate'))
@@ -220,7 +220,7 @@ export async function writeRuntimeHostFixture(
     );
     const settings: Record<string, string> = {
       FCD_SUPPORT_REVISION: revision,
-      FCD_SCHEMA_REVISION: '000016',
+      FCD_SCHEMA_REVISION: '000017',
       FCD_RUNTIME_PROJECT: project,
       FCD_RESTORE_PROJECT: restoreProject,
       FCD_POSTGRES_VOLUME: `${project}-postgres`,

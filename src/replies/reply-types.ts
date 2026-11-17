@@ -1,12 +1,17 @@
 import type { FaqResolution, PreparedFaqResolutionText } from '../knowledge/faq-resolver.js';
 import type { KnowledgeLanguage } from '../knowledge/knowledge-types.js';
 import type { SensitiveTextInspection } from '../safety/sensitive-data-types.js';
+import type { ResolvedRuntimeGateway } from '../model/gateway-types.js';
 import type { ManifestClientFailureReason } from '../model/manifest-client.js';
 import type {
   EffectiveModelPolicy,
   ManifestLimitAttestation,
 } from '../model/model-policy-types.js';
 import type { ManifestKnowledgeRecord, ModelDeploymentCeilings } from '../model/model-types.js';
+import type {
+  AcquireModelBudgetInput,
+  CompleteModelLeaseUsageInput,
+} from '../persistence/postgres-model-allowance.js';
 import type { ModelEscalationReasonCode } from '../persistence/postgres-support-escalation.js';
 import type { SafeResponseReason } from '../safety/safe-responses.js';
 
@@ -146,8 +151,13 @@ export interface ModelPolicyPort {
   ): Promise<EffectiveModelPolicy>;
 }
 
+export interface ModelGatewayPort {
+  resolveRuntimeGateway(): Promise<ResolvedRuntimeGateway>;
+}
+
 export interface ModelAllowancePort {
   acquireModelAllowance(input: {
+    readonly budget?: AcquireModelBudgetInput;
     readonly conversationId: string;
     readonly effectivePolicy: Extract<EffectiveModelPolicy, { readonly status: 'enabled' }>;
     readonly evaluatedAt: Date;
@@ -161,7 +171,12 @@ export interface ModelAllowancePort {
       }
     | {
         readonly reasonCode:
-          'cooldown' | 'global_limit' | 'policy_disabled' | 'queue_full' | 'rate_limited';
+          | 'budget_exceeded'
+          | 'cooldown'
+          | 'global_limit'
+          | 'policy_disabled'
+          | 'queue_full'
+          | 'rate_limited';
         readonly status: 'denied';
       }
   >;
@@ -175,6 +190,7 @@ export interface ModelAllowancePort {
     readonly logicalCallKey: string;
     readonly outcomeCode:
       ManifestClientFailureReason | 'completed' | 'database_failure' | 'guard_blocked';
+    readonly usage?: CompleteModelLeaseUsageInput;
   }): Promise<{ readonly status: 'applied' | 'duplicate' }>;
 }
 

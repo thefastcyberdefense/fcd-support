@@ -1,3 +1,5 @@
+import { formatMicroUsd } from '../model/gateway-budget.js';
+import type { ModelGatewayBudgetSummary, ModelGatewayProfileView } from '../model/gateway-types.js';
 import type { AdminRole, ResolvedAdminSession } from '../persistence/postgres-admin-identity.js';
 import type { ModelPolicyValues, ModelPolicyVersionView } from '../model/model-policy-types.js';
 
@@ -319,14 +321,96 @@ const policyFields = [
   ['architectureProviderCeiling', 'Architecture provider ceiling', '1'],
 ] as const satisfies readonly (readonly [keyof ModelPolicyValues, string, string])[];
 
+function renderGatewaySection(input: {
+  readonly createGatewayActionToken: string;
+  readonly createGatewayRef: string;
+  readonly csrfToken: string;
+  readonly editGateway?: ModelGatewayProfileView;
+  readonly gatewayActionTokens: Readonly<
+    Record<string, Partial<Record<'activate' | 'retire' | 'test', string>>>
+  >;
+  readonly gatewayBudgetSummary?: ModelGatewayBudgetSummary;
+  readonly gatewayProfiles: readonly ModelGatewayProfileView[];
+}): string {
+  const activeGateway = input.gatewayProfiles.find((profile) => profile.state === 'active');
+  const activeSummaryText =
+    activeGateway === undefined
+      ? 'Active gateway: Manifest fcd-support / model auto (default). Budget: unlimited (0 USD); operational safety limits active.'
+      : activeGateway.gatewayKind === 'manifest_default'
+        ? `Active gateway: ${activeGateway.displayLabel} (Manifest fcd-support / model auto). Budget: ${activeGateway.budgetMicroUsd === 0 ? 'unlimited (0 USD)' : `${formatMicroUsd(activeGateway.budgetMicroUsd)} USD / ${activeGateway.budgetWindowKind}`}.`
+        : `Active gateway: ${activeGateway.displayLabel} · OpenAI-compatible ${activeGateway.modelName} @ ${activeGateway.endpointBaseUrl ?? ''} (key digest sha256:${(activeGateway.apiKeySha256 ?? '').slice(0, 12)}). Budget: ${activeGateway.budgetMicroUsd === 0 ? 'unlimited (0 USD)' : `${formatMicroUsd(activeGateway.budgetMicroUsd)} USD / ${activeGateway.budgetWindowKind}`}.`;
+  const usageSummaryText =
+    input.gatewayBudgetSummary === undefined || input.gatewayBudgetSummary.budgetMicroUsd === 0
+      ? ''
+      : `<p class="subtle">Current ${escapeHtml(input.gatewayBudgetSummary.budgetWindowKind)} ledger (${escapeHtml(input.gatewayBudgetSummary.windowStartedAt.toISOString())} – ${escapeHtml(input.gatewayBudgetSummary.windowEndedAt.toISOString())}): spent $${escapeHtml(formatMicroUsd(input.gatewayBudgetSummary.spentMicroUsd))} · reserved $${escapeHtml(formatMicroUsd(input.gatewayBudgetSummary.reservedMicroUsd))} / limit $${escapeHtml(formatMicroUsd(input.gatewayBudgetSummary.budgetMicroUsd))} USD</p>`;
+
+  const gatewayRows = input.gatewayProfiles
+    .map((profile) => {
+      const testBadge =
+        profile.lastTestStatus === 'passed'
+          ? `passed (HTTP ${String(profile.lastTestHttpStatus ?? 200)})`
+          : profile.lastTestStatus === 'failed'
+            ? `failed (${profile.lastTestReasonCode ?? 'failed'}${profile.lastTestHttpStatus === undefined ? '' : ` HTTP ${String(profile.lastTestHttpStatus)}`})`
+            : 'untested';
+      const budgetText =
+        profile.budgetMicroUsd === 0
+          ? 'Budget: unlimited (0 USD; operational limits still enforced)'
+          : `Budget: $${formatMicroUsd(profile.budgetMicroUsd)} / ${profile.budgetWindowKind} (in $${formatMicroUsd(profile.inputCostPerMillionMicroUsd)}/1M · out $${formatMicroUsd(profile.outputCostPerMillionMicroUsd)}/1M)`;
+      const tokens = input.gatewayActionTokens[profile.gatewayRef] ?? {};
+      const testForm =
+        profile.state === 'retired'
+          ? ''
+          : `<form method="post" action="/policy/gateway/${escapeHtml(profile.gatewayRef)}/test"><input type="hidden" name="csrfToken" value="${escapeHtml(input.csrfToken)}"><input type="hidden" name="actionToken" value="${escapeHtml(tokens.test ?? '')}"><button class="button" type="submit">Test connection</button></form>`;
+      const canActivate =
+        profile.state === 'draft' &&
+        (profile.gatewayKind === 'manifest_default' || profile.lastTestStatus === 'passed');
+      const activateForm =
+        profile.state !== 'draft'
+          ? ''
+          : canActivate
+            ? `<form method="post" action="/policy/gateway/${escapeHtml(profile.gatewayRef)}/activate"><input type="hidden" name="csrfToken" value="${escapeHtml(input.csrfToken)}"><input type="hidden" name="actionToken" value="${escapeHtml(tokens.activate ?? '')}"><button class="button primary" type="submit">Activate</button></form>`
+            : `<span class="subtle">Connection test must pass before activation</span>`;
+      const retireForm =
+        profile.state === 'active'
+          ? `<form method="post" action="/policy/gateway/${escapeHtml(profile.gatewayRef)}/retire"><input type="hidden" name="csrfToken" value="${escapeHtml(input.csrfToken)}"><input type="hidden" name="actionToken" value="${escapeHtml(tokens.retire ?? '')}"><button class="button danger" type="submit">Retire to Manifest default</button></form>`
+          : '';
+      const cloneLink = `<a class="button" href="/policy?editGateway=${encodeURIComponent(profile.gatewayRef)}">Edit as new draft</a>`;
+      const endpointText =
+        profile.gatewayKind === 'manifest_default'
+          ? 'Manifest fcd-support · model auto'
+          : `${profile.endpointBaseUrl ?? ''} · model ${profile.modelName} · key ${profile.keyVersion ?? 'gateway-v1'} (sha256:${(profile.apiKeySha256 ?? '').slice(0, 12)})`;
+      return `<article class="list-row"><h3>${escapeHtml(profile.displayLabel)} <span class="subtle">(${escapeHtml(profile.gatewayRef)})</span></h3><p>${escapeHtml(profile.state)} · version ${String(profile.versionNumber)} · test: ${escapeHtml(testBadge)}</p><p class="subtle">${escapeHtml(endpointText)} · ${escapeHtml(budgetText)}</p><div class="actions">${testForm}${activateForm}${retireForm}${cloneLink}</div></article>`;
+    })
+    .join('');
+
+  const prefill = input.editGateway;
+  const kindSelectedOpenAi = (prefill?.gatewayKind ?? 'openai_compatible') === 'openai_compatible';
+  const daySelected = prefill?.budgetWindowKind === 'utc_day';
+  const budgetValue = prefill === undefined ? '0' : formatMicroUsd(prefill.budgetMicroUsd);
+  const inputCostValue =
+    prefill === undefined ? '0' : formatMicroUsd(prefill.inputCostPerMillionMicroUsd);
+  const outputCostValue =
+    prefill === undefined ? '0' : formatMicroUsd(prefill.outputCostPerMillionMicroUsd);
+
+  return `<hr class="section-rule"><section class="panel"><div class="heading-row"><div><h2>Gateway configuration &amp; budget</h2><p>${escapeHtml(activeSummaryText)}</p>${usageSummaryText}</div></div><div class="module-list">${gatewayRows || '<div class="empty">No custom gateway profile created. Manifest fcd-support / model auto is active by default.</div>'}</div><hr class="section-rule"><h3>Create gateway profile draft</h3><div class="notice">Assigned reference: <span class="confirm-ref">${escapeHtml(input.createGatewayRef)}</span>. Creating a draft never activates it; OpenAI-compatible profiles require a passed connection test before activation.</div><form method="post" action="/policy/gateway"><input type="hidden" name="actionToken" value="${escapeHtml(input.createGatewayActionToken)}"><input type="hidden" name="csrfToken" value="${escapeHtml(input.csrfToken)}"><div class="field"><label for="gatewayKind">Gateway kind</label><select id="gatewayKind" name="gatewayKind"><option value="openai_compatible"${kindSelectedOpenAi ? ' selected' : ''}>OpenAI-compatible endpoint</option><option value="manifest_default"${!kindSelectedOpenAi ? ' selected' : ''}>Manifest fcd-support / auto default (budget override)</option></select></div><div class="field"><label for="displayLabel">Display label</label><input id="displayLabel" name="displayLabel" maxlength="80" value="${escapeHtml(prefill?.displayLabel ?? '')}" required></div><div class="field"><label for="endpointBaseUrl">OpenAI-compatible base URL (HTTPS public or private Docker/LAN host; blank for Manifest default)</label><input id="endpointBaseUrl" name="endpointBaseUrl" maxlength="512" value="${escapeHtml(prefill?.endpointBaseUrl ?? '')}"></div><div class="field"><label for="modelName">Model ID (use auto for Manifest default)</label><input id="modelName" name="modelName" maxlength="128" value="${escapeHtml(prefill?.modelName ?? 'auto')}" required></div><div class="field"><label for="apiKey">API key (write-only AES-256-GCM encrypted; required for OpenAI-compatible drafts)</label><input id="apiKey" name="apiKey" type="password" autocomplete="new-password" maxlength="4096"></div><div class="field"><label for="budgetUsd">Monetary budget USD (0 = unlimited monetary spend; operational limits remain enforced)</label><input id="budgetUsd" name="budgetUsd" type="number" step="0.000001" min="0" value="${escapeHtml(budgetValue)}" required></div><div class="field"><label for="budgetWindowKind">Budget window</label><select id="budgetWindowKind" name="budgetWindowKind"><option value="utc_month"${!daySelected ? ' selected' : ''}>UTC month</option><option value="utc_day"${daySelected ? ' selected' : ''}>UTC day</option></select></div><div class="field"><label for="inputCostPerMillionUsd">Input price (USD per 1M tokens; required &gt; 0 if budget &gt; 0)</label><input id="inputCostPerMillionUsd" name="inputCostPerMillionUsd" type="number" step="0.000001" min="0" value="${escapeHtml(inputCostValue)}" required></div><div class="field"><label for="outputCostPerMillionUsd">Output price (USD per 1M tokens; required &gt; 0 if budget &gt; 0)</label><input id="outputCostPerMillionUsd" name="outputCostPerMillionUsd" type="number" step="0.000001" min="0" value="${escapeHtml(outputCostValue)}" required></div><button class="button primary" type="submit">Save gateway draft</button></form></section>`;
+}
+
 export function renderModelPolicyPage(input: {
   readonly actionTokens: Readonly<
     Record<string, Partial<Record<'activate' | 'approve' | 'retire' | 'submit', string>>>
   >;
   readonly createActionToken: string;
+  readonly createGatewayActionToken: string;
+  readonly createGatewayRef: string;
   readonly createPolicyRef: string;
   readonly csrfToken: string;
+  readonly editGateway?: ModelGatewayProfileView;
   readonly evaluatedAt: Date;
+  readonly gatewayActionTokens: Readonly<
+    Record<string, Partial<Record<'activate' | 'retire' | 'test', string>>>
+  >;
+  readonly gatewayBudgetSummary?: ModelGatewayBudgetSummary;
+  readonly gatewayProfiles: readonly ModelGatewayProfileView[];
   readonly nonce: string;
   readonly policies: readonly AdminPolicySummary[];
   readonly session: ResolvedAdminSession;
@@ -369,8 +453,19 @@ export function renderModelPolicyPage(input: {
         `<div class="field"><label for="${field}">${escapeHtml(label)}</label><input id="${field}" name="${field}" type="number" step="${step}" required></div>`,
     )
     .join('');
+  const gatewaySection = renderGatewaySection({
+    createGatewayActionToken: input.createGatewayActionToken,
+    createGatewayRef: input.createGatewayRef,
+    csrfToken: input.csrfToken,
+    ...(input.editGateway === undefined ? {} : { editGateway: input.editGateway }),
+    gatewayActionTokens: input.gatewayActionTokens,
+    ...(input.gatewayBudgetSummary === undefined
+      ? {}
+      : { gatewayBudgetSummary: input.gatewayBudgetSummary }),
+    gatewayProfiles: input.gatewayProfiles,
+  });
   return page({
-    body: `<div class="heading-row"><div><h1>Model policy</h1><p>Administrator-reviewed limits and FAQ thresholds. No value is hardcoded by this form.</p></div></div><section class="module-list">${policyRows || '<div class="panel empty">No model policy exists.</div>'}</section><hr class="section-rule"><section class="panel form-panel"><h2>Create policy draft</h2><div class="notice">Assigned reference: <span class="confirm-ref">${escapeHtml(input.createPolicyRef)}</span>. Creation never activates a policy.</div><form method="post" action="/policy"><input type="hidden" name="actionToken" value="${escapeHtml(input.createActionToken)}"><input type="hidden" name="csrfToken" value="${escapeHtml(input.csrfToken)}">${inputs}<button class="button primary" type="submit">Create policy draft</button></form></section>`,
+    body: `<div class="heading-row"><div><h1>Model policy</h1><p>Administrator-reviewed limits and FAQ thresholds. No value is hardcoded by this form.</p></div></div><section class="module-list">${policyRows || '<div class="panel empty">No model policy exists.</div>'}</section><hr class="section-rule"><section class="panel form-panel"><h2>Create policy draft</h2><div class="notice">Assigned reference: <span class="confirm-ref">${escapeHtml(input.createPolicyRef)}</span>. Creation never activates a policy.</div><form method="post" action="/policy"><input type="hidden" name="actionToken" value="${escapeHtml(input.createActionToken)}"><input type="hidden" name="csrfToken" value="${escapeHtml(input.csrfToken)}">${inputs}<button class="button primary" type="submit">Create policy draft</button></form></section>${gatewaySection}`,
     csrfToken: input.csrfToken,
     currentPath: '/policy',
     nonce: input.nonce,

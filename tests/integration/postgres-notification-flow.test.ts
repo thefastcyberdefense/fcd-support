@@ -133,7 +133,7 @@ describe('PostgreSQL signed notification flow', () => {
   test('enabled composed daemon delivers through the actual synthetic socket and durable queue', async () => {
     await seedSource();
     await db.pool.query(
-      "insert into operations_deployments (git_revision,schema_revision,recorded_at,status) values ($1,'000016',$2,'started')",
+      "insert into operations_deployments (git_revision,schema_revision,recorded_at,status) values ($1,'000017',$2,'started')",
       ['c'.repeat(40), at],
     );
     await withFixture(async (fixture) => {
@@ -148,7 +148,7 @@ describe('PostgreSQL signed notification flow', () => {
           DATABASE_URL: db.connectionString,
           OPS_RESOURCE_LIMITS_JSON: JSON.stringify({ ...resources, notification: resources.reply }),
           OPS_GIT_REVISION: 'c'.repeat(40),
-          OPS_SCHEMA_REVISION: '000016',
+          OPS_SCHEMA_REVISION: '000017',
           N8N_EXECUTION_ENABLED: 'true',
           N8N_ORIGIN: fixture.fake.origin,
           N8N_PATH: '/webhook/fcd-notification',

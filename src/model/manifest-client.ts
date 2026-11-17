@@ -1,6 +1,12 @@
-import { noopSafeLogger, type SafeLogContext, type SafeLogger } from '../logging.js';
 import type { ReadableStream } from 'node:stream/web';
-import { isPrivateManifestBaseUrl } from './model-config.js';
+
+import { noopSafeLogger, type SafeLogContext, type SafeLogger } from '../logging.js';
+import type { ModelGatewayTestOutcome } from './gateway-types.js';
+import {
+  isAllowedOpenAiCompatibleBaseUrl,
+  isPrivateManifestBaseUrl,
+  normalizeGatewayBaseUrl,
+} from './model-config.js';
 import { parseManifestOutput } from './manifest-output.js';
 import {
   readBuiltManifestRequestContext,
@@ -19,8 +25,17 @@ export type ManifestClientFailureReason =
   | 'provider_exhausted'
   | 'timeout';
 
+export interface ModelTokenUsage {
+  readonly completionTokens: number;
+  readonly promptTokens: number;
+}
+
 export type ManifestClientResult =
-  | { readonly status: 'completed'; readonly value: ManifestDecisionEnvelope }
+  | {
+      readonly status: 'completed';
+      readonly usage?: ModelTokenUsage;
+      readonly value: ManifestDecisionEnvelope;
+    }
   | { readonly reasonCode: ManifestClientFailureReason; readonly status: 'failed' };
 
 export interface ManifestCompleteInput {
@@ -72,10 +87,15 @@ function defaultSchedule(callback: () => void, delayMs: number): ManifestTimerHa
   };
 }
 
-function configurationIsValid(options: ManifestClientOptions): boolean {
+function configurationIsValid(
+  options: ManifestClientOptions,
+  urlValidator: (url: string) => boolean,
+  minimumKeyLength: number,
+): boolean {
+  const keyPattern = new RegExp(`^\\S{${String(minimumKeyLength)},4096}$`, 'u');
   return (
-    isPrivateManifestBaseUrl(options.baseUrl) &&
-    /^\S{16,4096}$/u.test(options.apiKey) &&
+    urlValidator(options.baseUrl) &&
+    keyPattern.test(options.apiKey) &&
     Number.isSafeInteger(options.maximumResponseBytes) &&
     options.maximumResponseBytes >= 1 &&
     options.maximumResponseBytes <= 1_048_576 &&
@@ -144,7 +164,35 @@ async function readBoundedBody(
   }
 }
 
-function readAssistantContent(rawBody: string): string | undefined {
+interface ParsedChoiceBody {
+  readonly content: string;
+  readonly finishReason: 'length' | 'stop';
+  readonly usage?: ModelTokenUsage;
+}
+
+function readTokenUsage(decoded: Record<string, unknown>): ModelTokenUsage | undefined {
+  const usage = decoded.usage;
+  if (typeof usage !== 'object' || usage === null) return undefined;
+  const record = usage as Record<string, unknown>;
+  const promptTokens = record.prompt_tokens;
+  const completionTokens = record.completion_tokens;
+  if (
+    typeof promptTokens !== 'number' ||
+    !Number.isSafeInteger(promptTokens) ||
+    promptTokens < 0 ||
+    typeof completionTokens !== 'number' ||
+    !Number.isSafeInteger(completionTokens) ||
+    completionTokens < 0
+  ) {
+    return undefined;
+  }
+  return Object.freeze({ completionTokens, promptTokens });
+}
+
+function readChoiceBody(
+  rawBody: string,
+  allowedFinishReasons: readonly ('length' | 'stop')[] = ['stop'],
+): ParsedChoiceBody | undefined {
   let decoded: unknown;
   try {
     decoded = JSON.parse(rawBody);
@@ -152,13 +200,16 @@ function readAssistantContent(rawBody: string): string | undefined {
     return undefined;
   }
   if (typeof decoded !== 'object' || decoded === null) return undefined;
-  const choices = (decoded as Record<string, unknown>).choices;
+  const decodedRecord = decoded as Record<string, unknown>;
+  const choices = decodedRecord.choices;
   if (!Array.isArray(choices) || choices.length !== 1) return undefined;
   const choice: unknown = (choices as unknown[])[0];
   if (typeof choice !== 'object' || choice === null) return undefined;
   const choiceRecord = choice as Record<string, unknown>;
+  const finishReason = choiceRecord.finish_reason;
   if (
-    choiceRecord.finish_reason !== 'stop' ||
+    (finishReason !== 'stop' && finishReason !== 'length') ||
+    !allowedFinishReasons.includes(finishReason) ||
     'tool_calls' in choiceRecord ||
     'function_call' in choiceRecord
   ) {
@@ -168,23 +219,123 @@ function readAssistantContent(rawBody: string): string | undefined {
   if (typeof message !== 'object' || message === null) return undefined;
   const messageRecord = message as Record<string, unknown>;
   if ('tool_calls' in messageRecord || 'function_call' in messageRecord) return undefined;
-  return messageRecord.role === 'assistant' && typeof messageRecord.content === 'string'
-    ? messageRecord.content
-    : undefined;
+  if (messageRecord.role !== 'assistant' || typeof messageRecord.content !== 'string') {
+    return undefined;
+  }
+  const usage = readTokenUsage(decodedRecord);
+  return {
+    content: messageRecord.content,
+    finishReason,
+    ...(usage === undefined ? {} : { usage }),
+  };
 }
 
 function failed(reasonCode: ManifestClientFailureReason): ManifestClientResult {
   return Object.freeze({ status: 'failed', reasonCode });
 }
 
-export function createManifestClient(options: ManifestClientOptions): ManifestClient {
-  if (!configurationIsValid(options)) {
-    throw new TypeError('Manifest client configuration is invalid');
+type BoundedHttpResult =
+  | { readonly body: string; readonly status: 'ok'; readonly statusCode: number }
+  | {
+      readonly reasonCode: Exclude<
+        ManifestClientFailureReason,
+        'invalid_envelope' | 'invalid_request'
+      >;
+      readonly status: 'failed';
+      readonly statusCode?: number;
+    };
+
+async function postBoundedChatCompletion(input: {
+  readonly apiKey: string;
+  readonly body: string;
+  readonly endpoint: string;
+  readonly fetchImplementation: ManifestFetch;
+  readonly maximumResponseBytes: number;
+  readonly schedule: ManifestTimerScheduler;
+  readonly signal?: AbortSignal;
+  readonly totalTimeoutMs: number;
+}): Promise<BoundedHttpResult> {
+  if (input.signal?.aborted === true) return { status: 'failed', reasonCode: 'aborted' };
+
+  const abortController = new AbortController();
+  const abortState = { callerAborted: false, timedOut: false };
+  let rejectAbort: (reason: Error) => void = () => undefined;
+  const abortPromise = new Promise<never>((_resolve, reject) => {
+    rejectAbort = reject;
+  });
+  const onCallerAbort = (): void => {
+    abortState.callerAborted = true;
+    abortController.abort();
+    rejectAbort(new Error('Gateway caller aborted'));
+  };
+  input.signal?.addEventListener('abort', onCallerAbort, { once: true });
+  const timeout = input.schedule(() => {
+    abortState.timedOut = true;
+    abortController.abort();
+    rejectAbort(new Error('Gateway total timeout'));
+  }, input.totalTimeoutMs);
+
+  try {
+    const response = await Promise.race([
+      input.fetchImplementation(input.endpoint, {
+        body: input.body,
+        headers: {
+          authorization: `Bearer ${input.apiKey}`,
+          'content-type': 'application/json',
+        },
+        method: 'POST',
+        redirect: 'error',
+        signal: abortController.signal,
+      }),
+      abortPromise,
+    ]);
+    const fetchAbortReason = readAbortReason(abortState);
+    if (fetchAbortReason !== undefined) {
+      void cancelBody(response);
+      return { status: 'failed', reasonCode: fetchAbortReason };
+    }
+    if (!response.ok) {
+      void cancelBody(response);
+      return {
+        status: 'failed',
+        reasonCode: response.status === 429 ? 'provider_exhausted' : 'non_2xx',
+        statusCode: response.status,
+      };
+    }
+
+    const boundedBody = await Promise.race([
+      readBoundedBody(response, input.maximumResponseBytes),
+      abortPromise,
+    ]);
+    const bodyAbortReason = readAbortReason(abortState);
+    if (bodyAbortReason !== undefined) return { status: 'failed', reasonCode: bodyAbortReason };
+    if (boundedBody.status === 'rejected') {
+      return { status: 'failed', reasonCode: boundedBody.reasonCode };
+    }
+    return { status: 'ok', statusCode: response.status, body: boundedBody.value };
+  } catch {
+    if (abortState.callerAborted) return { status: 'failed', reasonCode: 'aborted' };
+    if (abortState.timedOut) return { status: 'failed', reasonCode: 'timeout' };
+    return { status: 'failed', reasonCode: 'network_failure' };
+  } finally {
+    timeout.cancel();
+    input.signal?.removeEventListener('abort', onCallerAbort);
+  }
+}
+
+function buildValidatedClient(
+  options: ManifestClientOptions,
+  urlValidator: (url: string) => boolean,
+  minimumKeyLength: number,
+  configErrorMessage: string,
+): ManifestClient {
+  if (!configurationIsValid(options, urlValidator, minimumKeyLength)) {
+    throw new TypeError(configErrorMessage);
   }
   const fetchImplementation: ManifestFetch = options.fetch ?? globalThis.fetch;
   const logger = options.logger ?? noopSafeLogger;
   const schedule = options.schedule ?? defaultSchedule;
-  const endpoint = `${options.baseUrl}/chat/completions`;
+  const endpoint = `${normalizeGatewayBaseUrl(options.baseUrl)}/chat/completions`;
   const apiKey = options.apiKey;
   const maximumResponseBytes = options.maximumResponseBytes;
   const totalTimeoutMs = options.totalTimeoutMs;
@@ -209,82 +360,162 @@ export function createManifestClient(options: ManifestClientOptions): ManifestCl
       };
 
       if (!requestIdIsValid || requestContext === undefined) return logFailure('invalid_request');
-      if (input.signal?.aborted === true) return logFailure('aborted');
-
-      const abortController = new AbortController();
-      const abortState = { callerAborted: false, timedOut: false };
-      let rejectAbort: (reason: Error) => void = () => undefined;
-      const abortPromise = new Promise<never>((_resolve, reject) => {
-        rejectAbort = reject;
+      const result = await postBoundedChatCompletion({
+        apiKey,
+        body: JSON.stringify(input.request),
+        endpoint,
+        fetchImplementation,
+        maximumResponseBytes,
+        schedule,
+        ...(input.signal === undefined ? {} : { signal: input.signal }),
+        totalTimeoutMs,
       });
-      const onCallerAbort = (): void => {
-        abortState.callerAborted = true;
-        abortController.abort();
-        rejectAbort(new Error('Manifest caller aborted'));
-      };
-      input.signal?.addEventListener('abort', onCallerAbort, { once: true });
-      const timeout = schedule(() => {
-        abortState.timedOut = true;
-        abortController.abort();
-        rejectAbort(new Error('Manifest total timeout'));
-      }, totalTimeoutMs);
+      if (result.status === 'failed') return logFailure(result.reasonCode, result.statusCode);
+      const choice = readChoiceBody(result.body, ['stop']);
+      if (choice === undefined) return logFailure('malformed_body');
+      const parsed = parseManifestOutput(choice.content, {
+        knowledge: requestContext.knowledge,
+        maximumResponseBytes,
+        requiredLanguage: requestContext.requiredLanguage,
+      });
+      if (parsed.status === 'rejected') return logFailure('invalid_envelope');
 
-      try {
-        const response = await Promise.race([
-          fetchImplementation(endpoint, {
-            body: JSON.stringify(input.request),
-            headers: {
-              authorization: `Bearer ${apiKey}`,
-              'content-type': 'application/json',
-            },
-            method: 'POST',
-            redirect: 'error',
-            signal: abortController.signal,
-          }),
-          abortPromise,
-        ]);
-        const fetchAbortReason = readAbortReason(abortState);
-        if (fetchAbortReason !== undefined) {
-          void cancelBody(response);
-          return logFailure(fetchAbortReason);
-        }
-        if (!response.ok) {
-          void cancelBody(response);
-          return logFailure(
-            response.status === 429 ? 'provider_exhausted' : 'non_2xx',
-            response.status,
-          );
-        }
-
-        const boundedBody = await Promise.race([
-          readBoundedBody(response, maximumResponseBytes),
-          abortPromise,
-        ]);
-        const bodyAbortReason = readAbortReason(abortState);
-        if (bodyAbortReason !== undefined) return logFailure(bodyAbortReason);
-        if (boundedBody.status === 'rejected') return logFailure(boundedBody.reasonCode);
-        const assistantContent = readAssistantContent(boundedBody.value);
-        if (assistantContent === undefined) return logFailure('malformed_body');
-        const parsed = parseManifestOutput(assistantContent, {
-          knowledge: requestContext.knowledge,
-          maximumResponseBytes,
-          requiredLanguage: requestContext.requiredLanguage,
-        });
-        if (parsed.status === 'rejected') return logFailure('invalid_envelope');
-
-        logger.info('manifest_request_completed', {
-          requestId: input.logicalRequestId,
-          statusCode: response.status,
-        });
-        return Object.freeze({ status: 'completed', value: parsed.value });
-      } catch {
-        if (abortState.callerAborted) return logFailure('aborted');
-        if (abortState.timedOut) return logFailure('timeout');
-        return logFailure('network_failure');
-      } finally {
-        timeout.cancel();
-        input.signal?.removeEventListener('abort', onCallerAbort);
-      }
+      logger.info('manifest_request_completed', {
+        requestId: input.logicalRequestId,
+        statusCode: result.statusCode,
+      });
+      return Object.freeze({
+        status: 'completed',
+        ...(choice.usage === undefined ? {} : { usage: choice.usage }),
+        value: parsed.value,
+      });
     },
+  });
+}
+
+export function createManifestClient(options: ManifestClientOptions): ManifestClient {
+  return buildValidatedClient(
+    options,
+    isPrivateManifestBaseUrl,
+    16,
+    'Manifest client configuration is invalid',
+  );
+}
+
+export function createOpenAiCompatibleClient(options: ManifestClientOptions): ManifestClient {
+  return buildValidatedClient(
+    options,
+    isAllowedOpenAiCompatibleBaseUrl,
+    8,
+    'OpenAI-compatible client configuration is invalid',
+  );
+}
+
+export async function probeGatewayConnection(options: {
+  readonly apiKey: string;
+  readonly baseUrl: string;
+  readonly fetch?: ManifestFetch;
+  readonly gatewayKind: 'manifest_default' | 'openai_compatible';
+  readonly logger?: SafeLogger;
+  readonly maximumResponseBytes?: number;
+  readonly modelName: string;
+  readonly now?: () => Date;
+  readonly schedule?: ManifestTimerScheduler;
+  readonly totalTimeoutMs?: number;
+}): Promise<ModelGatewayTestOutcome> {
+  const now = options.now ?? (() => new Date());
+  const startedMs = Date.now();
+  const testedAt = now();
+  const maximumResponseBytes = options.maximumResponseBytes ?? 32_768;
+  const totalTimeoutMs = options.totalTimeoutMs ?? 10_000;
+  const validModel =
+    options.gatewayKind === 'manifest_default'
+      ? options.modelName === 'auto'
+      : /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/u.test(options.modelName);
+  const urlValid =
+    options.gatewayKind === 'manifest_default'
+      ? isPrivateManifestBaseUrl(options.baseUrl)
+      : isAllowedOpenAiCompatibleBaseUrl(options.baseUrl);
+  if (
+    !urlValid ||
+    !validModel ||
+    !/^\S{8,4096}$/u.test(options.apiKey) ||
+    !Number.isSafeInteger(maximumResponseBytes) ||
+    maximumResponseBytes < 256 ||
+    maximumResponseBytes > 1_048_576 ||
+    !Number.isSafeInteger(totalTimeoutMs) ||
+    totalTimeoutMs < 100 ||
+    totalTimeoutMs > 120_000
+  ) {
+    return Object.freeze({
+      latencyMs: 0,
+      reasonCode: 'invalid_gateway_configuration',
+      result: 'failed',
+      testedAt,
+    });
+  }
+
+  const endpoint = `${normalizeGatewayBaseUrl(options.baseUrl)}/chat/completions`;
+  const logger = options.logger ?? noopSafeLogger;
+  const result = await postBoundedChatCompletion({
+    apiKey: options.apiKey,
+    body: JSON.stringify({
+      max_tokens: 16,
+      messages: [
+        { content: 'Respond briefly without tools.', role: 'system' },
+        { content: 'ping', role: 'user' },
+      ],
+      model: options.modelName,
+      stream: false,
+    }),
+    endpoint,
+    fetchImplementation: options.fetch ?? globalThis.fetch,
+    maximumResponseBytes,
+    schedule: options.schedule ?? defaultSchedule,
+    totalTimeoutMs,
+  });
+  const latencyMs = Math.min(120_000, Math.max(0, Date.now() - startedMs));
+
+  if (result.status === 'failed') {
+    const reasonCode =
+      result.reasonCode === 'non_2xx'
+        ? result.statusCode === 401 || result.statusCode === 403
+          ? 'unauthorized'
+          : result.statusCode === 404 || result.statusCode === 422
+            ? 'model_or_endpoint_rejected'
+            : 'non_2xx'
+        : result.reasonCode;
+    logger.warn('gateway_connection_test_failed', {
+      reason: reasonCode,
+      ...(result.statusCode === undefined ? {} : { statusCode: result.statusCode }),
+    });
+    return Object.freeze({
+      ...(result.statusCode === undefined ? {} : { httpStatus: result.statusCode }),
+      latencyMs,
+      reasonCode,
+      result: 'failed',
+      testedAt,
+    });
+  }
+
+  const choice = readChoiceBody(result.body, ['stop', 'length']);
+  if (choice === undefined || choice.content.trim().length === 0) {
+    logger.warn('gateway_connection_test_failed', { reason: 'malformed_body', statusCode: 200 });
+    return Object.freeze({
+      httpStatus: result.statusCode,
+      latencyMs,
+      reasonCode: 'malformed_body',
+      result: 'failed',
+      testedAt,
+    });
+  }
+
+  logger.info('gateway_connection_test_passed', { statusCode: result.statusCode });
+  return Object.freeze({
+    httpStatus: result.statusCode,
+    latencyMs,
+    reasonCode: 'ok',
+    result: 'passed',
+    testedAt,
   });
 }
