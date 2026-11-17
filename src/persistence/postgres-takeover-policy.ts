@@ -224,4 +224,98 @@ export class PostgresTakeoverPolicy {
       };
     });
   }
+
+  public async pauseByReviewer(
+    input: AuthorizedResumeInput,
+    principal: unknown,
+  ): Promise<AuthorizedResumeResult> {
+    requireDecimalConversationId(input.conversationId);
+    requireValidDate(input.effectiveAt, 'effectiveAt');
+    const requestKey = requireRequestKey(input.requestKey);
+    const reviewer = requireSupportReviewer(principal);
+
+    return withBoundedTransaction(this.pool, async (client) => {
+      await client.query(`select pg_advisory_xact_lock(hashtextextended($1::text, 0::bigint))`, [
+        requestKey,
+      ]);
+
+      const existing = await client.query<ExistingResumeRow>(
+        `select history.conversation_id,
+                history.resulting_pause_until as ai_paused_until,
+                history.conversation_id = $2::bigint
+                  and history.actor_kind = 'reviewer'
+                  and history.reviewer_reference = $3
+                  and history.effective_at = $4::timestamptz
+                  as material_matches
+         from human_pause_events as history
+         where history.action = 'pause'
+           and history.reviewer_request_key = $1`,
+        [requestKey, input.conversationId, reviewer.reviewerRef, input.effectiveAt],
+      );
+      const priorPause = existing.rows[0];
+      if (priorPause !== undefined) {
+        if (!priorPause.material_matches) {
+          throw new PolicyIdempotencyConflictError('Pause request key material conflicts');
+        }
+        return {
+          aiPausedUntil: priorPause.ai_paused_until,
+          conversationId: priorPause.conversation_id,
+          status: 'duplicate',
+        };
+      }
+
+      const selected = await client.query<{ readonly ai_paused_until: Date | null }>(
+        `select ai_paused_until
+         from conversations
+         where id = $1
+         for update`,
+        [input.conversationId],
+      );
+      if (selected.rows[0] === undefined) {
+        throw new PolicyRecordNotFoundError('Conversation not found');
+      }
+
+      const eventPauseUntil = new Date(input.effectiveAt.getTime() + 24 * 60 * 60 * 1000);
+      const existingPause = selected.rows[0].ai_paused_until;
+      const resultingPauseUntil =
+        existingPause !== null && existingPause.getTime() > eventPauseUntil.getTime()
+          ? existingPause
+          : eventPauseUntil;
+
+      await client.query(
+        `update conversations
+         set ai_paused_until = $2,
+             updated_at = now(),
+             row_version = row_version + 1
+         where id = $1`,
+        [input.conversationId, resultingPauseUntil],
+      );
+      await client.query(
+        `insert into human_pause_events
+           (conversation_id, action, effective_at, resulting_pause_until,
+            actor_kind, reviewer_reference, reviewer_request_key)
+         values ($1, 'pause', $2, $3, 'reviewer', $4, $5)`,
+        [
+          input.conversationId,
+          input.effectiveAt,
+          eventPauseUntil,
+          reviewer.reviewerRef,
+          requestKey,
+        ],
+      );
+      await insertPolicyAuditOutcome(client, {
+        conversationId: input.conversationId,
+        decisionType: 'authorized_pause',
+        evaluatedAt: input.effectiveAt,
+        outcome: 'applied',
+        reasonCode: 'manual_pause_applied',
+      });
+
+      return {
+        aiPausedUntil: resultingPauseUntil,
+        conversationId: input.conversationId,
+        status: 'applied',
+      };
+    });
+  }
 }

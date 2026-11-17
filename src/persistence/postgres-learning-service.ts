@@ -759,4 +759,112 @@ export class PostgresLearningService {
       return { proposalVersionRef: versionRef, status: 'created' };
     });
   }
+
+  public async dismissOwnerQuestion(
+    input: {
+      readonly dismissedAt: Date;
+      readonly questionRef: string;
+      readonly reasonCode: string;
+      readonly requestKey: string;
+    },
+    principalInput: unknown,
+  ): Promise<{ readonly questionRef: string; readonly status: 'dismissed' | 'duplicate' }> {
+    const principal = requireKnowledgeEditor(principalInput);
+    const now = this.#now();
+    if (!(input.dismissedAt instanceof Date) || !Number.isFinite(input.dismissedAt.getTime())) {
+      throw new TypeError('Dismissal time is invalid');
+    }
+    if (input.dismissedAt > now) {
+      throw new LearningConflictError('Owner question dismissal time is not eligible');
+    }
+    if (
+      typeof input.questionRef !== 'string' ||
+      !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(input.questionRef)
+    ) {
+      throw new TypeError('Question reference is invalid');
+    }
+    if (
+      typeof input.requestKey !== 'string' ||
+      input.requestKey.trim() === '' ||
+      input.requestKey.length > 128
+    ) {
+      throw new TypeError('Dismissal request key is invalid');
+    }
+    if (
+      typeof input.reasonCode !== 'string' ||
+      !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(input.reasonCode)
+    ) {
+      throw new TypeError('Dismissal reason code is invalid');
+    }
+
+    return withBoundedTransaction(this.pool, async (client) => {
+      await client.query(`select pg_advisory_xact_lock(hashtextextended($1, 0))`, [
+        input.requestKey,
+      ]);
+      const existing = await client.query<{ readonly object_ref: string | null }>(
+        `select object_ref
+         from admin_audit_events
+         where request_key = $1 and action = 'owner_question_dismissed'`,
+        [input.requestKey],
+      );
+      if (existing.rows[0] !== undefined) {
+        if (existing.rows[0].object_ref !== input.questionRef) {
+          throw new LearningConflictError('Owner question dismissal replay conflicts');
+        }
+        return { questionRef: input.questionRef, status: 'duplicate' };
+      }
+
+      const question = await client.query<{
+        readonly created_at: Date;
+        readonly id: string;
+        readonly state: 'answered' | 'dismissed' | 'open';
+      }>(
+        `select id::text, state, created_at
+         from owner_questions
+         where question_ref = $1
+         for update`,
+        [input.questionRef],
+      );
+      const selected = question.rows[0];
+      if (selected?.state !== 'open' || input.dismissedAt < selected.created_at) {
+        throw new LearningConflictError('Owner question is not dismissible');
+      }
+
+      const account = await client.query<{ readonly id: string }>(
+        `select account.id::text
+         from admin_accounts as account
+         where account.account_ref = $1 and account.state = 'active'
+           and exists (
+             select 1 from (
+               select distinct on (assignment.role) assignment.role, assignment.action
+               from admin_role_assignments as assignment
+               where assignment.account_id = account.id and assignment.effective_at <= $2
+               order by assignment.role, assignment.effective_at desc, assignment.id desc
+             ) as role_state
+             where role_state.action = 'assign'
+               and role_state.role in ('administrator', 'knowledge_editor')
+           )`,
+        [principal.reviewerRef, now],
+      );
+      const accountId = account.rows[0]?.id;
+      if (accountId === undefined) {
+        throw new LearningConflictError('Owner reviewer is not active');
+      }
+
+      await client.query(
+        `update owner_questions
+         set state = 'dismissed', dismissed_at = $2, updated_at = $2, row_version = row_version + 1
+         where id = $1`,
+        [selected.id, input.dismissedAt],
+      );
+      await client.query(
+        `insert into admin_audit_events
+          (actor_account_id, action, result, object_type, object_ref,
+           reason_code, request_key, effective_at)
+         values ($1, 'owner_question_dismissed', 'applied', 'owner_question', $2, $3, $4, $5)`,
+        [accountId, input.questionRef, input.reasonCode, input.requestKey, input.dismissedAt],
+      );
+      return { questionRef: input.questionRef, status: 'dismissed' };
+    });
+  }
 }

@@ -10,17 +10,49 @@ import {
 } from '../model/gateway-budget.js';
 import type { ModelGatewayBudgetSummary, ModelGatewayProfileView } from '../model/gateway-types.js';
 import { parseModelPolicyValues } from '../model/model-policy-input.js';
-import type {
-  AdminAuthenticationResult,
-  AdminMfaAuthenticationResult,
-  AdminRole,
-  ResolvedAdminSession,
+import {
+  type AdminAuthenticationResult,
+  AdminIdentityConflictError,
+  AdminIdentityNotAuthorizedError,
+  AdminIdentityNotFoundError,
+  type AdminMfaAuthenticationResult,
+  type AdminRole,
+  type ResolvedAdminSession,
 } from '../persistence/postgres-admin-identity.js';
+import {
+  AdminControlConfigurationError,
+  AdminControlConflictError,
+  WebsiteImportError,
+} from '../persistence/postgres-admin-controls.js';
+import { KnowledgePublicationConflictError } from '../persistence/postgres-knowledge-publication.js';
+import { LearningConflictError } from '../persistence/postgres-learning-service.js';
 import {
   GatewayConfigurationError,
   GatewayEncryptionKeyMissingError,
   GatewayStateTransitionError,
 } from '../persistence/postgres-model-gateway.js';
+import {
+  PolicyIdempotencyConflictError,
+  PolicyRecordNotFoundError,
+} from '../persistence/postgres-takeover-policy.js';
+import {
+  PolicyAuthorizationError,
+  PolicyOwnerAuthorizationError,
+} from '../policy/reviewer-principal.js';
+import { renderInsightsPage } from './admin-controls-html.js';
+import { registerAdminControlsRoutes } from './admin-controls-routes.js';
+import type {
+  AdminAccountSummary,
+  AdminConsentIdentitySummary,
+  AdminOutboundPolicySummary,
+  AdminOutboundTemplateSummary,
+  AdminPauseStateSummary,
+  AdminPrivacyAccessBundle,
+  AdminPrivacyLocationSummary,
+  AdminPrivacyRequestSummary,
+  AdminStaffCreateResult,
+  AdminWebsiteSnapshotSummary,
+} from './admin-controls-types.js';
 import {
   type AdminAuditSummary,
   type AdminEscalationCount,
@@ -99,6 +131,234 @@ export interface AdminDashboardPort {
   readonly reviewVersion: (input: unknown, actor: AdminActor) => Promise<void>;
   readonly rollbackVersion: (input: unknown, actor: AdminActor) => Promise<void>;
   readonly submitVersion: (input: unknown, actor: AdminActor) => Promise<void>;
+  readonly dismissQuestion?: (
+    input: {
+      readonly dismissedAt: Date;
+      readonly questionRef: string;
+      readonly reasonCode: string;
+      readonly requestKey: string;
+    },
+    actor: AdminActor,
+  ) => Promise<void>;
+  readonly triggerInsightAggregation?: (
+    input: {
+      readonly requestKey: string;
+      readonly runRef: string;
+      readonly windowEndedAt: Date;
+      readonly windowStartedAt: Date;
+    },
+    actor: AdminActor,
+  ) => Promise<{
+    readonly entryCount: number;
+    readonly runRef: string;
+    readonly status: 'created' | 'duplicate';
+  }>;
+  readonly triggerQuestionDigest?: (
+    input: {
+      readonly digestRef: string;
+      readonly effectiveAt: Date;
+      readonly requestKey: string;
+    },
+    actor: AdminActor,
+  ) => Promise<{ readonly status: 'created' | 'duplicate' | 'empty' | 'not_due' }>;
+  readonly listAccounts?: () => Promise<readonly AdminAccountSummary[]>;
+  readonly createStaffAccount?: (
+    input: {
+      readonly accountRef: string;
+      readonly loginName: string;
+      readonly password: string;
+      readonly roles: readonly AdminRole[];
+      readonly requestKey: string;
+      readonly createdAt: Date;
+    },
+    actor: AdminActor,
+  ) => Promise<AdminStaffCreateResult>;
+  readonly assignStaffRole?: (
+    input: {
+      readonly targetAccountRef: string;
+      readonly role: AdminRole;
+      readonly effectiveAt: Date;
+      readonly requestKey: string;
+    },
+    actor: AdminActor,
+  ) => Promise<void>;
+  readonly revokeStaffRole?: (
+    input: {
+      readonly targetAccountRef: string;
+      readonly role: AdminRole;
+      readonly effectiveAt: Date;
+      readonly requestKey: string;
+    },
+    actor: AdminActor,
+  ) => Promise<void>;
+  readonly revokeStaffSessions?: (
+    input: { readonly targetAccountRef: string },
+    actor: AdminActor,
+  ) => Promise<void>;
+  readonly disableStaffAccount?: (
+    input: { readonly targetAccountRef: string; readonly requestKey: string },
+    actor: AdminActor,
+  ) => Promise<void>;
+  readonly listPauseStates?: () => Promise<readonly AdminPauseStateSummary[]>;
+  readonly pauseConversation?: (
+    input: {
+      readonly conversationId: string;
+      readonly effectiveAt: Date;
+      readonly requestKey: string;
+    },
+    actor: AdminActor,
+  ) => Promise<void>;
+  readonly resumeConversation?: (
+    input: {
+      readonly conversationId: string;
+      readonly effectiveAt: Date;
+      readonly requestKey: string;
+    },
+    actor: AdminActor,
+  ) => Promise<void>;
+  readonly listPrivacyRequests?: () => Promise<readonly AdminPrivacyRequestSummary[]>;
+  readonly listPrivacyLocations?: (
+    requestRef?: string,
+  ) => Promise<readonly AdminPrivacyLocationSummary[]>;
+  readonly reviewDeletionRequest?: (
+    input: {
+      readonly decidedAt: Date;
+      readonly decision: 'approve' | 'reject';
+      readonly reasonCode: 'customer_confirmed' | 'identity_ambiguous' | 'request_withdrawn';
+      readonly requestKey: string;
+      readonly requestRef: string;
+      readonly verificationMethod: 'explicit_confirmation' | 'known_name';
+    },
+    actor: AdminActor,
+  ) => Promise<void>;
+  readonly executeDeletionRequest?: (
+    input: { readonly executedAt: Date; readonly requestKey: string; readonly requestRef: string },
+    actor: AdminActor,
+  ) => Promise<void>;
+  readonly reviewPrivacyRequest?: (
+    input: {
+      readonly decidedAt: Date;
+      readonly decision: 'approve' | 'reject';
+      readonly reasonCode: 'identity_verified' | 'identity_ambiguous' | 'request_withdrawn';
+      readonly requestKey: string;
+      readonly requestRef: string;
+    },
+    actor: AdminActor,
+  ) => Promise<void>;
+  readonly collectPrivacyAccessExport?: (
+    input: { readonly collectedAt: Date; readonly requestKey: string; readonly requestRef: string },
+    actor: AdminActor,
+  ) => Promise<AdminPrivacyAccessBundle>;
+  readonly executePrivacyCorrection?: (
+    input: {
+      readonly executedAt: Date;
+      readonly fieldKey: string;
+      readonly newValue: string;
+      readonly requestKey: string;
+      readonly requestRef: string;
+    },
+    actor: AdminActor,
+  ) => Promise<void>;
+  readonly attestPrivacyLocation?: (
+    input: {
+      readonly checkedAt: Date;
+      readonly locationCode: string;
+      readonly outcomeCode: 'location_complete' | 'location_failed' | 'location_not_applicable';
+      readonly requestKey: string;
+      readonly requestRef: string;
+      readonly state: 'completed' | 'failed' | 'not_applicable';
+    },
+    actor: AdminActor,
+  ) => Promise<void>;
+  readonly listConsentIdentities?: () => Promise<readonly AdminConsentIdentitySummary[]>;
+  readonly recordReviewerConsent?: (
+    input: {
+      readonly action: 'grant' | 'revoke';
+      readonly category: string;
+      readonly channelIdentityId: string;
+      readonly requestKey: string;
+      readonly sourceAt: Date;
+      readonly wording: string;
+      readonly wordingVersion: string;
+    },
+    actor: AdminActor,
+  ) => Promise<void>;
+  readonly recordMarketingReoptIn?: (
+    input: {
+      readonly categories: readonly string[];
+      readonly channelIdentityId: string;
+      readonly effectiveAt: Date;
+      readonly requestKey: string;
+      readonly verificationMethod: 'known_name' | 'same_channel_context';
+      readonly wording: string;
+      readonly wordingVersion: string;
+    },
+    actor: AdminActor,
+  ) => Promise<void>;
+  readonly listOutboundPolicies?: () => Promise<readonly AdminOutboundPolicySummary[]>;
+  readonly createOutboundPolicy?: (
+    input: {
+      readonly createdAt: Date;
+      readonly policyRef: string;
+      readonly requestKey: string;
+      readonly values: unknown;
+    },
+    actor: AdminActor,
+  ) => Promise<void>;
+  readonly transitionOutboundPolicy?: (
+    input: {
+      readonly action: 'activate' | 'approve' | 'retire' | 'submit';
+      readonly effectiveAt: Date;
+      readonly policyRef: string;
+      readonly requestKey: string;
+    },
+    actor: AdminActor,
+  ) => Promise<void>;
+  readonly listOutboundTemplates?: () => Promise<readonly AdminOutboundTemplateSummary[]>;
+  readonly createOutboundTemplate?: (
+    input: {
+      readonly category: AdminOutboundTemplateSummary['category'];
+      readonly channelAccountId: string;
+      readonly createdAt: Date;
+      readonly locale: 'bn_BD' | 'en_US';
+      readonly providerTemplateId: string;
+      readonly requestKey: string;
+      readonly templateName: string;
+      readonly templateRef: string;
+      readonly templateText: string;
+    },
+    actor: AdminActor,
+  ) => Promise<void>;
+  readonly transitionOutboundTemplate?: (
+    input: {
+      readonly action: 'activate' | 'approve' | 'retire' | 'submit';
+      readonly effectiveAt: Date;
+      readonly requestKey: string;
+      readonly templateRef: string;
+      readonly versionNumber: number;
+    },
+    actor: AdminActor,
+  ) => Promise<void>;
+  readonly listWebsiteSnapshots?: () => Promise<readonly AdminWebsiteSnapshotSummary[]>;
+  readonly importWebsiteSource?: (
+    input: {
+      readonly fetchedAt: Date;
+      readonly label?: string;
+      readonly pastedHtmlOrText?: string;
+      readonly requestKey: string;
+      readonly url: string;
+      readonly optionalDraft?: {
+        readonly versionRef: string;
+        readonly itemKey: string;
+        readonly kind: 'business_fact' | 'faq';
+        readonly questionEn: string;
+        readonly questionBn: string;
+        readonly answerEn: string;
+        readonly answerBn: string;
+      };
+    },
+    actor: AdminActor,
+  ) => Promise<{ readonly sourceRef: string; readonly snapshotRef: string }>;
 }
 
 export interface AdminProposalFilter {
@@ -272,7 +532,7 @@ export function buildAdminApp(options: BuildAdminAppOptions): FastifyInstance {
   function issueAction(
     context: AuthenticatedContext,
     action: AdminAction['action'],
-    reference: string,
+    reference = referenceSource(),
     priorVersionRef?: string,
     effectiveAt = now(),
   ): string {
@@ -324,10 +584,27 @@ export function buildAdminApp(options: BuildAdminAppOptions): FastifyInstance {
 
   app.setErrorHandler(async (error, request, reply) => {
     if (
+      error instanceof PolicyAuthorizationError ||
+      error instanceof PolicyOwnerAuthorizationError ||
+      error instanceof AdminIdentityNotAuthorizedError
+    ) {
+      const nonce = nonceSource();
+      return html(reply, nonce, renderSafeErrorPage(nonce, 403), 403);
+    }
+    if (
       error instanceof AdminFormError ||
       error instanceof GatewayConfigurationError ||
       error instanceof GatewayEncryptionKeyMissingError ||
-      error instanceof GatewayStateTransitionError
+      error instanceof GatewayStateTransitionError ||
+      error instanceof AdminControlConfigurationError ||
+      error instanceof AdminControlConflictError ||
+      error instanceof WebsiteImportError ||
+      error instanceof AdminIdentityConflictError ||
+      error instanceof AdminIdentityNotFoundError ||
+      error instanceof PolicyIdempotencyConflictError ||
+      error instanceof PolicyRecordNotFoundError ||
+      error instanceof LearningConflictError ||
+      error instanceof KnowledgePublicationConflictError
     ) {
       const nonce = nonceSource();
       return html(reply, nonce, renderSafeErrorPage(nonce, 400), 400);
@@ -385,7 +662,7 @@ export function buildAdminApp(options: BuildAdminAppOptions): FastifyInstance {
   async function requireMutation(
     request: FastifyRequest,
     reply: FastifyReply,
-    requiredRoles: readonly AdminRole[],
+    requiredRoles: readonly AdminRole[] = allRoles,
   ): Promise<
     (AuthenticatedContext & { readonly form: Readonly<Record<string, string>> }) | undefined
   > {
@@ -793,6 +1070,12 @@ export function buildAdminApp(options: BuildAdminAppOptions): FastifyInstance {
             issueAction(context, 'answer', question.questionRef),
           ]),
         ),
+        dismissTokens: Object.fromEntries(
+          questions.map((question) => [
+            question.questionRef,
+            issueAction(context, 'question_dismiss', question.questionRef),
+          ]),
+        ),
         csrfToken: context.csrfToken,
         nonce,
         questions,
@@ -833,17 +1116,13 @@ export function buildAdminApp(options: BuildAdminAppOptions): FastifyInstance {
     return html(
       reply,
       nonce,
-      renderSimpleModulePage({
+      renderInsightsPage({
+        insights,
+        aggregateToken: issueAction(context, 'insights_aggregate'),
+        digestToken: issueAction(context, 'insights_digest'),
         csrfToken: context.csrfToken,
-        currentPath: '/insights',
-        description: 'Aggregate-only signals derived from privacy-safe support gaps.',
         nonce,
-        rows: insights.map((entry) => ({
-          label: entry.topicCode,
-          meta: `${entry.categoryCode} · ${String(entry.occurrenceCount)} occurrences`,
-        })),
         session: context.session,
-        title: 'Customer insights',
       }),
     );
   });
@@ -1121,6 +1400,22 @@ export function buildAdminApp(options: BuildAdminAppOptions): FastifyInstance {
         title: 'Audit history',
       }),
     );
+  });
+
+  registerAdminControlsRoutes(app, {
+    dashboard: options.dashboard,
+    now,
+    requireSession,
+    requireMutation,
+    issueAction,
+    readAction,
+    routeReference,
+    nonce: nonceSource,
+    html,
+    redirect,
+    invalidForm: () => {
+      throw new AdminFormError();
+    },
   });
 
   if (options.operations !== undefined)

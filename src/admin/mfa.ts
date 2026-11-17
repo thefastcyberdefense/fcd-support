@@ -197,3 +197,43 @@ export function verifyTotpCode(input: VerifyTotpInput): TotpVerification {
     supplied.fill(0);
   }
 }
+
+const base32Alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+
+export function encodeBase32(bytes: AdminSecretBytes): string {
+  const copy = bytes.copy();
+  try {
+    let bits = 0;
+    let value = 0;
+    let output = '';
+    for (const byte of copy) {
+      value = (value << 8) | byte;
+      bits += 8;
+      while (bits >= 5) {
+        output += base32Alphabet[(value >>> (bits - 5)) & 31] ?? '';
+        bits -= 5;
+      }
+    }
+    if (bits > 0) {
+      output += base32Alphabet[(value << (5 - bits)) & 31] ?? '';
+    }
+    return output;
+  } finally {
+    copy.fill(0);
+  }
+}
+
+export function buildTotpProvisioningUri(input: {
+  readonly issuer: string;
+  readonly loginName: string;
+  readonly seed: AdminSecretBytes;
+  readonly policy: TotpPolicy;
+}): string {
+  requireTotpPolicy(input.policy);
+  const label = `${encodeURIComponent(input.issuer)}:${encodeURIComponent(input.loginName)}`;
+  const secret = encodeBase32(input.seed);
+  return (
+    `otpauth://totp/${label}?secret=${secret}&issuer=${encodeURIComponent(input.issuer)}` +
+    `&algorithm=SHA1&digits=${String(input.policy.digits)}&period=${String(input.policy.periodSeconds)}`
+  );
+}

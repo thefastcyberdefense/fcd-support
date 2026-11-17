@@ -12,7 +12,22 @@ import type {
   AdminQuestionSummary,
 } from '../admin/admin-html.js';
 import type { ReviewerPrincipal } from '../policy/policy-types.js';
+import type { PrivacyHmacKeyring } from '../policy/policy-types.js';
 import type { LearningPolicy } from '../learning/learning-types.js';
+import type {
+  AdminAccountSummary,
+  AdminConsentIdentitySummary,
+  AdminOutboundPolicySummary,
+  AdminOutboundTemplateSummary,
+  AdminPauseStateSummary,
+  AdminPrivacyAccessBundle,
+  AdminPrivacyLocationSummary,
+  AdminPrivacyRequestSummary,
+  AdminStaffCreateResult,
+  AdminWebsiteSnapshotSummary,
+} from '../admin/admin-controls-types.js';
+import { AdminSecretBytes, AdminSecretText } from '../admin/admin-types.js';
+import { buildTotpProvisioningUri, encodeBase32 } from '../admin/mfa.js';
 import { PostgresAdminIdentity, type AdminRole } from './postgres-admin-identity.js';
 import { PostgresKnowledgeRepository } from './postgres-knowledge-repository.js';
 import { PostgresKnowledgePublication } from './postgres-knowledge-publication.js';
@@ -26,6 +41,29 @@ import type { ManifestFetch } from '../model/manifest-client.js';
 import { PostgresModelGateway } from './postgres-model-gateway.js';
 import { PostgresModelPolicy } from './postgres-model-policy.js';
 import { withBoundedTransaction } from './postgres-transaction.js';
+import {
+  executeAdminPauseAction,
+  executeDeletionErasure,
+  executeDeletionReview,
+  executeMarketingReoptIn,
+  executeOutboundPolicyMutation,
+  executeOutboundTemplateMutation,
+  executePrivacyAccessCollection,
+  executePrivacyCorrection,
+  executePrivacyLocationAttestation,
+  executePrivacyReview,
+  executeReviewerConsent,
+  fetchOrParseWebsiteImport,
+  insertAdminAuditEvent,
+  persistWebsiteImportDraft,
+  queryConsentIdentities,
+  queryOutboundPolicies,
+  queryOutboundTemplates,
+  queryPauseStates,
+  queryPrivacyLocations,
+  queryPrivacyRequests,
+  queryWebsiteSnapshots,
+} from './postgres-admin-controls.js';
 
 const reference = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/);
 const date = z.date().refine((value) => Number.isFinite(value.getTime()));
@@ -96,6 +134,8 @@ export interface AdminDashboardOptions {
   readonly listLimit?: number;
   readonly manifestRuntime?: { readonly apiKey?: string; readonly baseUrl: string };
   readonly now?: () => Date;
+  readonly privacyKeyring?: PrivacyHmacKeyring;
+  readonly websiteFetch?: ManifestFetch;
 }
 
 export class PostgresAdminDashboard implements AdminDashboardPort {
@@ -461,6 +501,497 @@ export class PostgresAdminDashboard implements AdminDashboardPort {
       }));
     });
   }
+  public async dismissQuestion(
+    input: {
+      readonly dismissedAt: Date;
+      readonly questionRef: string;
+      readonly reasonCode: string;
+      readonly requestKey: string;
+    },
+    actor: AdminActor,
+  ): Promise<void> {
+    const learningPolicy = this.options.learningPolicy;
+    if (learningPolicy === undefined) throw new Error('Owner question service is not configured');
+    await this.withActor(actor, ['knowledge_editor'], async (client, principal) => {
+      await new PostgresLearningService(
+        { transactionClient: client },
+        { now: this.#now, policy: learningPolicy },
+      ).dismissOwnerQuestion(input, principal);
+    });
+  }
+
+  public async triggerInsightAggregation(
+    input: {
+      readonly requestKey: string;
+      readonly runRef: string;
+      readonly windowEndedAt: Date;
+      readonly windowStartedAt: Date;
+    },
+    actor: AdminActor,
+  ): Promise<{
+    readonly entryCount: number;
+    readonly runRef: string;
+    readonly status: 'created' | 'duplicate';
+  }> {
+    const learningPolicy = this.options.learningPolicy;
+    if (learningPolicy === undefined) throw new Error('Learning service is not configured');
+    return this.withActor(
+      actor,
+      ['knowledge_editor', 'support_reviewer'],
+      async (client, principal) => {
+        const result = await new PostgresLearningService(
+          { transactionClient: client },
+          { now: this.#now, policy: learningPolicy },
+        ).aggregateInsights(input);
+        if (result.status !== 'duplicate') {
+          await insertAdminAuditEvent(client, {
+            action: 'customer_insights_aggregated',
+            objectType: 'insight_run',
+            objectRef: result.runRef,
+            reasonCode: 'reviewed_insight_run',
+            requestKey: input.requestKey,
+            effectiveAt: input.windowEndedAt,
+            reviewerRef: principal.reviewerRef,
+          });
+        }
+        return result;
+      },
+    );
+  }
+
+  public async triggerQuestionDigest(
+    input: {
+      readonly digestRef: string;
+      readonly effectiveAt: Date;
+      readonly requestKey: string;
+    },
+    actor: AdminActor,
+  ): Promise<{ readonly status: 'created' | 'duplicate' | 'empty' | 'not_due' }> {
+    const learningPolicy = this.options.learningPolicy;
+    if (learningPolicy === undefined) throw new Error('Learning service is not configured');
+    return this.withActor(
+      actor,
+      ['knowledge_editor', 'support_reviewer'],
+      async (client, principal) => {
+        const result = await new PostgresLearningService(
+          { transactionClient: client },
+          { now: this.#now, policy: learningPolicy },
+        ).openQuestionDigest({ digestRef: input.digestRef, requestKey: input.requestKey });
+        if (result.status === 'created') {
+          await insertAdminAuditEvent(client, {
+            action: 'question_digest_generated',
+            objectType: 'question_digest',
+            objectRef: result.digestRef,
+            reasonCode: 'reviewed_digest_generated',
+            requestKey: input.requestKey,
+            effectiveAt: input.effectiveAt,
+            reviewerRef: principal.reviewerRef,
+          });
+        }
+        return { status: result.status };
+      },
+    );
+  }
+
+  public listAccounts(): Promise<readonly AdminAccountSummary[]> {
+    return this.identity.listAccounts(this.#listLimit);
+  }
+
+  public async createStaffAccount(
+    input: {
+      readonly accountRef: string;
+      readonly loginName: string;
+      readonly password: string;
+      readonly roles: readonly AdminRole[];
+      readonly requestKey: string;
+      readonly createdAt: Date;
+    },
+    actor: AdminActor,
+  ): Promise<AdminStaffCreateResult> {
+    await this.withActor(actor, ['administrator'], async () => Promise.resolve());
+    const roles = [...new Set(input.roles)];
+    if (roles.length === 0) throw new TypeError('At least one staff role is required');
+    const seedBytes = this.identity.randomBytes(20);
+    const seed = new AdminSecretBytes(seedBytes);
+    const password = new AdminSecretText(input.password);
+    try {
+      const created = await this.identity.createAccount(
+        {
+          accountRef: input.accountRef,
+          loginName: input.loginName,
+          password,
+          mfaSeed: seed,
+          createdAt: input.createdAt,
+          requestKey: input.requestKey,
+        },
+        { kind: 'administrator', actorAccountRef: actor.accountRef },
+      );
+      for (const role of roles) {
+        await this.identity.assignRole(
+          {
+            targetAccountRef: input.accountRef,
+            role,
+            effectiveAt: input.createdAt,
+            requestKey: `${input.requestKey}:role:${role}`,
+          },
+          { kind: 'administrator', actorAccountRef: actor.accountRef },
+        );
+      }
+      return {
+        accountRef: created.accountRef,
+        loginName: input.loginName.normalize('NFKC').trim().toLowerCase(),
+        roles,
+        base32Secret: encodeBase32(seed),
+        provisioningUri: buildTotpProvisioningUri({
+          issuer: 'FCD Support Admin',
+          loginName: input.loginName.normalize('NFKC').trim().toLowerCase(),
+          seed,
+          policy: this.identity.totpPolicy,
+        }),
+        status: created.status,
+      };
+    } finally {
+      seedBytes.fill(0);
+    }
+  }
+
+  public async assignStaffRole(
+    input: {
+      readonly targetAccountRef: string;
+      readonly role: AdminRole;
+      readonly effectiveAt: Date;
+      readonly requestKey: string;
+    },
+    actor: AdminActor,
+  ): Promise<void> {
+    await this.identity.assignRole(input, {
+      kind: 'administrator',
+      actorAccountRef: actor.accountRef,
+    });
+  }
+
+  public async revokeStaffRole(
+    input: {
+      readonly targetAccountRef: string;
+      readonly role: AdminRole;
+      readonly effectiveAt: Date;
+      readonly requestKey: string;
+    },
+    actor: AdminActor,
+  ): Promise<void> {
+    await this.identity.revokeRole(input, {
+      kind: 'administrator',
+      actorAccountRef: actor.accountRef,
+    });
+  }
+
+  public async revokeStaffSessions(
+    input: { readonly targetAccountRef: string },
+    actor: AdminActor,
+  ): Promise<void> {
+    await this.identity.revokeAllSessions(input, {
+      kind: 'administrator',
+      actorAccountRef: actor.accountRef,
+    });
+  }
+
+  public async disableStaffAccount(
+    input: { readonly targetAccountRef: string; readonly requestKey: string },
+    actor: AdminActor,
+  ): Promise<void> {
+    await this.identity.disableAccount(input, {
+      kind: 'administrator',
+      actorAccountRef: actor.accountRef,
+    });
+  }
+
+  public async listPauseStates(): Promise<readonly AdminPauseStateSummary[]> {
+    return withBoundedTransaction(this.pool, (client) => queryPauseStates(client, this.#listLimit));
+  }
+
+  public async pauseConversation(
+    input: {
+      readonly conversationId: string;
+      readonly effectiveAt: Date;
+      readonly requestKey: string;
+    },
+    actor: AdminActor,
+  ): Promise<void> {
+    await this.withActor(actor, ['support_reviewer'], async (client, principal) => {
+      await executeAdminPauseAction(client, principal, { action: 'pause', ...input });
+    });
+  }
+
+  public async resumeConversation(
+    input: {
+      readonly conversationId: string;
+      readonly effectiveAt: Date;
+      readonly requestKey: string;
+    },
+    actor: AdminActor,
+  ): Promise<void> {
+    await this.withActor(actor, ['support_reviewer'], async (client, principal) => {
+      await executeAdminPauseAction(client, principal, { action: 'resume', ...input });
+    });
+  }
+
+  public async listPrivacyRequests(): Promise<readonly AdminPrivacyRequestSummary[]> {
+    return withBoundedTransaction(this.pool, (client) =>
+      queryPrivacyRequests(client, this.#listLimit),
+    );
+  }
+
+  public async listPrivacyLocations(
+    requestRef?: string,
+  ): Promise<readonly AdminPrivacyLocationSummary[]> {
+    return withBoundedTransaction(this.pool, (client) => queryPrivacyLocations(client, requestRef));
+  }
+
+  public async reviewDeletionRequest(
+    input: {
+      readonly decidedAt: Date;
+      readonly decision: 'approve' | 'reject';
+      readonly reasonCode: 'customer_confirmed' | 'identity_ambiguous' | 'request_withdrawn';
+      readonly requestKey: string;
+      readonly requestRef: string;
+      readonly verificationMethod: 'explicit_confirmation' | 'known_name';
+    },
+    actor: AdminActor,
+  ): Promise<void> {
+    await this.withActor(actor, ['support_reviewer'], async (client, principal) => {
+      await executeDeletionReview(client, principal, input);
+    });
+  }
+
+  public async executeDeletionRequest(
+    input: { readonly executedAt: Date; readonly requestKey: string; readonly requestRef: string },
+    actor: AdminActor,
+  ): Promise<void> {
+    await this.withActor(actor, ['support_reviewer'], async (client, principal) => {
+      await executeDeletionErasure(client, principal, this.options.privacyKeyring, input);
+    });
+  }
+
+  public async reviewPrivacyRequest(
+    input: {
+      readonly decidedAt: Date;
+      readonly decision: 'approve' | 'reject';
+      readonly reasonCode: 'identity_verified' | 'identity_ambiguous' | 'request_withdrawn';
+      readonly requestKey: string;
+      readonly requestRef: string;
+    },
+    actor: AdminActor,
+  ): Promise<void> {
+    await this.withActor(actor, ['support_reviewer'], async (client, principal) => {
+      await executePrivacyReview(client, principal, input);
+    });
+  }
+
+  public async collectPrivacyAccessExport(
+    input: { readonly collectedAt: Date; readonly requestKey: string; readonly requestRef: string },
+    actor: AdminActor,
+  ): Promise<AdminPrivacyAccessBundle> {
+    return this.withActor(actor, ['support_reviewer'], async (client, principal) =>
+      executePrivacyAccessCollection(client, principal, input),
+    );
+  }
+
+  public async executePrivacyCorrection(
+    input: {
+      readonly executedAt: Date;
+      readonly fieldKey: string;
+      readonly newValue: string;
+      readonly requestKey: string;
+      readonly requestRef: string;
+    },
+    actor: AdminActor,
+  ): Promise<void> {
+    await this.withActor(actor, ['support_reviewer'], async (client, principal) => {
+      await executePrivacyCorrection(client, principal, input);
+    });
+  }
+
+  public async attestPrivacyLocation(
+    input: {
+      readonly checkedAt: Date;
+      readonly locationCode: string;
+      readonly outcomeCode: 'location_complete' | 'location_failed' | 'location_not_applicable';
+      readonly requestKey: string;
+      readonly requestRef: string;
+      readonly state: 'completed' | 'failed' | 'not_applicable';
+    },
+    actor: AdminActor,
+  ): Promise<void> {
+    await this.withActor(actor, ['support_reviewer'], async (client, principal) => {
+      await executePrivacyLocationAttestation(client, principal, input);
+    });
+  }
+
+  public async listConsentIdentities(): Promise<readonly AdminConsentIdentitySummary[]> {
+    return withBoundedTransaction(this.pool, (client) =>
+      queryConsentIdentities(client, this.#listLimit),
+    );
+  }
+
+  public async recordReviewerConsent(
+    input: {
+      readonly action: 'grant' | 'revoke';
+      readonly category: string;
+      readonly channelIdentityId: string;
+      readonly requestKey: string;
+      readonly sourceAt: Date;
+      readonly wording: string;
+      readonly wordingVersion: string;
+    },
+    actor: AdminActor,
+  ): Promise<void> {
+    await this.withActor(actor, ['support_reviewer'], async (client, principal) => {
+      await executeReviewerConsent(client, principal, input);
+    });
+  }
+
+  public async recordMarketingReoptIn(
+    input: {
+      readonly categories: readonly string[];
+      readonly channelIdentityId: string;
+      readonly effectiveAt: Date;
+      readonly requestKey: string;
+      readonly verificationMethod: 'known_name' | 'same_channel_context';
+      readonly wording: string;
+      readonly wordingVersion: string;
+    },
+    actor: AdminActor,
+  ): Promise<void> {
+    await this.withActor(actor, ['support_reviewer'], async (client, principal) => {
+      await executeMarketingReoptIn(client, principal, this.options.privacyKeyring, input);
+    });
+  }
+
+  public async listOutboundPolicies(): Promise<readonly AdminOutboundPolicySummary[]> {
+    return withBoundedTransaction(this.pool, (client) =>
+      queryOutboundPolicies(client, this.#listLimit),
+    );
+  }
+
+  public async createOutboundPolicy(
+    input: {
+      readonly createdAt: Date;
+      readonly policyRef: string;
+      readonly requestKey: string;
+      readonly values: unknown;
+    },
+    actor: AdminActor,
+  ): Promise<void> {
+    await this.withActor(actor, ['administrator'], async (client, principal) => {
+      await executeOutboundPolicyMutation(client, principal, { kind: 'create', ...input });
+    });
+  }
+
+  public async transitionOutboundPolicy(
+    input: {
+      readonly action: 'activate' | 'approve' | 'retire' | 'submit';
+      readonly effectiveAt: Date;
+      readonly policyRef: string;
+      readonly requestKey: string;
+    },
+    actor: AdminActor,
+  ): Promise<void> {
+    await this.withActor(actor, ['administrator'], async (client, principal) => {
+      await executeOutboundPolicyMutation(client, principal, { kind: 'transition', ...input });
+    });
+  }
+
+  public async listOutboundTemplates(): Promise<readonly AdminOutboundTemplateSummary[]> {
+    return withBoundedTransaction(this.pool, (client) =>
+      queryOutboundTemplates(client, this.#listLimit),
+    );
+  }
+
+  public async createOutboundTemplate(
+    input: {
+      readonly category: AdminOutboundTemplateSummary['category'];
+      readonly channelAccountId: string;
+      readonly createdAt: Date;
+      readonly locale: 'bn_BD' | 'en_US';
+      readonly providerTemplateId: string;
+      readonly requestKey: string;
+      readonly templateName: string;
+      readonly templateRef: string;
+      readonly templateText: string;
+    },
+    actor: AdminActor,
+  ): Promise<void> {
+    await this.withActor(actor, ['administrator'], async (client, principal) => {
+      await executeOutboundTemplateMutation(client, principal, { kind: 'create', ...input });
+    });
+  }
+
+  public async transitionOutboundTemplate(
+    input: {
+      readonly action: 'activate' | 'approve' | 'retire' | 'submit';
+      readonly effectiveAt: Date;
+      readonly requestKey: string;
+      readonly templateRef: string;
+      readonly versionNumber: number;
+    },
+    actor: AdminActor,
+  ): Promise<void> {
+    await this.withActor(actor, ['administrator'], async (client, principal) => {
+      await executeOutboundTemplateMutation(client, principal, { kind: 'transition', ...input });
+    });
+  }
+
+  public async listWebsiteSnapshots(): Promise<readonly AdminWebsiteSnapshotSummary[]> {
+    return withBoundedTransaction(this.pool, (client) =>
+      queryWebsiteSnapshots(client, this.#listLimit),
+    );
+  }
+
+  public async importWebsiteSource(
+    input: {
+      readonly fetchedAt: Date;
+      readonly label?: string;
+      readonly pastedHtmlOrText?: string;
+      readonly requestKey: string;
+      readonly url: string;
+      readonly optionalDraft?: {
+        readonly versionRef: string;
+        readonly itemKey: string;
+        readonly kind: 'business_fact' | 'faq';
+        readonly questionEn: string;
+        readonly questionBn: string;
+        readonly answerEn: string;
+        readonly answerBn: string;
+      };
+    },
+    actor: AdminActor,
+  ): Promise<{ readonly sourceRef: string; readonly snapshotRef: string }> {
+    const authorized = await this.withActor(actor, ['knowledge_editor'], (_client, principal) =>
+      Promise.resolve(principal),
+    );
+    const extracted = await fetchOrParseWebsiteImport({
+      url: input.url,
+      ...(input.pastedHtmlOrText === undefined ? {} : { pastedHtmlOrText: input.pastedHtmlOrText }),
+      ...(this.options.websiteFetch === undefined
+        ? {}
+        : { websiteFetch: this.options.websiteFetch }),
+    });
+    return this.withActor(actor, ['knowledge_editor'], async (client) => {
+      if (authorized.reviewerRef === '') throw new Error('Actor missing');
+      const trimmedLabel = input.label?.trim();
+      return persistWebsiteImportDraft(client, authorized, {
+        fetchedAt: input.fetchedAt,
+        requestKey: input.requestKey,
+        label: trimmedLabel !== undefined && trimmedLabel !== '' ? trimmedLabel : extracted.title,
+        normalizedUrl: extracted.normalizedUrl,
+        plainText: extracted.plainText,
+        sourceSha256: extracted.sourceSha256,
+        contentSha256: extracted.contentSha256,
+        ...(input.optionalDraft === undefined ? {} : { optionalDraft: input.optionalDraft }),
+      });
+    });
+  }
+
   public listModelPolicies(): Promise<readonly AdminPolicySummary[]> {
     return new PostgresModelPolicy(this.pool).listPolicies(this.#listLimit);
   }

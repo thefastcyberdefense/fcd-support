@@ -107,11 +107,11 @@ test('the nonsuperuser migrator validates its actual database identity without o
   expect(
     await runForwardMigrations(poolFor('migrator'), {
       schema: database.schema,
-      expectedSchemaRevision: '000017',
+      expectedSchemaRevision: '000018',
       timeoutMilliseconds: 10000,
       expectedDatabaseIdentity: { systemIdentifier: id, databaseName: 'fcd_support_test' },
     }),
-  ).toEqual({ schemaRevision: '000017' });
+  ).toEqual({ schemaRevision: '000018' });
 });
 
 test.each(runtimeDatabaseRoles)('%s cannot mint or mutate restore bindings', async (role) => {
@@ -222,7 +222,7 @@ test('backup is read-only for business data with only its required content-free 
     class: 'daily',
     createdAt: at,
     gitRevision: 'a'.repeat(40),
-    schemaRevision: '000017',
+    schemaRevision: '000018',
     ciphertextBytes: 100,
     ciphertextSha256: 'b'.repeat(64),
     state: 'created',
@@ -727,7 +727,7 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
         signingKey: new AdminSecretBytes(Buffer.from('synthetic_grants_manifest_key_'.repeat(2))),
         archiveDirectory: archive,
         sourceRevision: 'a'.repeat(40),
-        schemaRevision: '000017',
+        schemaRevision: '000018',
         now: at,
         timeoutMilliseconds: 10000,
         maximumRows: 100,
@@ -749,7 +749,7 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
         archiveDirectory: archive,
         temporaryDirectory: root,
         gitRevision: 'a'.repeat(40),
-        schemaRevision: '000017',
+        schemaRevision: '000018',
         backupClass: 'pre_migration',
         now: at,
         timeoutMilliseconds: 10000,
@@ -790,7 +790,7 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
             NODE_ENV: 'production',
             DATABASE_URL_FILE: databaseFile,
             OPS_GIT_REVISION: 'a'.repeat(40),
-            OPS_SCHEMA_REVISION: '000018',
+            OPS_SCHEMA_REVISION: '000019',
             OPS_DATABASE_SYSTEM_IDENTIFIER: actualSource.id,
             OPS_DATABASE_NAME: actualSource.name,
             BACKUP_ENCRYPTION_RECIPIENT_FILE: recipient,
@@ -819,7 +819,7 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
         await readFile(join(archive, output.trim(), 'manifest.json'), 'utf8'),
       ) as { schemaRevision: string };
       // The target setting must not rewrite the source archive's actual version.
-      expect(material.schemaRevision).toBe('000017');
+      expect(material.schemaRevision).toBe('000018');
     } finally {
       await rm(archive, { recursive: true, force: true });
     }
@@ -847,4 +847,45 @@ test('webhook, health, and maintenance cannot read encrypted gateway secrets whi
   await expect(
     poolFor('admin').query('select gateway_ref from model_gateway_profiles where false'),
   ).resolves.toMatchObject({ rows: [] });
+});
+
+test('admin receives least-privilege views and SECURITY DEFINER control functions while other runtime roles are denied', async () => {
+  for (const viewName of [
+    'admin_pause_states_v',
+    'admin_privacy_requests_v',
+    'admin_privacy_locations_v',
+    'admin_consent_identities_v',
+  ]) {
+    await expect(
+      poolFor('admin').query(`select * from ${viewName} limit 0`),
+    ).resolves.toMatchObject({ rows: [] });
+    for (const deniedRole of [
+      'webhook',
+      'reply',
+      'outbound',
+      'notification',
+      'health',
+      'archive_reader',
+    ] as const) {
+      await expect(
+        poolFor(deniedRole).query(`select * from ${viewName} limit 0`),
+      ).rejects.toMatchObject({ code: '42501' });
+    }
+  }
+  const fnProbeSql = `select admin_load_deletion_target_data('PRIVACY_NONEXISTENT')`;
+  await expect(poolFor('admin').query(fnProbeSql)).rejects.toMatchObject({ code: 'P0002' });
+  for (const deniedRole of [
+    'webhook',
+    'reply',
+    'outbound',
+    'notification',
+    'health',
+    'maintenance',
+    'checkpoint',
+    'backup',
+    'verify_backup',
+    'archive_reader',
+  ] as const) {
+    await expect(poolFor(deniedRole).query(fnProbeSql)).rejects.toMatchObject({ code: '42501' });
+  }
 });

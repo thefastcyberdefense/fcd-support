@@ -9,7 +9,7 @@ function table(caption: string, headings: readonly string[], rows: readonly stri
   return `<section class="panel operations-table"><table class="table"><caption>${escape(caption)}</caption><thead><tr>${headings.map((heading) => `<th scope="col">${escape(heading)}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></section>`;
 }
 function cell(label: string, value: string): string {
-  return `<td><span class="subtle">${escape(label)}</span>${value}</td>`;
+  return `<td data-label="${escape(label)}"><span class="subtle">${escape(label)}</span>${value}</td>`;
 }
 export function renderOperationsPage(input: {
   readonly view: OperationsView;

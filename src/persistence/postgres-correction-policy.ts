@@ -1,4 +1,5 @@
 import type pg from 'pg';
+import { z } from 'zod';
 
 import { parseExecuteCorrectionInput } from '../policy/privacy-rights-command.js';
 import type { CorrectionExecutionResult, CorrectionResultCode } from '../policy/policy-types.js';
@@ -81,6 +82,33 @@ const providerOwnedSegments = new Set([
 export const PRODUCTION_CORRECTION_HANDLERS = Object.freeze(
   [] as readonly CorrectionHandler<string, unknown>[],
 );
+
+const preferredLanguageCommandSchema = z.strictObject({
+  value: z.enum(['en', 'bn']),
+});
+
+export const preferredLanguageCorrectionHandler: CorrectionHandler<
+  'preferred_language',
+  { readonly value: 'bn' | 'en' }
+> = {
+  fieldKey: 'preferred_language',
+  parse(input: unknown) {
+    return preferredLanguageCommandSchema.parse(input);
+  },
+  async apply(context: CorrectionContext, command: { readonly value: 'bn' | 'en' }) {
+    await context.client.query(
+      `update contacts
+       set preferred_language = $2, updated_at = now()
+       where id = $1`,
+      [context.contactId, command.value],
+    );
+    return { resultCode: 'applied' as const };
+  },
+};
+
+export const ADMIN_CORRECTION_HANDLERS = Object.freeze([
+  preferredLanguageCorrectionHandler as CorrectionHandler<string, unknown>,
+]);
 
 export class CorrectionHandlerExecutionError extends Error {
   public override readonly name = 'CorrectionHandlerExecutionError';

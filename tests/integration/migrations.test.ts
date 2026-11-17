@@ -162,7 +162,7 @@ describe('Phase 2 database migrations', () => {
       { table_name: 'knowledge_tags' },
       { table_name: 'knowledge_versions' },
     ]);
-    expect(migrations.rows[0]?.count).toBe(17);
+    expect(migrations.rows[0]?.count).toBe(18);
     expect(trigramExtension.rows).toEqual([{ installed: true }]);
     expect(aliasIndexes.rows.map(({ indexname }) => indexname)).toEqual(
       expect.arrayContaining([
@@ -222,7 +222,7 @@ describe('Phase 2 database migrations', () => {
       'support_reply_draft_knowledge',
       'support_reply_drafts',
     ]);
-    expect(migrations.rows[0]?.count).toBe(17);
+    expect(migrations.rows[0]?.count).toBe(18);
   });
 
   test('create customizable model policy, usage, and lease schema as migration eleven', async () => {
@@ -283,7 +283,7 @@ describe('Phase 2 database migrations', () => {
     expect(policyColumns.rows).toHaveLength(13);
     expect(policyColumns.rows.every(({ column_default }) => column_default === null)).toBe(true);
     expect(prohibitedColumns.rows).toEqual([]);
-    expect(migrations.rows[0]?.count).toBe(17);
+    expect(migrations.rows[0]?.count).toBe(18);
   });
 
   test('create the closed outbound messaging schema as migration twelve', async () => {
@@ -355,7 +355,7 @@ describe('Phase 2 database migrations', () => {
     expect(policyColumns.rows).toHaveLength(12);
     expect(policyColumns.rows.every(({ column_default }) => column_default === null)).toBe(true);
     expect(prohibitedColumns.rows).toEqual([]);
-    expect(migrations.rows[0]?.count).toBe(17);
+    expect(migrations.rows[0]?.count).toBe(18);
   });
 
   test('enforce outbound source, state, correlation, and append-only evidence constraints', async () => {
@@ -723,7 +723,7 @@ describe('Phase 2 database migrations', () => {
     expect((rollbackError as Error & { code?: string }).code).toBe('55000');
     await expect(
       pool.query(`select count(*)::int as count from pgmigrations`),
-    ).resolves.toMatchObject({ rows: [{ count: 17 }] });
+    ).resolves.toMatchObject({ rows: [{ count: 18 }] });
 
     await pool.query(`truncate table outbound_policy_versions restart identity cascade`);
     await migrateDownThrough(12);
@@ -901,7 +901,7 @@ describe('Phase 2 database migrations', () => {
     expect((rollbackError as Error & { code?: string }).code).toBe('55000');
     await expect(
       pool.query(`select count(*)::int as count from pgmigrations`),
-    ).resolves.toMatchObject({ rows: [{ count: 17 }] });
+    ).resolves.toMatchObject({ rows: [{ count: 18 }] });
 
     await pool.query(`truncate table model_policy_versions restart identity cascade`);
     await migrateDownThrough(11);
@@ -976,6 +976,64 @@ describe('Phase 2 database migrations', () => {
     await expect(
       pool.query(`select to_regclass('model_gateway_profiles') as table_name`),
     ).resolves.not.toMatchObject({ rows: [{ table_name: null }] });
+  });
+
+  test('enforces Track 2B manual pause authority, views, functions, and rollback protection in migration 18', async () => {
+    const conversationId = await createSyntheticConversation('mig18_manual_pause');
+    const badPause = await captureRolledBackMutation(
+      `insert into human_pause_events
+         (conversation_id, action, effective_at, resulting_pause_until,
+          actor_kind, reviewer_reference, reviewer_request_key)
+       values ($1, 'pause', '2030-04-02T00:00:00Z', '2030-04-02T12:00:00Z',
+               'reviewer', 'ADMIN_TEST_mig18', 'REQ_TEST_bad_pause_18')`,
+      [conversationId],
+    );
+    expect(badPause).toMatchObject({ code: '23514' });
+
+    await pool.query(
+      `select admin_pause_conversation($1, '2030-04-02T00:00:00Z', 'ADMIN_TEST_mig18', 'REQ_TEST_pause_18')`,
+      [conversationId],
+    );
+    const paused = await pool.query<{ readonly ai_paused_until: Date | null }>(
+      `select ai_paused_until from admin_pause_states_v where conversation_id = $1`,
+      [conversationId],
+    );
+    expect(paused.rows[0]?.ai_paused_until?.toISOString()).toBe('2030-04-03T00:00:00.000Z');
+
+    const views = await pool.query<{ readonly table_name: string }>(
+      `select table_name from information_schema.views
+       where table_schema = $1 and table_name in (
+         'admin_pause_states_v', 'admin_privacy_requests_v',
+         'admin_privacy_locations_v', 'admin_consent_identities_v'
+       ) order by table_name`,
+      [schema],
+    );
+    expect(views.rows).toEqual([
+      { table_name: 'admin_consent_identities_v' },
+      { table_name: 'admin_pause_states_v' },
+      { table_name: 'admin_privacy_locations_v' },
+      { table_name: 'admin_privacy_requests_v' },
+    ]);
+
+    let blocked: unknown;
+    try {
+      await migrateDownThrough(18);
+    } catch (error: unknown) {
+      blocked = error;
+    }
+    expect(blocked).toMatchObject({ code: '55000' });
+
+    await pool.query(
+      `truncate table human_pause_events, policy_audit_outcomes, conversations, channel_identities, contacts restart identity cascade`,
+    );
+    await migrateDownThrough(18);
+    await expect(
+      pool.query(`select to_regclass('admin_pause_states_v') as view_name`),
+    ).resolves.toMatchObject({ rows: [{ view_name: null }] });
+    await runMigrations('up');
+    await expect(
+      pool.query(`select to_regclass('admin_pause_states_v') as view_name`),
+    ).resolves.not.toMatchObject({ rows: [{ view_name: null }] });
   });
 
   test('exclude plaintext admin credentials and enforce closed append-only evidence', async () => {
@@ -1105,7 +1163,7 @@ describe('Phase 2 database migrations', () => {
     expect((rollbackError as Error & { code?: string }).code).toBe('55000');
     await expect(
       pool.query(`select count(*)::int as count from pgmigrations`),
-    ).resolves.toMatchObject({ rows: [{ count: 17 }] });
+    ).resolves.toMatchObject({ rows: [{ count: 18 }] });
 
     await pool.query(`truncate table admin_accounts restart identity cascade`);
     await migrateDownThrough(10);
@@ -1252,7 +1310,7 @@ describe('Phase 2 database migrations', () => {
     expect((rollbackError as Error & { code?: string }).code).toBe('55000');
     await expect(
       pool.query(`select count(*)::int as count from pgmigrations`),
-    ).resolves.toMatchObject({ rows: [{ count: 17 }] });
+    ).resolves.toMatchObject({ rows: [{ count: 18 }] });
 
     await pool.query(`truncate table knowledge_sources restart identity cascade`);
     await migrateDownThrough(9);
@@ -1292,7 +1350,7 @@ describe('Phase 2 database migrations', () => {
       { table_name: 'privacy_suppressions' },
       { table_name: 'restore_deletion_gates' },
     ]);
-    expect(migrations.rows[0]?.count).toBe(17);
+    expect(migrations.rows[0]?.count).toBe(18);
   });
 
   test('create the bounded privacy rights workflow tables as migration five', async () => {
@@ -2769,7 +2827,7 @@ describe('Phase 2 database migrations', () => {
     expect((rollbackError as Error & { code?: string }).code).toBe('55000');
     await expect(
       pool.query(`select count(*)::int as count from pgmigrations`),
-    ).resolves.toMatchObject({ rows: [{ count: 17 }] });
+    ).resolves.toMatchObject({ rows: [{ count: 18 }] });
 
     await pool.query(`
       truncate table

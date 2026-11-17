@@ -111,6 +111,15 @@ export interface ResolvedAdminSession {
   readonly roles: readonly AdminRole[];
 }
 
+export interface AdminAccountSummary {
+  readonly accountRef: string;
+  readonly loginName: string;
+  readonly state: 'active' | 'revoked';
+  readonly roles: readonly AdminRole[];
+  readonly activeSessionCount: number;
+  readonly createdAt: Date;
+}
+
 export class AdminIdentityConflictError extends Error {
   public override readonly name = 'AdminIdentityConflictError';
 }
@@ -849,6 +858,150 @@ export class PostgresAdminIdentity {
     }
   }
 
+  public get totpPolicy(): TotpPolicy {
+    return this.options.totpPolicy;
+  }
+
+  public randomBytes(size: number): Buffer {
+    return this.#randomSource(size);
+  }
+
+  public async listAccounts(limit = 100): Promise<readonly AdminAccountSummary[]> {
+    const bound = Number.isSafeInteger(limit) && limit >= 1 && limit <= 500 ? limit : 100;
+    const at = this.trustedNow();
+    return withBoundedTransaction(this.pool, async (client) => {
+      const selected = await client.query<{
+        readonly account_ref: string;
+        readonly login_name: string;
+        readonly state: 'active' | 'revoked';
+        readonly roles: readonly AdminRole[] | null;
+        readonly active_session_count: number;
+        readonly created_at: Date;
+      }>(
+        `select account.account_ref,
+                account.login_name,
+                account.state,
+                account.created_at,
+                coalesce((
+                  select array_agg(current.role order by current.role)
+                  from (
+                    select distinct on (role) role, action
+                    from admin_role_assignments
+                    where account_id = account.id and effective_at <= $1
+                    order by role, effective_at desc, id desc
+                  ) as current
+                  where current.action = 'assign'
+                ), array[]::text[]) as roles,
+                (
+                  select count(*)::int
+                  from admin_sessions as s
+                  where s.account_id = account.id
+                    and s.state = 'active'
+                    and s.expires_at > $1
+                ) as active_session_count
+         from admin_accounts as account
+         order by account.created_at desc, account.id desc
+         limit $2`,
+        [at, bound],
+      );
+      return selected.rows.map((row) => ({
+        accountRef: row.account_ref,
+        loginName: row.login_name,
+        state: row.state,
+        roles: row.roles ?? [],
+        activeSessionCount: row.active_session_count,
+        createdAt: row.created_at,
+      }));
+    });
+  }
+
+  public async disableAccount(
+    input: unknown,
+    authority: AdminAccountCreationAuthority,
+  ): Promise<{ readonly accountRef: string; readonly status: 'applied' | 'duplicate' }> {
+    const at = this.trustedNow();
+    const command = revokeAllSchema.extend({ requestKey: requestKeySchema }).parse(input);
+    if (authority.kind !== 'administrator') {
+      throw new AdminIdentityNotAuthorizedError('Admin action is not authorized');
+    }
+    const actorAccountRef = authorityAccountRef(authority);
+    if (actorAccountRef === undefined) {
+      throw new AdminIdentityNotAuthorizedError('Admin action is not authorized');
+    }
+    if (actorAccountRef === command.targetAccountRef) {
+      throw new AdminIdentityConflictError('An administrator cannot disable their own account');
+    }
+    return withBoundedTransaction(this.pool, async (client) => {
+      await client.query(`select pg_advisory_xact_lock(hashtextextended($1::text, 0::bigint))`, [
+        command.requestKey,
+      ]);
+      const actorId = await this.requireAdministrator(client, actorAccountRef, at);
+      const existing = await client.query<{ readonly object_ref: string }>(
+        `select object_ref
+         from admin_audit_events
+         where request_key = $1 and action = 'account_disabled'`,
+        [command.requestKey],
+      );
+      if (existing.rows[0] !== undefined) {
+        if (existing.rows[0].object_ref !== command.targetAccountRef) {
+          throw new AdminIdentityConflictError('Admin account disable request conflicts');
+        }
+        return { accountRef: command.targetAccountRef, status: 'duplicate' };
+      }
+
+      const selected = await client.query<AccountIdentityRow>(
+        `select id, account_ref, state
+         from admin_accounts
+         where account_ref = $1
+         for update`,
+        [command.targetAccountRef],
+      );
+      const target = selected.rows[0];
+      if (target === undefined) {
+        throw new AdminIdentityNotFoundError('Admin account was not found');
+      }
+      if (target.state === 'revoked') {
+        return { accountRef: target.account_ref, status: 'duplicate' };
+      }
+      const targetRoles = await this.currentRoles(client, target.id, at);
+      if (targetRoles.includes('administrator')) {
+        const adminCount = await this.countActiveAdministrators(client, at);
+        if (adminCount <= 1) {
+          throw new AdminIdentityConflictError('The final active administrator cannot be disabled');
+        }
+      }
+      await client.query(
+        `update admin_accounts
+         set state = 'revoked', revoked_at = $2, updated_at = $2, row_version = row_version + 1
+         where id = $1`,
+        [target.id, at],
+      );
+      await client.query(
+        `update admin_mfa_credentials
+         set revoked_at = $2, updated_at = $2
+         where account_id = $1 and revoked_at is null`,
+        [target.id, at],
+      );
+      await client.query(
+        `update admin_sessions
+         set state = 'revoked', revoked_at = $2, row_version = row_version + 1
+         where account_id = $1 and state in ('active', 'preauth')`,
+        [target.id, at],
+      );
+      await this.insertAudit(client, {
+        action: 'account_disabled',
+        actorAccountId: actorId,
+        effectiveAt: at,
+        objectRef: target.account_ref,
+        objectType: 'account',
+        reasonCode: 'administrator_disable',
+        requestKey: command.requestKey,
+        result: 'applied',
+      });
+      return { accountRef: target.account_ref, status: 'applied' };
+    });
+  }
+
   public async revokeAllSessions(
     input: unknown,
     authority: AdminAccountCreationAuthority,
@@ -1068,6 +1221,7 @@ export class PostgresAdminIdentity {
     event: {
       readonly action:
         | 'account_created'
+        | 'account_disabled'
         | 'mfa_authentication_failed'
         | 'mfa_authentication_passed'
         | 'password_authentication_failed'
