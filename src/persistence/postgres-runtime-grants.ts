@@ -486,6 +486,7 @@ export async function configureRuntimeGrants(
       'outbound_echo_correlation_holds',
       'outbound_escalation_outcomes',
     ]);
+    await write('reply', ['knowledge_gap_candidates'], 'select,insert');
     await grant('reply', 'update(state,outcome_code,finished_at)', ['outbound_attempts']);
     await grant('admin', 'select', [
       ...groups.knowledge,

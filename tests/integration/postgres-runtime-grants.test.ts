@@ -21,6 +21,9 @@ import { PostgresOutboundWorkStore } from '../../src/persistence/postgres-outbou
 import { PostgresOutboundPolicy } from '../../src/persistence/postgres-outbound-policy.js';
 import { PostgresPrivacyRightsPolicy } from '../../src/persistence/postgres-privacy-rights-policy.js';
 import { PostgresOutboundTemplate } from '../../src/persistence/postgres-outbound-template.js';
+import { PostgresKnowledgePublication } from '../../src/persistence/postgres-knowledge-publication.js';
+import { PostgresKnowledgeRepository } from '../../src/persistence/postgres-knowledge-repository.js';
+import { PostgresLearningService } from '../../src/persistence/postgres-learning-service.js';
 import { PostgresModelPolicy } from '../../src/persistence/postgres-model-policy.js';
 import { PostgresModelGateway } from '../../src/persistence/postgres-model-gateway.js';
 import { PostgresAdminIdentity } from '../../src/persistence/postgres-admin-identity.js';
@@ -1208,5 +1211,164 @@ test('outbound and reply logins complete intent, dispatch locking, status, echo,
   });
   await expect(
     poolFor('reply').query('insert into outbound_attempts default values'),
+  ).rejects.toMatchObject({ code: '42501' });
+
+  // 4. Reply resolves active model/FAQ policy without admin_accounts and records gap observations + candidates.
+  const modelPolicies = new PostgresModelPolicy(database.pool);
+  await modelPolicies.createPolicy(
+    {
+      createdAt: at,
+      createdByAccountRef: reviewer.reviewerRef,
+      policyRef: 'POLICY_MODEL_TEST_grants_workers',
+      requestKey: 'REQUEST_TEST_grants_workers_model_create',
+      values: {
+        approvedProviderAttempts: 1,
+        architectureProviderCeiling: 1,
+        concurrentCalls: 2,
+        cooldownMs: 0,
+        faqAmbiguityMargin: 0.1,
+        faqMinimumSimilarity: 0.8,
+        globalUtcDayCalls: 50,
+        maximumFaqCandidates: 10,
+        outputTokens: 512,
+        perContact15MinuteCalls: 5,
+        perContact24HourCalls: 20,
+        queueCapacity: 4,
+        totalTimeoutMs: 15000,
+      },
+    },
+    reviewer,
+  );
+  for (const [index, action] of ['submit', 'approve', 'activate'].entries()) {
+    await modelPolicies.transitionPolicy(
+      {
+        action,
+        effectiveAt: new Date(at.getTime() + (index + 1) * 1000),
+        policyRef: 'POLICY_MODEL_TEST_grants_workers',
+        reasonCode: `reviewed_${action}`,
+        requestKey: `REQUEST_TEST_grants_workers_model_${action}`,
+        reviewerAccountRef: reviewer.reviewerRef,
+      },
+      reviewer,
+    );
+  }
+  await expect(new PostgresModelPolicy(poolFor('reply')).resolveFaqPolicy(workAt)).resolves.toEqual(
+    {
+      ambiguityMargin: 0.1,
+      maximumCandidates: 10,
+      minimumSimilarity: 0.8,
+    },
+  );
+  await expect(
+    new PostgresModelPolicy(poolFor('reply')).resolveEffectivePolicy(
+      workAt,
+      {
+        architectureProviderConnections: 1,
+        concurrentCalls: 2,
+        contextItems: 6,
+        cooldownMs: 0,
+        globalUtcDayCalls: 50,
+        inputCodePoints: 4000,
+        outputTokens: 512,
+        perContact15MinuteCalls: 5,
+        perContact24HourCalls: 20,
+        providerAttempts: 1,
+        queueCapacity: 4,
+        responseBytes: 65536,
+        totalTimeoutMs: 15000,
+      },
+      {
+        verified: true,
+        operationalLimits: {
+          concurrentCalls: 2,
+          cooldownMs: 0,
+          globalUtcDayCalls: 50,
+          outputTokens: 512,
+          perContact15MinuteCalls: 5,
+          perContact24HourCalls: 20,
+          providerAttempts: 1,
+          queueCapacity: 4,
+          totalTimeoutMs: 15000,
+        },
+      },
+    ),
+  ).resolves.toMatchObject({ status: 'enabled', policyRef: 'POLICY_MODEL_TEST_grants_workers' });
+
+  const knowledgeRepo = new PostgresKnowledgeRepository(database.pool);
+  await knowledgeRepo.createSource(
+    {
+      sourceRef: 'SOURCE_TEST_grants_workers',
+      sourceType: 'manual_business',
+      label: 'Synthetic grants candidate source',
+      createdByReference: reviewer.reviewerRef,
+      createdAt: at,
+    },
+    reviewer,
+  );
+  await knowledgeRepo.createProposal(
+    {
+      versionRef: 'VERSION_TEST_grants_workers',
+      itemKey: 'faq.synthetic.grants.workers',
+      kind: 'faq',
+      questions: { en: 'Synthetic grant candidate?', bn: 'সিনথেটিক গ্রান্ট ক্যান্ডিডেট?' },
+      answers: { en: 'Synthetic reviewed answer.', bn: 'সিনথেটিক পর্যালোচিত উত্তর।' },
+      aliases: [],
+      tags: [],
+      authorReference: reviewer.reviewerRef,
+      sourceRef: 'SOURCE_TEST_grants_workers',
+      contentSha256: 'a'.repeat(64),
+      sourceSha256: 'b'.repeat(64),
+      createdAt: at,
+      requestKey: 'REQUEST_TEST_grants_workers_faq',
+    },
+    reviewer,
+  );
+  const publication = new PostgresKnowledgePublication(database.pool);
+  for (const [index, [action, reasonCode]] of (
+    [
+      ['submit', 'ready_for_review'],
+      ['approve', 'business_fact_verified'],
+      ['publish', 'manual_publication'],
+    ] as const
+  ).entries()) {
+    const cmd = {
+      action,
+      versionRef: 'VERSION_TEST_grants_workers',
+      reviewerReference: reviewer.reviewerRef,
+      effectiveAt: new Date(at.getTime() + (index + 1) * 1000),
+      reasonCode,
+      requestKey: `REQUEST_TEST_grants_workers_pub_${action}`,
+      ...(action === 'publish' ? { itemKey: 'faq.synthetic.grants.workers' } : {}),
+    };
+    if (action === 'submit') await publication.submitVersion(cmd, reviewer);
+    else if (action === 'approve') await publication.reviewVersion(cmd, reviewer);
+    else await publication.publishVersion(cmd, reviewer);
+  }
+
+  const replyLearning = new PostgresLearningService(poolFor('reply'), {
+    policy: {
+      minimumGroupCount: 3,
+      digestIntervalMilliseconds: 259200000,
+      maximumQuestionsPerDigest: 5,
+      questionCooldownMilliseconds: 604800000,
+      maximumDigestAppearances: 2,
+      maximumObservationsPerRun: 1000,
+    },
+    now: () => workAt,
+  });
+  await expect(
+    replyLearning.recordGapObservation({
+      observationRef: 'OBSERVATION_TEST_grants_workers_1',
+      requestKey: 'REQUEST_TEST_grants_workers_obs_1',
+      webhookEventId: firstSource.eventId,
+      observedAt: new Date(workAt.getTime() - 10_000),
+      retentionDeadline: new Date(workAt.getTime() + 86_400_000),
+      language: 'en',
+      gapKind: 'faq_miss',
+      candidateVersionRefs: ['VERSION_TEST_grants_workers'],
+    }),
+  ).resolves.toMatchObject({ status: 'created' });
+  await expect(
+    poolFor('reply').query('delete from knowledge_gap_candidates where false'),
   ).rejects.toMatchObject({ code: '42501' });
 });

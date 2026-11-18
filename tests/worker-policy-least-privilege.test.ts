@@ -87,6 +87,9 @@ test('worker-side policy, gateway, and template resolvers never query admin_acco
   );
   expect(modelPolicy.status).toBe('disabled');
 
+  const faqPolicy = await new PostgresModelPolicy(pool).resolveFaqPolicy(at);
+  expect(faqPolicy).toBeUndefined();
+
   const gateway = await new PostgresModelGateway(pool).resolveRuntimeGateway();
   expect(gateway.gatewayKind).toBe('manifest_default');
 
@@ -100,6 +103,95 @@ test('worker-side policy, gateway, and template resolvers never query admin_acco
   });
   expect(template.status).toBe('disabled');
 
+  expect(executedSql.some((sql) => /\badmin_accounts\b/iu.test(sql))).toBe(false);
+});
+
+test('resolveFaqPolicy and active resolveEffectivePolicy return active model policy rows without querying admin_accounts', async () => {
+  const at = new Date('2030-03-01T00:00:00.000Z');
+  const executedSql: string[] = [];
+  const activeModelPolicyRow = {
+    id: '1',
+    policy_ref: 'POLICY_MODEL_TEST_1',
+    version_number: 1,
+    request_key: 'REQ_MODEL_TEST_1',
+    state: 'active',
+    per_contact_15_minute_calls: 5,
+    per_contact_24_hour_calls: 20,
+    global_utc_day_calls: 50,
+    concurrent_calls: 2,
+    queue_capacity: 4,
+    total_timeout_ms: 15000,
+    output_tokens: 512,
+    cooldown_ms: 0,
+    faq_minimum_similarity: '0.8',
+    faq_ambiguity_margin: '0.1',
+    maximum_faq_candidates: 10,
+    approved_provider_attempts: 1,
+    architecture_provider_ceiling: 1,
+    created_at: at,
+    submitted_at: at,
+    approved_at: at,
+    activated_at: at,
+    retired_at: null,
+  };
+  const client = {
+    query: (sql: string) => {
+      executedSql.push(sql);
+      if (/\badmin_accounts\b/iu.test(sql)) {
+        return Promise.reject(
+          Object.assign(new Error('permission denied for table admin_accounts'), { code: '42501' }),
+        );
+      }
+      if (/^(begin|commit|rollback)$/iu.test(sql.trim())) return Promise.resolve({ rows: [] });
+      if (sql.includes('from model_policy_versions as policy')) {
+        return Promise.resolve({ rows: [activeModelPolicyRow] });
+      }
+      return Promise.resolve({ rows: [] });
+    },
+    release: () => undefined,
+  };
+  const pool = { connect: () => Promise.resolve(client) } as unknown as pg.Pool;
+
+  const modelPolicies = new PostgresModelPolicy(pool);
+  await expect(modelPolicies.resolveFaqPolicy(at)).resolves.toEqual({
+    ambiguityMargin: 0.1,
+    maximumCandidates: 10,
+    minimumSimilarity: 0.8,
+  });
+  await expect(
+    modelPolicies.resolveEffectivePolicy(
+      at,
+      {
+        architectureProviderConnections: 1,
+        concurrentCalls: 2,
+        contextItems: 6,
+        cooldownMs: 0,
+        globalUtcDayCalls: 50,
+        inputCodePoints: 4000,
+        outputTokens: 512,
+        perContact15MinuteCalls: 5,
+        perContact24HourCalls: 20,
+        providerAttempts: 1,
+        queueCapacity: 4,
+        responseBytes: 65536,
+        totalTimeoutMs: 15000,
+      },
+      {
+        verified: true,
+        operationalLimits: {
+          concurrentCalls: 2,
+          cooldownMs: 0,
+          globalUtcDayCalls: 50,
+          outputTokens: 512,
+          perContact15MinuteCalls: 5,
+          perContact24HourCalls: 20,
+          providerAttempts: 1,
+          queueCapacity: 4,
+          totalTimeoutMs: 15000,
+        },
+      },
+    ),
+  ).resolves.toMatchObject({ status: 'enabled', policyRef: 'POLICY_MODEL_TEST_1' });
   expect(executedSql.some((sql) => /\badmin_accounts\b/iu.test(sql))).toBe(false);
 });
 
