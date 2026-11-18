@@ -35,8 +35,20 @@ describe('content-free db-counts contract (Gap G-3)', () => {
         modelCallLeases: { total: 0, byState: {} },
         outboundIntents: { total: 1, byState: { sent: 1 } },
         outboundAttempts: { total: 1, byState: { provider_accepted: 1 } },
-        privacyRequests: { total: 0, byType: {}, byState: {} },
-        privacySuppressions: { total: 0, byCategory: {} },
+        privacyRequests: {
+          total: 1,
+          byType: { deletion: 1 },
+          byState: { awaiting_confirmation: 1 },
+        },
+        privacySuppressions: {
+          total: 4,
+          byCategory: {
+            'marketing_opt_out:newsletter': 1,
+            'marketing_opt_out:product_offers': 1,
+            'marketing_opt_out:product_updates': 1,
+            'marketing_opt_out:security_updates': 1,
+          },
+        },
         humanPauseEvents: { total: 0, byAction: {}, byActorKind: {} },
         knowledgeVersions: { total: 1, byState: { approved: 1 } },
         knowledgePublicationEvents: { total: 1, byAction: { publish: 1 } },

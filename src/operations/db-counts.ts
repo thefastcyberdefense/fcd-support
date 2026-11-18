@@ -2,7 +2,7 @@ import type pg from 'pg';
 import { z } from 'zod';
 
 const nonNegativeInt = z.number().int().nonnegative();
-const safeEnumKey = z.string().regex(/^[a-z][a-z0-9_]{0,63}$/u);
+const safeEnumKey = z.string().regex(/^[a-z][a-z0-9_:]{0,63}$/u);
 const countMapSchema = z.record(safeEnumKey, nonNegativeInt);
 
 export const dbCountsReportSchema = z.strictObject({

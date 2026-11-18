@@ -118,7 +118,7 @@ const runtimeContracts: Readonly<Record<string, Contract>> = {
   },
   'fcd-support-admin': {
     networks: ['admin_data'],
-    secrets: ['admin-database', 'admin-session', 'admin-mfa'],
+    secrets: ['admin-database', 'admin-session', 'admin-mfa', 'admin-keyring'],
   },
   'fcd-support-reply': { networks: ['reply_data'], secrets: ['reply-database', 'reply-keyring'] },
   'fcd-support-outbound': {

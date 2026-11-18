@@ -188,6 +188,7 @@ export async function writeRuntimeHostFixture(
       'admin/admin-database': roleUri('admin'),
       'admin/admin-session': randomBytes(32).toString('base64url'),
       'admin/admin-mfa': randomBytes(32).toString('base64url'),
+      'admin/admin-keyring': keyring,
       'reply/reply-database': roleUri('reply'),
       'reply/reply-keyring': keyring,
       'outbound/outbound-database': roleUri('outbound'),

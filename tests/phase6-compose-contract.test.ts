@@ -136,7 +136,11 @@ function fixture() {
       ['webhook-database', 'meta-app-secret', 'meta-verify-token', 'webhook-keyring'],
     ),
     'fcd-support-admin': {
-      ...service('admin', ['admin_data'], ['admin-database', 'admin-session', 'admin-mfa']),
+      ...service(
+        'admin',
+        ['admin_data'],
+        ['admin-database', 'admin-session', 'admin-mfa', 'admin-keyring'],
+      ),
       environment: {
         ...service('admin', [], []).environment,
         ADMIN_LISTEN_MODE: 'unix',
