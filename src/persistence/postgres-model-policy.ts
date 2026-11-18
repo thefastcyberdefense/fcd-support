@@ -302,8 +302,8 @@ export class PostgresModelPolicy {
   public async resolveFaqPolicy(evaluatedAt: Date): Promise<FaqResolutionPolicy | undefined> {
     if (!validDate(evaluatedAt)) throw new TypeError('Model policy evaluation time is invalid');
     return withBoundedTransaction(this.pool, async (client) => {
-      const selected = await client.query<PolicyRow>(
-        `${policySelect}
+      const selected = await client.query<EffectivePolicyRow>(
+        `${effectivePolicySelect}
         join lateral (
           select event.action from model_policy_review_events event
           where event.policy_version_id=policy.id and event.effective_at <= $1
