@@ -21,10 +21,13 @@ import { PostgresOutboundWorkStore } from '../../src/persistence/postgres-outbou
 import { PostgresOutboundPolicy } from '../../src/persistence/postgres-outbound-policy.js';
 import { PostgresPrivacyRightsPolicy } from '../../src/persistence/postgres-privacy-rights-policy.js';
 import { PostgresOutboundTemplate } from '../../src/persistence/postgres-outbound-template.js';
+import { prepareFaqResolutionText } from '../../src/knowledge/faq-resolver.js';
+import { PostgresFaqResolver } from '../../src/persistence/postgres-faq-resolver.js';
 import { PostgresKnowledgePublication } from '../../src/persistence/postgres-knowledge-publication.js';
 import { PostgresKnowledgeRepository } from '../../src/persistence/postgres-knowledge-repository.js';
 import { PostgresLearningService } from '../../src/persistence/postgres-learning-service.js';
 import { PostgresModelPolicy } from '../../src/persistence/postgres-model-policy.js';
+import { inspectSensitiveText } from '../../src/safety/sensitive-data-gate.js';
 import { PostgresModelGateway } from '../../src/persistence/postgres-model-gateway.js';
 import { PostgresAdminIdentity } from '../../src/persistence/postgres-admin-identity.js';
 import { AdminSecretBytes, AdminSecretText } from '../../src/admin/admin-types.js';
@@ -1371,4 +1374,33 @@ test('outbound and reply logins complete intent, dispatch locking, status, echo,
   await expect(
     poolFor('reply').query('delete from knowledge_gap_candidates where false'),
   ).rejects.toMatchObject({ code: '42501' });
+
+  // 5. Reply explicitly receives pg_trgm execute grants and executes live FAQ trigram resolution.
+  const trgmPrivs = await database.pool.query<{ readonly routine_name: string }>(
+    `select routine_name
+     from information_schema.routine_privileges
+     where grantee = $1
+       and privilege_type = 'EXECUTE'
+       and routine_name in ('similarity', 'similarity_op')
+     order by routine_name`,
+    [`${rolePrefix}_reply`],
+  );
+  expect(trgmPrivs.rows.map((row) => row.routine_name)).toEqual(['similarity', 'similarity_op']);
+
+  const preparedFaqQuery = prepareFaqResolutionText(
+    inspectSensitiveText('Synthetic grant candidate?', 'en'),
+  );
+  await expect(
+    new PostgresFaqResolver(poolFor('reply'), {
+      ambiguityMargin: 0.05,
+      maximumCandidates: 5,
+      minimumSimilarity: 0.7,
+    }).resolve({
+      evaluatedAt: workAt,
+      sanitizedText: preparedFaqQuery,
+    }),
+  ).resolves.toMatchObject({
+    status: 'match',
+    versionReference: 'VERSION_TEST_grants_workers',
+  });
 });

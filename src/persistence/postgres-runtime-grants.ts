@@ -334,7 +334,11 @@ export async function configureRuntimeGrants(
         begin lock table ${schemaSql}.privacy_suppressions in share mode; end $$`);
     const functions = await client.query<{ signature: string; proname: string }>(
       `select oid::regprocedure::text as signature,proname from pg_proc
-      where pronamespace=$1::regnamespace and prokind='f'`,
+      where pronamespace=$1::regnamespace and prokind='f'
+        and not exists(
+          select 1 from pg_depend dep
+          where dep.classid='pg_proc'::regclass and dep.objid=pg_proc.oid and dep.deptype='e'
+        )`,
       [schema],
     );
     for (const fn of functions.rows) {
@@ -642,6 +646,48 @@ export async function configureRuntimeGrants(
       if (adminControlFunctions.has(fn.proname)) {
         await client.query(
           `grant execute on function ${fn.signature} to ${quote(`${prefix}_admin`)}`,
+        );
+      }
+    }
+    const trigramFunctions = await client.query<{ readonly signature: string }>(
+      `select format(
+                '%I.%I(%s)',
+                n.nspname,
+                p.proname,
+                pg_get_function_identity_arguments(p.oid)
+              ) as signature
+       from pg_depend d
+       join pg_extension e on e.oid = d.refobjid
+       join pg_proc p on p.oid = d.objid
+       join pg_namespace n on n.oid = p.pronamespace
+       where d.classid = 'pg_proc'::regclass
+         and d.deptype = 'e'
+         and e.extname = 'pg_trgm'
+         and p.prokind = 'f'
+         and p.proname in (
+           'similarity',
+           'similarity_op',
+           'similarity_dist',
+           'word_similarity',
+           'word_similarity_op',
+           'word_similarity_commutator_op',
+           'word_similarity_dist_op',
+           'word_similarity_dist_commutator_op',
+           'strict_word_similarity',
+           'strict_word_similarity_op',
+           'strict_word_similarity_commutator_op',
+           'strict_word_similarity_dist_op',
+           'strict_word_similarity_dist_commutator_op',
+           'show_trgm',
+           'show_limit'
+         )
+       order by 1`,
+    );
+    const trigramSignatures = trigramFunctions.rows.map((row) => row.signature);
+    if (trigramSignatures.length > 0) {
+      for (const role of ['reply', 'admin'] as const) {
+        await client.query(
+          `grant execute on function ${trigramSignatures.join(',')} to ${quote(`${prefix}_${role}`)}`,
         );
       }
     }
