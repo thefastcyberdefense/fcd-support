@@ -91,8 +91,10 @@ interface TransitionRow {
   readonly reviewer_account_ref: string;
 }
 
-const policySelect = `
-  select policy.id, policy.policy_ref, policy.version_number, policy.request_key,
+type EffectivePolicyRow = Omit<PolicyRow, 'approved_by_account_ref' | 'created_by_account_ref'>;
+
+const effectivePolicyColumns = `
+  policy.id, policy.policy_ref, policy.version_number, policy.request_key,
          policy.per_contact_15_minute, policy.per_contact_24_hour,
          policy.whatsapp_account_1_minute, policy.messenger_account_1_minute,
          policy.global_1_minute, policy.global_utc_day, policy.worker_batch_size,
@@ -100,7 +102,15 @@ const policySelect = `
          policy.maximum_definite_retries, policy.retry_base_ms,
          policy.retry_maximum_ms, policy.state, policy.created_at,
          policy.submitted_at, policy.decided_at, policy.activated_at,
-         policy.retired_at, creator.account_ref as created_by_account_ref,
+         policy.retired_at`;
+
+const effectivePolicySelect = `
+  select ${effectivePolicyColumns}
+  from outbound_policy_versions as policy`;
+
+const policySelect = `
+  select ${effectivePolicyColumns},
+         creator.account_ref as created_by_account_ref,
          approver.account_ref as approved_by_account_ref
   from outbound_policy_versions as policy
   join admin_accounts as creator on creator.id = policy.created_by_account_id
@@ -118,7 +128,7 @@ function sameDate(left: Date, right: Date): boolean {
   return left.getTime() === right.getTime();
 }
 
-function valuesFromRow(row: PolicyRow): OutboundPolicyValues {
+function valuesFromRow(row: EffectivePolicyRow): OutboundPolicyValues {
   return {
     global1Minute: row.global_1_minute,
     globalUtcDay: row.global_utc_day,
@@ -264,8 +274,8 @@ export class PostgresOutboundPolicy {
     return withBoundedTransaction(
       this.pool,
       async (client) => {
-        const selected = await client.query<PolicyRow>(
-          `${policySelect}
+        const selected = await client.query<EffectivePolicyRow>(
+          `${effectivePolicySelect}
            join lateral (
              select event.action
              from outbound_policy_review_events as event

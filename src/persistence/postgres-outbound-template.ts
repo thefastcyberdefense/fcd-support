@@ -76,13 +76,22 @@ interface TransitionRow {
   readonly version_number: number;
 }
 
-const templateSelect = `
-  select template.id, template.template_ref, template.version_number,
+type EffectiveTemplateRow = Omit<TemplateRow, 'created_by_account_ref'>;
+
+const effectiveTemplateColumns = `
+  template.id, template.template_ref, template.version_number,
          template.request_key, template.channel, template.channel_account_id,
          template.provider_template_id, template.template_name, template.locale,
          template.category, template.variable_count, template.content_sha256,
          template.state, template.created_at, template.submitted_at,
-         template.decided_at, template.activated_at, template.retired_at,
+         template.decided_at, template.activated_at, template.retired_at`;
+
+const effectiveTemplateSelect = `
+  select ${effectiveTemplateColumns}
+  from outbound_template_versions as template`;
+
+const templateSelect = `
+  select ${effectiveTemplateColumns},
          creator.account_ref as created_by_account_ref,
          approver.account_ref as approved_by_account_ref
   from outbound_template_versions as template
@@ -225,8 +234,8 @@ export class PostgresOutboundTemplate {
     return withBoundedTransaction(
       this.pool,
       async (client) => {
-        const selected = await client.query<TemplateRow>(
-          `${templateSelect}
+        const selected = await client.query<EffectiveTemplateRow>(
+          `${effectiveTemplateSelect}
            join lateral (
              select event.action
              from outbound_template_review_events as event

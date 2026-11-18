@@ -52,6 +52,8 @@ interface PolicyRow {
   readonly version_number: number;
 }
 
+type EffectivePolicyRow = Omit<PolicyRow, 'approved_by_account_ref' | 'created_by_account_ref'>;
+
 interface TransitionRow {
   readonly action: ModelPolicyTransitionInput['action'];
   readonly effective_at: Date;
@@ -77,7 +79,7 @@ function sameDate(left: Date, right: Date): boolean {
   return left.getTime() === right.getTime();
 }
 
-function valuesFromRow(row: PolicyRow): ModelPolicyValues {
+function valuesFromRow(row: EffectivePolicyRow): ModelPolicyValues {
   return {
     approvedProviderAttempts: row.approved_provider_attempts,
     architectureProviderCeiling: row.architecture_provider_ceiling,
@@ -124,18 +126,25 @@ function createMatches(row: PolicyRow, input: ModelPolicyCreateInput): boolean {
   );
 }
 
-const policySelect = `
-  select policy.id, policy.policy_ref, policy.version_number, policy.request_key,
+const effectivePolicyColumns = `
+  policy.id, policy.policy_ref, policy.version_number, policy.request_key,
          policy.state, policy.per_contact_15_minute_calls,
          policy.per_contact_24_hour_calls, policy.global_utc_day_calls,
          policy.concurrent_calls, policy.queue_capacity, policy.total_timeout_ms,
          policy.output_tokens, policy.cooldown_ms, policy.faq_minimum_similarity,
          policy.faq_ambiguity_margin, policy.maximum_faq_candidates,
          policy.approved_provider_attempts, policy.architecture_provider_ceiling,
-         creator.account_ref as created_by_account_ref,
-         approver.account_ref as approved_by_account_ref,
          policy.created_at, policy.submitted_at, policy.approved_at,
-         policy.activated_at, policy.retired_at
+         policy.activated_at, policy.retired_at`;
+
+const effectivePolicySelect = `
+  select ${effectivePolicyColumns}
+  from model_policy_versions as policy`;
+
+const policySelect = `
+  select ${effectivePolicyColumns},
+         creator.account_ref as created_by_account_ref,
+         approver.account_ref as approved_by_account_ref
   from model_policy_versions as policy
   join admin_accounts as creator on creator.id = policy.created_by_account_id
   left join admin_accounts as approver on approver.id = policy.approved_by_account_id`;
@@ -327,8 +336,8 @@ export class PostgresModelPolicy {
     return withBoundedTransaction(
       this.pool,
       async (client) => {
-        const selected = await client.query<PolicyRow>(
-          `${policySelect}
+        const selected = await client.query<EffectivePolicyRow>(
+          `${effectivePolicySelect}
            join lateral (
              select event.action
              from model_policy_review_events as event
