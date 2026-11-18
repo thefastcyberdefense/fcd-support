@@ -29,8 +29,10 @@ const roots: string[] = [];
 const children: ChildProcess[] = [];
 const servers: net.Server[] = [];
 const healthExecutionDeadlines = new WeakMap<ChildProcess, number>();
+const HEALTH_EXECUTION_BUDGET_MS = process.platform === 'win32' ? 7000 : 3500;
+const HEALTH_REAP_GRACE_MS = process.platform === 'win32' ? 1200 : 500;
 
-function healthExecutionBudget(child: ChildProcess, capMs = 3500): number {
+function healthExecutionBudget(child: ChildProcess, capMs = HEALTH_EXECUTION_BUDGET_MS): number {
   const deadline = healthExecutionDeadlines.get(child);
   if (deadline === undefined) throw new Error('synthetic_health_deadline_missing');
   return Math.max(0, Math.min(capMs, deadline - Date.now()));
@@ -38,8 +40,8 @@ function healthExecutionBudget(child: ChildProcess, capMs = 3500): number {
 
 afterEach(async () => {
   await reapChildProcesses(children.splice(0), {
-    termTimeoutMs: 500,
-    killTimeoutMs: 500,
+    termTimeoutMs: HEALTH_REAP_GRACE_MS,
+    killTimeoutMs: HEALTH_REAP_GRACE_MS,
     processGroup: true,
   });
   for (const server of servers.splice(0)) {
@@ -57,7 +59,7 @@ afterEach(async () => {
 async function runBoundedBash(
   args: string[],
   env: Record<string, string | undefined>,
-  timeoutMs = 3500,
+  timeoutMs = process.platform === 'win32' ? 8000 : 3500,
 ): Promise<{ status: number | null; stdout: string; stderr: string }> {
   const child = spawn(bash, args, {
     detached: process.platform !== 'win32',
@@ -93,8 +95,8 @@ async function runBoundedBash(
   } finally {
     try {
       await reapChildProcess(child, {
-        termTimeoutMs: 500,
-        killTimeoutMs: 500,
+        termTimeoutMs: HEALTH_REAP_GRACE_MS,
+        killTimeoutMs: HEALTH_REAP_GRACE_MS,
         processGroup: true,
       });
     } finally {
@@ -177,7 +179,7 @@ async function spawnOwnedHealthProcess(env: Record<string, string | undefined>) 
     process.argv = [process.execPath, entry, 'health'];
     await import(pathToFileURL(entry).href);
   `;
-  const executionDeadline = Date.now() + 3500;
+  const executionDeadline = Date.now() + HEALTH_EXECUTION_BUDGET_MS;
   const child = spawn(process.execPath, ['--input-type=module', '-e', launcher, healthEntry], {
     detached: process.platform !== 'win32',
     stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
@@ -186,7 +188,7 @@ async function spawnOwnedHealthProcess(env: Record<string, string | undefined>) 
   children.push(child);
   healthExecutionDeadlines.set(child, executionDeadline);
   const ownership = await captureProcessTreeOwnership(child, {
-    timeoutMs: healthExecutionBudget(child, 1500),
+    timeoutMs: healthExecutionBudget(child, process.platform === 'win32' ? 2500 : 1500),
   });
   if (process.platform === 'win32') expect(ownership?.observedRoot).toBe(true);
   await new Promise<void>((done, reject) => {
@@ -234,7 +236,9 @@ describe('built dist/operations/health-main.js stdio and fault contract', () => 
     await ackBarrier;
     // Writer must remain open through stdout acknowledgement and natural exit.
     expect(child.stdin.writableEnded).toBe(false);
-    const exit = await waitForExit(child, { timeoutMs: healthExecutionBudget(child, 1500) });
+    const exit = await waitForExit(child, {
+      timeoutMs: healthExecutionBudget(child, process.platform === 'win32' ? 2500 : 1500),
+    });
     expect(exit).toEqual({ code: 0, signal: null });
     expect(child.stdin.writableEnded).toBe(false);
     expect(stdout).toBe(
@@ -249,8 +253,8 @@ describe('built dist/operations/health-main.js stdio and fault contract', () => 
     expect(stdout + stderr).not.toContain('hostSnapshot');
 
     await reapChildProcess(child, {
-      termTimeoutMs: 500,
-      killTimeoutMs: 500,
+      termTimeoutMs: HEALTH_REAP_GRACE_MS,
+      killTimeoutMs: HEALTH_REAP_GRACE_MS,
       processGroup: true,
     });
     await expect(rm(root, { recursive: true })).resolves.toBeUndefined();
@@ -311,8 +315,8 @@ describe('built dist/operations/health-main.js stdio and fault contract', () => 
       expect(stdout + stderr).not.toContain(hostSecretMarker);
 
       await reapChildProcess(child, {
-        termTimeoutMs: 500,
-        killTimeoutMs: 500,
+        termTimeoutMs: HEALTH_REAP_GRACE_MS,
+        killTimeoutMs: HEALTH_REAP_GRACE_MS,
         processGroup: true,
       });
       await expect(rm(root, { recursive: true })).resolves.toBeUndefined();
@@ -642,7 +646,11 @@ fi
       TASK_DROP_ATTACHED: options.dropAttachedOutput === true ? '1' : '0',
     };
 
-    const result = await runBoundedBash(['--noprofile', '--norc', runScript], env, 4000);
+    const result = await runBoundedBash(
+      ['--noprofile', '--norc', runScript],
+      env,
+      process.platform === 'win32' ? 8000 : 4000,
+    );
     const readOptional = async (name: string) => readFile(join(root, name), 'utf8').catch(() => '');
 
     return {

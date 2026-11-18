@@ -17,8 +17,8 @@ const children: ChildProcess[] = [];
 
 afterEach(async () => {
   await reapChildProcesses(children.splice(0), {
-    termTimeoutMs: 500,
-    killTimeoutMs: 500,
+    termTimeoutMs: process.platform === 'win32' ? 1200 : 500,
+    killTimeoutMs: process.platform === 'win32' ? 1200 : 500,
     processGroup: process.platform !== 'win32',
   });
   for (const root of roots.splice(0)) {
@@ -29,7 +29,7 @@ afterEach(async () => {
 async function runBoundedHarness(
   args: string[],
   env: Record<string, string | undefined>,
-  timeoutMs = 3500,
+  timeoutMs = process.platform === 'win32' ? 10000 : 3500,
 ): Promise<{ status: number | null; stdout: string; stderr: string }> {
   const child = spawn(bash, args, {
     detached: process.platform !== 'win32',

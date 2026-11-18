@@ -10,7 +10,7 @@
   "scripts": {
     "admin:bootstrap": "npm run build --silent && node dist/admin/admin-bootstrap.js",
     "build": "tsc --project tsconfig.build.json",
-    "check": "npm run validate:phase0 && npm run format:check && npm run lint && npm run typecheck && npm test && npm run build",
+    "check": "npm run validate:phase0 && npm run format:check && npm run lint && npm run typecheck && npm run build && npm test",
     "db:migrate": "node-pg-migrate up --migrations-dir migrations --migrations-table pgmigrations --database-url-var DATABASE_URL",
     "db:migrate:down": "node-pg-migrate down --migrations-dir migrations --migrations-table pgmigrations --database-url-var DATABASE_URL",
     "format": "prettier --write .",
