@@ -115,11 +115,16 @@ function enabledHostFixture() {
       { model: 'false', outbound: 'false', n8n: 'false' },
     ),
     'fcd-support-admin': {
-      ...enabledService('admin', ['admin_data'], ['admin-database', 'admin-session', 'admin-mfa'], {
-        model: 'false',
-        outbound: 'false',
-        n8n: 'false',
-      }),
+      ...enabledService(
+        'admin',
+        ['admin_data'],
+        ['admin-database', 'admin-session', 'admin-mfa', 'admin-keyring'],
+        {
+          model: 'false',
+          outbound: 'false',
+          n8n: 'false',
+        },
+      ),
       environment: {
         ...enabledService('admin', [], [], { model: 'false', outbound: 'false', n8n: 'false' })
           .environment,

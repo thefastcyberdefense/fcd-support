@@ -123,7 +123,8 @@ services:
       DATABASE_URL_FILE: /run/secrets/admin-database
       ADMIN_SESSION_HMAC_KEY_FILE: /run/secrets/admin-session
       ADMIN_MFA_ENCRYPTION_KEY_FILE: /run/secrets/admin-mfa
-    secrets: [admin-database, admin-session, admin-mfa]
+      PRIVACY_HMAC_KEYRING_FILE: /run/secrets/admin-keyring
+    secrets: [admin-database, admin-session, admin-mfa, admin-keyring]
     command: ['node', 'dist/admin-main.js']
     healthcheck:
       test:
@@ -342,6 +343,8 @@ secrets:
     file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/admin/admin-session
   admin-mfa:
     file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/admin/admin-mfa
+  admin-keyring:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/admin/admin-keyring
   reply-database:
     file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/reply/reply-database
   reply-keyring:

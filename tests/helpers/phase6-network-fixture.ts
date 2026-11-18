@@ -98,6 +98,7 @@ const paths = [
   'admin/admin-database',
   'admin/admin-session',
   'admin/admin-mfa',
+  'admin/admin-keyring',
   'reply/reply-database',
   'reply/reply-keyring',
   'reply/manifest-key',
