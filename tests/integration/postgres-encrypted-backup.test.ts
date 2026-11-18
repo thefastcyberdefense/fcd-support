@@ -182,7 +182,7 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
         recipientFile,
         manifestHmacFile,
         gitRevision: 'a'.repeat(40),
-        schemaRevision: '000017',
+        schemaRevision: '000018',
         backupClass: 'pre_migration' as const,
         now: new Date('2030-01-01T00:00:00.000Z'),
         timeoutMilliseconds: 10000,
@@ -311,7 +311,7 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
         BACKUP_ARCHIVE_DIRECTORY: archiveDirectory,
         BACKUP_TMPFS_DIRECTORY: temporaryDirectory,
         OPS_GIT_REVISION: 'a'.repeat(40),
-        OPS_SCHEMA_REVISION: '000017',
+        OPS_SCHEMA_REVISION: '000018',
         OPS_DATABASE_SYSTEM_IDENTIFIER: expectedDatabaseIdentity.systemIdentifier,
         OPS_DATABASE_NAME: expectedDatabaseIdentity.databaseName,
       };

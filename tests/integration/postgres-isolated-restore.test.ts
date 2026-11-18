@@ -184,7 +184,7 @@ beforeAll(async () => {
     recipientFile,
     manifestHmacFile,
     gitRevision: 'a'.repeat(40),
-    schemaRevision: '000017',
+    schemaRevision: '000018',
     backupClass: 'pre_migration',
     now: new Date('2030-03-01T00:00:00.000Z'),
     timeoutMilliseconds: 10000,
@@ -296,7 +296,7 @@ async function reconciliationFixture(
       ],
     );
   }
-  const archive = await additionalArchive('000017', undefined, snapshot);
+  const archive = await additionalArchive('000018', undefined, snapshot);
   const key = syntheticPrivacyKeyring.keys.get('TEST_v1');
   if (key === undefined) throw new Error('synthetic_key_missing');
   for (const identity of mode === 'promotion' ? identities.slice(0, 1) : identities)
@@ -314,7 +314,7 @@ async function reconciliationFixture(
     signingKey,
     archiveDirectory,
     sourceRevision: 'a'.repeat(40),
-    schemaRevision: '000017',
+    schemaRevision: '000018',
     now: at,
     timeoutMilliseconds: 10000,
     maximumRows: 1000,
@@ -347,7 +347,7 @@ function reconciliationOptions(
     target,
     restoreRef: `restore_${randomUUID().replaceAll('-', '')}`,
     gitRevision: 'd'.repeat(40),
-    expectedSchemaRevision: '000017',
+    expectedSchemaRevision: '000018',
     keyring: syntheticPrivacyKeyring,
     checkpoint: fixture.checkpoint,
     checkpointArchiveFile: join(archiveDirectory, fixture.checkpoint.checkpointRef, 'archive.age'),
@@ -379,7 +379,7 @@ async function promotionFixture() {
       signingKey: fixture.signingKey,
       archiveDirectory,
       sourceRevision: 'a'.repeat(40),
-      schemaRevision: '000017',
+      schemaRevision: '000018',
       now: at,
       timeoutMilliseconds: 10000,
       maximumRows: 1000,
@@ -494,7 +494,7 @@ test.skipIf(!enabled)(
         signingKey: fixture.signingKey,
         archiveDirectory,
         sourceRevision: 'a'.repeat(40),
-        schemaRevision: '000017',
+        schemaRevision: '000018',
         now: at,
         timeoutMilliseconds: 10000,
         maximumRows: 1000,
@@ -525,7 +525,7 @@ test.skipIf(!enabled)(
         signingKey: fixture.signingKey,
         archiveDirectory,
         sourceRevision: 'a'.repeat(40),
-        schemaRevision: '000017',
+        schemaRevision: '000018',
         now: at,
         timeoutMilliseconds: 10000,
         maximumRows: 1000,
@@ -804,7 +804,7 @@ test.skipIf(!enabled)(
       expect(evidence).toMatchObject({
         status: 'restored',
         backupRef: manifest.backupRef,
-        schemaRevision: '000017',
+        schemaRevision: '000018',
         targetSystemIdentifier,
       });
       expect(evidence.sourceSystemIdentifier).not.toBe(evidence.targetSystemIdentifier);
@@ -825,7 +825,7 @@ test.skipIf(!enabled)(
       expect(
         (await pool.query(`select count(*)::int as count from "${source.schema}".pgmigrations`))
           .rows,
-      ).toEqual([{ count: 17 }]);
+      ).toEqual([{ count: 18 }]);
       expect(await readdir(temporaryDirectory)).toEqual([]);
       expect(await readdir(join(archiveDirectory, manifest.backupRef))).toEqual([
         'archive.age',
@@ -846,10 +846,10 @@ test.skipIf(!enabled)(
         expect(
           await runForwardMigrations(migrationPool, {
             schema: source.schema,
-            expectedSchemaRevision: '000017',
+            expectedSchemaRevision: '000018',
             timeoutMilliseconds: 10000,
           }),
-        ).toEqual({ schemaRevision: '000017' });
+        ).toEqual({ schemaRevision: '000018' });
       } finally {
         await migrationPool.end();
       }
@@ -970,7 +970,7 @@ test.skipIf(!enabled)('refuses unverified source catalog state and a missing arc
 test.skipIf(!enabled)(
   'an incomplete schema-only archive fails atomically without installing its partial tables',
   async () => {
-    const archive = await additionalArchive('000017', [source.schema]);
+    const archive = await additionalArchive('000018', [source.schema]);
     await withTarget(async (input, pool) => {
       await expect(
         restoreEncryptedBackup({ ...input, backupRef: archive.backupRef }),
@@ -1059,10 +1059,10 @@ test.skipIf(!enabled)(
           expect(
             await runForwardMigrations(migrations, {
               schema: older.schema,
-              expectedSchemaRevision: '000017',
+              expectedSchemaRevision: '000018',
               timeoutMilliseconds: 10000,
             }),
-          ).toEqual({ schemaRevision: '000017' });
+          ).toEqual({ schemaRevision: '000018' });
           expect(
             (
               await pool.query(
@@ -1073,7 +1073,7 @@ test.skipIf(!enabled)(
           expect(
             (await pool.query(`select count(*)::int as count from "${older.schema}".pgmigrations`))
               .rows,
-          ).toEqual([{ count: 17 }]);
+          ).toEqual([{ count: 18 }]);
         } finally {
           await migrations.end();
         }
@@ -1110,7 +1110,7 @@ test.skipIf(!enabled)(
       await source.pool.query('insert into synthetic_restore_blob values($1)', [
         randomBytes(1024 * 1024),
       ]);
-      const archive = await additionalArchive('000017');
+      const archive = await additionalArchive('000018');
       expect(archive.ciphertextBytes).toBeGreaterThan(1024 * 1024);
       expect(
         await verifyEncryptedBackup({
@@ -1124,7 +1124,7 @@ test.skipIf(!enabled)(
       await withTarget(async (input, pool) => {
         expect(
           await restoreEncryptedBackup({ ...input, backupRef: archive.backupRef }),
-        ).toMatchObject({ status: 'restored', schemaRevision: '000017' });
+        ).toMatchObject({ status: 'restored', schemaRevision: '000018' });
         expect(
           (
             await pool.query(
@@ -1343,7 +1343,7 @@ test.skipIf(!enabled).each(['combined', 'split'] as const)(
         recipientFile: join(root, 'recipient'),
         manifestHmacFile,
         gitRevision: 'a'.repeat(40),
-        schemaRevision: '000017',
+        schemaRevision: '000018',
         backupClass: 'pre_migration',
         now: new Date(at.getTime() - 1000),
         timeoutMilliseconds: 10000,
@@ -1383,7 +1383,7 @@ test.skipIf(!enabled).each(['combined', 'split'] as const)(
             signingKey,
             archiveDirectory,
             sourceRevision: 'a'.repeat(40),
-            schemaRevision: '000017',
+            schemaRevision: '000018',
             now: at,
             timeoutMilliseconds: 10000,
             maximumRows: 1000,
@@ -1420,7 +1420,7 @@ test.skipIf(!enabled).each(['combined', 'split'] as const)(
         databaseName: sourceName,
         schema: snapshot.schema,
         gitRevision: 'd'.repeat(40),
-        schemaRevision: '000017',
+        schemaRevision: '000018',
       };
       const ownerUri = new URL(targetUrl);
       ownerUri.username = 'postgres';
@@ -1821,7 +1821,7 @@ test.skipIf(!enabled).each(['combined', 'split'] as const)(
             signingKey,
             archiveDirectory,
             sourceRevision: 'a'.repeat(40),
-            schemaRevision: '000017',
+            schemaRevision: '000018',
             now: promotionAt,
             timeoutMilliseconds: 10000,
             maximumRows: 1000,

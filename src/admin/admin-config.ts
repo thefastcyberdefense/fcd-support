@@ -4,6 +4,8 @@ import { posix } from 'node:path';
 import { z } from 'zod';
 
 import type { LearningPolicy } from '../learning/learning-types.js';
+import { loadPrivacyKeyring } from '../operations/privacy-keyring.js';
+import type { PrivacyHmacKeyring } from '../policy/policy-types.js';
 import { AdminSecretBytes } from './admin-types.js';
 
 const encodedKeySchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
@@ -24,6 +26,7 @@ const environmentSchema = z.object({
     .string()
     .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/)
     .default('gateway-v1'),
+  PRIVACY_HMAC_KEYRING: z.string().min(1).optional(),
   ADMIN_ORIGIN: z.url().optional(),
   ADMIN_PASSWORD_BLOCK_SIZE: z.coerce.number().int().min(8).max(16).default(8),
   ADMIN_PASSWORD_COST: z.coerce.number().int().min(16_384).max(262_144).default(65_536),
@@ -75,6 +78,7 @@ const settingOrder = [
   'ADMIN_MFA_KEY_VERSION',
   'MODEL_GATEWAY_ENCRYPTION_KEY',
   'MODEL_GATEWAY_KEY_VERSION',
+  'PRIVACY_HMAC_KEYRING',
   'ADMIN_PASSWORD_COST',
   'ADMIN_PASSWORD_BLOCK_SIZE',
   'ADMIN_PASSWORD_PARALLELIZATION',
@@ -110,6 +114,7 @@ export interface AdminConfig {
   readonly mfaKeyVersion: string;
   readonly gatewayEncryptionKey?: AdminSecretBytes;
   readonly gatewayKeyVersion: string;
+  readonly privacyKeyring?: PrivacyHmacKeyring;
   readonly origin: string;
   readonly passwordPolicy: {
     readonly algorithm: 'scrypt_v1';
@@ -225,6 +230,17 @@ export function loadAdminConfig(
     fail(['LEARNING_MINIMUM_GROUP_COUNT', 'LEARNING_MAX_OBSERVATIONS_PER_RUN']);
   }
 
+  let privacyKeyring: PrivacyHmacKeyring | undefined;
+  if (result.data.PRIVACY_HMAC_KEYRING !== undefined) {
+    try {
+      privacyKeyring = loadPrivacyKeyring(
+        new TextEncoder().encode(result.data.PRIVACY_HMAC_KEYRING),
+      );
+    } catch {
+      fail(['PRIVACY_HMAC_KEYRING']);
+    }
+  }
+
   return {
     listener:
       unix && socketPath !== undefined
@@ -253,6 +269,7 @@ export function loadAdminConfig(
           ),
         }),
     gatewayKeyVersion: result.data.MODEL_GATEWAY_KEY_VERSION,
+    ...(privacyKeyring === undefined ? {} : { privacyKeyring }),
     origin,
     passwordPolicy: {
       algorithm: 'scrypt_v1',

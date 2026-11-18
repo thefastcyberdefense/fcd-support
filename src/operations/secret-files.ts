@@ -177,7 +177,10 @@ function requiredSecrets(
 }
 
 function optionalSecrets(role: RuntimeRole): readonly SecretName[] {
-  if (role === 'admin' || role === 'reply') {
+  if (role === 'admin') {
+    return ['MODEL_GATEWAY_ENCRYPTION_KEY', 'PRIVACY_HMAC_KEYRING'];
+  }
+  if (role === 'reply') {
     return ['MODEL_GATEWAY_ENCRYPTION_KEY'];
   }
   return [];

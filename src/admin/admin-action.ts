@@ -23,6 +23,35 @@ const actionSchema = z.strictObject({
     'gateway_activate',
     'gateway_retire',
     'incident_acknowledge',
+    'staff_create',
+    'staff_role_assign',
+    'staff_role_revoke',
+    'staff_revoke_sessions',
+    'staff_disable',
+    'pause_apply',
+    'pause_resume',
+    'deletion_review',
+    'deletion_execute',
+    'privacy_review',
+    'privacy_collect',
+    'privacy_correct',
+    'privacy_attest',
+    'consent_record',
+    'marketing_reopt_in',
+    'outbound_policy_create',
+    'outbound_policy_submit',
+    'outbound_policy_approve',
+    'outbound_policy_activate',
+    'outbound_policy_retire',
+    'outbound_template_create',
+    'outbound_template_submit',
+    'outbound_template_approve',
+    'outbound_template_activate',
+    'outbound_template_retire',
+    'knowledge_import',
+    'question_dismiss',
+    'insights_aggregate',
+    'insights_digest',
   ]),
   reference,
   priorVersionRef: reference.optional(),
@@ -31,6 +60,7 @@ const actionSchema = z.strictObject({
   expiresAt: z.number().int().positive(),
 });
 export type AdminAction = z.infer<typeof actionSchema>;
+export type AdminActionKind = AdminAction['action'];
 
 function signature(payload: string, session: AdminSecretText, key: AdminSecretBytes): Buffer {
   const bytes = key.copy();

@@ -3,6 +3,7 @@ import type pg from 'pg';
 import type { ChannelIdentitySelector } from '../policy/policy-types.js';
 
 export type PolicyAuditDecisionType =
+  | 'authorized_pause'
   | 'authorized_resume'
   | 'consent_record'
   | 'event_application'
@@ -23,6 +24,7 @@ export type PolicyAuditReasonCode =
   | 'echo_not_later_than_resume'
   | 'global_marketing_opt_out'
   | 'identity_not_found'
+  | 'manual_pause_applied'
   | 'message_status_ignored'
   | 'pause_active'
   | 'pause_inactive'

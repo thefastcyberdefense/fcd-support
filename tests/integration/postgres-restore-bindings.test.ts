@@ -41,7 +41,7 @@ async function fixture(missing?: 'import' | 'hold' | 'gate', scope = database) {
     schema: scope.schema,
   };
   await scope.pool.query(
-    "insert into operations_restore_runs(restore_ref,backup_ref,checkpoint_ref,git_revision,schema_revision,state,recorded_at) values($1,$2,$3,$4,'000017','isolated',$5)",
+    "insert into operations_restore_runs(restore_ref,backup_ref,checkpoint_ref,git_revision,schema_revision,state,recorded_at) values($1,$2,$3,$4,'000018','isolated',$5)",
     [restoreRef, backupRef, checkpointRef, 'd'.repeat(40), at],
   );
   if (missing !== 'import')
@@ -65,7 +65,7 @@ async function fixture(missing?: 'import' | 'hold' | 'gate', scope = database) {
     backupRef,
     checkpointRef,
     gitRevision: 'd'.repeat(40),
-    schemaRevision: '000017',
+    schemaRevision: '000018',
     target,
     sourceSystemIdentifier: '1234567890123456789',
     gateRef,
@@ -159,7 +159,7 @@ test('refuses sealing replay instead of treating a copied old pass as current au
 test('refuses a failed run without inserting partial pass evidence', async () => {
   const input = await fixture();
   await database.pool.query(
-    "insert into operations_restore_runs(restore_ref,backup_ref,checkpoint_ref,git_revision,schema_revision,state,recorded_at) values($1,$2,$3,$4,'000017','failed',$5)",
+    "insert into operations_restore_runs(restore_ref,backup_ref,checkpoint_ref,git_revision,schema_revision,state,recorded_at) values($1,$2,$3,$4,'000018','failed',$5)",
     [input.restoreRef, input.backupRef, input.checkpointRef, input.gitRevision, input.evaluatedAt],
   );
   await expect(new PostgresRestoreEvidence(database.pool).seal(input)).rejects.toThrow(
@@ -181,7 +181,7 @@ test('protects its own evidence from truncate and unsafe downgrade atomically', 
   await expect(database.pool.query('truncate operations_restore_bindings')).rejects.toMatchObject({
     code: '55000',
   });
-  await expect(database.runMigrations('down', 2)).rejects.toThrow();
+  await expect(database.runMigrations('down', 3)).rejects.toThrow();
   const client = await database.pool.connect();
   try {
     await client.query('begin');
@@ -195,7 +195,7 @@ test('protects its own evidence from truncate and unsafe downgrade atomically', 
   }
   expect(
     (await database.pool.query('select count(*)::int as count from pgmigrations')).rows,
-  ).toEqual([{ count: 17 }]);
+  ).toEqual([{ count: 18 }]);
   expect(await new PostgresRestoreEvidence(database.pool).load(input.restoreRef)).toMatchObject({
     restoreRef: input.restoreRef,
   });
@@ -327,7 +327,7 @@ test('joins an enclosing restore transaction and does not commit its partial res
 test('empty migration 16 rolls back and upgrades without rewriting earlier migrations', async () => {
   const empty = await createIsolatedTestDatabase('restore_binding_upgrade');
   try {
-    await empty.runMigrations('down', 2);
+    await empty.runMigrations('down', 3);
     expect(
       (
         await empty.pool.query(
@@ -348,7 +348,7 @@ test('empty migration 16 rolls back and upgrades without rewriting earlier migra
     ).toEqual([{ present: true }]);
     expect(
       (await empty.pool.query('select count(*)::int as count from pgmigrations')).rows,
-    ).toEqual([{ count: 17 }]);
+    ).toEqual([{ count: 18 }]);
   } finally {
     await empty.dispose();
   }
@@ -430,7 +430,7 @@ test('a queued downgrade cannot drop a binding committed while it waits for DDL 
     const input = await fixture(undefined, empty);
     await writer.query('begin');
     await new PostgresRestoreEvidence({ transactionClient: writer }).seal(input);
-    pending = empty.runMigrations('down', 2).then(
+    pending = empty.runMigrations('down', 3).then(
       () => 'unexpected_success',
       (error: unknown) =>
         typeof error === 'object' && error !== null && 'code' in error
@@ -455,7 +455,7 @@ test('a queued downgrade cannot drop a binding committed while it waits for DDL 
     expect(await pending).toBe('55000');
     expect(
       (await empty.pool.query('select count(*)::int as count from pgmigrations')).rows,
-    ).toEqual([{ count: 17 }]);
+    ).toEqual([{ count: 18 }]);
     expect(await new PostgresRestoreEvidence(empty.pool).load(input.restoreRef)).toMatchObject({
       restoreRef: input.restoreRef,
     });

@@ -67,7 +67,7 @@ test('fresh host fixture supplies valid disabled runtime policy and distinct dat
     expect(
       loadReplySettings({ ...common, ...reply, OPS_GIT_REVISION: 'b'.repeat(40) }, false)
         .schemaRevision,
-    ).toBe('000017');
+    ).toBe('000018');
     const source = new URL(
       await readFile(join(root, 'secrets/bootstrap/bootstrap-database'), 'utf8'),
     );

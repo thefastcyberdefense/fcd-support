@@ -65,6 +65,7 @@ export function createAdminRuntime(options: CreateAdminRuntimeOptions): AdminRun
     ...(options.now === undefined ? {} : { now: options.now }),
     ...(gatewayProtector === undefined ? {} : { gatewayProtector }),
     ...(options.gatewayFetch === undefined ? {} : { gatewayFetch: options.gatewayFetch }),
+    ...(config.privacyKeyring === undefined ? {} : { privacyKeyring: config.privacyKeyring }),
     listLimit: config.listLimit,
     learningPolicy: config.learningPolicy,
   });

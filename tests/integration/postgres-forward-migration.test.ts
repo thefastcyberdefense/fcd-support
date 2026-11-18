@@ -15,7 +15,7 @@ afterAll(async () => {
 });
 const options = () => ({
   schema: database.schema,
-  expectedSchemaRevision: '000017',
+  expectedSchemaRevision: '000018',
   timeoutMilliseconds: 10000,
 });
 
@@ -50,14 +50,14 @@ test('fresh empty application schema forward-migrates once and replay is safe', 
     (await database.pool.query('select count(*)::int as count from pgmigrations')).rows,
   ).toEqual([{ count: 0 }]);
   expect(await runForwardMigrations(database.pool, options())).toEqual({
-    schemaRevision: '000017',
+    schemaRevision: '000018',
   });
   expect(await runForwardMigrations(database.pool, options())).toEqual({
-    schemaRevision: '000017',
+    schemaRevision: '000018',
   });
   expect(
     (await database.pool.query('select count(*)::int as count from pgmigrations')).rows,
-  ).toEqual([{ count: 17 }]);
+  ).toEqual([{ count: 18 }]);
 });
 
 test('old admission schema upgrades without discarding its receipt evidence', async () => {
@@ -67,7 +67,7 @@ test('old admission schema upgrades without discarding its receipt evidence', as
     ['a'.repeat(64), new Date('2030-03-01T00:00:00.000Z')],
   );
   expect(await runForwardMigrations(database.pool, options())).toEqual({
-    schemaRevision: '000017',
+    schemaRevision: '000018',
   });
   expect(
     (await database.pool.query('select count(*)::int as count from webhook_receipts')).rows,
@@ -80,7 +80,7 @@ test('schema mismatch refuses before migration and never runs a down migration',
   ).rejects.toThrow(/^migration_configuration_invalid$/u);
   expect(
     (await database.pool.query('select count(*)::int as count from pgmigrations')).rows,
-  ).toEqual([{ count: 17 }]);
+  ).toEqual([{ count: 18 }]);
 });
 
 test('another deployment advisory lock refuses forward migration without waiting', async () => {

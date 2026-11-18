@@ -126,7 +126,27 @@ const groups = {
   ],
 } as const;
 const knownTables = new Set<string>(['pgmigrations', ...Object.values(groups).flat()]);
-const knownViews = new Set(['notification_delivery_sources']);
+const knownViews = new Set([
+  'notification_delivery_sources',
+  'admin_pause_states_v',
+  'admin_privacy_requests_v',
+  'admin_privacy_locations_v',
+  'admin_consent_identities_v',
+]);
+const adminControlFunctions = new Set<string>([
+  'admin_pause_conversation',
+  'admin_resume_conversation',
+  'admin_review_deletion_request',
+  'admin_load_deletion_target_data',
+  'admin_execute_deletion_erasure',
+  'admin_review_privacy_request',
+  'admin_attest_privacy_location',
+  'admin_load_approved_access_export_rows',
+  'admin_record_privacy_access_run',
+  'admin_execute_correction',
+  'admin_record_consent_event',
+  'admin_record_marketing_reopt_in',
+]);
 const identifier = z.string().regex(/^[a-z][a-z0-9_]{0,62}$/u);
 const quote = (value: string) => `"${identifier.parse(value)}"`;
 
@@ -329,7 +349,8 @@ export async function configureRuntimeGrants(
           'runtime_recovery_held',
           'guard_runtime_recovery_hold',
           'guard_runtime_recovery_review',
-        ].includes(fn.proname)
+        ].includes(fn.proname) ||
+        adminControlFunctions.has(fn.proname)
       ) {
         await client.query(
           `alter function ${fn.signature} security definer; alter function ${fn.signature} set search_path=pg_catalog,${schemaSql},pg_temp`,
@@ -469,6 +490,10 @@ export async function configureRuntimeGrants(
       ...groups.operations,
       ...groups.recovery,
       'conversation_retention_states',
+      'admin_pause_states_v',
+      'admin_privacy_requests_v',
+      'admin_privacy_locations_v',
+      'admin_consent_identities_v',
     ]);
     await grant('admin', 'select(id,channel_identity_id)', ['conversations']);
     await grant('admin', 'select(id,contact_id,external_contact_id)', ['channel_identities']);
@@ -602,6 +627,13 @@ export async function configureRuntimeGrants(
       await client.query(
         `grant execute on function ${schemaSql}.runtime_recovery_held() to ${quote(`${prefix}_${role}`)}`,
       );
+    }
+    for (const fn of functions.rows) {
+      if (adminControlFunctions.has(fn.proname)) {
+        await client.query(
+          `grant execute on function ${fn.signature} to ${quote(`${prefix}_admin`)}`,
+        );
+      }
     }
     const sequences = await client.query<{
       table_name: string;
