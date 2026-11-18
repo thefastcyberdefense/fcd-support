@@ -27,6 +27,46 @@ function isPrivateHostname(hostnameValue: string): boolean {
   return hostname !== 'localhost' && privateSingleLabel.test(hostname);
 }
 
+function isLinkLocalOrUnspecifiedHost(hostnameValue: string): boolean {
+  const hostname = hostnameValue.toLowerCase().replace(/^\[|\]$/gu, '');
+  if (hostname === '0.0.0.0' || hostname === '::' || hostname === 'localhost') return true;
+  if (hostname.startsWith('169.254.')) return true;
+  if (/^fe[89ab][0-9a-f:]*$/u.test(hostname)) return true;
+  if (hostname.startsWith('::ffff:')) {
+    const mapped = hostname.slice('::ffff:'.length);
+    return isLinkLocalOrUnspecifiedHost(mapped) || isPrivateIpv4(mapped);
+  }
+  return false;
+}
+
+export function normalizeGatewayBaseUrl(value: string): string {
+  const url = new URL(value);
+  const pathname = url.pathname === '/' ? '' : url.pathname.replace(/\/+$/u, '');
+  return `${url.origin}${pathname}`;
+}
+
+export function isAllowedOpenAiCompatibleBaseUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    if (
+      (url.protocol !== 'http:' && url.protocol !== 'https:') ||
+      url.username !== '' ||
+      url.password !== '' ||
+      url.search !== '' ||
+      url.hash !== '' ||
+      isLinkLocalOrUnspecifiedHost(url.hostname)
+    ) {
+      return false;
+    }
+    if (url.protocol === 'http:') {
+      return isPrivateHostname(url.hostname);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function isPrivateManifestBaseUrl(value: string): boolean {
   try {
     const url = new URL(value);

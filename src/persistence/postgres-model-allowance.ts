@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 
 import type pg from 'pg';
 
+import { MAX_BUDGET_MICRO_USD, budgetWindowBounds } from '../model/gateway-budget.js';
+import type { ModelBudgetWindowKind } from '../model/gateway-types.js';
 import type { EffectiveModelPolicy } from '../model/model-policy-types.js';
 import { isIssuedEffectiveModelPolicy } from './postgres-model-policy.js';
 import {
@@ -27,9 +29,28 @@ type LeaseOutcome =
   | 'provider_exhausted'
   | 'timeout';
 type AllowanceDenial =
-  'cooldown' | 'global_limit' | 'policy_disabled' | 'queue_full' | 'rate_limited';
+  | 'budget_exceeded'
+  | 'cooldown'
+  | 'global_limit'
+  | 'policy_disabled'
+  | 'queue_full'
+  | 'rate_limited';
+
+export interface AcquireModelBudgetInput {
+  readonly budgetMicroUsd: number;
+  readonly budgetWindowKind: ModelBudgetWindowKind;
+  readonly estimatedMaxCostMicroUsd: number;
+  readonly gatewayProfileId?: string;
+}
+
+export interface CompleteModelLeaseUsageInput {
+  readonly actualCostMicroUsd?: number;
+  readonly completionTokens: number;
+  readonly promptTokens: number;
+}
 
 export interface AcquireModelAllowanceInput {
+  readonly budget?: AcquireModelBudgetInput;
   readonly conversationId: string;
   readonly effectivePolicy: EnabledModelPolicy;
   readonly evaluatedAt: Date;
@@ -43,13 +64,25 @@ export type ModelAllowanceResult =
   | { readonly reasonCode: AllowanceDenial; readonly status: 'denied' };
 
 interface LeaseRow {
+  readonly budget_window_kind: ModelBudgetWindowKind | null;
+  readonly budget_window_started_at: Date | null;
   readonly conversation_id: string;
   readonly created_at: Date;
+  readonly gateway_profile_id: string | null;
   readonly logical_call_key: string;
   readonly outcome_code: AllowanceDenial | LeaseOutcome | null;
   readonly policy_version_id: string;
+  readonly reserved_micro_usd: string;
   readonly source_webhook_event_id: string;
   readonly state: LeaseState;
+}
+
+interface ExpiredLeaseDeltaRow {
+  readonly budget_window_kind: ModelBudgetWindowKind | null;
+  readonly budget_window_started_at: Date | null;
+  readonly gateway_profile_id: string | null;
+  readonly prior_state: LeaseState;
+  readonly reserved_micro_usd: string;
 }
 
 interface SourceRow {
@@ -107,7 +140,8 @@ function utcDayWindow(at: Date): readonly [Date, Date] {
 function existingResult(row: LeaseRow): ModelAllowanceResult {
   if (
     row.state === 'failed' &&
-    (row.outcome_code === 'cooldown' ||
+    (row.outcome_code === 'budget_exceeded' ||
+      row.outcome_code === 'cooldown' ||
       row.outcome_code === 'global_limit' ||
       row.outcome_code === 'policy_disabled' ||
       row.outcome_code === 'queue_full' ||
@@ -116,6 +150,30 @@ function existingResult(row: LeaseRow): ModelAllowanceResult {
     return { status: 'denied', reasonCode: row.outcome_code };
   }
   return { status: 'duplicate', leaseState: row.state };
+}
+
+function validateBudgetInput(
+  budget: AcquireModelBudgetInput | undefined,
+): AcquireModelBudgetInput | undefined {
+  if (budget === undefined) return undefined;
+  const windowKind: unknown = budget.budgetWindowKind;
+  if (
+    !Number.isSafeInteger(budget.budgetMicroUsd) ||
+    budget.budgetMicroUsd < 0 ||
+    budget.budgetMicroUsd > MAX_BUDGET_MICRO_USD ||
+    (windowKind !== 'utc_day' && windowKind !== 'utc_month') ||
+    !Number.isSafeInteger(budget.estimatedMaxCostMicroUsd) ||
+    budget.estimatedMaxCostMicroUsd < 0 ||
+    budget.estimatedMaxCostMicroUsd > MAX_BUDGET_MICRO_USD
+  ) {
+    throw new TypeError('Model budget allowance input is invalid');
+  }
+  if (budget.gatewayProfileId !== undefined) {
+    requireIdentifier(budget.gatewayProfileId, 'Model gateway profile identifier');
+  } else if (budget.budgetMicroUsd > 0) {
+    throw new TypeError('Positive monetary budget requires an active gateway profile');
+  }
+  return budget;
 }
 
 export class PostgresModelAllowance {
@@ -128,6 +186,7 @@ export class PostgresModelAllowance {
     requireIdentifier(input.webhookEventId, 'Model source event identifier');
     requireLogicalKey(input.logicalCallKey);
     requireDate(input.evaluatedAt, 'Model allowance evaluation time');
+    const budget = validateBudgetInput(input.budget);
     if (!isIssuedEffectiveModelPolicy(input.effectivePolicy)) {
       throw new TypeError('Model effective policy provenance is invalid');
     }
@@ -138,7 +197,10 @@ export class PostgresModelAllowance {
 
       const existing = await client.query<LeaseRow>(
         `select logical_call_key, source_webhook_event_id, conversation_id,
-                policy_version_id, state, outcome_code, created_at
+                policy_version_id, state, outcome_code, created_at,
+                gateway_profile_id::text as gateway_profile_id,
+                budget_window_kind, budget_window_started_at,
+                reserved_micro_usd::text as reserved_micro_usd
          from model_call_leases
          where logical_call_key = $1 or source_webhook_event_id = $2
          order by id`,
@@ -230,8 +292,38 @@ export class PostgresModelAllowance {
         if (current.queued_count >= limits.queueCapacity) denial = 'queue_full';
         else leaseState = 'queued';
       }
+
+      const budgetWindow =
+        budget?.gatewayProfileId !== undefined
+          ? budgetWindowBounds(budget.budgetWindowKind, input.evaluatedAt)
+          : undefined;
+      if (
+        denial === undefined &&
+        budget !== undefined &&
+        budget.budgetMicroUsd > 0 &&
+        budgetWindow !== undefined
+      ) {
+        const existingWindow = await client.query<{
+          readonly reserved_micro_usd: string;
+          readonly spent_micro_usd: string;
+        }>(
+          `select reserved_micro_usd::text as reserved_micro_usd,
+                  spent_micro_usd::text as spent_micro_usd
+           from model_budget_windows
+           where gateway_profile_id = $1 and window_kind = $2 and window_started_at = $3
+           for update`,
+          [budget.gatewayProfileId, budget.budgetWindowKind, budgetWindow.windowStartedAt],
+        );
+        const row = existingWindow.rows[0];
+        const committed =
+          row === undefined ? 0n : BigInt(row.reserved_micro_usd) + BigInt(row.spent_micro_usd);
+        if (committed + BigInt(budget.estimatedMaxCostMicroUsd) > BigInt(budget.budgetMicroUsd)) {
+          denial = 'budget_exceeded';
+        }
+      }
+
       if (denial !== undefined) {
-        await this.insertDeniedLease(client, input, denial);
+        await this.insertDeniedLease(client, input, denial, budget?.gatewayProfileId);
         return { status: 'denied', reasonCode: denial };
       }
 
@@ -267,17 +359,43 @@ export class PostgresModelAllowance {
         dayEnd,
         input.evaluatedAt,
       );
+      const reservedMicroUsd =
+        budget?.gatewayProfileId !== undefined ? budget.estimatedMaxCostMicroUsd : 0;
+      if (budget?.gatewayProfileId !== undefined && budgetWindow !== undefined) {
+        await client.query(
+          `insert into model_budget_windows
+             (gateway_profile_id, window_kind, window_started_at, window_ended_at,
+              reserved_micro_usd, spent_micro_usd, created_at, updated_at)
+           values ($1,$2,$3,$4,$5,0,$6,$6)
+           on conflict (gateway_profile_id, window_kind, window_started_at)
+           do update set reserved_micro_usd = model_budget_windows.reserved_micro_usd + excluded.reserved_micro_usd,
+                         updated_at = greatest(model_budget_windows.updated_at, excluded.updated_at)`,
+          [
+            budget.gatewayProfileId,
+            budget.budgetWindowKind,
+            budgetWindow.windowStartedAt,
+            budgetWindow.windowEndedAt,
+            reservedMicroUsd,
+            input.evaluatedAt,
+          ],
+        );
+      }
       await client.query(
         `insert into model_call_leases
            (logical_call_key, source_webhook_event_id, conversation_id,
-            policy_version_id, state, lease_expires_at, created_at, updated_at,
-            activated_at)
-         values ($1,$2,$3,$4,$5,$6,$7,$7,$8)`,
+            policy_version_id, gateway_profile_id, budget_window_kind,
+            budget_window_started_at, reserved_micro_usd,
+            state, lease_expires_at, created_at, updated_at, activated_at)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11,$12)`,
         [
           input.logicalCallKey,
           input.webhookEventId,
           input.conversationId,
           input.effectivePolicy.policyVersionId,
+          budget?.gatewayProfileId ?? null,
+          budget?.gatewayProfileId !== undefined ? budget.budgetWindowKind : null,
+          budgetWindow?.windowStartedAt ?? null,
+          reservedMicroUsd,
           leaseState,
           new Date(input.evaluatedAt.getTime() + limits.totalTimeoutMs),
           input.evaluatedAt,
@@ -303,7 +421,10 @@ export class PostgresModelAllowance {
       await this.expireInTransaction(client, input.activatedAt);
       const selected = await client.query<LeaseRow>(
         `select logical_call_key, source_webhook_event_id, conversation_id,
-                policy_version_id, state, outcome_code, created_at
+                policy_version_id, state, outcome_code, created_at,
+                gateway_profile_id::text as gateway_profile_id,
+                budget_window_kind, budget_window_started_at,
+                reserved_micro_usd::text as reserved_micro_usd
          from model_call_leases where logical_call_key = $1 for update`,
         [input.logicalCallKey],
       );
@@ -318,10 +439,11 @@ export class PostgresModelAllowance {
         await client.query(
           `update model_call_leases
            set state = 'failed', outcome_code = 'policy_disabled',
-               finished_at = $2, updated_at = $2
+               settled_micro_usd = 0, finished_at = $2, updated_at = $2
            where logical_call_key = $1`,
           [input.logicalCallKey, input.activatedAt],
         );
+        await this.settleBudgetWindow(client, lease, 0, 0, 0, input.activatedAt);
         return { status: 'policy_disabled' };
       }
       const active = await client.query<{ readonly count: number }>(
@@ -349,17 +471,34 @@ export class PostgresModelAllowance {
     readonly completedAt: Date;
     readonly logicalCallKey: string;
     readonly outcomeCode: LeaseOutcome;
+    readonly usage?: CompleteModelLeaseUsageInput;
   }): Promise<{ readonly status: 'applied' | 'duplicate' }> {
     requireDate(input.completedAt, 'Model lease completion time');
     requireLogicalKey(input.logicalCallKey);
     if (!completeOutcomes.has(input.outcomeCode) || input.outcomeCode === 'lease_expired') {
       throw new TypeError('Model lease outcome is invalid');
     }
+    if (
+      input.usage !== undefined &&
+      (!Number.isSafeInteger(input.usage.promptTokens) ||
+        input.usage.promptTokens < 0 ||
+        !Number.isSafeInteger(input.usage.completionTokens) ||
+        input.usage.completionTokens < 0 ||
+        (input.usage.actualCostMicroUsd !== undefined &&
+          (!Number.isSafeInteger(input.usage.actualCostMicroUsd) ||
+            input.usage.actualCostMicroUsd < 0 ||
+            input.usage.actualCostMicroUsd > MAX_BUDGET_MICRO_USD)))
+    ) {
+      throw new TypeError('Model lease usage telemetry is invalid');
+    }
     return withBoundedTransaction(this.pool, async (client) => {
       await client.query(`select pg_advisory_xact_lock(7100416)`);
       const selected = await client.query<LeaseRow>(
         `select logical_call_key, source_webhook_event_id, conversation_id,
-                policy_version_id, state, outcome_code, created_at
+                policy_version_id, state, outcome_code, created_at,
+                gateway_profile_id::text as gateway_profile_id,
+                budget_window_kind, budget_window_started_at,
+                reserved_micro_usd::text as reserved_micro_usd
          from model_call_leases where logical_call_key = $1 for update`,
         [input.logicalCallKey],
       );
@@ -370,11 +509,47 @@ export class PostgresModelAllowance {
         return { status: 'duplicate' };
       }
       if (lease.state !== 'active') throw new PolicyIdempotencyConflictError();
+
+      const reservedMicroUsd = Number(lease.reserved_micro_usd);
+      const preSendRelease =
+        input.outcomeCode === 'invalid_request' ||
+        input.outcomeCode === 'aborted' ||
+        input.outcomeCode === 'network_failure' ||
+        input.outcomeCode === 'non_2xx' ||
+        input.outcomeCode === 'provider_exhausted';
+      const settledMicroUsd =
+        lease.gateway_profile_id === null
+          ? 0
+          : preSendRelease
+            ? 0
+            : input.usage !== undefined
+              ? (input.usage.actualCostMicroUsd ?? reservedMicroUsd)
+              : reservedMicroUsd;
+      const promptTokens = input.usage?.promptTokens ?? 0;
+      const completionTokens = input.usage?.completionTokens ?? 0;
+
       await client.query(
         `update model_call_leases
-         set state = $2, outcome_code = $3, finished_at = $4, updated_at = $4
+         set state = $2, outcome_code = $3, finished_at = $4, updated_at = $4,
+             settled_micro_usd = $5, prompt_tokens = $6, completion_tokens = $7
          where logical_call_key = $1`,
-        [input.logicalCallKey, targetState, input.outcomeCode, input.completedAt],
+        [
+          input.logicalCallKey,
+          targetState,
+          input.outcomeCode,
+          input.completedAt,
+          settledMicroUsd,
+          promptTokens,
+          completionTokens,
+        ],
+      );
+      await this.settleBudgetWindow(
+        client,
+        lease,
+        settledMicroUsd,
+        promptTokens,
+        completionTokens,
+        input.completedAt,
       );
       return { status: 'applied' };
     });
@@ -390,14 +565,30 @@ export class PostgresModelAllowance {
     return withBoundedTransaction(this.pool, async (client) => {
       await client.query(`select pg_advisory_xact_lock(7100416)`);
       if (limit !== undefined) {
-        const expired = await client.query(
+        const expired = await client.query<ExpiredLeaseDeltaRow>(
           `with due as (
-          select logical_call_key from model_call_leases where state in ('active','queued') and lease_expires_at <= $1
-          order by lease_expires_at,logical_call_key limit $2 for update skip locked
-        ) update model_call_leases lease set state='expired',outcome_code='lease_expired',finished_at=$1,updated_at=$1
-          from due where lease.logical_call_key=due.logical_call_key`,
+            select id, state as prior_state, gateway_profile_id, budget_window_kind,
+                   budget_window_started_at, reserved_micro_usd
+            from model_call_leases
+            where state in ('active','queued') and lease_expires_at <= $1
+            order by lease_expires_at, logical_call_key limit $2
+            for update skip locked
+          ),
+          updated as (
+            update model_call_leases lease
+            set state = 'expired', outcome_code = 'lease_expired', finished_at = $1, updated_at = $1,
+                settled_micro_usd = case when due.prior_state = 'active' then due.reserved_micro_usd else 0 end
+            from due where lease.id = due.id
+            returning due.prior_state, due.gateway_profile_id::text as gateway_profile_id,
+                      due.budget_window_kind, due.budget_window_started_at,
+                      due.reserved_micro_usd::text as reserved_micro_usd
+          )
+          select prior_state, gateway_profile_id, budget_window_kind,
+                 budget_window_started_at, reserved_micro_usd
+          from updated`,
           [expiredAt, limit],
         );
+        await this.applyExpiredBudgetSettlements(client, expired.rows, expiredAt);
         return { expiredCount: expired.rowCount ?? 0 };
       }
       return { expiredCount: await this.expireInTransaction(client, expiredAt) };
@@ -405,14 +596,107 @@ export class PostgresModelAllowance {
   }
 
   private async expireInTransaction(client: pg.PoolClient, expiredAt: Date): Promise<number> {
-    const expired = await client.query(
-      `update model_call_leases
-       set state = 'expired', outcome_code = 'lease_expired',
-           finished_at = $1, updated_at = $1
-       where state in ('active','queued') and lease_expires_at <= $1`,
+    const expired = await client.query<ExpiredLeaseDeltaRow>(
+      `with due as (
+        select id, state as prior_state, gateway_profile_id, budget_window_kind,
+               budget_window_started_at, reserved_micro_usd
+        from model_call_leases
+        where state in ('active','queued') and lease_expires_at <= $1
+        for update
+      ),
+      updated as (
+        update model_call_leases lease
+        set state = 'expired', outcome_code = 'lease_expired', finished_at = $1, updated_at = $1,
+            settled_micro_usd = case when due.prior_state = 'active' then due.reserved_micro_usd else 0 end
+        from due where lease.id = due.id
+        returning due.prior_state, due.gateway_profile_id::text as gateway_profile_id,
+                  due.budget_window_kind, due.budget_window_started_at,
+                  due.reserved_micro_usd::text as reserved_micro_usd
+      )
+      select prior_state, gateway_profile_id, budget_window_kind,
+             budget_window_started_at, reserved_micro_usd
+      from updated`,
       [expiredAt],
     );
+    await this.applyExpiredBudgetSettlements(client, expired.rows, expiredAt);
     return expired.rowCount ?? 0;
+  }
+
+  private async applyExpiredBudgetSettlements(
+    client: pg.PoolClient,
+    rows: readonly ExpiredLeaseDeltaRow[],
+    expiredAt: Date,
+  ): Promise<void> {
+    for (const row of rows) {
+      const reserved = Number(row.reserved_micro_usd);
+      if (
+        row.gateway_profile_id === null ||
+        row.budget_window_kind === null ||
+        row.budget_window_started_at === null ||
+        reserved <= 0
+      ) {
+        continue;
+      }
+      const spent = row.prior_state === 'active' ? reserved : 0;
+      await client.query(
+        `update model_budget_windows
+         set reserved_micro_usd = greatest(0, reserved_micro_usd - $1),
+             spent_micro_usd = spent_micro_usd + $2,
+             updated_at = greatest(updated_at, $3)
+         where gateway_profile_id = $4 and window_kind = $5 and window_started_at = $6`,
+        [
+          reserved,
+          spent,
+          expiredAt,
+          row.gateway_profile_id,
+          row.budget_window_kind,
+          row.budget_window_started_at,
+        ],
+      );
+    }
+  }
+
+  private async settleBudgetWindow(
+    client: pg.PoolClient,
+    lease: LeaseRow,
+    settledMicroUsd: number,
+    promptTokens: number,
+    completionTokens: number,
+    updatedAt: Date,
+  ): Promise<void> {
+    if (
+      lease.gateway_profile_id === null ||
+      lease.budget_window_kind === null ||
+      lease.budget_window_started_at === null
+    ) {
+      return;
+    }
+    const bounds = budgetWindowBounds(lease.budget_window_kind, lease.budget_window_started_at);
+    await client.query(
+      `insert into model_budget_windows
+         (gateway_profile_id, window_kind, window_started_at, window_ended_at,
+          reserved_micro_usd, spent_micro_usd, input_tokens_total, output_tokens_total,
+          created_at, updated_at)
+       values ($1,$2,$3,$4,0,$5,$6,$7,$8,$8)
+       on conflict (gateway_profile_id, window_kind, window_started_at)
+       do update set
+         reserved_micro_usd = greatest(0, model_budget_windows.reserved_micro_usd - $9),
+         spent_micro_usd = model_budget_windows.spent_micro_usd + excluded.spent_micro_usd,
+         input_tokens_total = model_budget_windows.input_tokens_total + excluded.input_tokens_total,
+         output_tokens_total = model_budget_windows.output_tokens_total + excluded.output_tokens_total,
+         updated_at = greatest(model_budget_windows.updated_at, excluded.updated_at)`,
+      [
+        lease.gateway_profile_id,
+        lease.budget_window_kind,
+        lease.budget_window_started_at,
+        bounds.windowEndedAt,
+        settledMicroUsd,
+        promptTokens,
+        completionTokens,
+        updatedAt,
+        Number(lease.reserved_micro_usd),
+      ],
+    );
   }
 
   private async requireAppliedCustomerSource(
@@ -465,18 +749,20 @@ export class PostgresModelAllowance {
     client: pg.PoolClient,
     input: AcquireModelAllowanceInput,
     reasonCode: AllowanceDenial,
+    gatewayProfileId?: string,
   ): Promise<void> {
     await client.query(
       `insert into model_call_leases
          (logical_call_key, source_webhook_event_id, conversation_id,
-          policy_version_id, state, outcome_code, lease_expires_at,
-          created_at, updated_at, finished_at)
-       values ($1,$2,$3,$4,'failed',$5,$6,$7,$7,$7)`,
+          policy_version_id, gateway_profile_id, state, outcome_code,
+          lease_expires_at, created_at, updated_at, finished_at)
+       values ($1,$2,$3,$4,$5,'failed',$6,$7,$8,$8,$8)`,
       [
         input.logicalCallKey,
         input.webhookEventId,
         input.conversationId,
         input.effectivePolicy.policyVersionId,
+        gatewayProfileId ?? null,
         reasonCode,
         new Date(input.evaluatedAt.getTime() + input.effectivePolicy.limits.totalTimeoutMs),
         input.evaluatedAt,

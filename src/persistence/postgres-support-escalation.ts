@@ -14,6 +14,7 @@ export const MODEL_ESCALATION_REASON_CODES = Object.freeze([
   'model_disabled',
   'rate_limited',
   'global_limit',
+  'budget_exceeded',
   'queue_full',
   'timeout',
   'network_failure',

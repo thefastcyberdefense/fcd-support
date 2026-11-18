@@ -20,6 +20,10 @@ import {
   currentInsightEligibilityLateralSql,
   PostgresLearningService,
 } from './postgres-learning-service.js';
+import type { AesGcmGatewaySecretProtector } from '../model/gateway-secret.js';
+import type { ModelGatewayBudgetSummary, ModelGatewayProfileView } from '../model/gateway-types.js';
+import type { ManifestFetch } from '../model/manifest-client.js';
+import { PostgresModelGateway } from './postgres-model-gateway.js';
 import { PostgresModelPolicy } from './postgres-model-policy.js';
 import { withBoundedTransaction } from './postgres-transaction.js';
 
@@ -86,9 +90,12 @@ const proposalSelect = `select version.version_ref, item.item_key, coalesce(vers
     where item_id = item.id and version_id = version.id and effective_at > $1 order by effective_at, id limit 1) as upcoming on true`;
 
 export interface AdminDashboardOptions {
-  readonly now?: () => Date;
-  readonly listLimit?: number;
+  readonly gatewayFetch?: ManifestFetch;
+  readonly gatewayProtector?: AesGcmGatewaySecretProtector;
   readonly learningPolicy?: LearningPolicy;
+  readonly listLimit?: number;
+  readonly manifestRuntime?: { readonly apiKey?: string; readonly baseUrl: string };
+  readonly now?: () => Date;
 }
 
 export class PostgresAdminDashboard implements AdminDashboardPort {
@@ -457,6 +464,105 @@ export class PostgresAdminDashboard implements AdminDashboardPort {
   public listModelPolicies(): Promise<readonly AdminPolicySummary[]> {
     return new PostgresModelPolicy(this.pool).listPolicies(this.#listLimit);
   }
+  public listGatewayProfiles(): Promise<readonly ModelGatewayProfileView[]> {
+    return new PostgresModelGateway(this.pool, this.options.gatewayProtector).listProfiles(
+      this.#listLimit,
+    );
+  }
+  public readActiveGatewayBudgetSummary(
+    evaluatedAt = this.#now(),
+  ): Promise<ModelGatewayBudgetSummary | undefined> {
+    return new PostgresModelGateway(
+      this.pool,
+      this.options.gatewayProtector,
+    ).readActiveBudgetSummary(evaluatedAt);
+  }
+  public async createGatewayProfile(input: unknown, actor: AdminActor): Promise<void> {
+    await this.withActor(actor, ['administrator'], async (client, principal) => {
+      const gateway = new PostgresModelGateway(
+        { transactionClient: client },
+        this.options.gatewayProtector,
+      );
+      const result = await gateway.createProfile(input, principal);
+      if (result.status !== 'duplicate') {
+        const profile = await gateway.getProfile(result.gatewayRef);
+        await this.auditModelGateway(
+          client,
+          principal,
+          result.gatewayRef,
+          'applied',
+          'gateway_draft_created',
+          profile.requestKey,
+          profile.createdAt,
+        );
+      }
+    });
+  }
+  public async testGatewayProfile(
+    input: { readonly gatewayRef: string; readonly requestKey: string; readonly testedAt: Date },
+    actor: AdminActor,
+  ): Promise<void> {
+    const authorized = await this.withActor(actor, ['administrator'], async (_client, principal) =>
+      Promise.resolve(principal),
+    );
+    const gateway = new PostgresModelGateway(this.pool, this.options.gatewayProtector);
+    const result = await gateway.testProfileConnection(
+      {
+        gatewayRef: input.gatewayRef,
+        requestKey: input.requestKey,
+        testerAccountRef: actor.accountRef,
+        now: () => input.testedAt,
+        ...(this.options.gatewayFetch === undefined ? {} : { fetch: this.options.gatewayFetch }),
+        ...(this.options.manifestRuntime === undefined
+          ? {}
+          : { manifestRuntime: this.options.manifestRuntime }),
+      },
+      authorized,
+    );
+    if (result.status !== 'duplicate') {
+      await this.withActor(actor, ['administrator'], async (client, principal) => {
+        await this.auditModelGateway(
+          client,
+          principal,
+          result.gatewayRef,
+          result.outcome.result === 'passed' ? 'applied' : 'failed',
+          result.outcome.reasonCode,
+          `${input.requestKey}:audit`,
+          result.outcome.testedAt,
+        );
+      });
+    }
+  }
+  public async transitionGatewayProfile(input: unknown, actor: AdminActor): Promise<void> {
+    await this.withActor(actor, ['administrator'], async (client, principal) => {
+      const gateway = new PostgresModelGateway(
+        { transactionClient: client },
+        this.options.gatewayProtector,
+      );
+      const result = await gateway.transitionProfile(input, principal);
+      if (result.status !== 'duplicate') {
+        const command = z
+          .strictObject({
+            action: z.enum(['activate', 'retire']),
+            effectiveAt: date,
+            gatewayRef: reference,
+            reasonCode: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}$/),
+            requestKey: reference,
+            reviewerAccountRef: reference,
+          })
+          .parse(input);
+        await this.auditModelGateway(
+          client,
+          principal,
+          result.gatewayRef,
+          'applied',
+          command.reasonCode,
+          command.requestKey,
+          command.effectiveAt,
+        );
+      }
+    });
+  }
   public async createModelPolicy(input: unknown, actor: AdminActor): Promise<void> {
     await this.withActor(actor, ['administrator'], async (client, principal) => {
       const result = await new PostgresModelPolicy({ transactionClient: client }).createPolicy(
@@ -576,6 +682,24 @@ export class PostgresAdminDashboard implements AdminDashboardPort {
                'model_policy_changed', 'applied', 'model_policy', $2,
                'reviewed_dashboard_action', $3, $4)`,
       [principal.reviewerRef, policyRef, requestKey, effectiveAt],
+    );
+  }
+  private async auditModelGateway(
+    client: pg.PoolClient,
+    principal: ReviewerPrincipal,
+    gatewayRef: string,
+    result: 'applied' | 'failed',
+    reasonCode: string,
+    requestKey: string,
+    effectiveAt: Date,
+  ): Promise<void> {
+    await client.query(
+      `insert into admin_audit_events
+         (actor_account_id, action, result, object_type, object_ref,
+          reason_code, request_key, effective_at)
+       values ((select id from admin_accounts where account_ref = $1),
+               'model_gateway_changed', $2, 'model_gateway', $3, $4, $5, $6)`,
+      [principal.reviewerRef, result, gatewayRef, reasonCode, requestKey, effectiveAt],
     );
   }
 }

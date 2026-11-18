@@ -10,6 +10,8 @@ export type SafeLogEvent =
   | 'admin_service_start_failed'
   | 'admin_service_started'
   | 'database_pool_error'
+  | 'gateway_connection_test_failed'
+  | 'gateway_connection_test_passed'
   | 'manifest_request_completed'
   | 'manifest_request_failed'
   | 'meta_outbound_completed'
@@ -37,6 +39,9 @@ export type SafeLogReason =
   | 'provider_exhausted'
   | 'receipt_unavailable'
   | 'timeout'
+  | 'unauthorized'
+  | 'model_or_endpoint_rejected'
+  | 'invalid_gateway_configuration'
   | 'aborted';
 
 export interface SafeLogContext {
@@ -72,6 +77,8 @@ const safeEvents = new Set<SafeLogEvent>([
   'admin_service_start_failed',
   'admin_service_started',
   'database_pool_error',
+  'gateway_connection_test_failed',
+  'gateway_connection_test_passed',
   'manifest_request_completed',
   'manifest_request_failed',
   'meta_outbound_completed',
@@ -100,6 +107,9 @@ const safeReasons = new Set<SafeLogReason>([
   'provider_exhausted',
   'receipt_unavailable',
   'timeout',
+  'unauthorized',
+  'model_or_endpoint_rejected',
+  'invalid_gateway_configuration',
   'aborted',
 ]);
 

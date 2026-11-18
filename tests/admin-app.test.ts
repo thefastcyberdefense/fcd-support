@@ -13,6 +13,7 @@ import type {
   AdminQuestionSummary,
 } from '../src/admin/admin-html.js';
 import { AdminSecretText } from '../src/admin/admin-types.js';
+import type { ModelGatewayProfileView } from '../src/model/gateway-types.js';
 import type { ResolvedAdminSession } from '../src/persistence/postgres-admin-identity.js';
 
 const apps: FastifyInstance[] = [];
@@ -29,6 +30,7 @@ afterEach(async () => {
 function dashboardPort(overrides: Partial<AdminDashboardPort> = {}): AdminDashboardPort {
   return {
     answerQuestion: vi.fn(() => Promise.resolve()),
+    createGatewayProfile: vi.fn(() => Promise.resolve()),
     createModelPolicy: vi.fn(() => Promise.resolve()),
     createProposal: vi.fn(() => Promise.resolve()),
     getProposal: vi.fn(() =>
@@ -91,6 +93,33 @@ function dashboardPort(overrides: Partial<AdminDashboardPort> = {}): AdminDashbo
         },
       ] satisfies readonly AdminPolicySummary[]),
     ),
+    listGatewayProfiles: vi.fn(() =>
+      Promise.resolve([
+        {
+          apiKeySha256: 'a'.repeat(64),
+          budgetMicroUsd: 5_000_000,
+          budgetWindowKind: 'utc_month',
+          createdAt: new Date('2026-09-01T05:00:00.000Z'),
+          createdByAccountRef: 'ADMIN_TEST_dashboard_reviewer',
+          displayLabel: 'Synthetic OpenAI-compatible backup',
+          endpointBaseUrl: 'https://gateway.example.test/v1',
+          gatewayKind: 'openai_compatible',
+          gatewayRef: 'GATEWAY_TEST_draft',
+          inputCostPerMillionMicroUsd: 150_000,
+          keyVersion: 'gateway-v1',
+          lastTestHttpStatus: 200,
+          lastTestReasonCode: 'ok',
+          lastTestStatus: 'passed',
+          lastTestedAt: new Date('2026-09-01T06:00:00.000Z'),
+          modelName: 'gpt-4o-mini',
+          outputCostPerMillionMicroUsd: 600_000,
+          requestKey: 'REQUEST_TEST_gateway_draft',
+          state: 'draft',
+          versionNumber: 1,
+        },
+      ] satisfies readonly ModelGatewayProfileView[]),
+    ),
+    readActiveGatewayBudgetSummary: vi.fn(() => Promise.resolve(undefined)),
     listProposals: vi.fn(() =>
       Promise.resolve([
         {
@@ -118,6 +147,8 @@ function dashboardPort(overrides: Partial<AdminDashboardPort> = {}): AdminDashbo
     reviewVersion: vi.fn(() => Promise.resolve()),
     rollbackVersion: vi.fn(() => Promise.resolve()),
     submitVersion: vi.fn(() => Promise.resolve()),
+    testGatewayProfile: vi.fn(() => Promise.resolve()),
+    transitionGatewayProfile: vi.fn(() => Promise.resolve()),
     transitionModelPolicy: vi.fn(() => Promise.resolve()),
     ...overrides,
   };
@@ -782,5 +813,124 @@ describe('private admin application', () => {
         expect.stringContaining('fcd_admin_csrf=;'),
       ]),
     );
+  });
+
+  test('manages gateway drafts, connection tests, activation, retirement, and budget validation on /policy', async () => {
+    const { app, dashboard } = createTestApp();
+    const page = await app.inject({
+      headers: { cookie: activeCookies() },
+      method: 'GET',
+      url: '/policy',
+    });
+    expect(page.statusCode).toBe(200);
+    expect(page.body).toContain('Manifest fcd-support');
+    expect(page.body).toContain('Synthetic OpenAI-compatible backup');
+
+    const createToken = formHiddenValue(page.body, '/policy/gateway', 'actionToken');
+    const created = await app.inject({
+      headers: formHeaders(activeCookies()),
+      method: 'POST',
+      payload: new URLSearchParams({
+        actionToken: createToken,
+        apiKey: 'synthetic_admin_form_gateway_key_value',
+        budgetUsd: '12.50',
+        budgetWindowKind: 'utc_month',
+        csrfToken: activeCsrf.reveal(),
+        displayLabel: 'Primary OpenRouter backup',
+        endpointBaseUrl: 'https://openrouter.ai/api/v1',
+        gatewayKind: 'openai_compatible',
+        inputCostPerMillionUsd: '0.15',
+        modelName: 'openai/gpt-4o-mini',
+        outputCostPerMillionUsd: '0.60',
+      }).toString(),
+      url: '/policy/gateway',
+    });
+    expect(created.statusCode).toBe(303);
+    expect(created.headers.location).toBe('/policy');
+    expect(dashboard.createGatewayProfile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        budgetMicroUsd: 12_500_000,
+        budgetWindowKind: 'utc_month',
+        displayLabel: 'Primary OpenRouter backup',
+        endpointBaseUrl: 'https://openrouter.ai/api/v1',
+        gatewayKind: 'openai_compatible',
+        inputCostPerMillionMicroUsd: 150_000,
+        modelName: 'openai/gpt-4o-mini',
+        outputCostPerMillionMicroUsd: 600_000,
+      }),
+      expect.objectContaining({ accountRef: 'ADMIN_TEST_dashboard_reviewer' }),
+    );
+    const createdInput = (dashboard.createGatewayProfile as ReturnType<typeof vi.fn>).mock
+      .calls[0]?.[0] as { apiKey?: unknown };
+    expect(createdInput.apiKey).toBeInstanceOf(AdminSecretText);
+
+    const badBudget = await app.inject({
+      headers: formHeaders(activeCookies()),
+      method: 'POST',
+      payload: new URLSearchParams({
+        actionToken: createToken,
+        apiKey: 'synthetic_admin_form_gateway_key_value',
+        budgetUsd: '5.00',
+        budgetWindowKind: 'utc_day',
+        csrfToken: activeCsrf.reveal(),
+        displayLabel: 'Bad pricing profile',
+        endpointBaseUrl: 'https://openrouter.ai/api/v1',
+        gatewayKind: 'openai_compatible',
+        inputCostPerMillionUsd: '0',
+        modelName: 'openai/gpt-4o-mini',
+        outputCostPerMillionUsd: '0',
+      }).toString(),
+      url: '/policy/gateway',
+    });
+    expect(badBudget.statusCode).toBe(400);
+
+    const testToken = formHiddenValue(
+      page.body,
+      '/policy/gateway/GATEWAY_TEST_draft/test',
+      'actionToken',
+    );
+    const tested = await app.inject({
+      headers: formHeaders(activeCookies()),
+      method: 'POST',
+      payload: new URLSearchParams({
+        actionToken: testToken,
+        csrfToken: activeCsrf.reveal(),
+      }).toString(),
+      url: '/policy/gateway/GATEWAY_TEST_draft/test',
+    });
+    expect(tested.statusCode).toBe(303);
+    expect(dashboard.testGatewayProfile).toHaveBeenCalledTimes(1);
+
+    const activateToken = formHiddenValue(
+      page.body,
+      '/policy/gateway/GATEWAY_TEST_draft/activate',
+      'actionToken',
+    );
+    const activated = await app.inject({
+      headers: formHeaders(activeCookies()),
+      method: 'POST',
+      payload: new URLSearchParams({
+        actionToken: activateToken,
+        csrfToken: activeCsrf.reveal(),
+      }).toString(),
+      url: '/policy/gateway/GATEWAY_TEST_draft/activate',
+    });
+    expect(activated.statusCode).toBe(303);
+    expect(dashboard.transitionGatewayProfile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'activate',
+        gatewayRef: 'GATEWAY_TEST_draft',
+      }),
+      expect.objectContaining({ accountRef: 'ADMIN_TEST_dashboard_reviewer' }),
+    );
+
+    const nonAdmin = createTestApp({ roles: ['knowledge_editor'] });
+    const deniedGateway = await nonAdmin.app.inject({
+      headers: formHeaders(activeCookies()),
+      method: 'POST',
+      payload: `csrfToken=${activeCsrf.reveal()}&actionToken=denied`,
+      url: '/policy/gateway',
+    });
+    expect(deniedGateway.statusCode).toBe(403);
   });
 });
