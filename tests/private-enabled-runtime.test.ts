@@ -14,6 +14,9 @@ import {
 import { inspectRuntimeHostSamples } from '../src/operations/runtime-host.js';
 import { parseRuntimeHostCliArguments } from '../src/operations/runtime-host-main.js';
 import { parseHostHealthSnapshot } from '../src/operations/health-collector.js';
+import { loadModelConfig } from '../src/model/model-config.js';
+import { loadReplySettings } from '../src/operations/reply-config.js';
+import { loadOutboundConfig } from '../src/outbound/outbound-config.js';
 
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash';
 const revision = 'a'.repeat(40);
@@ -722,5 +725,90 @@ operations_collect_health_host
       expect(bad.status).toBe(1);
       expect(bad.stderr.trim()).toBe('runtime_host_invalid');
     }
+  });
+
+  test('operations_inspect_host bootstrap renders compose in private-disabled even when OPS_RUNTIME_MODE is private-enabled', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'fcd-bootstrap-enabled-'));
+    tempRoots.push(root);
+    const result = spawnSync(
+      bash,
+      [
+        '--noprofile',
+        '--norc',
+        '-c',
+        `
+source "$TASK_COMMON"
+source "$TASK_RUNTIME_HOST"
+OPS_ROOT="$TASK_ROOT"
+OPS_RUNTIME_MODE=private-enabled
+declare -A OPS_CONFIG=([FCD_RUNTIME_PROJECT]=fcd-support-host-test-synth [FCD_SUPPORT_REVISION]=${revision} [FCD_SUPPORT_IMAGE]=sha256:${'d'.repeat(64)} [FCD_OPERATIONS_IMAGE]=sha256:${'e'.repeat(64)} [FCD_POSTGRES_IMAGE]=sha256:${'f'.repeat(64)} [FCD_POSTGRES_VOLUME]=fcd-support-vol [FCD_ADMIN_SOCKET_ROOT]=/synthetic/sock [FCD_CONFIG_ROOT]=/synthetic/cfg [FCD_SECRET_ROOT]=/synthetic/sec [FCD_HEALTH_TIMEOUT_MS]=6000 [FCD_ADMIN_CPUS]=0.5 [FCD_ADMIN_MEMORY_MIB]=256 [FCD_ADMIN_PIDS]=64 [FCD_STOP_GRACE_MS]=1000)
+operations_runtime_selection_context() { OPS_RUNTIME_VOLUME_IDENTITY=''; OPS_RUNTIME_SELECTED_IDENTIFIER=''; OPS_RUNTIME_SELECTION_STAMP=''; }
+operations_compose() { printf '%s\\n' "\${OPS_RUNTIME_MODE:-unset}" > "$TASK_ROOT/compose-mode"; printf '{}'; }
+operations_runtime_snapshot() { printf '{}'; }
+operations_read_database_identity() { printf '1111111111111111111\\n'; }
+operations_docker() {
+  if [[ "$1 $2" == 'image inspect' ]]; then
+    printf 'sha256:${'e'.repeat(64)}/${revision}/linux/amd64/node\\n'
+  elif [[ "$1" == run ]]; then
+    cat >/dev/null
+    printf '{"status":"verified"}\\n'
+  else
+    return 1
+  fi
+}
+operations_inspect_host bootstrap
+`,
+      ],
+      {
+        encoding: 'utf8',
+        timeout: 5000,
+        env: {
+          PATH: process.env.PATH,
+          SystemRoot: process.env.SystemRoot,
+          TASK_ROOT: root.replaceAll('\\', '/'),
+          TASK_COMMON: resolve('scripts/operations-common.sh').replaceAll('\\', '/'),
+          TASK_RUNTIME_HOST: resolve('scripts/operations-runtime-host.sh').replaceAll('\\', '/'),
+        },
+      },
+    );
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout.trim()).toBe('bootstrap_database_verified');
+    expect((await readFile(join(root, 'compose-mode'), 'utf8')).trim()).toBe('private-disabled');
+  });
+
+  test('writeRuntimeHostFixture v1-enabled satisfies loadModelConfig, loadReplySettings(true), and loadOutboundConfig', async () => {
+    const parent = await mkdtemp(join(tmpdir(), 'fcd-fixture-valid-'));
+    tempRoots.push(parent);
+    const root = join(parent, 'fcd-support-host-test-v1val');
+    await writeRuntimeHostFixture(root, 'fcd-support-host-test-v1val', revision, 'v1-enabled');
+    const parse = async (name: string) =>
+      Object.fromEntries(
+        (await readFile(join(root, 'config', name), 'utf8'))
+          .trim()
+          .split('\n')
+          .map((line) => {
+            const idx = line.indexOf('=');
+            return [line.slice(0, idx), line.slice(idx + 1)];
+          }),
+      );
+    const common = await parse('common.env');
+    const model = await parse('model.env');
+    const reply = await parse('reply.env');
+    const outbound = await parse('outbound.env');
+    const base = {
+      ...common,
+      ...model,
+      ...reply,
+      ...outbound,
+      OPS_GIT_REVISION: revision,
+      MANIFEST_API_KEY: 'synthetic_manifest_key_value_0001',
+      META_PAGE_ACCESS_TOKEN: 'synthetic_page_token_value_0001',
+      META_WHATSAPP_ACCESS_TOKEN: 'synthetic_wa_token_value_0001',
+      META_MESSENGER_PAGE_ID: '123456789012345',
+      META_WHATSAPP_PHONE_NUMBER_ID: '123456789012346',
+    };
+    expect(loadModelConfig(base).model).toBe('auto');
+    expect(loadReplySettings(base, true).attestation?.verified).toBe(true);
+    expect(loadOutboundConfig(base).allowLoopbackFake).toBe(false);
   });
 });
