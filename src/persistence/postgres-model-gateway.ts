@@ -117,8 +117,13 @@ interface GatewayProfileRow {
   readonly version_number: number;
 }
 
-const profileSelect = `
-  select profile.id::text as id,
+type RuntimeGatewayProfileRow = Omit<
+  GatewayProfileRow,
+  'activated_by_account_ref' | 'created_by_account_ref'
+>;
+
+const runtimeProfileColumns = `
+  profile.id::text as id,
          profile.gateway_ref,
          profile.version_number,
          profile.request_key,
@@ -140,11 +145,19 @@ const profileSelect = `
          profile.last_tested_at,
          profile.last_test_reason_code,
          profile.last_test_http_status,
-         creator.account_ref as created_by_account_ref,
-         activator.account_ref as activated_by_account_ref,
          profile.created_at,
          profile.activated_at,
-         profile.retired_at
+         profile.retired_at`;
+
+const runtimeProfileSelect = `
+  select ${runtimeProfileColumns}
+  from model_gateway_profiles as profile
+`;
+
+const profileSelect = `
+  select ${runtimeProfileColumns},
+         creator.account_ref as created_by_account_ref,
+         activator.account_ref as activated_by_account_ref
   from model_gateway_profiles as profile
   join admin_accounts as creator on creator.id = profile.created_by_account_id
   left join admin_accounts as activator on activator.id = profile.activated_by_account_id
@@ -672,8 +685,8 @@ export class PostgresModelGateway {
 
   public async resolveRuntimeGateway(): Promise<ResolvedRuntimeGateway> {
     return withBoundedTransaction(this.pool, async (client) => {
-      const selected = await client.query<GatewayProfileRow>(
-        `${profileSelect} where profile.state = 'active'`,
+      const selected = await client.query<RuntimeGatewayProfileRow>(
+        `${runtimeProfileSelect} where profile.state = 'active'`,
       );
       if (selected.rows.length > 1) {
         throw new Error('Multiple active gateway profiles exist');
@@ -728,7 +741,7 @@ export class PostgresModelGateway {
     return this.protector;
   }
 
-  private decryptRowSecret(row: GatewayProfileRow): SecretText {
+  private decryptRowSecret(row: RuntimeGatewayProfileRow): SecretText {
     const protector = this.requireProtector();
     if (
       row.key_version === null ||

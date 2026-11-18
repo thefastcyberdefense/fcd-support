@@ -14,6 +14,10 @@ import { PostgresOperationsStore } from '../../src/persistence/postgres-operatio
 import { PostgresProcessingWork } from '../../src/persistence/postgres-processing-work.js';
 import { PostgresNotificationWork } from '../../src/persistence/postgres-notification-work.js';
 import { PostgresOutboundWorkStore } from '../../src/persistence/postgres-outbound-work-store.js';
+import { PostgresOutboundPolicy } from '../../src/persistence/postgres-outbound-policy.js';
+import { PostgresOutboundTemplate } from '../../src/persistence/postgres-outbound-template.js';
+import { PostgresModelPolicy } from '../../src/persistence/postgres-model-policy.js';
+import { PostgresModelGateway } from '../../src/persistence/postgres-model-gateway.js';
 import { PostgresAdminIdentity } from '../../src/persistence/postgres-admin-identity.js';
 import { AdminSecretBytes, AdminSecretText } from '../../src/admin/admin-types.js';
 import { AesGcmAdminSecretProtector, generateTotpCode } from '../../src/admin/mfa.js';
@@ -905,4 +909,73 @@ test('webhook inserts attachments, reply reads and updates them, and admin or he
       poolFor(deniedRole).query('select * from webhook_event_attachments limit 0'),
     ).rejects.toMatchObject({ code: '42501' });
   }
+});
+
+test('reply and outbound least-privilege roles resolve active policy, gateway, and template without admin_accounts access', async () => {
+  await expect(
+    new PostgresOutboundPolicy(poolFor('outbound')).resolveEffectivePolicy(at, {
+      global1Minute: 10,
+      globalUtcDay: 100,
+      leaseMs: 30_000,
+      maximumDefiniteRetries: 1,
+      messengerAccount1Minute: 10,
+      perContact15Minute: 2,
+      perContact24Hour: 5,
+      providerTimeoutMs: 1_000,
+      retryBaseMs: 100,
+      retryMaximumMs: 1_000,
+      whatsappAccount1Minute: 10,
+      workerBatchSize: 5,
+    }),
+  ).resolves.toMatchObject({ status: 'disabled', reasonCode: 'no_active_policy' });
+
+  await expect(
+    new PostgresOutboundTemplate(poolFor('outbound')).resolveEffectiveTemplate({
+      category: 'marketing_education',
+      channel: 'whatsapp',
+      channelAccountId: 'SYNTHETIC_WA_PHONE_01',
+      evaluatedAt: at,
+      locale: 'en_US',
+      templateRef: 'TEMPLATE_SYNTHETIC_01',
+    }),
+  ).resolves.toMatchObject({ status: 'disabled', reasonCode: 'no_active_template' });
+
+  await expect(
+    new PostgresModelPolicy(poolFor('reply')).resolveEffectivePolicy(
+      at,
+      {
+        architectureProviderConnections: 1,
+        concurrentCalls: 2,
+        contextItems: 6,
+        cooldownMs: 0,
+        globalUtcDayCalls: 50,
+        inputCodePoints: 4000,
+        outputTokens: 512,
+        perContact15MinuteCalls: 5,
+        perContact24HourCalls: 20,
+        providerAttempts: 1,
+        queueCapacity: 4,
+        responseBytes: 65536,
+        totalTimeoutMs: 15000,
+      },
+      {
+        verified: true,
+        operationalLimits: {
+          concurrentCalls: 2,
+          cooldownMs: 0,
+          globalUtcDayCalls: 50,
+          outputTokens: 512,
+          perContact15MinuteCalls: 5,
+          perContact24HourCalls: 20,
+          providerAttempts: 1,
+          queueCapacity: 4,
+          totalTimeoutMs: 15000,
+        },
+      },
+    ),
+  ).resolves.toMatchObject({ status: 'disabled', reasonCode: 'no_active_policy' });
+
+  await expect(
+    new PostgresModelGateway(poolFor('reply')).resolveRuntimeGateway(),
+  ).resolves.toMatchObject({ gatewayKind: 'manifest_default' });
 });
