@@ -4,7 +4,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type pg from 'pg';
 import { expect, test, vi } from 'vitest';
-import { configureRuntimeGrants } from '../src/persistence/postgres-runtime-grants.js';
+import {
+  configureRuntimeGrants,
+  runtimeDatabaseRoles,
+} from '../src/persistence/postgres-runtime-grants.js';
 
 const roles = [
   'webhook',
@@ -102,4 +105,82 @@ test('old bootstrap password sets cannot provision roles without an independent 
     ).rejects.toThrow(/^runtime_grants_invalid$/u);
     expect(connect).not.toHaveBeenCalled();
   });
+});
+
+test('excludes extension functions from owner/public revoke and grants pg_trgm execute to reply and admin', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'fcd-grants-trgm-'));
+  try {
+    const passwordFiles: Record<string, string> = {};
+    const roles = [...runtimeDatabaseRoles, 'migrator'] as const;
+    for (const [index, role] of roles.entries()) {
+      const file = join(dir, role);
+      await writeFile(file, `${String(index).padStart(2, '0')}${'a'.repeat(32)}`, {
+        mode: 0o600,
+      });
+      passwordFiles[role] = file;
+    }
+
+    const queries: string[] = [];
+    const client = Object.assign(new EventEmitter(), {
+      query: vi.fn((sql: string) => {
+        queries.push(sql);
+        if (sql.includes('current_database()')) {
+          return Promise.resolve({ rows: [{ name: 'fcd_support_test', privileged: true }] });
+        }
+        if (sql.includes('pg_try_advisory_xact_lock')) {
+          return Promise.resolve({ rows: [{ acquired: true }] });
+        }
+        if (sql.includes('from pg_class') && sql.includes('relkind in')) {
+          return Promise.resolve({ rows: [{ relname: 'pgmigrations', relkind: 'r' }] });
+        }
+        if (sql.includes('where pronamespace=$1::regnamespace')) {
+          return Promise.resolve({
+            rows: [{ signature: 'runtime_recovery_held()', proname: 'runtime_recovery_held' }],
+          });
+        }
+        if (sql.includes("e.extname = 'pg_trgm'")) {
+          return Promise.resolve({
+            rows: [
+              { signature: 'public.similarity(text, text)' },
+              { signature: 'public.similarity_op(text, text)' },
+            ],
+          });
+        }
+        return Promise.resolve({ rows: [] });
+      }),
+      release: vi.fn(),
+    });
+    const pool = {
+      connect: vi.fn(() => Promise.resolve(client)),
+    } as unknown as pg.Pool;
+
+    await configureRuntimeGrants(pool, {
+      schema: 'public',
+      database: 'fcd_support_test',
+      rolePrefix: 'fcd_test',
+      passwordFiles,
+    });
+
+    const appProcQuery = queries.find((sql) => sql.includes('where pronamespace=$1::regnamespace'));
+    expect(appProcQuery).toContain("dep.deptype='e'");
+    expect(
+      queries.some(
+        (sql) =>
+          sql.includes(
+            'grant execute on function public.similarity(text, text),public.similarity_op(text, text)',
+          ) && sql.includes('"fcd_test_reply"'),
+      ),
+    ).toBe(true);
+    expect(
+      queries.some(
+        (sql) =>
+          sql.includes(
+            'grant execute on function public.similarity(text, text),public.similarity_op(text, text)',
+          ) && sql.includes('"fcd_test_admin"'),
+      ),
+    ).toBe(true);
+    expect(queries.some((sql) => /alter function .*similarity/iu.test(sql))).toBe(false);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
