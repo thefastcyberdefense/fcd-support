@@ -164,7 +164,11 @@ operations_inspect_host() {
   image="$(operations_docker image inspect --format '{{.Id}}/{{index .Config.Labels "org.opencontainers.image.revision"}}/{{.Os}}/{{.Architecture}}/{{.Config.User}}' "${OPS_CONFIG[FCD_OPERATIONS_IMAGE]}")" || operations_fail runtime_host_invalid
   [[ "$image" =~ ^(sha256:[a-f0-9]{64})/([a-f0-9]{40})/linux/amd64/(node|1000|1000:1000)$ && "${BASH_REMATCH[2]}" == "${OPS_CONFIG[FCD_SUPPORT_REVISION]}" ]] || operations_fail runtime_host_invalid
   validator_image="${BASH_REMATCH[1]}"
-  model="$(operations_compose runtime --profile '*' config --format json)" || operations_fail runtime_host_invalid
+  if [[ "$mode" == bootstrap ]]; then
+    model="$(OPS_RUNTIME_MODE=private-disabled operations_compose runtime --profile '*' config --format json)" || operations_fail runtime_host_invalid
+  else
+    model="$(operations_compose runtime --profile '*' config --format json)" || operations_fail runtime_host_invalid
+  fi
   (( ${#model} <= 1048576 )) || operations_fail runtime_host_invalid
   before="$(operations_runtime_snapshot "$mode")" || operations_fail runtime_host_invalid
   if [[ "$mode" == runtime || -n "$volume_identity" ]]; then
