@@ -14,7 +14,7 @@ init_defaults() {
   pg_volume="${pg_volume:-$scope-postgres}"
   pg_container="${pg_container:-$scope-postgres}"
   postgres_image="${postgres_image:-postgres:18.4@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636}"
-  schema_revision="${schema_revision:-000018}"
+  schema_revision="${schema_revision:-000019}"
   host_secret_marker="${host_secret_marker:-synthetic_docker_host_marker_do_not_echo}"
   precreation_passed="${precreation_passed:-0}"
   workdir="${workdir:-}"

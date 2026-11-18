@@ -25,6 +25,10 @@ export const MODEL_ESCALATION_REASON_CODES = Object.freeze([
   'wrong_language',
   'policy_blocked',
   'database_failure',
+  'unsupported_media',
+  'unclear_media',
+  'visual_media_deferred',
+  'media_extraction_failed',
 ] as const);
 
 export type ModelEscalationReasonCode = (typeof MODEL_ESCALATION_REASON_CODES)[number];

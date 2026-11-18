@@ -267,4 +267,213 @@ describe('reply decision service', () => {
     );
     expect(inspect).not.toHaveBeenCalled();
   });
+
+  test.each([
+    {
+      escalationReasonCode: 'unsupported_media' as const,
+      safeResponseReason: 'human_escalation' as const,
+      language: 'en' as const,
+    },
+    {
+      escalationReasonCode: 'unclear_media' as const,
+      safeResponseReason: 'human_escalation' as const,
+      language: 'bn' as const,
+    },
+    {
+      escalationReasonCode: 'visual_media_deferred' as const,
+      safeResponseReason: 'human_escalation' as const,
+      language: 'en' as const,
+    },
+    {
+      escalationReasonCode: 'sensitive_data_blocked' as const,
+      safeResponseReason: 'sensitive_data_blocked' as const,
+      language: 'en' as const,
+    },
+  ])(
+    'escalates %s attachment outcomes to human handling without model invocation',
+    async ({ escalationReasonCode, safeResponseReason, language }) => {
+      const resolve = vi.fn();
+      const persisted: PersistReplyDecisionInput[] = [];
+      const attachmentClaim: ReplyDecisionClaim = {
+        status: 'claimed',
+        source: {
+          conversationId: '17',
+          channel: 'whatsapp',
+          messageText: '',
+          occurredAt: new Date('2026-09-11T10:00:00.000Z'),
+          webhookEventId: input.webhookEventId,
+          attachments: [
+            {
+              id: '51',
+              attachmentIndex: 0,
+              kind: 'image',
+              rawType: 'image',
+              mediaId: 'MEDIA_1',
+              mediaUrl: null,
+              mimeType: 'image/png',
+              filename: null,
+              caption: null,
+              sha256: null,
+              isVoice: null,
+              extractionStatus: 'pending',
+              extractedText: null,
+              extractionMethod: null,
+              detectedLanguage: null,
+              reasonCode: null,
+            },
+          ],
+        },
+      };
+      const service = new ReplyDecisionService({
+        faqResolver: { resolve },
+        inspectSensitiveText,
+        mediaProcessor: {
+          process: vi.fn().mockResolvedValue({
+            kind: 'escalate',
+            effectiveLanguage: language,
+            escalationReasonCode,
+            safeResponseReason,
+            attachmentOutcomes: [
+              {
+                attachmentId: '51',
+                extractionStatus: 'unclear',
+                extractedText: null,
+                extractionMethod: null,
+                detectedLanguage: null,
+                reasonCode: escalationReasonCode,
+              },
+            ],
+          }),
+        },
+        store: {
+          claimDecision: vi.fn().mockResolvedValue(attachmentClaim),
+          persistDecision: (value) => {
+            persisted.push(value);
+            return Promise.resolve({
+              status: 'created',
+              decisionType: 'safe_failure',
+              draftRef: 'DRAFT_TEST_media',
+              nextAction: 'none',
+            });
+          },
+        },
+      });
+
+      await expect(service.decide(input)).resolves.toEqual({
+        status: 'created',
+        decisionType: 'safe_failure',
+        draftRef: 'DRAFT_TEST_media',
+        nextAction: 'none',
+      });
+      expect(resolve).not.toHaveBeenCalled();
+      expect(persisted).toEqual([
+        {
+          ...input,
+          language,
+          kind: 'safe_failure',
+          answerText: safeResponse(language, safeResponseReason),
+          escalationReasonCode,
+          attachmentOutcomes: [
+            {
+              attachmentId: '51',
+              extractionStatus: 'unclear',
+              extractedText: null,
+              extractionMethod: null,
+              detectedLanguage: null,
+              reasonCode: escalationReasonCode,
+            },
+          ],
+        },
+      ]);
+    },
+  );
+
+  test('routes sanitized extracted media text through FAQ matching cleanly', async () => {
+    const resolvedInputs: string[] = [];
+    const inspection = inspectSensitiveText('How do I unlock account with OTP: 123456?', 'en');
+    if (inspection.status === 'blocked') {
+      throw new Error('Unexpected blocked inspection');
+    }
+    const service = new ReplyDecisionService({
+      faqResolver: {
+        resolve: ({ sanitizedText }) => {
+          resolvedInputs.push(readPreparedFaqResolutionText(sanitizedText).normalizedText);
+          return Promise.resolve({
+            status: 'match',
+            answer: 'Use the account recovery page.',
+            itemReference: 'faq.account.recovery',
+            language: 'en',
+            matchKind: 'exact_question',
+            versionReference: 'VERSION_TEST_recovery',
+          });
+        },
+      },
+      inspectSensitiveText,
+      mediaProcessor: {
+        process: vi.fn().mockResolvedValue({
+          kind: 'extracted',
+          combinedText: inspection.sanitizedText,
+          effectiveLanguage: 'en',
+          inspection,
+          attachmentOutcomes: [
+            {
+              attachmentId: '52',
+              extractionStatus: 'extracted',
+              extractedText: inspection.sanitizedText,
+              extractionMethod: 'pdf_text',
+              detectedLanguage: 'en',
+              reasonCode: 'sensitive_value_redacted',
+            },
+          ],
+        }),
+      },
+      store: {
+        claimDecision: vi.fn().mockResolvedValue({
+          status: 'claimed',
+          source: {
+            conversationId: '17',
+            channel: 'messenger',
+            messageText: '',
+            occurredAt: new Date('2026-09-11T10:00:00.000Z'),
+            webhookEventId: input.webhookEventId,
+            attachments: [
+              {
+                id: '52',
+                attachmentIndex: 0,
+                kind: 'document',
+                rawType: 'file',
+                mediaId: null,
+                mediaUrl: 'https://cdn.fbsbx.com/synthetic/question.pdf',
+                mimeType: 'application/pdf',
+                filename: 'question.pdf',
+                caption: null,
+                sha256: null,
+                isVoice: null,
+                extractionStatus: 'pending',
+                extractedText: null,
+                extractionMethod: null,
+                detectedLanguage: null,
+                reasonCode: null,
+              },
+            ],
+          },
+        }),
+        persistDecision: vi.fn().mockResolvedValue({
+          status: 'created',
+          decisionType: 'faq',
+          draftRef: 'DRAFT_TEST_media_faq',
+          nextAction: 'none',
+        }),
+      },
+    });
+
+    await expect(service.decide(input)).resolves.toEqual({
+      status: 'created',
+      decisionType: 'faq',
+      draftRef: 'DRAFT_TEST_media_faq',
+      nextAction: 'none',
+    });
+    expect(resolvedInputs).toEqual(['how do i unlock account with redacted otp']);
+    expect(resolvedInputs[0]).not.toContain('123456');
+  });
 });

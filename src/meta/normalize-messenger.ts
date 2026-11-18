@@ -2,13 +2,27 @@ import { createHash } from 'node:crypto';
 
 import { z } from 'zod';
 
-import type { NormalizedMetaEvent } from './normalized-event.js';
+import type { NormalizedMediaAttachment, NormalizedMetaEvent } from './normalized-event.js';
+
+const attachmentSchema = z
+  .object({
+    payload: z
+      .object({
+        sticker_id: z.unknown().optional(),
+        url: z.string().min(1).optional(),
+      })
+      .loose()
+      .optional(),
+    type: z.string().min(1),
+  })
+  .loose();
 
 const messagingEventSchema = z
   .object({
     delivery: z.unknown().optional(),
     message: z
       .object({
+        attachments: z.array(attachmentSchema).max(19).optional(),
         is_echo: z.boolean().optional(),
         mid: z.string(),
         text: z.string().optional(),
@@ -42,6 +56,29 @@ const entrySchema = z
     time: z.number(),
   })
   .loose();
+
+function normalizeMessengerAttachments(
+  items: readonly z.infer<typeof attachmentSchema>[] | undefined,
+): readonly NormalizedMediaAttachment[] | undefined {
+  if (items === undefined || items.length === 0) return undefined;
+  return items.map((item): NormalizedMediaAttachment => {
+    const isSticker = item.payload?.sticker_id !== undefined;
+    const kind: NormalizedMediaAttachment['kind'] = isSticker
+      ? 'unsupported'
+      : item.type === 'image'
+        ? 'image'
+        : item.type === 'audio'
+          ? 'audio'
+          : item.type === 'file'
+            ? 'document'
+            : 'unsupported';
+    return {
+      kind,
+      rawType: isSticker ? 'sticker' : item.type,
+      ...(item.payload?.url === undefined ? {} : { mediaUrl: item.payload.url }),
+    };
+  });
+}
 
 function parseMessengerTimestamp(timestamp: number): Date | undefined {
   if (!Number.isSafeInteger(timestamp) || timestamp < 0) {
@@ -137,7 +174,8 @@ export function normalizeMessengerWebhook(payload: unknown): readonly Normalized
         continue;
       }
       const message = messagingEvent.message;
-      if (message?.text === undefined) {
+      const attachments = normalizeMessengerAttachments(message?.attachments);
+      if (message === undefined || (message.text === undefined && attachments === undefined)) {
         events.push({
           kind: 'unsupported',
           channel: 'messenger',
@@ -158,17 +196,32 @@ export function normalizeMessengerWebhook(payload: unknown): readonly Normalized
 
       const isEcho = message.is_echo === true;
       const contactId = isEcho ? messagingEvent.recipient.id : messagingEvent.sender.id;
+      const text = message.text ?? '';
 
-      events.push({
-        kind: isEcho ? 'business_message_echo' : 'customer_message',
-        channel: 'messenger',
-        channelAccountId: entry.id,
-        contactId,
-        externalMessageId: message.mid,
-        idempotencyKey: `messenger:message:${entry.id}:${message.mid}`,
-        occurredAt,
-        text: message.text,
-      });
+      if (isEcho) {
+        events.push({
+          kind: 'business_message_echo',
+          channel: 'messenger',
+          channelAccountId: entry.id,
+          contactId,
+          externalMessageId: message.mid,
+          idempotencyKey: `messenger:message:${entry.id}:${message.mid}`,
+          occurredAt,
+          text,
+        });
+      } else {
+        events.push({
+          kind: 'customer_message',
+          channel: 'messenger',
+          channelAccountId: entry.id,
+          contactId,
+          externalMessageId: message.mid,
+          idempotencyKey: `messenger:message:${entry.id}:${message.mid}`,
+          occurredAt,
+          text,
+          ...(attachments === undefined ? {} : { attachments }),
+        });
+      }
     }
   }
 

@@ -66,7 +66,19 @@ export class PostgresReplyRuntimeState implements ReplyPipelineState {
     return withBoundedTransaction(this.pool, async (client) => {
       const result = await client.query<{ language: 'bn' | 'en' }>(
         `select
-        coalesce(draft.language,gap.language,case when event.message_text ~ '[ঁ-৿]' then 'bn' else 'en' end) as language
+        coalesce(
+          draft.language,
+          gap.language,
+          case when event.message_text ~ '[ঁ-৿]' then 'bn' else null end,
+          (
+            select attachment.detected_language
+            from webhook_event_attachments attachment
+            where attachment.webhook_event_id = event.id
+              and attachment.detected_language = 'bn'
+            limit 1
+          ),
+          'en'
+        ) as language
         from webhook_events event
         join webhook_event_applications application on application.webhook_event_id=event.id
         left join support_reply_drafts draft on draft.source_webhook_event_id=event.id

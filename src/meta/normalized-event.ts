@@ -1,6 +1,19 @@
 export type MetaChannel = 'messenger' | 'whatsapp';
 export type ProviderMessageStatus = 'delivered' | 'failed' | 'read' | 'sent';
 export type DeliveryState = 'provider_accepted' | ProviderMessageStatus;
+export type NormalizedAttachmentKind = 'audio' | 'document' | 'image' | 'unsupported';
+
+export interface NormalizedMediaAttachment {
+  readonly caption?: string;
+  readonly filename?: string;
+  readonly kind: NormalizedAttachmentKind;
+  readonly mediaId?: string;
+  readonly mediaUrl?: string;
+  readonly mimeType?: string;
+  readonly rawType: string;
+  readonly sha256?: string;
+  readonly voice?: boolean;
+}
 
 interface NormalizedMessageBase {
   readonly channel: MetaChannel;
@@ -12,6 +25,7 @@ interface NormalizedMessageBase {
 }
 
 export interface NormalizedCustomerMessage extends NormalizedMessageBase {
+  readonly attachments?: readonly NormalizedMediaAttachment[];
   readonly kind: 'customer_message';
   readonly text: string;
 }

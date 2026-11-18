@@ -1,5 +1,11 @@
 import type { FaqResolution, PreparedFaqResolutionText } from '../knowledge/faq-resolver.js';
 import type { KnowledgeLanguage } from '../knowledge/knowledge-types.js';
+import type {
+  ClaimedWebhookAttachment,
+  MediaEscalationReasonCode,
+  PersistedAttachmentOutcome,
+} from '../media/media-types.js';
+import type { MetaChannel } from '../meta/normalized-event.js';
 import type { SensitiveTextInspection } from '../safety/sensitive-data-types.js';
 import type { ResolvedRuntimeGateway } from '../model/gateway-types.js';
 import type { ManifestClientFailureReason } from '../model/manifest-client.js';
@@ -30,6 +36,8 @@ export type ReplyPolicyBlockReason =
   | 'retention_expired';
 
 export interface ClaimedReplySource {
+  readonly attachments?: readonly ClaimedWebhookAttachment[];
+  readonly channel?: MetaChannel;
   readonly conversationId: string;
   readonly messageText: string;
   readonly occurredAt: Date;
@@ -61,16 +69,19 @@ type PersistReplyDecisionBase = ReplyDecisionInput;
 export type PersistReplyDecisionInput =
   | (PersistReplyDecisionBase & {
       readonly answerText: string;
-      readonly escalationReasonCode: 'sensitive_data_blocked' | 'unsafe_redaction';
+      readonly attachmentOutcomes?: readonly PersistedAttachmentOutcome[];
+      readonly escalationReasonCode: MediaEscalationReasonCode;
       readonly kind: 'safe_failure';
     })
   | (PersistReplyDecisionBase & {
       readonly answerText: string;
+      readonly attachmentOutcomes?: readonly PersistedAttachmentOutcome[];
       readonly itemReference: string;
       readonly kind: 'faq';
       readonly versionReference: string;
     })
   | (PersistReplyDecisionBase & {
+      readonly attachmentOutcomes?: readonly PersistedAttachmentOutcome[];
       readonly gapKind: 'faq_ambiguous' | 'faq_miss';
       readonly kind: 'model_required';
     });

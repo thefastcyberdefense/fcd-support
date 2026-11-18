@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { validatePrivateMediaServiceUrl } from '../media/private-service-client.js';
 import { loadModelConfig, restrictModelOperationalLimits } from '../model/model-config.js';
 import type { ManifestLimitAttestation } from '../model/model-policy-types.js';
 import { parseOutboundPolicyInput } from '../outbound/outbound-policy-input.js';
@@ -60,7 +61,32 @@ export function loadReplySettings(
         operationalLimits: restrictModelOperationalLimits(limits, limits, limits),
       });
     }
-    return Object.freeze({ revision, schemaRevision, faq, outboundBounds, model, attestation });
+    const rawOcrUrl = environment.PRIVATE_MEDIA_OCR_URL;
+    const rawSttUrl = environment.PRIVATE_MEDIA_STT_URL;
+    const rawGraphUrl = environment.META_GRAPH_API_BASE_URL;
+    const media = Object.freeze({
+      ocrUrl:
+        rawOcrUrl === undefined || rawOcrUrl.trim() === ''
+          ? undefined
+          : validatePrivateMediaServiceUrl(rawOcrUrl),
+      sttUrl:
+        rawSttUrl === undefined || rawSttUrl.trim() === ''
+          ? undefined
+          : validatePrivateMediaServiceUrl(rawSttUrl),
+      graphBaseUrl:
+        rawGraphUrl === undefined || rawGraphUrl.trim() === ''
+          ? undefined
+          : validatePrivateMediaServiceUrl(rawGraphUrl),
+    });
+    return Object.freeze({
+      revision,
+      schemaRevision,
+      faq,
+      outboundBounds,
+      model,
+      attestation,
+      media,
+    });
   } catch {
     throw new Error('reply_configuration_invalid');
   }
