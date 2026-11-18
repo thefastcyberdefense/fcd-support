@@ -43,11 +43,12 @@ export async function writeRuntimeHostFixture(
   root: string,
   project: string,
   revision: string,
-  profile = 'standard',
+  profile: 'standard' | 'ci-recovery' | 'v1-enabled' = 'standard',
 ): Promise<void> {
   try {
+    const validProfiles: readonly string[] = ['standard', 'ci-recovery', 'v1-enabled'];
     if (
-      (profile !== 'standard' && profile !== 'ci-recovery') ||
+      !validProfiles.includes(profile) ||
       !isAbsolute(root) ||
       resolve(root) !== root ||
       basename(root) !== project ||
@@ -206,7 +207,42 @@ export async function writeRuntimeHostFixture(
       'restore/restore-checkpoint-database': roleUri('checkpoint', 'fcd-support-source-postgres'),
       'restore/restore-migrator-database': roleUri('migrator', 'fcd-support-restore-postgres'),
       'restore/restore-keyring': keyring,
+      ...(profile === 'v1-enabled'
+        ? {
+            'reply/manifest-key': secret(),
+            'outbound/meta-page-token': secret(),
+            'outbound/meta-whatsapp-token': secret(),
+            'outbound/meta-page-id': 'synthetic_page_id',
+            'outbound/meta-phone-id': 'synthetic_phone_id',
+          }
+        : {}),
     };
+    if (profile === 'v1-enabled') {
+      await put(
+        'config/model.env',
+        serialize({
+          MANIFEST_BASE_URL: 'http://manifest:2099/v1',
+          MANIFEST_MODEL: 'auto',
+          MANIFEST_TIMEOUT_MS: '10000',
+          MANIFEST_MAX_RESPONSE_BYTES: '65536',
+          MANIFEST_MAX_OUTPUT_TOKENS: '512',
+          MANIFEST_DELETION_RETENTION_APPROVED: 'true',
+          MANIFEST_LIMITS_WITHIN_DEPLOYMENT_CEILINGS: 'true',
+          MANIFEST_PRIVATE_ROUTE_VERIFIED: 'true',
+          MANIFEST_PROVIDER_ALLOWLIST_APPROVED: 'true',
+          MANIFEST_RECORDING_DISABLED: 'true',
+        }),
+      );
+      await writeFile(
+        join(root, 'config/outbound.env'),
+        serialize({
+          REPLY_OUTBOUND_BOUNDS_JSON: JSON.stringify(outboundBounds),
+          META_OUTBOUND_TIMEOUT_MS: '10000',
+          META_OUTBOUND_MAX_RESPONSE_BYTES: '65536',
+        }),
+        { mode: 0o600 },
+      );
+    }
     for (const role of roles)
       files[`bootstrap/passwords/bootstrap-${role.replaceAll('_', '-')}-password`] =
         passwords[role];
@@ -247,6 +283,21 @@ export async function writeRuntimeHostFixture(
       FCD_HEALTH_TIMEOUT_MS: '1000',
       FCD_HEALTH_RETRIES: '30',
       FCD_HEALTH_START_MS: '5000',
+      ...(profile === 'v1-enabled'
+        ? {
+            FCD_MODEL_NETWORK: `${project}-model`,
+            FCD_BACKUP_CALENDAR: '*-*-* 02:00:00 UTC',
+            FCD_MAINTENANCE_CALENDAR: '*-*-* *:00/5:00 UTC',
+            FCD_HEALTH_CALENDAR: '*-*-* *:*:00 UTC',
+            FCD_MAINTENANCE_SLOT_SECONDS: '300',
+            FCD_TIMER_TIMEOUT_SECONDS: '900',
+            FCD_TIMER_MEMORY_MIB: '256',
+            FCD_TIMER_TASKS_MAX: '128',
+            FCD_TIMER_CPUS: '1',
+            FCD_TIMER_ACCURACY_SECONDS: '1',
+            FCD_TIMER_RANDOMIZED_DELAY_SECONDS: '0',
+          }
+        : {}),
     };
     for (const role of [...resourceRoles, 'postgres']) {
       const prefix = `FCD_${role.toUpperCase()}`;
@@ -271,7 +322,7 @@ if (
     root === undefined ||
     project === undefined ||
     revision === undefined ||
-    (profile !== 'standard' && profile !== 'ci-recovery')
+    (profile !== 'standard' && profile !== 'ci-recovery' && profile !== 'v1-enabled')
   )
     throw new Error('synthetic_host_fixture_invalid');
   await writeRuntimeHostFixture(root, project, revision, profile);

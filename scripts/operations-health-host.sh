@@ -19,14 +19,23 @@ operations_collect_health_host() (
   local tunnel_format='{{.Id}}|{{.State.Running}}|{{.State.Paused}}|{{.State.Restarting}}|{{.State.Dead}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}|{{.State.StartedAt}}'
   local -A services=([api]=fcd-support-api [admin]=fcd-support-admin [reply]=fcd-support-reply)
   local -A actors=() before=() running=() health=() revisions=() seen=()
-  local key id raw ignored_project ignored_service paused restarting dead state started revision
+  local -a check_keys=(api admin reply tunnel)
+  local key id raw ignored_project ignored_service paused restarting dead state started revision has_outbound=false outbound_id=''
   for key in api admin reply; do
     id="$(operations_runtime_id "${services[$key]}")" || return 1
     [[ "$id" =~ ^[a-f0-9]{64}$ ]] || return 1
     actors[$key]="$id"
   done
+  if [[ "${OPS_RUNTIME_MODE:-private-disabled}" == private-enabled || -n "${OPS_CONFIG[FCD_MODEL_NETWORK]:-}" ]]; then
+    if outbound_id="$(operations_runtime_id fcd-support-outbound 2>/dev/null)" && [[ "$outbound_id" =~ ^[a-f0-9]{64}$ ]]; then
+      has_outbound=true
+      services[outbound]=fcd-support-outbound
+      actors[outbound]="$outbound_id"
+      check_keys=(api admin reply outbound tunnel)
+    fi
+  fi
   actors[tunnel]="$peer"
-  for key in api admin reply tunnel; do
+  for key in "${check_keys[@]}"; do
     id="${actors[$key]}"
     [[ -z "${seen[$id]:-}" ]] || return 1
     seen[$id]=yes
@@ -43,7 +52,7 @@ operations_collect_health_host() (
     (( ${#value} <= 1024 )) && [[ "$value" =~ $pattern ]] || return 1
     printf '%s' "$value"
   }
-  for key in api admin reply tunnel; do
+  for key in "${check_keys[@]}"; do
     raw="$(operations_health_host_metadata "$key")" || return 1
     before[$key]="$raw"
     if [[ "$key" == tunnel ]]; then
@@ -69,7 +78,7 @@ operations_collect_health_host() (
       health[api]=unavailable
     fi
   fi
-  local admin_socket=unknown heartbeat='' heartbeat_state heartbeat_at
+  local admin_socket=unknown heartbeat='' outbound_heartbeat='' outbound_json='' heartbeat_state heartbeat_at
   if [[ "${health[admin]}" == healthy && "${revisions[admin]}" == "$expected" ]]; then
     if operations_docker exec "${actors[admin]}" node dist/admin/admin-socket-health.js /run/fcd-support-admin/admin.sock "$timeout" >/dev/null; then
       admin_socket=healthy
@@ -88,8 +97,15 @@ operations_collect_health_host() (
       heartbeat=",\"heartbeat\":{\"state\":\"$heartbeat_state\",\"checkedAt\":\"$heartbeat_at\"}"
     fi
   fi
+  if [[ "$has_outbound" == true && "${health[outbound]}" == healthy && "${revisions[outbound]}" == "$expected" ]]; then
+    if raw="$(operations_docker exec "${actors[outbound]}" node --input-type=module -e 'import {constants,openSync,closeSync,fstatSync,readSync} from "node:fs";import {readRuntimeHeartbeat} from "./dist/operations/role-runtime.js";import {parseRuntimeHeartbeat} from "./dist/operations/runtime-readiness.js";let fd;try{const p="/run/fcd-support/heartbeat.json",now=new Date(),limit=Number(process.env.OPS_HEALTH_STALE_MS);if(!Number.isSafeInteger(limit)||limit<1||limit>86400000||!readRuntimeHeartbeat(p,now,limit))throw 0;fd=openSync(p,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);const s=fstatSync(fd);if(!s.isFile()||s.size>1024)throw 0;const b=Buffer.alloc(1025),n=readSync(fd,b,0,b.length,0);if(n<1||n>1024)throw 0;const h=parseRuntimeHeartbeat(JSON.parse(b.subarray(0,n).toString("utf8")));if(!h||!["healthy","disabled"].includes(h.state))throw 0;const age=now.getTime()-Date.parse(h.checkedAt);if(!Number.isFinite(age)||age<0||age>limit)throw 0;process.stdout.write(h.state+"|"+h.checkedAt)}catch{process.exitCode=1}finally{if(fd!==undefined)closeSync(fd)}')"; then
+      [[ "$raw" =~ ^(healthy|disabled)[|]${stamp}$ ]] || return 1
+      IFS='|' read -r heartbeat_state heartbeat_at <<<"$raw"
+      outbound_heartbeat=",\"heartbeat\":{\"state\":\"$heartbeat_state\",\"checkedAt\":\"$heartbeat_at\"}"
+    fi
+  fi
   # No evidence escapes until every sampled physical actor is still the same.
-  for key in api admin reply tunnel; do
+  for key in "${check_keys[@]}"; do
     raw="$(operations_health_host_metadata "$key")" || return 1
     [[ "$raw" == "${before[$key]}" ]] || return 1
   done
@@ -97,6 +113,11 @@ operations_collect_health_host() (
     id="$(operations_runtime_id "${services[$key]}")" || return 1
     [[ "$id" == "${actors[$key]}" ]] || return 1
   done
-  printf '{"checkedAt":"%s","services":[{"component":"webhook","running":%s,"health":"%s","gitRevision":"%s"},{"component":"reply","running":%s,"health":"%s","gitRevision":"%s"%s},{"component":"tunnel","running":%s,"health":"%s","gitRevision":"%s"}],"adminSocket":"%s","manifestAttestation":"not_verified","publicRouteCheck":{"state":"not_verified"}}' \
-    "$checked_at" "${running[api]}" "${health[api]}" "${revisions[api]}" "${running[reply]}" "${health[reply]}" "${revisions[reply]}" "$heartbeat" "${running[tunnel]}" "${health[tunnel]}" "$expected" "$admin_socket"
+  if [[ "$has_outbound" == true ]]; then
+    id="$(operations_runtime_id fcd-support-outbound)" || return 1
+    [[ "$id" == "${actors[outbound]}" ]] || return 1
+    outbound_json="$(printf ',{"component":"outbound","running":%s,"health":"%s","gitRevision":"%s"%s}' "${running[outbound]}" "${health[outbound]}" "${revisions[outbound]}" "$outbound_heartbeat")"
+  fi
+  printf '{"checkedAt":"%s","services":[{"component":"webhook","running":%s,"health":"%s","gitRevision":"%s"},{"component":"reply","running":%s,"health":"%s","gitRevision":"%s"%s}%s,{"component":"tunnel","running":%s,"health":"%s","gitRevision":"%s"}],"adminSocket":"%s","manifestAttestation":"not_verified","publicRouteCheck":{"state":"not_verified"}}' \
+    "$checked_at" "${running[api]}" "${health[api]}" "${revisions[api]}" "${running[reply]}" "${health[reply]}" "${revisions[reply]}" "$heartbeat" "$outbound_json" "${running[tunnel]}" "${health[tunnel]}" "$expected" "$admin_socket"
 ) 2>/dev/null

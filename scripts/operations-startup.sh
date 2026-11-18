@@ -72,8 +72,14 @@ operations_startup_checked() {
   operations_selection_starting "$OPS_STARTUP_REFERENCE" "${OPS_CONFIG[FCD_SUPPORT_REVISION]}" "${OPS_CONFIG[FCD_SCHEMA_REVISION]}"
   operations_startup_selection starting || return 1
   operations_socket_root || return 1
-  operations_compose runtime up --detach --wait --wait-timeout "${OPS_CONFIG[FCD_READY_TIMEOUT_SECONDS]}" \
-    --no-deps --no-build --pull never fcd-support-api fcd-support-admin fcd-support-reply >/dev/null 2>&1 || true
+  if [[ "${OPS_RUNTIME_MODE:-private-disabled}" == private-enabled ]]; then
+    operations_compose runtime --profile model-execution --profile outbound-execution \
+      up --detach --wait --wait-timeout "${OPS_CONFIG[FCD_READY_TIMEOUT_SECONDS]}" \
+      --no-deps --no-build --pull never fcd-support-api fcd-support-admin fcd-support-reply fcd-support-outbound >/dev/null 2>&1 || true
+  else
+    operations_compose runtime up --detach --wait --wait-timeout "${OPS_CONFIG[FCD_READY_TIMEOUT_SECONDS]}" \
+      --no-deps --no-build --pull never fcd-support-api fcd-support-admin fcd-support-reply >/dev/null 2>&1 || true
+  fi
   # Never replay a timed-out start. Resolve only its complete fresh postcondition.
   operations_inspect_runtime_host >/dev/null 2>&1 || return 1
   operations_startup_selection starting || return 1

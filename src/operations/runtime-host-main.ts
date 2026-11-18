@@ -7,16 +7,48 @@ import {
   RuntimeHostValidationError,
 } from './runtime-host.js';
 
+export function parseRuntimeHostCliArguments(rawArgs: readonly string[]) {
+  const bootstrap = rawArgs[0] === 'bootstrap';
+  const mode = bootstrap
+    ? ('private-disabled' as const)
+    : rawArgs.length === 8 && rawArgs[6] === '--mode'
+      ? z.enum(['private-disabled', 'private-enabled']).parse(rawArgs[7])
+      : rawArgs.length === 6
+        ? ('private-disabled' as const)
+        : (() => {
+            throw new Error('invalid');
+          })();
+  const args = z
+    .tuple([z.string(), z.string(), z.string(), z.string(), z.string(), z.string()])
+    .parse(rawArgs.slice(0, 6));
+  const [revision, adminSocketRoot, configRoot, secretRoot, workspaceRoot] = z
+    .tuple([z.string(), z.string(), z.string(), z.string(), z.string()])
+    .parse(bootstrap ? args.slice(1) : args.slice(0, 5));
+  return Object.freeze({
+    bootstrap,
+    mode,
+    revision,
+    adminSocketRoot,
+    configRoot,
+    secretRoot,
+    workspaceRoot,
+    ingressPeerId: args[5],
+  });
+}
+
 export async function runRuntimeHostMain(): Promise<void> {
   let stage = 'arguments';
   try {
-    const args = z
-      .tuple([z.string(), z.string(), z.string(), z.string(), z.string(), z.string()])
-      .parse(process.argv.slice(2));
-    const bootstrap = args[0] === 'bootstrap';
-    const [revision, adminSocketRoot, configRoot, secretRoot, workspaceRoot] = z
-      .tuple([z.string(), z.string(), z.string(), z.string(), z.string()])
-      .parse(bootstrap ? args.slice(1) : args.slice(0, 5));
+    const {
+      bootstrap,
+      mode,
+      revision,
+      adminSocketRoot,
+      configRoot,
+      secretRoot,
+      workspaceRoot,
+      ingressPeerId,
+    } = parseRuntimeHostCliArguments(process.argv.slice(2));
     stage = 'input';
     const chunks: Buffer[] = [];
     let count = 0;
@@ -48,7 +80,8 @@ export async function runRuntimeHostMain(): Promise<void> {
       ? inspectBootstrapDatabaseSamples(input.samples, input.compose, options)
       : inspectRuntimeHostSamples(input.samples, input.compose, {
           ...options,
-          ingressPeerId: args[5],
+          ingressPeerId,
+          mode,
         });
     process.stdout.write(JSON.stringify(result) + '\n');
   } catch (error) {

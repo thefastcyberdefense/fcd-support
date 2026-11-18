@@ -834,3 +834,69 @@ test.skipIf(process.platform === 'win32')(
   },
   5000,
 );
+
+test('verify-systemd-units script validates rendered alignment without calling systemctl', () => {
+  const script = readFileSync('scripts/verify-systemd-units.sh', 'utf8');
+  expect(script).not.toMatch(/\bsystemctl\b|run --rm|\beval\b|source.*common\.env/u);
+  const syntax = spawnSync(
+    bash,
+    ['-n', resolve('scripts/verify-systemd-units.sh').replaceAll('\\', '/')],
+    {
+      encoding: 'utf8',
+    },
+  );
+  expect(syntax.status, syntax.stderr).toBe(0);
+});
+
+test.runIf(native)(
+  'native verify-systemd-units confirms exact v1 alignment and rejects stale unit drift',
+  async () => {
+    const root = await mkdtemp('/var/lib/fcd-support/backups/systemd-align-test-');
+    await chmod(root, 0o700);
+    try {
+      const dependencies = join(root, 'dependencies');
+      await mkdir(dependencies, { mode: 0o700 });
+      await writeFile(
+        join(dependencies, 'docker.service'),
+        '[Unit]\nDescription=Synthetic Docker dependency\n[Service]\nType=oneshot\nExecStart=/usr/bin/true\n',
+        { mode: 0o600 },
+      );
+      await writeFile(join(root, 'host.conf'), '# Synthetic config\n', { mode: 0o600 });
+      const extra = {
+        TASK_ROOT: root,
+        TASK_DEPENDENCIES: dependencies,
+        TASK_WORKSPACE: process.cwd(),
+      };
+      const renderRes = shell(
+        `${config}\nOPS_ROOT=$TASK_WORKSPACE; OPS_CONFIG_FILE=$TASK_ROOT/host.conf\nexport SYSTEMD_UNIT_PATH=$TASK_DEPENDENCIES:\nsystemd-analyze() { command systemd-analyze "$@"; }\noperations_timers_render "$TASK_ROOT/units"`,
+        'render-systemd-units.sh',
+        extra,
+      );
+      expect(renderRes.status, renderRes.stderr).toBe(0);
+
+      const verifyRes = shell(
+        `${config}\nOPS_ROOT=$TASK_WORKSPACE; OPS_CONFIG_FILE=$TASK_ROOT/host.conf\noperations_verify_systemd_units "$TASK_ROOT/units"`,
+        'verify-systemd-units.sh',
+        extra,
+      );
+      expect(verifyRes.status, verifyRes.stderr).toBe(0);
+      expect(verifyRes.stdout.trim()).toBe('systemd_units_aligned=true');
+
+      await writeFile(
+        join(root, 'units', 'fcd-support-operation@.service'),
+        '[Service]\nExecStart=/usr/bin/bash /home/redwan/apps/fcd-support/scripts/run-operation.sh %i 0000000000000000000000000000000000000000 /stale/conf\n',
+        { mode: 0o600 },
+      );
+      const staleRes = shell(
+        `${config}\nOPS_ROOT=$TASK_WORKSPACE; OPS_CONFIG_FILE=$TASK_ROOT/host.conf\noperations_verify_systemd_units "$TASK_ROOT/units"`,
+        'verify-systemd-units.sh',
+        extra,
+      );
+      expect(staleRes.status).toBe(1);
+      expect(staleRes.stderr.trim()).toBe('operations_timer_alignment_invalid');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+  30_000,
+);

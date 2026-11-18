@@ -192,5 +192,14 @@ async function runEntrypoint(): Promise<void> {
 
 const invokedPath = process.argv[1];
 if (invokedPath !== undefined && import.meta.url === pathToFileURL(invokedPath).href) {
-  await runEntrypoint();
+  const args = process.argv.slice(2);
+  if (args.length === 1 && args[0] === '--provision-stdin') {
+    const { runAdminProvisionFromEnvironment } = await import('./admin-provision.js');
+    process.exitCode = await runAdminProvisionFromEnvironment(process.env);
+  } else if (args.length === 0) {
+    await runEntrypoint();
+  } else {
+    process.stderr.write('Admin bootstrap arguments are invalid\n');
+    process.exitCode = 1;
+  }
 }
