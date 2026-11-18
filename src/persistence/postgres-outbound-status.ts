@@ -145,7 +145,7 @@ export async function applyOutboundStatusEvent(
        and attempt.channel_account_id = $2
        and attempt.provider_message_id = $3
        and attempt.state = 'provider_accepted'
-     for update of attempt, intent`,
+     for update of intent`,
     [event.channel, event.channel_account_id, event.external_message_id],
   );
   const correlated = correlation.rows[0];

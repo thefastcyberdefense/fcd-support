@@ -482,8 +482,11 @@ export async function configureRuntimeGrants(
       'model_budget_windows',
       'runtime_processing_work',
       'outbound_intents',
+      'outbound_status_events',
+      'outbound_echo_correlation_holds',
       'outbound_escalation_outcomes',
     ]);
+    await grant('reply', 'update(state,outcome_code,finished_at)', ['outbound_attempts']);
     await grant('admin', 'select', [
       ...groups.knowledge,
       ...groups.admin,

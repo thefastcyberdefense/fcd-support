@@ -13,8 +13,13 @@ import { PostgresReceiptStore } from '../../src/persistence/postgres-receipt-sto
 import { PostgresOperationsStore } from '../../src/persistence/postgres-operations-store.js';
 import { PostgresProcessingWork } from '../../src/persistence/postgres-processing-work.js';
 import { PostgresNotificationWork } from '../../src/persistence/postgres-notification-work.js';
+import type { ReviewerPrincipal } from '../../src/policy/policy-types.js';
+import { PostgresOutboundEchoCorrelation } from '../../src/persistence/postgres-outbound-echo-correlation.js';
+import { PostgresOutboundIntentStore } from '../../src/persistence/postgres-outbound-intent-store.js';
+import { PostgresOutboundStatus } from '../../src/persistence/postgres-outbound-status.js';
 import { PostgresOutboundWorkStore } from '../../src/persistence/postgres-outbound-work-store.js';
 import { PostgresOutboundPolicy } from '../../src/persistence/postgres-outbound-policy.js';
+import { PostgresPrivacyRightsPolicy } from '../../src/persistence/postgres-privacy-rights-policy.js';
 import { PostgresOutboundTemplate } from '../../src/persistence/postgres-outbound-template.js';
 import { PostgresModelPolicy } from '../../src/persistence/postgres-model-policy.js';
 import { PostgresModelGateway } from '../../src/persistence/postgres-model-gateway.js';
@@ -28,7 +33,11 @@ import { operationsEnvironment } from '../helpers/operations-fixtures.js';
 import { createEncryptedBackup, verifyEncryptedBackup } from '../../src/operations/backup.js';
 import { registerBackup } from '../../src/operations/backup-command.js';
 import { assertDatabaseIdentity } from '../../src/operations/database-identity.js';
-import { insertSyntheticAppliedCustomerEvent, syntheticPrivacyKeyring } from './policy-fixtures.js';
+import {
+  insertSyntheticAppliedCustomerEvent,
+  insertSyntheticPendingEvent,
+  syntheticPrivacyKeyring,
+} from './policy-fixtures.js';
 import {
   createIsolatedTestDatabase,
   requireIsolatedTestDatabaseUrl,
@@ -553,6 +562,228 @@ test('outbound login executes bounded lease recovery without admin or tombstone 
   expect(result).toEqual({ deliveryUnknown: 0, returnedToPending: 0 });
   await expect(
     poolFor('outbound').query('update privacy_suppressions set expires_at=null where false'),
+  ).rejects.toMatchObject({ code: '42501' });
+});
+
+test('outbound and reply logins complete intent, dispatch locking, status, echo, and opt-out flows under least privilege', async () => {
+  const reviewer: ReviewerPrincipal = {
+    reviewerRef: 'ADMIN_TEST_grants_workers',
+    roles: ['administrator'],
+  };
+  const reviewerInsert = await database.pool.query<{ readonly id: string }>(
+    `insert into admin_accounts
+       (account_ref, login_name, password_algorithm, password_cost,
+        password_block_size, password_parallelization, password_key_length,
+        password_salt, password_hash, state, created_at, updated_at, password_changed_at)
+     values ($1, 'synthetic.grants.workers', 'scrypt_v1', 16384, 8, 1, 32, $2, $3, 'active', $4, $4, $4)
+     on conflict (account_ref) do update set updated_at = excluded.updated_at
+     returning id`,
+    [reviewer.reviewerRef, Buffer.alloc(16, 0x31), Buffer.alloc(32, 0x32), at],
+  );
+  const reviewerId = reviewerInsert.rows[0]?.id;
+  if (reviewerId === undefined) throw new Error('synthetic_worker_grant_reviewer_missing');
+  await database.pool.query(
+    `insert into admin_role_assignments
+       (account_id, role, action, actor_account_id, effective_at, request_key)
+     values ($1, 'administrator', 'assign', $1, $2, 'REQUEST_TEST_grants_workers_role')
+     on conflict do nothing`,
+    [reviewerId, at],
+  );
+
+  const outboundPolicies = new PostgresOutboundPolicy(database.pool);
+  await outboundPolicies.createVersion(
+    {
+      createdAt: at,
+      createdByAccountRef: reviewer.reviewerRef,
+      policyRef: 'POLICY_TEST_grants_workers',
+      requestKey: 'REQUEST_TEST_grants_workers_policy_create',
+      values: outboundBounds,
+    },
+    reviewer,
+  );
+  for (const [index, action] of ['submitVersion', 'approveVersion', 'activateVersion'].entries()) {
+    await outboundPolicies[action as 'submitVersion' | 'approveVersion' | 'activateVersion'](
+      {
+        effectiveAt: new Date(at.getTime() + (index + 1) * 1000),
+        policyRef: 'POLICY_TEST_grants_workers',
+        reasonCode: 'reviewed_outbound_policy',
+        requestKey: `REQUEST_TEST_grants_workers_policy_${action}`,
+        reviewerAccountRef: reviewer.reviewerRef,
+      },
+      reviewer,
+    );
+  }
+
+  const workAt = new Date(at.getTime() + 60_000);
+  const replyIntents = new PostgresOutboundIntentStore(
+    poolFor('reply'),
+    syntheticPrivacyKeyring,
+    outboundBounds,
+  );
+  const outboundWork = new PostgresOutboundWorkStore(
+    poolFor('outbound'),
+    syntheticPrivacyKeyring,
+    outboundBounds,
+  );
+
+  // 1. Reply creates outbound intent; Outbound claims, authorizes, starts dispatch, and records provider acceptance.
+  const firstSource = await insertSyntheticAppliedCustomerEvent(database.pool, {
+    fixtureKey: 'grants_workers_1',
+    identity: {
+      channel: 'messenger',
+      channelAccountId: 'PAGE_TEST_grants_workers',
+      externalContactId: 'CONTACT_TEST_grants_workers_1',
+    },
+    occurredAt: new Date(workAt.getTime() - 10_000),
+  });
+  await database.pool.query(
+    `insert into support_reply_drafts
+       (draft_ref, source_webhook_event_id, conversation_id, decision_type,
+        language, answer_text, state, retention_deadline, request_key, created_at)
+     values ('DRAFT_TEST_grants_workers_1', $1, $2, 'safe_failure', 'en',
+             'Synthetic least-privilege worker flow reply.', 'ready', $3,
+             'REQUEST_TEST_grants_workers_draft_1', $4)`,
+    [
+      firstSource.eventId,
+      firstSource.conversationId,
+      new Date(workAt.getTime() + 86_400_000),
+      workAt,
+    ],
+  );
+  const firstIntent = await replyIntents.createSupportIntent({
+    draftRef: 'DRAFT_TEST_grants_workers_1',
+    evaluatedAt: workAt,
+    requestKey: 'REQUEST_TEST_grants_workers_intent_1',
+  });
+  expect(firstIntent.status).toBe('created');
+
+  const claimed = await outboundWork.claimBatch({
+    claimedAt: workAt,
+    workerRef: 'WORKER_GRANTS_1',
+  });
+  expect(claimed).toHaveLength(1);
+  const firstClaim = claimed[0];
+  if (firstClaim === undefined) throw new Error('synthetic_worker_grant_claim_missing');
+  const authorized = await outboundWork.authorizeAttempt({
+    evaluatedAt: workAt,
+    intentRef: firstClaim.intentRef,
+    leaseRef: firstClaim.leaseRef,
+  });
+  expect(authorized.status).toBe('authorized');
+  if (authorized.status !== 'authorized') throw new Error('synthetic_worker_grant_auth_missing');
+  const started = await outboundWork.markDispatchStarted({
+    attemptRef: authorized.attemptRef,
+    leaseRef: firstClaim.leaseRef,
+    startedAt: new Date(workAt.getTime() + 1),
+  });
+  expect(started.status).toBe('started');
+  const providerMessageId = 'META_MSG_TEST_grants_workers_1';
+  await outboundWork.recordProviderResult({
+    attemptRef: authorized.attemptRef,
+    completedAt: new Date(workAt.getTime() + 2),
+    leaseRef: firstClaim.leaseRef,
+    result: { providerMessageId, status: 'accepted' },
+  });
+
+  // 2. Reply correlates status + business echo; Outbound runs hold expiry.
+  const statusEventId = await insertSyntheticPendingEvent(database.pool, {
+    channel: 'messenger',
+    channelAccountId: 'PAGE_TEST_grants_workers',
+    contactId: 'CONTACT_TEST_grants_workers_1',
+    eventKind: 'message_status',
+    externalMessageId: providerMessageId,
+    fixtureKey: 'grants_workers_status_1',
+    messageStatus: 'delivered',
+    occurredAt: new Date(workAt.getTime() + 100),
+  });
+  await expect(
+    new PostgresOutboundStatus(poolFor('reply')).applyEvent(statusEventId),
+  ).resolves.toMatchObject({
+    status: 'applied',
+  });
+  const echoEventId = await insertSyntheticPendingEvent(database.pool, {
+    channel: 'messenger',
+    channelAccountId: 'PAGE_TEST_grants_workers',
+    contactId: 'CONTACT_TEST_grants_workers_1',
+    eventKind: 'business_message_echo',
+    externalMessageId: providerMessageId,
+    fixtureKey: 'grants_workers_echo_1',
+    messageText: 'Synthetic least-privilege echo fixture.',
+    occurredAt: new Date(workAt.getTime() + 200),
+  });
+  await expect(
+    new PostgresOutboundEchoCorrelation(poolFor('reply')).processBusinessEcho(echoEventId),
+  ).resolves.toMatchObject({ status: 'applied', outcome: 'service_echo_correlated' });
+  await expect(
+    new PostgresOutboundEchoCorrelation(poolFor('outbound')).resolveExpiredHolds({
+      evaluatedAt: new Date(workAt.getTime() + 60_000),
+      limit: 5,
+    }),
+  ).resolves.toMatchObject({ selfEchoes: 0 });
+
+  // 3. Reply cancels authorized outbound_attempts during marketing opt-out without gaining insert privilege.
+  const optOutSource = await insertSyntheticAppliedCustomerEvent(database.pool, {
+    fixtureKey: 'grants_workers_2',
+    identity: {
+      channel: 'whatsapp',
+      channelAccountId: 'PHONE_TEST_grants_workers',
+      externalContactId: 'CONTACT_TEST_grants_workers_2',
+    },
+    occurredAt: new Date(workAt.getTime() + 300),
+  });
+  await database.pool.query(
+    `insert into support_reply_drafts
+       (draft_ref, source_webhook_event_id, conversation_id, decision_type,
+        language, answer_text, state, retention_deadline, request_key, created_at)
+     values ('DRAFT_TEST_grants_workers_2', $1, $2, 'safe_failure', 'en',
+             'Synthetic opt-out draft reply.', 'ready', $3,
+             'REQUEST_TEST_grants_workers_draft_2', $4)`,
+    [
+      optOutSource.eventId,
+      optOutSource.conversationId,
+      new Date(workAt.getTime() + 86_400_000),
+      workAt,
+    ],
+  );
+  const secondIntent = await replyIntents.createSupportIntent({
+    draftRef: 'DRAFT_TEST_grants_workers_2',
+    evaluatedAt: new Date(workAt.getTime() + 400),
+    requestKey: 'REQUEST_TEST_grants_workers_intent_2',
+  });
+  expect(secondIntent.status).toBe('created');
+  const secondClaim = (
+    await outboundWork.claimBatch({
+      claimedAt: new Date(workAt.getTime() + 400),
+      workerRef: 'WORKER_GRANTS_2',
+    })
+  )[0];
+  if (secondClaim === undefined) throw new Error('synthetic_worker_grant_claim2_missing');
+  const secondAuth = await outboundWork.authorizeAttempt({
+    evaluatedAt: new Date(workAt.getTime() + 400),
+    intentRef: secondClaim.intentRef,
+    leaseRef: secondClaim.leaseRef,
+  });
+  expect(secondAuth.status).toBe('authorized');
+
+  const stopEvent = await insertSyntheticAppliedCustomerEvent(database.pool, {
+    fixtureKey: 'grants_workers_stop',
+    identity: {
+      channel: 'whatsapp',
+      channelAccountId: 'PHONE_TEST_grants_workers',
+      externalContactId: 'CONTACT_TEST_grants_workers_2',
+    },
+    messageText: 'STOP',
+    occurredAt: new Date(workAt.getTime() + 500),
+  });
+  await new PostgresPrivacyRightsPolicy(
+    poolFor('reply'),
+    syntheticPrivacyKeyring,
+  ).processAppliedEvent({
+    requestKey: 'REQUEST_TEST_grants_workers_stop',
+    sourceWebhookEventId: stopEvent.eventId,
+  });
+  await expect(
+    poolFor('reply').query('insert into outbound_attempts default values'),
   ).rejects.toMatchObject({ code: '42501' });
 });
 

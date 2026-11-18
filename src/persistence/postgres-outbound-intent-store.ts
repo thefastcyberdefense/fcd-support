@@ -473,8 +473,7 @@ export class PostgresOutboundIntentStore {
          and template.channel = 'whatsapp'
          and template.channel_account_id = $3
          and template.category = $4
-       order by template.version_number desc
-       for update of template`,
+       order by template.version_number desc`,
       [evaluatedAt, templateRef, channelAccountId, purpose],
     );
     if (selected.rows.length > 1) throw new Error('Multiple outbound templates are effective');
@@ -522,8 +521,7 @@ export class PostgresOutboundIntentStore {
          order by event.effective_at desc, event.id desc
          limit 1
        ) as effective on effective.action = 'activate'
-       order by policy.version_number desc
-       for update of policy`,
+       order by policy.version_number desc`,
       [evaluatedAt],
     );
     if (policy.rows.length > 1) throw new Error('Multiple outbound policies are effective');

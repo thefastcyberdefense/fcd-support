@@ -69,7 +69,7 @@ export async function correlateAcceptedMessengerEcho(
        and event.admission_outcome = 'pending'
        and event.event_kind = 'business_message_echo'
        and event.channel = 'messenger'
-     for update of attempt, intent`,
+     for update of intent`,
     [webhookEventId, conversationId],
   );
   const correlated = selected.rows[0];
@@ -96,10 +96,14 @@ export async function processMessengerBusinessEcho(
   client: pg.PoolClient,
   webhookEventId: string,
 ): Promise<MessengerBusinessEchoProcessResult> {
+  if (!/^[1-9][0-9]*$/u.test(webhookEventId)) {
+    return { status: 'not_processable' };
+  }
+  await client.query('select pg_advisory_xact_lock(7200101, hashtext($1::text))', [webhookEventId]);
   const selected = await client.query<EchoEventRow>(
     `select id, admission_outcome, channel, channel_account_id,
             contact_id, event_kind, occurred_at
-     from webhook_events where id = $1 for update`,
+     from webhook_events where id = $1`,
     [webhookEventId],
   );
   const event = selected.rows[0];
@@ -153,7 +157,7 @@ export async function processMessengerBusinessEcho(
          select occurred_at from webhook_events where id = $2
        )
        and attempt.state = 'dispatch_started'
-     for update of hold, attempt`,
+     for update of hold`,
     [conversationId, event.id],
   );
   if (pending.rowCount !== 0) return { status: 'correlation_pending' };
@@ -253,8 +257,7 @@ export async function resolvePendingMessengerEchoes(
        and event.admission_outcome = 'pending'
        and event.event_kind = 'business_message_echo'
        and application.webhook_event_id is null
-     order by event.occurred_at, event.id
-     for update of event`,
+     order by event.occurred_at, event.id`,
     [conversationId],
   );
   let paused = 0;

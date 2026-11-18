@@ -312,7 +312,7 @@ export class PostgresOutboundWorkStore {
     const input = claimSchema.parse(inputValue);
     return withBoundedTransaction(this.pool, async (client) => {
       if (await recoveryHeld(client)) return [];
-      const policy = await this.loadEffectivePolicy(client, input.claimedAt, true);
+      const policy = await this.loadEffectivePolicy(client, input.claimedAt);
       if (policy === null) return [];
       const candidates = await client.query<IntentRow>(
         `select id, intent_ref, conversation_id, channel_identity_id,
@@ -382,7 +382,7 @@ export class PostgresOutboundWorkStore {
         };
       }
 
-      const policy = await this.loadEffectivePolicy(client, input.evaluatedAt, true);
+      const policy = await this.loadEffectivePolicy(client, input.evaluatedAt);
       if (policy === null) {
         await this.cancelForEligibility(client, intent, input.evaluatedAt, 'policy_unavailable');
         return { reason: 'policy_unavailable', status: 'denied' };
@@ -528,7 +528,7 @@ export class PostgresOutboundWorkStore {
       if (openHold.rowCount !== 0) throw new PolicyIdempotencyConflictError();
       const intent = await this.lockIntent(client, row.intent_ref);
       if (intent === undefined) throw new PolicyIdempotencyConflictError();
-      const policy = await this.loadEffectivePolicy(client, input.startedAt, true);
+      const policy = await this.loadEffectivePolicy(client, input.startedAt);
       if (policy?.id !== row.policy_version_id) throw new PolicyIdempotencyConflictError();
       const authority = await this.lockAuthority(client, intent);
       if (!(await this.evaluateIntent(client, intent, authority, input.startedAt)).eligible)
@@ -769,7 +769,6 @@ export class PostgresOutboundWorkStore {
   private async loadEffectivePolicy(
     client: pg.PoolClient,
     evaluatedAt: Date,
-    lock: boolean,
   ): Promise<EffectivePolicy | null> {
     const selected = await client.query<PolicyRow>(
       `select policy.id, policy.per_contact_15_minute, policy.per_contact_24_hour,
@@ -784,8 +783,7 @@ export class PostgresOutboundWorkStore {
          where event.policy_version_id = policy.id and event.effective_at <= $1
          order by event.effective_at desc, event.id desc limit 1
        ) as effective on effective.action = 'activate'
-       order by policy.version_number desc
-       ${lock ? 'for update of policy' : ''}`,
+       order by policy.version_number desc`,
       [evaluatedAt],
     );
     if (selected.rows.length > 1) throw new Error('Multiple outbound policies are effective');
@@ -802,7 +800,7 @@ export class PostgresOutboundWorkStore {
               global_1_minute, global_utc_day, worker_batch_size, lease_ms,
               provider_timeout_ms, maximum_definite_retries,
               retry_base_ms, retry_maximum_ms
-       from outbound_policy_versions where id = $1 for update`,
+       from outbound_policy_versions where id = $1`,
       [policyId],
     );
     const row = selected.rows[0];
@@ -834,7 +832,7 @@ export class PostgresOutboundWorkStore {
        from conversations as conversation
        join channel_identities as identity on identity.id = conversation.channel_identity_id
        where conversation.id = $1 and identity.id = $2
-       for update of conversation, identity`,
+       for update of conversation`,
       [intent.conversation_id, intent.channel_identity_id],
     );
     const row = selected.rows[0];
@@ -851,7 +849,7 @@ export class PostgresOutboundWorkStore {
     if (await recoveryHeld(client)) return { eligible: false, reason: 'restore_quarantined' };
     const retention = await client.query<RetentionRow>(
       `select lifecycle_class, relationship_status, expires_at, next_active_review_at
-       from conversation_retention_states where conversation_id = $1 for update`,
+       from conversation_retention_states where conversation_id = $1`,
       [intent.conversation_id],
     );
     const retentionRow = retention.rows[0];
@@ -871,12 +869,12 @@ export class PostgresOutboundWorkStore {
                   null::text as channel, null::text as channel_account_id,
                   null::text as category, null::text as locale,
                   null::integer as variable_count
-           from support_reply_drafts as draft where draft.id = $1 for update`
+           from support_reply_drafts as draft where draft.id = $1`
         : `select template.state as source_state, null::timestamptz as erased_at,
                   null::text as answer_text,
                   template.channel, template.channel_account_id,
                   template.category, template.locale, template.variable_count
-           from outbound_template_versions as template where template.id = $1 for update`,
+           from outbound_template_versions as template where template.id = $1`,
       [intent.reply_draft_id ?? intent.template_version_id],
     );
     const source = sourceQuery.rows[0];
@@ -889,7 +887,7 @@ export class PostgresOutboundWorkStore {
          and event.event_kind = 'customer_message'
          and event.admission_outcome = 'pending' and event.occurred_at <= $2
        order by event.occurred_at desc, event.id desc limit 1
-       for share of application, event`,
+       for share of application`,
       [intent.conversation_id, evaluatedAt],
     );
     const hold = await client.query<{ readonly expires_at: Date }>(
@@ -906,12 +904,9 @@ export class PostgresOutboundWorkStore {
        ) as open`,
       [authority.contact_id],
     );
-    await client.query(
-      `select id from privacy_requests where contact_id = $1
-         and state in ('received','awaiting_confirmation','human_review','in_progress')
-       order by id for update`,
-      [authority.contact_id],
-    );
+    await client.query('select pg_advisory_xact_lock(7200102, hashtext($1::text))', [
+      authority.contact_id,
+    ]);
     const consentCategory = consentCategoryForOutboundPurpose(intent.purpose);
     const suppression = await this.loadSuppressions(
       client,
@@ -925,7 +920,7 @@ export class PostgresOutboundWorkStore {
         : await client.query<{ readonly action: 'grant' | 'revoke' }>(
             `select action from consent_events
              where channel_identity_id = $1 and category = $2 and source_at <= $3
-             order by source_at desc, id desc limit 1 for share`,
+             order by source_at desc, id desc limit 1`,
             [authority.identity_id, consentCategory, evaluatedAt],
           );
 
@@ -1000,7 +995,7 @@ export class PostgresOutboundWorkStore {
     } as const;
     if (intent.message_kind === 'support_text') {
       const selected = await client.query<{ readonly answer_text: string | null }>(
-        `select answer_text from support_reply_drafts where id = $1 for update`,
+        `select answer_text from support_reply_drafts where id = $1`,
         [intent.reply_draft_id],
       );
       const text = selected.rows[0]?.answer_text;
@@ -1017,7 +1012,7 @@ export class PostgresOutboundWorkStore {
     const selected = await client.query<{
       readonly locale: 'bn_BD' | 'en_US';
       readonly template_name: string;
-    }>(`select locale, template_name from outbound_template_versions where id = $1 for update`, [
+    }>(`select locale, template_name from outbound_template_versions where id = $1`, [
       intent.template_version_id,
     ]);
     const template = selected.rows[0];
