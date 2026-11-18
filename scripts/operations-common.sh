@@ -55,6 +55,8 @@ operations_config_field() {
       [[ "$value" == fcd-support || "$value" =~ ^fcd-support[-a-z0-9_]{1,100}$ ]] ;;
     FCD_RESTORE_PROJECT|FCD_POSTGRES_VOLUME|FCD_RESTORE_VOLUME|FCD_BACKUP_VOLUME|FCD_INGRESS_NETWORK|FCD_NOTIFICATION_NETWORK)
       [[ "$value" =~ ^fcd-support[-a-z0-9_]{1,100}$ ]] ;;
+    FCD_MODEL_NETWORK)
+      [[ "$value" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ && "$value" != *..* ]] ;;
     FCD_RESTORE_SUBNET) operations_restore_subnet_valid "$value" ;;
     FCD_POSTGRES_DB) [[ "$value" =~ ^fcd_support(_[a-z0-9_]+)?$ ]] ;;
     FCD_ADMIN_ORIGIN) [[ "$value" =~ ^http://127\.0\.0\.1:[1-9][0-9]{0,4}$ ]] ;;
@@ -123,11 +125,27 @@ operations_load_config() {
 
 operations_parse_arguments() {
   OPS_ACTION="$1"; shift
-  OPS_BACKUP_REF=''; OPS_CHECKPOINT_REF=''; OPS_RESTORE_REF=''
+  OPS_BACKUP_REF=''; OPS_CHECKPOINT_REF=''; OPS_RESTORE_REF=''; OPS_RUNTIME_MODE=private-disabled
   case "$OPS_ACTION" in
-    deploy) [[ "$#" == 4 && "$2" == --mode && "$3" == private-disabled ]] || operations_fail operations_arguments_invalid; OPS_REVISION="$1"; OPS_CONFIG_FILE="$4" ;;
-    verify) [[ "$#" == 2 ]] || operations_fail operations_arguments_invalid; OPS_REVISION="$1"; OPS_CONFIG_FILE="$2" ;;
-    rollback) [[ "$#" == 3 && "$2" == --confirm-schema-compatible ]] || operations_fail operations_arguments_invalid; OPS_REVISION="$1"; OPS_CONFIG_FILE="$3" ;;
+    deploy)
+      [[ "$#" == 4 && "$2" == --mode && ( "$3" == private-disabled || "$3" == private-enabled ) ]] || operations_fail operations_arguments_invalid
+      OPS_REVISION="$1"; OPS_RUNTIME_MODE="$3"; OPS_CONFIG_FILE="$4" ;;
+    verify)
+      if [[ "$#" == 2 ]]; then
+        OPS_REVISION="$1"; OPS_CONFIG_FILE="$2"
+      elif [[ "$#" == 4 && "$2" == --mode && ( "$3" == private-disabled || "$3" == private-enabled ) ]]; then
+        OPS_REVISION="$1"; OPS_RUNTIME_MODE="$3"; OPS_CONFIG_FILE="$4"
+      else
+        operations_fail operations_arguments_invalid
+      fi ;;
+    rollback)
+      if [[ "$#" == 3 && "$2" == --confirm-schema-compatible ]]; then
+        OPS_REVISION="$1"; OPS_CONFIG_FILE="$3"
+      elif [[ "$#" == 5 && "$2" == --confirm-schema-compatible && "$3" == --mode && ( "$4" == private-disabled || "$4" == private-enabled ) ]]; then
+        OPS_REVISION="$1"; OPS_RUNTIME_MODE="$4"; OPS_CONFIG_FILE="$5"
+      else
+        operations_fail operations_arguments_invalid
+      fi ;;
     restore)
       [[ "$#" == 4 && "$1" =~ ^backup_[a-f0-9]{32}$ && "$2" =~ ^checkpoint_[a-f0-9]{32}$ ]] || operations_fail operations_arguments_invalid
       OPS_BACKUP_REF="$1"; OPS_CHECKPOINT_REF="$2"; OPS_REVISION="$3"; OPS_CONFIG_FILE="$4" ;;
@@ -144,14 +162,27 @@ operations_parse_arguments() {
 }
 
 operations_compose() {
-  local kind="$1" key seconds grace; shift
-  local -a settings=() files=() endpoint=()
+  local kind="$1" key seconds grace mode="${OPS_RUNTIME_MODE:-private-disabled}"; shift
+  local -a settings=() files=() endpoint=() flags=()
+  [[ "$mode" == private-disabled || "$mode" == private-enabled ]] || operations_fail operations_config_invalid
   [[ -z "${OPS_DOCKER_ENDPOINT:-}" ]] || endpoint=(--host "$OPS_DOCKER_ENDPOINT")
   for key in "${!OPS_CONFIG[@]}"; do settings+=("$key=${OPS_CONFIG[$key]}"); done
   case "$kind" in
-    runtime) files=(--file "$OPS_ROOT/infra/compose.runtime.yml") ;;
-    operations) files=(--file "$OPS_ROOT/infra/compose.operations.yml") ;;
-    restore) files=(--file "$OPS_ROOT/infra/compose.restore.yml") ;;
+    runtime)
+      files=(--file "$OPS_ROOT/infra/compose.runtime.yml")
+      if [[ "$mode" == private-enabled ]]; then
+        [[ -n "${OPS_CONFIG[FCD_MODEL_NETWORK]:-}" ]] && operations_config_field FCD_MODEL_NETWORK "${OPS_CONFIG[FCD_MODEL_NETWORK]}" || operations_fail operations_config_invalid
+        files+=(--file "$OPS_ROOT/infra/compose.model.yml")
+        flags=(MODEL_EXECUTION_ENABLED=true OUTBOUND_EXECUTION_ENABLED=true N8N_EXECUTION_ENABLED=false)
+      else
+        flags=(MODEL_EXECUTION_ENABLED=false OUTBOUND_EXECUTION_ENABLED=false N8N_EXECUTION_ENABLED=false)
+      fi ;;
+    operations)
+      files=(--file "$OPS_ROOT/infra/compose.operations.yml")
+      flags=(MODEL_EXECUTION_ENABLED=false OUTBOUND_EXECUTION_ENABLED=false N8N_EXECUTION_ENABLED=false) ;;
+    restore)
+      files=(--file "$OPS_ROOT/infra/compose.restore.yml")
+      flags=(MODEL_EXECUTION_ENABLED=false OUTBOUND_EXECUTION_ENABLED=false N8N_EXECUTION_ENABLED=false) ;;
     *) operations_fail operations_config_invalid ;;
   esac
   seconds="${OPS_CONFIG[FCD_COMMAND_TIMEOUT_SECONDS]}"
@@ -159,7 +190,7 @@ operations_compose() {
   # An empty explicit env file and empty child environment prevent ambient
   # Compose files/profiles, Docker endpoints, dotenv and credential injection.
   env -i "PATH=$PATH" LC_ALL=C COMPOSE_DISABLE_ENV_FILE=1 "${settings[@]}" \
-    MODEL_EXECUTION_ENABLED=false OUTBOUND_EXECUTION_ENABLED=false N8N_EXECUTION_ENABLED=false \
+    "${flags[@]}" \
     timeout --signal=TERM --kill-after="${grace}s" "${seconds}s" \
     docker "${endpoint[@]}" compose --project-directory "$OPS_ROOT" --env-file /dev/null "${files[@]}" "$@" 2>/dev/null
 }
@@ -232,6 +263,9 @@ operations_preflight() {
     FCD_COMMAND_TIMEOUT_SECONDS FCD_READY_TIMEOUT_SECONDS FCD_STOP_GRACE_MS; do
     [[ -n "${OPS_CONFIG[$field]:-}" ]] || operations_fail operations_config_invalid
   done
+  if [[ "${OPS_RUNTIME_MODE:-private-disabled}" == private-enabled ]]; then
+    [[ -n "${OPS_CONFIG[FCD_MODEL_NETWORK]:-}" ]] || operations_fail operations_config_invalid
+  fi
   [[ "${OPS_CONFIG[FCD_SUPPORT_REVISION]}" == "$OPS_REVISION" && "${OPS_CONFIG[FCD_POSTGRES_VOLUME]}" != "${OPS_CONFIG[FCD_BACKUP_VOLUME]}" ]] || operations_fail operations_config_invalid
   for field in FCD_CONFIG_ROOT FCD_SECRET_ROOT FCD_STATE_ROOT; do
     path="${OPS_CONFIG[$field]}"

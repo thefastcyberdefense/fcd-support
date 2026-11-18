@@ -107,6 +107,10 @@ operations_job_command() {
       OPS_HEALTH_INPUT_JSON="${OPS_HEALTH_INPUT_JSON-'{}'}"
       (( ${#OPS_HEALTH_INPUT_JSON} >= 1 && ${#OPS_HEALTH_INPUT_JSON} <= 16384 )) || return 1
       command_path=dist/operations/health-main.js ;;
+    maintenance)
+      if [[ "${1-}" == db-counts ]]; then
+        [[ "$#" == 1 ]] || return 1
+      fi ;;
   esac
   OPS_JOB_COMMAND="$1"
   OPS_JOB_COMMAND_JSON="[\"node\",\"$command_path\""
@@ -198,6 +202,8 @@ operations_job_acknowledgement() {
       [[ "$acknowledgement" =~ ^backup_[a-f0-9]{32}$ ]]; return ;;
     health/health)
       [[ "$acknowledgement" != '{"status":"completed","processed":0,"reasonCode":"dependency_unavailable"}' ]] || return 0 ;;
+    maintenance/db-counts)
+      [[ ${#acknowledgement} -le 16384 && "$acknowledgement" =~ ^\{\"status\":\"completed\",\"dbCounts\":\{[A-Za-z0-9_\":,{}\-]+\}\}$ ]]; return ;;
     backup/backup|maintenance/retention|maintenance/deletion|maintenance/lease_recovery|maintenance/learning)
       [[ "$acknowledgement" != '{"status":"skipped","processed":0,"reasonCode":"not_due"}' ]] || return 0 ;;
   esac

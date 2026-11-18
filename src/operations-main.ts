@@ -31,6 +31,7 @@ import { parseOutboundPolicyInput } from './outbound/outbound-policy-input.js';
 import { runForwardMigrations } from './operations/forward-migration.js';
 import { assertMigrationPrincipal } from './operations/migration-principal.js';
 import { assertDatabaseIdentity, parseDatabaseIdentity } from './operations/database-identity.js';
+import { collectDbCounts, dbCountsOutputSchema } from './operations/db-counts.js';
 
 export function parseOperationsCommand(args: readonly string[]) {
   try {
@@ -432,22 +433,10 @@ export async function runOperationsMain(): Promise<void> {
       );
       return;
     }
-    const command = parseOperationsCommand(process.argv.slice(2));
+    const command =
+      args[0] === 'db-counts' && args.length === 1 ? undefined : parseOperationsCommand(args);
     const environment = await loadRoleEnvironment('maintenance', process.env);
     const config = loadOperationsConfig('maintenance', environment);
-    const keyring = loadPrivacyKeyring(new TextEncoder().encode(environment.PRIVACY_HMAC_KEYRING));
-    const learningPolicy = parseLearningPolicy(
-      JSON.parse(z.string().max(4096).parse(environment.OPS_LEARNING_POLICY_JSON)),
-    );
-    const outboundBounds = parseOutboundPolicyInput(
-      JSON.parse(z.string().max(4096).parse(environment.REPLY_OUTBOUND_BOUNDS_JSON)),
-    );
-    const learningWindowMilliseconds = z.coerce
-      .number()
-      .int()
-      .min(1)
-      .max(31536000000)
-      .parse(environment.OPS_LEARNING_WINDOW_MS);
     const revision = z
       .string()
       .regex(/^[a-f0-9]{40}$/u)
@@ -488,6 +477,32 @@ export async function runOperationsMain(): Promise<void> {
       ),
     );
     if (ready.state !== 'healthy') throw new Error('operations_readiness_failed');
+    if (command === undefined) {
+      const dbCounts = await collectDbCounts(pool, {
+        maximumCallMilliseconds: config.maximumCallMilliseconds,
+      });
+      const completedPool = pool;
+      pool = undefined;
+      await completedPool.end();
+      if (databaseState.failed) throw new Error('operations_job_failed');
+      process.stdout.write(
+        `${JSON.stringify(dbCountsOutputSchema.parse({ status: 'completed', dbCounts }))}\n`,
+      );
+      return;
+    }
+    const keyring = loadPrivacyKeyring(new TextEncoder().encode(environment.PRIVACY_HMAC_KEYRING));
+    const learningPolicy = parseLearningPolicy(
+      JSON.parse(z.string().max(4096).parse(environment.OPS_LEARNING_POLICY_JSON)),
+    );
+    const outboundBounds = parseOutboundPolicyInput(
+      JSON.parse(z.string().max(4096).parse(environment.REPLY_OUTBOUND_BOUNDS_JSON)),
+    );
+    const learningWindowMilliseconds = z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(31536000000)
+      .parse(environment.OPS_LEARNING_WINDOW_MS);
     const result = await runMaintenance(command.job, {
       pool,
       keyring,

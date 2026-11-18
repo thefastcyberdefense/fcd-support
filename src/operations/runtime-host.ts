@@ -24,6 +24,14 @@ const activeRoles = [
   'fcd-support-admin',
   'fcd-support-reply',
 ] as const;
+const enabledRoles = [
+  'postgres',
+  'fcd-support-api',
+  'fcd-support-admin',
+  'fcd-support-reply',
+  'fcd-support-outbound',
+] as const;
+type RuntimeServiceRole = (typeof enabledRoles)[number];
 const image = z.strictObject({
   id: imageId,
   revision,
@@ -42,7 +50,7 @@ const mount = z.strictObject({
 const container = z.strictObject({
   id,
   project: name,
-  service: z.enum(activeRoles),
+  service: z.enum(enabledRoles),
   revision,
   imageId,
   running: z.literal(true),
@@ -87,7 +95,7 @@ const container = z.strictObject({
 });
 const snapshot = z.strictObject({
   images: z.strictObject({ postgres: image, runtime: image }),
-  containers: z.array(container).min(1).max(4),
+  containers: z.array(container).min(1).max(5),
   networks: z
     .array(
       z.strictObject({
@@ -95,14 +103,14 @@ const snapshot = z.strictObject({
         name,
         driver: z.literal('bridge'),
         scope: z.literal('local'),
-        internal: z.literal(true),
+        internal: z.boolean(),
         project: z.union([name, z.literal('')]),
         logicalName: z.union([name, z.literal('')]),
-        members: z.array(id).min(1).max(4),
+        members: z.array(id).min(1).max(64),
       }),
     )
     .min(6)
-    .max(7),
+    .max(9),
   volume: z.strictObject({
     name,
     driver: z.literal('local'),
@@ -140,6 +148,7 @@ export interface RuntimeHostOptions {
   readonly paths: RuntimeComposePaths;
   readonly ingressPeerId: string;
   readonly volumeIdentity?: RuntimeVolumeIdentity;
+  readonly mode?: 'private-disabled' | 'private-enabled' | undefined;
 }
 export interface RuntimeVolumeIdentity {
   readonly name: string;
@@ -153,12 +162,13 @@ export const runtimeVolumeIdentitySchema = z.strictObject({
   logicalName: z.enum(['postgres-data', 'restore-data']).nullable(),
   createdAt: dockerVolumeTimestampSchema,
 });
-const commands = {
+const commands: Readonly<Record<RuntimeServiceRole, readonly string[]>> = {
   postgres: ['postgres'],
   'fcd-support-api': ['node', 'dist/main.js'],
   'fcd-support-admin': ['node', 'dist/admin-main.js'],
   'fcd-support-reply': ['node', 'dist/worker-main.js', 'reply'],
-} as const;
+  'fcd-support-outbound': ['node', 'dist/worker-main.js', 'outbound'],
+};
 const flags = ['MODEL_EXECUTION_ENABLED', 'OUTBOUND_EXECUTION_ENABLED', 'N8N_EXECUTION_ENABLED'];
 const credentialName =
   /(?:^|_)(?:SECRET|TOKEN|PASSWORD|API_KEY|ACCESS_KEY|PRIVATE_KEY|DATABASE_URL|SESSION_KEY|HMAC_KEY)(?:_|$)/u;
@@ -198,6 +208,7 @@ const diagnosticFields = new Set([
   'adminSocket',
   'adminNoTcp',
   'replyHeartbeat',
+  'outboundHeartbeat',
   'driver',
   'scope',
   'internal',
@@ -286,21 +297,43 @@ function inspectHostSamples(
     revision.parse(options.revision);
     stage = 'ingress';
     const ingressPeerId = bootstrap ? undefined : id.parse(options.ingressPeerId);
-    const roles: readonly (typeof activeRoles)[number][] = bootstrap ? ['postgres'] : activeRoles;
+    const mode = z
+      .enum(['private-disabled', 'private-enabled'])
+      .parse(options.mode ?? 'private-disabled');
+    const enabled = !bootstrap && mode === 'private-enabled';
+    const roles: readonly RuntimeServiceRole[] = bootstrap
+      ? ['postgres']
+      : enabled
+        ? enabledRoles
+        : activeRoles;
     stage = 'compose';
-    const config = readPrivateRuntimeCompose(renderedCompose, options.revision, options.paths);
+    const config = readPrivateRuntimeCompose(
+      renderedCompose,
+      options.revision,
+      options.paths,
+      enabled,
+    );
     stage = 'paths';
     for (const p of Object.values(options.paths)) path.parse(p);
     const runtimeSamples = z.strictObject({
       before: snapshot,
       after: snapshot,
-      probes: z.strictObject({
-        postgresSql: z.literal(true),
-        apiHttp: z.literal(true),
-        adminSocket: z.literal(true),
-        adminNoTcp: z.literal(true),
-        replyHeartbeat: z.literal(true),
-      }),
+      probes: enabled
+        ? z.strictObject({
+            postgresSql: z.literal(true),
+            apiHttp: z.literal(true),
+            adminSocket: z.literal(true),
+            adminNoTcp: z.literal(true),
+            replyHeartbeat: z.literal(true),
+            outboundHeartbeat: z.literal(true),
+          })
+        : z.strictObject({
+            postgresSql: z.literal(true),
+            apiHttp: z.literal(true),
+            adminSocket: z.literal(true),
+            adminNoTcp: z.literal(true),
+            replyHeartbeat: z.literal(true),
+          }),
     });
     stage = 'samples';
     const samples = (
@@ -378,9 +411,16 @@ function inspectHostSamples(
         const net = actual.networks.find((n) => n.name === config.networks[key]?.name);
         if (
           net === undefined ||
-          (key !== 'ingress' && (net.project !== config.name || net.logicalName !== key))
+          (key !== 'ingress' &&
+            key !== 'model' &&
+            (net.project !== config.name || net.logicalName !== key))
         )
           invalid();
+        if (key === 'provider_egress') {
+          if (net.internal) invalid();
+        } else if (key !== 'model' && !net.internal) {
+          invalid();
+        }
         const members = actual.containers
           .filter((c) => Object.keys(config.services[c.service]?.networks ?? {}).includes(key))
           .map((c) => c.id);
@@ -389,7 +429,11 @@ function inspectHostSamples(
           members.push(ingressPeerId);
         }
         stage = 'network_members';
-        if (!same(net.members, members)) invalid();
+        if (key === 'model') {
+          if (!members.every((memberId) => net.members.includes(memberId))) invalid();
+        } else if (!same(net.members, members)) {
+          invalid();
+        }
       }
       for (const c of actual.containers) {
         stage = 'container_policy';
@@ -427,7 +471,19 @@ function inspectHostSamples(
             ) ||
           !same(
             c.executionFlags,
-            flags.map((f) => `${f}=false`),
+            enabled && c.service === 'fcd-support-reply'
+              ? [
+                  'MODEL_EXECUTION_ENABLED=true',
+                  'OUTBOUND_EXECUTION_ENABLED=false',
+                  'N8N_EXECUTION_ENABLED=false',
+                ]
+              : enabled && c.service === 'fcd-support-outbound'
+                ? [
+                    'MODEL_EXECUTION_ENABLED=false',
+                    'OUTBOUND_EXECUTION_ENABLED=true',
+                    'N8N_EXECUTION_ENABLED=false',
+                  ]
+                : flags.map((f) => `${f}=false`),
           ) ||
           new Set(c.environmentNames).size !== c.environmentNames.length ||
           c.environmentNames.some((key) => !key.endsWith('_FILE') && credentialName.test(key))

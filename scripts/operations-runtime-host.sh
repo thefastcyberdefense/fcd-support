@@ -30,13 +30,17 @@ operations_runtime_id() {
 }
 
 operations_runtime_snapshot() {
-  local mode="${1:-runtime}" count=4
+  local mode="${1:-runtime}" runtime_mode="${OPS_RUNTIME_MODE:-private-disabled}" count=4
   [[ "$#" -le 1 && ( "$mode" == runtime || "$mode" == bootstrap ) ]] || return 1
   local project="${OPS_CONFIG[FCD_RUNTIME_PROJECT]}" root="${OPS_CONFIG[FCD_ADMIN_SOCKET_ROOT]}"
   local ids id container containers='' separator='' role network members metadata networks='' pg_image runtime_image volume users
   local host_binds='' mounts source canonical socket root_stat device inode uid gid mode rdevice rinode ruid rgid rmode
   local -a list=() listing=(--all) data_roles=(webhook admin reply outbound notification operations ingress)
-  if [[ "$mode" == bootstrap ]]; then listing=(); count=1; data_roles=(webhook admin reply outbound notification operations); fi
+  if [[ "$mode" == bootstrap ]]; then
+    listing=(); count=1; data_roles=(webhook admin reply outbound notification operations)
+  elif [[ "$runtime_mode" == private-enabled ]]; then
+    count=5; data_roles=(webhook admin reply outbound notification operations ingress provider-egress model)
+  fi
   ids="$(operations_docker ps "${listing[@]}" --quiet --no-trunc --filter "label=com.docker.compose.project=$project")" || return 1
   ids="${ids//$'\n'/ }"; read -r -a list <<<"$ids"
   (( ${#list[@]} == count )) || return 1
@@ -48,7 +52,9 @@ operations_runtime_snapshot() {
   separator=''
   for role in "${data_roles[@]}"; do
     network="$project-$role-data"
-    [[ "$role" != ingress ]] || network="${OPS_CONFIG[FCD_INGRESS_NETWORK]}"
+    if [[ "$role" == ingress ]]; then network="${OPS_CONFIG[FCD_INGRESS_NETWORK]}";
+    elif [[ "$role" == provider-egress ]]; then network="$project-provider-egress";
+    elif [[ "$role" == model ]]; then network="${OPS_CONFIG[FCD_MODEL_NETWORK]}"; fi
     members="$(operations_docker network inspect --format '{{range $id,$member := .Containers}}{{println $id}}{{end}}' "$network")" || return 1
     members="$(operations_runtime_ids "$members")" || return 1
     metadata="$(operations_docker network inspect --format "$OPERATIONS_RUNTIME_NETWORK_FORMAT" "$network")" || return 1
@@ -96,7 +102,7 @@ operations_runtime_snapshot() {
 }
 
 operations_runtime_probes() {
-  local api admin reply timeout="${OPS_CONFIG[FCD_HEALTH_TIMEOUT_MS]}"
+  local api admin reply outbound timeout="${OPS_CONFIG[FCD_HEALTH_TIMEOUT_MS]}"
   api="$(operations_runtime_id fcd-support-api)" || return 1
   admin="$(operations_runtime_id fcd-support-admin)" || return 1
   reply="$(operations_runtime_id fcd-support-reply)" || return 1
@@ -107,6 +113,10 @@ operations_runtime_probes() {
   operations_docker exec "$admin" node dist/admin/admin-socket-health.js /run/fcd-support-admin/admin.sock "$timeout" >/dev/null || return 1
   operations_docker exec "$admin" node --input-type=module -e 'import {readFile} from "node:fs/promises";for(const f of ["/proc/net/tcp","/proc/net/tcp6"]){const body=await readFile(f,"utf8");if(body.length>65536)process.exit(1);if(body.trim().split("\n").slice(1).some(l=>{const x=l.trim().split(/\s+/);return x[3]==="0A"&&!x[1]?.startsWith("0B00007F:")}))process.exit(1)}' >/dev/null || return 1
   operations_docker exec "$reply" node --input-type=module -e 'import {readRuntimeHeartbeat} from "./dist/operations/role-runtime.js";process.exit(readRuntimeHeartbeat("/run/fcd-support/heartbeat.json",new Date(),Number(process.env.OPS_HEALTH_STALE_MS))?0:1)' >/dev/null || return 1
+  if [[ "${OPS_RUNTIME_MODE:-private-disabled}" == private-enabled ]]; then
+    outbound="$(operations_runtime_id fcd-support-outbound)" || return 1
+    operations_docker exec "$outbound" node --input-type=module -e 'import {readRuntimeHeartbeat} from "./dist/operations/role-runtime.js";process.exit(readRuntimeHeartbeat("/run/fcd-support/heartbeat.json",new Date(),Number(process.env.OPS_HEALTH_STALE_MS))?0:1)' >/dev/null || return 1
+  fi
 }
 
 operations_runtime_selection_context() {
@@ -146,6 +156,9 @@ operations_inspect_host() {
     for field in FCD_INGRESS_NETWORK FCD_INGRESS_PEER_ID; do
       [[ -n "${OPS_CONFIG[$field]:-}" ]] && operations_config_field "$field" "${OPS_CONFIG[$field]}" || operations_fail runtime_host_invalid
     done
+    if [[ "${OPS_RUNTIME_MODE:-private-disabled}" == private-enabled ]]; then
+      [[ -n "${OPS_CONFIG[FCD_MODEL_NETWORK]:-}" ]] && operations_config_field FCD_MODEL_NETWORK "${OPS_CONFIG[FCD_MODEL_NETWORK]}" || operations_fail runtime_host_invalid
+    fi
   fi
   (( ${OPS_CONFIG[FCD_HEALTH_TIMEOUT_MS]} <= 300000 )) || operations_fail runtime_host_invalid
   image="$(operations_docker image inspect --format '{{.Id}}/{{index .Config.Labels "org.opencontainers.image.revision"}}/{{.Os}}/{{.Architecture}}/{{.Config.User}}' "${OPS_CONFIG[FCD_OPERATIONS_IMAGE]}")" || operations_fail runtime_host_invalid
@@ -166,6 +179,9 @@ operations_inspect_host() {
   if [[ "$mode" == bootstrap ]]; then
     payload="$(printf '{"compose":%s,"samples":{"before":%s,"after":%s}%s}' "$model" "$before" "$after" "$binding")"
     arguments=(bootstrap "${OPS_CONFIG[FCD_SUPPORT_REVISION]}" "${OPS_CONFIG[FCD_ADMIN_SOCKET_ROOT]}" "${OPS_CONFIG[FCD_CONFIG_ROOT]}" "${OPS_CONFIG[FCD_SECRET_ROOT]}" "$OPS_ROOT")
+  elif [[ "${OPS_RUNTIME_MODE:-private-disabled}" == private-enabled ]]; then
+    payload="$(printf '{"compose":%s,"samples":{"before":%s,"after":%s,"probes":{"postgresSql":true,"apiHttp":true,"adminSocket":true,"adminNoTcp":true,"replyHeartbeat":true,"outboundHeartbeat":true}}%s}' "$model" "$before" "$after" "$binding")"
+    arguments=("${OPS_CONFIG[FCD_SUPPORT_REVISION]}" "${OPS_CONFIG[FCD_ADMIN_SOCKET_ROOT]}" "${OPS_CONFIG[FCD_CONFIG_ROOT]}" "${OPS_CONFIG[FCD_SECRET_ROOT]}" "$OPS_ROOT" "${OPS_CONFIG[FCD_INGRESS_PEER_ID]}" --mode private-enabled)
   else
     payload="$(printf '{"compose":%s,"samples":{"before":%s,"after":%s,"probes":{"postgresSql":true,"apiHttp":true,"adminSocket":true,"adminNoTcp":true,"replyHeartbeat":true}}%s}' "$model" "$before" "$after" "$binding")"
     arguments=("${OPS_CONFIG[FCD_SUPPORT_REVISION]}" "${OPS_CONFIG[FCD_ADMIN_SOCKET_ROOT]}" "${OPS_CONFIG[FCD_CONFIG_ROOT]}" "${OPS_CONFIG[FCD_SECRET_ROOT]}" "$OPS_ROOT" "${OPS_CONFIG[FCD_INGRESS_PEER_ID]}")
