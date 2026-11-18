@@ -1,6 +1,34 @@
 # Project Context
 
-Last reviewed: 2026-11-14 (Asia/Dhaka)
+## 2026-11-16: old tests retired; first private preview deployed
+
+The owner explicitly approved full retirement of all FCD test stacks and their
+retained test data/timers, superseding earlier test-resource preservation for
+retirement only. Production WhatsApp registration/assets and unrelated projects
+remain protected; uncertain old jobs were retired, not declared resolved.
+
+All 8 old containers, 38 volumes, 70 networks, 53 remaining images and 25 old
+fixture/action directories were retired; all 23 unrelated containers were
+preserved. Post-cleanup Docker free space was 21,294 MiB; after fresh deployment
+it was 19,147 MiB. Old FCD timers are disabled and not retargeted.
+
+Accepted application `c2d8225` is now a fresh private preview: four healthy
+services, no host application/admin port publication, no public tunnel, all
+model/outbound/notification execution flags false. First administrator creation,
+password/MFA/Origin/CSRF checks, seven authenticated pages and logout/session
+revocation passed. The owned SSH loopback login at
+[http://127.0.0.1:13004/login](http://127.0.0.1:13004/login) returns 200.
+Credentials/TOTP seed remain only in protected server storage; no secret output.
+
+The initial graceful-stop and Node-PATH failures and their separately marked,
+reviewed completions are preserved. 33 authored controls pass; no fresh full
+four-worker Windows pass is claimed. PR22/23/24 remain draft/unmerged.
+Current test tunnel/Meta binding (P7-003/P7-004), enabled-worker and acceptance
+work, fresh scheduled operations, P7-005/P7-GATE and production readiness remain
+BLOCKED. See [the actual result and unfinished-work record](testing/2026-11-16-retirement-private-v1-status.md)
+and [execution plan](superpowers/plans/2026-11-16-retire-tests-private-v1.md).
+
+Last reviewed: 2026-11-16 (Asia/Dhaka)
 
 **2026-11-14: PRs 22/23 reviewed; both require corrections and remain draft.**
 Both exact heads have 18/18 GitHub checks green. Codex independently ran PR 22
