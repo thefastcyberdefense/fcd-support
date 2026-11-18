@@ -29,6 +29,7 @@ const groups = {
   events: [
     'webhook_receipts',
     'webhook_events',
+    'webhook_event_attachments',
     'webhook_event_applications',
     'human_pause_events',
     'consent_events',
@@ -441,7 +442,11 @@ export async function configureRuntimeGrants(
       return;
     }
     await grant('webhook', 'select', ['privacy_suppressions']);
-    await write('webhook', ['webhook_receipts', 'webhook_events'], 'select,insert');
+    await write(
+      'webhook',
+      ['webhook_receipts', 'webhook_events', 'webhook_event_attachments'],
+      'select,insert',
+    );
     await grant('reply', 'select', [
       ...groups.identity,
       ...groups.events,
@@ -584,6 +589,7 @@ export async function configureRuntimeGrants(
       'owner_question_insights',
       'owner_question_digest_entries',
       'support_reply_draft_knowledge',
+      'webhook_event_attachments',
       'webhook_events',
       'webhook_receipts',
     ]);

@@ -357,7 +357,7 @@ async function scenario(mode: Mode, viaCli = false) {
         class: 'pre_migration' as const,
         createdAt: new Date('2030-04-01T00:00:00.000Z'),
         gitRevision: 'a'.repeat(40),
-        schemaRevision: '000018',
+        schemaRevision: '000019',
         ciphertextBytes: 128,
         ciphertextSha256: 'b'.repeat(64),
       };
@@ -377,10 +377,10 @@ async function scenario(mode: Mode, viaCli = false) {
     await expect(
       runForwardMigrations(migrator, {
         schema: database.schema,
-        expectedSchemaRevision: '000018',
+        expectedSchemaRevision: '000019',
         timeoutMilliseconds: 10000,
       }),
-    ).resolves.toEqual({ schemaRevision: '000018' });
+    ).resolves.toEqual({ schemaRevision: '000019' });
     // Prepared app roles remain barred from new business tables until the
     // independently invoked post-migration convergence step.
     await expect(webhook.query('select count(*) from webhook_receipts')).rejects.toMatchObject({

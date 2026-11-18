@@ -5,6 +5,13 @@ import {
   decodeGatewayEncryptionKey,
 } from '../model/gateway-secret.js';
 import { createManifestClient, createOpenAiCompatibleClient } from '../model/manifest-client.js';
+import { MetaMediaFetcher } from '../media/media-fetcher.js';
+import { PrivateMediaProcessor } from '../media/media-processor.js';
+import { extractPdfText } from '../media/pdf-extractor.js';
+import {
+  createPrivateOcrExtractor,
+  createPrivateSttExtractor,
+} from '../media/private-service-client.js';
 import { PostgresConversationEventProcessor } from '../persistence/postgres-conversation-event-processor.js';
 import { PostgresModelAllowance } from '../persistence/postgres-model-allowance.js';
 import { PostgresModelGateway } from '../persistence/postgres-model-gateway.js';
@@ -69,10 +76,38 @@ export async function createReplyRuntime(options: RoleRuntimeOptions): Promise<R
   const drafts = new PostgresReplyDraftStore(pool, keyring);
   const state = new PostgresReplyRuntimeState(pool, keyring);
   const processor = new PostgresConversationEventProcessor(pool);
+  const mediaFetcher = new MetaMediaFetcher({
+    ...(settings.media.graphBaseUrl === undefined
+      ? {}
+      : { graphBaseUrl: settings.media.graphBaseUrl }),
+    ...(environment.META_WHATSAPP_ACCESS_TOKEN === undefined
+      ? {}
+      : { whatsappAccessToken: environment.META_WHATSAPP_ACCESS_TOKEN }),
+    ...(environment.META_PAGE_ACCESS_TOKEN === undefined
+      ? {}
+      : { pageAccessToken: environment.META_PAGE_ACCESS_TOKEN }),
+    ...(options.testTransports?.meta === undefined ? {} : { fetch: options.testTransports.meta }),
+  });
+  const mediaProcessor = new PrivateMediaProcessor({
+    fetcher: mediaFetcher,
+    extractor: {
+      extractPdf: extractPdfText,
+      extractImageOcr: createPrivateOcrExtractor({
+        ...(settings.media.ocrUrl === undefined ? {} : { url: settings.media.ocrUrl }),
+        ...(options.testTransports?.ocr === undefined ? {} : { fetch: options.testTransports.ocr }),
+      }),
+      transcribeAudio: createPrivateSttExtractor({
+        ...(settings.media.sttUrl === undefined ? {} : { url: settings.media.sttUrl }),
+        ...(options.testTransports?.stt === undefined ? {} : { fetch: options.testTransports.stt }),
+      }),
+    },
+    inspectSensitiveText,
+  });
   const decision = new ReplyDecisionService({
     store: drafts,
     inspectSensitiveText,
     faqResolver: new PostgresRuntimeFaqResolver(pool, settings.faq),
+    mediaProcessor,
   });
   const gatewayKeyEncoded = environment.MODEL_GATEWAY_ENCRYPTION_KEY;
   const gatewayKeyVersion = environment.MODEL_GATEWAY_KEY_VERSION ?? 'gateway-v1';

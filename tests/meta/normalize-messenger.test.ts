@@ -261,4 +261,107 @@ describe('normalizeMessengerWebhook', () => {
       { kind: 'unsupported', channel: 'messenger', reasonCode: 'unsupported_messaging_event' },
     ]);
   });
+
+  test('normalizes customer media attachments and media-only business echoes', () => {
+    const events = normalizeMessengerWebhook({
+      object: 'page',
+      entry: [
+        {
+          id: 'PAGE_TEST',
+          time: 1786400003000,
+          messaging: [
+            {
+              sender: { id: 'PSID_TEST_customer' },
+              recipient: { id: 'PAGE_TEST' },
+              timestamp: 1786400003000,
+              message: {
+                mid: 'm_TEST_attachments',
+                attachments: [
+                  {
+                    type: 'image',
+                    payload: { url: 'https://cdn.fbsbx.com/synthetic/receipt.png' },
+                  },
+                  {
+                    type: 'audio',
+                    payload: { url: 'https://cdn.fbsbx.com/synthetic/voice.mp4' },
+                  },
+                  {
+                    type: 'file',
+                    payload: { url: 'https://cdn.fbsbx.com/synthetic/guide.pdf' },
+                  },
+                  {
+                    type: 'image',
+                    payload: {
+                      url: 'https://cdn.fbsbx.com/synthetic/sticker.png',
+                      sticker_id: 369239263222822,
+                    },
+                  },
+                ],
+              },
+            },
+            {
+              sender: { id: 'PAGE_TEST' },
+              recipient: { id: 'PSID_TEST_customer' },
+              timestamp: 1786400004000,
+              message: {
+                is_echo: true,
+                mid: 'm_TEST_echo_media',
+                attachments: [
+                  {
+                    type: 'image',
+                    payload: { url: 'https://cdn.fbsbx.com/synthetic/staff-reply.png' },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(events).toEqual([
+      {
+        kind: 'customer_message',
+        channel: 'messenger',
+        channelAccountId: 'PAGE_TEST',
+        contactId: 'PSID_TEST_customer',
+        externalMessageId: 'm_TEST_attachments',
+        idempotencyKey: 'messenger:message:PAGE_TEST:m_TEST_attachments',
+        occurredAt: new Date('2026-08-10T22:13:23.000Z'),
+        text: '',
+        attachments: [
+          {
+            kind: 'image',
+            rawType: 'image',
+            mediaUrl: 'https://cdn.fbsbx.com/synthetic/receipt.png',
+          },
+          {
+            kind: 'audio',
+            rawType: 'audio',
+            mediaUrl: 'https://cdn.fbsbx.com/synthetic/voice.mp4',
+          },
+          {
+            kind: 'document',
+            rawType: 'file',
+            mediaUrl: 'https://cdn.fbsbx.com/synthetic/guide.pdf',
+          },
+          {
+            kind: 'unsupported',
+            rawType: 'sticker',
+            mediaUrl: 'https://cdn.fbsbx.com/synthetic/sticker.png',
+          },
+        ],
+      },
+      {
+        kind: 'business_message_echo',
+        channel: 'messenger',
+        channelAccountId: 'PAGE_TEST',
+        contactId: 'PSID_TEST_customer',
+        externalMessageId: 'm_TEST_echo_media',
+        idempotencyKey: 'messenger:message:PAGE_TEST:m_TEST_echo_media',
+        occurredAt: new Date('2026-08-10T22:13:24.000Z'),
+        text: '',
+      },
+    ]);
+  });
 });

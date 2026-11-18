@@ -125,7 +125,7 @@ export class PostgresReceiptStore {
         let insertedEventCount = 0;
         for (const [index, event] of input.events.entries()) {
           const suppressed = await this.isDeletedIdentity(client, event, input.receivedAt);
-          const insertedEvent = await client.query(
+          const insertedEvent = await client.query<{ readonly id: string }>(
             `insert into webhook_events
              (receipt_id, idempotency_key, channel, event_kind, channel_account_id,
               contact_id, external_message_id, occurred_at, message_text,
@@ -145,7 +145,39 @@ export class PostgresReceiptStore {
               ),
             ],
           );
-          insertedEventCount += insertedEvent.rowCount ?? 0;
+          const insertedId = insertedEvent.rows[0]?.id;
+          if (insertedId !== undefined) {
+            insertedEventCount += 1;
+            if (
+              !suppressed &&
+              event.kind === 'customer_message' &&
+              event.attachments !== undefined
+            ) {
+              for (const [attachmentIndex, attachment] of event.attachments.entries()) {
+                await client.query(
+                  `insert into webhook_event_attachments
+                     (webhook_event_id, attachment_index, attachment_kind, raw_type,
+                      media_id, media_url, mime_type, filename, caption, sha256,
+                      is_voice, extraction_status)
+                   values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending')
+                   on conflict (webhook_event_id, attachment_index) do nothing`,
+                  [
+                    insertedId,
+                    attachmentIndex,
+                    attachment.kind,
+                    attachment.rawType,
+                    attachment.mediaId ?? null,
+                    attachment.mediaUrl ?? null,
+                    attachment.mimeType ?? null,
+                    attachment.filename ?? null,
+                    attachment.caption ?? null,
+                    attachment.sha256 ?? null,
+                    attachment.voice ?? null,
+                  ],
+                );
+              }
+            }
+          }
         }
 
         return {

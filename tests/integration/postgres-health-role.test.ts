@@ -60,7 +60,7 @@ test('health principal reads real queue aggregates while customer columns and ad
           ...operationsEnvironment(),
           DATABASE_URL: url.toString(),
           OPS_GIT_REVISION: 'a'.repeat(40),
-          OPS_SCHEMA_REVISION: '000018',
+          OPS_SCHEMA_REVISION: '000019',
           OPS_DATABASE_SYSTEM_IDENTIFIER: target,
           OPS_DATABASE_NAME: 'fcd_support_test',
           OPS_DATABASE_SCHEMA: database.schema,

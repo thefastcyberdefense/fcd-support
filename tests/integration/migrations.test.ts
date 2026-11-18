@@ -162,7 +162,7 @@ describe('Phase 2 database migrations', () => {
       { table_name: 'knowledge_tags' },
       { table_name: 'knowledge_versions' },
     ]);
-    expect(migrations.rows[0]?.count).toBe(18);
+    expect(migrations.rows[0]?.count).toBe(19);
     expect(trigramExtension.rows).toEqual([{ installed: true }]);
     expect(aliasIndexes.rows.map(({ indexname }) => indexname)).toEqual(
       expect.arrayContaining([
@@ -222,7 +222,7 @@ describe('Phase 2 database migrations', () => {
       'support_reply_draft_knowledge',
       'support_reply_drafts',
     ]);
-    expect(migrations.rows[0]?.count).toBe(18);
+    expect(migrations.rows[0]?.count).toBe(19);
   });
 
   test('create customizable model policy, usage, and lease schema as migration eleven', async () => {
@@ -283,7 +283,7 @@ describe('Phase 2 database migrations', () => {
     expect(policyColumns.rows).toHaveLength(13);
     expect(policyColumns.rows.every(({ column_default }) => column_default === null)).toBe(true);
     expect(prohibitedColumns.rows).toEqual([]);
-    expect(migrations.rows[0]?.count).toBe(18);
+    expect(migrations.rows[0]?.count).toBe(19);
   });
 
   test('create the closed outbound messaging schema as migration twelve', async () => {
@@ -355,7 +355,7 @@ describe('Phase 2 database migrations', () => {
     expect(policyColumns.rows).toHaveLength(12);
     expect(policyColumns.rows.every(({ column_default }) => column_default === null)).toBe(true);
     expect(prohibitedColumns.rows).toEqual([]);
-    expect(migrations.rows[0]?.count).toBe(18);
+    expect(migrations.rows[0]?.count).toBe(19);
   });
 
   test('enforce outbound source, state, correlation, and append-only evidence constraints', async () => {
@@ -723,7 +723,7 @@ describe('Phase 2 database migrations', () => {
     expect((rollbackError as Error & { code?: string }).code).toBe('55000');
     await expect(
       pool.query(`select count(*)::int as count from pgmigrations`),
-    ).resolves.toMatchObject({ rows: [{ count: 18 }] });
+    ).resolves.toMatchObject({ rows: [{ count: 19 }] });
 
     await pool.query(`truncate table outbound_policy_versions restart identity cascade`);
     await migrateDownThrough(12);
@@ -901,7 +901,7 @@ describe('Phase 2 database migrations', () => {
     expect((rollbackError as Error & { code?: string }).code).toBe('55000');
     await expect(
       pool.query(`select count(*)::int as count from pgmigrations`),
-    ).resolves.toMatchObject({ rows: [{ count: 18 }] });
+    ).resolves.toMatchObject({ rows: [{ count: 19 }] });
 
     await pool.query(`truncate table model_policy_versions restart identity cascade`);
     await migrateDownThrough(11);
@@ -1036,6 +1036,86 @@ describe('Phase 2 database migrations', () => {
     ).resolves.not.toMatchObject({ rows: [{ view_name: null }] });
   });
 
+  test('enforces Track 2C attachment schema, escalation reason codes, deletion trigger, and rollback protection in migration 19', async () => {
+    const receipt = await pool.query<{ readonly id: string }>(
+      `insert into webhook_receipts (payload_sha256, received_at, event_count)
+       values ($1, '2030-05-01T00:00:00Z', 1)
+       returning id`,
+      ['a'.repeat(64)],
+    );
+    const event = await pool.query<{ readonly id: string }>(
+      `insert into webhook_events
+         (receipt_id, idempotency_key, channel, event_kind, channel_account_id,
+          contact_id, external_message_id, occurred_at, message_text, admission_outcome)
+       values ($1, 'mig19:event:1', 'whatsapp', 'customer_message', 'PHONE_19',
+               'CONTACT_19', 'MSG_19', '2030-05-01T00:00:00Z', 'hello', 'pending')
+       returning id`,
+      [receipt.rows[0]?.id],
+    );
+    const eventId = event.rows[0]?.id;
+
+    await pool.query(
+      `insert into webhook_event_attachments
+         (webhook_event_id, attachment_index, attachment_kind, raw_type, media_id,
+          mime_type, filename, caption, extracted_text, extraction_status, extraction_method)
+       values ($1, 0, 'document', 'document', 'MEDIA_19', 'application/pdf', 'doc.pdf',
+               'my caption', 'sanitized text', 'extracted', 'pdf_text')`,
+      [eventId],
+    );
+
+    const invalidKind = await captureRolledBackMutation(
+      `insert into webhook_event_attachments
+         (webhook_event_id, attachment_index, attachment_kind, raw_type)
+       values ($1, 1, 'bad_kind', 'bad')`,
+      [eventId],
+    );
+    expect(invalidKind).toMatchObject({ code: '23514' });
+
+    await pool.query(
+      `update webhook_events
+       set idempotency_key = 'privacy:TEST_v1:19',
+           channel_account_id = null,
+           contact_id = null,
+           external_message_id = null,
+           message_text = null
+       where id = $1`,
+      [eventId],
+    );
+    const erased = await pool.query<{
+      readonly extraction_status: string;
+      readonly media_id: string | null;
+      readonly extracted_text: string | null;
+    }>(
+      `select extraction_status, media_id, extracted_text
+       from webhook_event_attachments
+       where webhook_event_id = $1`,
+      [eventId],
+    );
+    expect(erased.rows).toEqual([
+      { extraction_status: 'erased', media_id: null, extracted_text: null },
+    ]);
+
+    let blocked: unknown;
+    try {
+      await migrateDownThrough(19);
+    } catch (error: unknown) {
+      blocked = error;
+    }
+    expect(blocked).toMatchObject({ code: '55000' });
+
+    await pool.query(
+      `truncate table webhook_event_attachments, webhook_events, webhook_receipts cascade`,
+    );
+    await migrateDownThrough(19);
+    await expect(
+      pool.query(`select to_regclass('webhook_event_attachments') as table_name`),
+    ).resolves.toMatchObject({ rows: [{ table_name: null }] });
+    await runMigrations('up');
+    await expect(
+      pool.query(`select to_regclass('webhook_event_attachments') as table_name`),
+    ).resolves.not.toMatchObject({ rows: [{ table_name: null }] });
+  });
+
   test('exclude plaintext admin credentials and enforce closed append-only evidence', async () => {
     const prohibitedColumns = await pool.query<{ readonly column_name: string }>(
       `select column_name
@@ -1163,7 +1243,7 @@ describe('Phase 2 database migrations', () => {
     expect((rollbackError as Error & { code?: string }).code).toBe('55000');
     await expect(
       pool.query(`select count(*)::int as count from pgmigrations`),
-    ).resolves.toMatchObject({ rows: [{ count: 18 }] });
+    ).resolves.toMatchObject({ rows: [{ count: 19 }] });
 
     await pool.query(`truncate table admin_accounts restart identity cascade`);
     await migrateDownThrough(10);
@@ -1310,7 +1390,7 @@ describe('Phase 2 database migrations', () => {
     expect((rollbackError as Error & { code?: string }).code).toBe('55000');
     await expect(
       pool.query(`select count(*)::int as count from pgmigrations`),
-    ).resolves.toMatchObject({ rows: [{ count: 18 }] });
+    ).resolves.toMatchObject({ rows: [{ count: 19 }] });
 
     await pool.query(`truncate table knowledge_sources restart identity cascade`);
     await migrateDownThrough(9);
@@ -1350,7 +1430,7 @@ describe('Phase 2 database migrations', () => {
       { table_name: 'privacy_suppressions' },
       { table_name: 'restore_deletion_gates' },
     ]);
-    expect(migrations.rows[0]?.count).toBe(18);
+    expect(migrations.rows[0]?.count).toBe(19);
   });
 
   test('create the bounded privacy rights workflow tables as migration five', async () => {
@@ -2827,7 +2907,7 @@ describe('Phase 2 database migrations', () => {
     expect((rollbackError as Error & { code?: string }).code).toBe('55000');
     await expect(
       pool.query(`select count(*)::int as count from pgmigrations`),
-    ).resolves.toMatchObject({ rows: [{ count: 18 }] });
+    ).resolves.toMatchObject({ rows: [{ count: 19 }] });
 
     await pool.query(`
       truncate table

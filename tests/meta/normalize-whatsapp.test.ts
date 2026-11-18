@@ -217,10 +217,10 @@ describe('normalizeWhatsAppWebhook', () => {
                 messages: [
                   {
                     from: '15550000001',
-                    id: 'wamid.TEST_image',
+                    id: 'wamid.TEST_reaction',
                     timestamp: '1786400000',
-                    type: 'image',
-                    image: { id: 'MEDIA_TEST' },
+                    type: 'reaction',
+                    reaction: { message_id: 'wamid.TEST_old', emoji: '👍' },
                   },
                   {
                     from: '15550000001',
@@ -241,7 +241,7 @@ describe('normalizeWhatsAppWebhook', () => {
       {
         kind: 'unsupported',
         channel: 'whatsapp',
-        reasonCode: 'unsupported_message_type:image',
+        reasonCode: 'unsupported_message_type:reaction',
       },
       {
         kind: 'customer_message',
@@ -304,6 +304,150 @@ describe('normalizeWhatsAppWebhook', () => {
         idempotencyKey: 'whatsapp:message:wamid.TEST_valid_after_malformed',
         occurredAt: new Date('2026-08-10T22:13:21.000Z'),
         text: 'Synthetic valid sibling',
+      },
+    ]);
+  });
+
+  test('normalizes inbound WhatsApp image, document, audio, and unsupported video/sticker customer attachments', () => {
+    const events = normalizeWhatsAppWebhook({
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          id: 'WABA_TEST',
+          changes: [
+            {
+              field: 'messages',
+              value: {
+                metadata: { phone_number_id: 'PHONE_TEST' },
+                messages: [
+                  {
+                    from: '15550000001',
+                    id: 'wamid.TEST_img',
+                    timestamp: '1786400000',
+                    type: 'image',
+                    image: {
+                      id: 'MEDIA_IMG_1',
+                      mime_type: 'image/png',
+                      sha256: 'a'.repeat(64),
+                      caption: 'Screenshot of error',
+                    },
+                  },
+                  {
+                    from: '15550000001',
+                    id: 'wamid.TEST_doc',
+                    timestamp: '1786400001',
+                    type: 'document',
+                    document: {
+                      id: 'MEDIA_DOC_1',
+                      filename: 'policy.pdf',
+                      mime_type: 'application/pdf',
+                    },
+                  },
+                  {
+                    from: '15550000001',
+                    id: 'wamid.TEST_aud',
+                    timestamp: '1786400002',
+                    type: 'audio',
+                    audio: {
+                      id: 'MEDIA_AUD_1',
+                      mime_type: 'audio/ogg',
+                      voice: true,
+                    },
+                  },
+                  {
+                    from: '15550000001',
+                    id: 'wamid.TEST_vid',
+                    timestamp: '1786400003',
+                    type: 'video',
+                    video: {
+                      id: 'MEDIA_VID_1',
+                      mime_type: 'video/mp4',
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(events).toEqual([
+      {
+        kind: 'customer_message',
+        channel: 'whatsapp',
+        channelAccountId: 'PHONE_TEST',
+        contactId: '15550000001',
+        externalMessageId: 'wamid.TEST_img',
+        idempotencyKey: 'whatsapp:message:wamid.TEST_img',
+        occurredAt: new Date('2026-08-10T22:13:20.000Z'),
+        text: 'Screenshot of error',
+        attachments: [
+          {
+            kind: 'image',
+            rawType: 'image',
+            mediaId: 'MEDIA_IMG_1',
+            mimeType: 'image/png',
+            sha256: 'a'.repeat(64),
+            caption: 'Screenshot of error',
+          },
+        ],
+      },
+      {
+        kind: 'customer_message',
+        channel: 'whatsapp',
+        channelAccountId: 'PHONE_TEST',
+        contactId: '15550000001',
+        externalMessageId: 'wamid.TEST_doc',
+        idempotencyKey: 'whatsapp:message:wamid.TEST_doc',
+        occurredAt: new Date('2026-08-10T22:13:21.000Z'),
+        text: '',
+        attachments: [
+          {
+            kind: 'document',
+            rawType: 'document',
+            mediaId: 'MEDIA_DOC_1',
+            filename: 'policy.pdf',
+            mimeType: 'application/pdf',
+          },
+        ],
+      },
+      {
+        kind: 'customer_message',
+        channel: 'whatsapp',
+        channelAccountId: 'PHONE_TEST',
+        contactId: '15550000001',
+        externalMessageId: 'wamid.TEST_aud',
+        idempotencyKey: 'whatsapp:message:wamid.TEST_aud',
+        occurredAt: new Date('2026-08-10T22:13:22.000Z'),
+        text: '',
+        attachments: [
+          {
+            kind: 'audio',
+            rawType: 'audio',
+            mediaId: 'MEDIA_AUD_1',
+            mimeType: 'audio/ogg',
+            voice: true,
+          },
+        ],
+      },
+      {
+        kind: 'customer_message',
+        channel: 'whatsapp',
+        channelAccountId: 'PHONE_TEST',
+        contactId: '15550000001',
+        externalMessageId: 'wamid.TEST_vid',
+        idempotencyKey: 'whatsapp:message:wamid.TEST_vid',
+        occurredAt: new Date('2026-08-10T22:13:23.000Z'),
+        text: '',
+        attachments: [
+          {
+            kind: 'unsupported',
+            rawType: 'video',
+            mediaId: 'MEDIA_VID_1',
+            mimeType: 'video/mp4',
+          },
+        ],
       },
     ]);
   });

@@ -57,6 +57,8 @@ export interface RoleRuntimeOptions {
     manifest?: RuntimeHttpTransport;
     meta?: RuntimeHttpTransport;
     n8n?: RuntimeHttpTransport;
+    ocr?: RuntimeHttpTransport;
+    stt?: RuntimeHttpTransport;
   }>;
 }
 

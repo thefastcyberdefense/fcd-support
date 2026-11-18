@@ -75,7 +75,7 @@ beforeAll(async () => {
   systemIdentifier = actual;
   await database.pool.query(
     `insert into operations_deployments(git_revision,schema_revision,status,recorded_at)
-    values($1,'000018','succeeded',$2)`,
+    values($1,'000019','succeeded',$2)`,
     [revision, at],
   );
 });
@@ -146,7 +146,7 @@ test('every concurrent physical connection is scoped and reference-bound before 
       () => at,
       () => Promise.resolve(true),
     );
-    expect(await readiness.readSchemaRevision()).toBe('000018');
+    expect(await readiness.readSchemaRevision()).toBe('000019');
     expect(await readiness.readDeployedRevision()).toBe(revision);
     expect(
       await new PostgresRetentionJob(pool).runExpiredContentBatch({
@@ -339,7 +339,7 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
       OPS_DATABASE_ROLE_PREFIX: rolePrefix,
       OPS_DATABASE_NAME: 'fcd_support_test',
       OPS_GIT_REVISION: revision,
-      OPS_SCHEMA_REVISION: '000018',
+      OPS_SCHEMA_REVISION: '000019',
     };
     const loaded = await loadRoleEnvironment('maintenance', environment);
     expect(loadOperationsConfig('maintenance', loaded).maximumCallMilliseconds).toBe(20000);

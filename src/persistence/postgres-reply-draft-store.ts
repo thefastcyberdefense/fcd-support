@@ -4,6 +4,11 @@ import type pg from 'pg';
 import { z } from 'zod';
 
 import { gapSummaries } from '../learning/learning-types.js';
+import type {
+  AttachmentExtractionStatus,
+  ClaimedWebhookAttachment,
+  MediaExtractionMethod,
+} from '../media/media-types.js';
 import { parseManifestOutput } from '../model/manifest-output.js';
 import { createIdentityHmac, requirePrivacyHmacKeyring } from '../policy/privacy-identity.js';
 import type { PrivacyHmacKeyring } from '../policy/policy-types.js';
@@ -36,10 +41,33 @@ const claimSchema = z.strictObject({
   requestKey,
   webhookEventId: internalId,
 });
+const attachmentOutcomeSchema = z.strictObject({
+  attachmentId: internalId,
+  detectedLanguage: z.enum(['bn', 'en']).nullable(),
+  extractedText: z.string().nullable(),
+  extractionMethod: z.enum(['ocr', 'pdf_text', 'stt']).nullable(),
+  extractionStatus: z.enum([
+    'extracted',
+    'failed',
+    'sensitive_blocked',
+    'unclear',
+    'unsupported',
+    'visual_only',
+  ]),
+  reasonCode: z.string().max(128).nullable(),
+});
 const persistSchema = z.discriminatedUnion('kind', [
   z.strictObject({
     answerText: z.string().trim().min(1).max(4000),
-    escalationReasonCode: z.enum(['sensitive_data_blocked', 'unsafe_redaction']),
+    attachmentOutcomes: z.array(attachmentOutcomeSchema).max(20).optional(),
+    escalationReasonCode: z.enum([
+      'sensitive_data_blocked',
+      'unsafe_redaction',
+      'unsupported_media',
+      'unclear_media',
+      'visual_media_deferred',
+      'media_extraction_failed',
+    ]),
     evaluatedAt: validDate,
     kind: z.literal('safe_failure'),
     language: z.enum(['en', 'bn']),
@@ -48,6 +76,7 @@ const persistSchema = z.discriminatedUnion('kind', [
   }),
   z.strictObject({
     answerText: z.string().trim().min(1).max(4000),
+    attachmentOutcomes: z.array(attachmentOutcomeSchema).max(20).optional(),
     evaluatedAt: validDate,
     itemReference: reference,
     kind: z.literal('faq'),
@@ -57,6 +86,7 @@ const persistSchema = z.discriminatedUnion('kind', [
     webhookEventId: internalId,
   }),
   z.strictObject({
+    attachmentOutcomes: z.array(attachmentOutcomeSchema).max(20).optional(),
     evaluatedAt: validDate,
     gapKind: z.enum(['faq_ambiguous', 'faq_miss']),
     kind: z.literal('model_required'),
@@ -171,6 +201,25 @@ interface PublishedKnowledgeRow {
   readonly version_ref: string;
 }
 
+interface AttachmentRow {
+  readonly attachment_index: number;
+  readonly attachment_kind: ClaimedWebhookAttachment['kind'];
+  readonly caption: string | null;
+  readonly detected_language: 'bn' | 'en' | null;
+  readonly extracted_text: string | null;
+  readonly extraction_method: MediaExtractionMethod | null;
+  readonly extraction_status: AttachmentExtractionStatus;
+  readonly filename: string | null;
+  readonly id: string;
+  readonly is_voice: boolean | null;
+  readonly media_id: string | null;
+  readonly media_url: string | null;
+  readonly mime_type: string | null;
+  readonly raw_type: string;
+  readonly reason_code: string | null;
+  readonly sha256: string | null;
+}
+
 export class ReplyDecisionConflictError extends Error {
   public override readonly name = 'ReplyDecisionConflictError';
 }
@@ -185,13 +234,52 @@ function parsePersist(input: unknown): PersistReplyDecisionInput {
   const parsed = persistSchema.safeParse(input);
   if (!parsed.success) throw new TypeError('Reply persistence input is invalid');
   const command = parsed.data as PersistReplyDecisionInput;
-  if (
-    command.kind === 'safe_failure' &&
-    command.answerText !== safeResponse(command.language, 'sensitive_data_blocked')
-  ) {
-    throw new TypeError('Safe reply text is not the reviewed deterministic response');
+  if (command.kind === 'safe_failure') {
+    const expectedReason =
+      command.escalationReasonCode === 'sensitive_data_blocked' ||
+      command.escalationReasonCode === 'unsafe_redaction'
+        ? 'sensitive_data_blocked'
+        : 'human_escalation';
+    if (command.answerText !== safeResponse(command.language, expectedReason)) {
+      throw new TypeError('Safe reply text is not the reviewed deterministic response');
+    }
   }
   return command;
+}
+
+async function loadWebhookAttachments(
+  client: pg.PoolClient,
+  webhookEventId: string,
+): Promise<readonly ClaimedWebhookAttachment[]> {
+  const selected = await client.query<AttachmentRow>(
+    `select id, attachment_index, attachment_kind, raw_type, media_id, media_url,
+            mime_type, filename, caption, sha256, is_voice, extraction_status,
+            extracted_text, extraction_method, detected_language, reason_code
+     from webhook_event_attachments
+     where webhook_event_id = $1
+       and extraction_status <> 'erased'
+     order by attachment_index
+     for update`,
+    [webhookEventId],
+  );
+  return selected.rows.map((row) => ({
+    id: row.id,
+    attachmentIndex: row.attachment_index,
+    kind: row.attachment_kind,
+    rawType: row.raw_type,
+    mediaId: row.media_id,
+    mediaUrl: row.media_url,
+    mimeType: row.mime_type,
+    filename: row.filename,
+    caption: row.caption,
+    sha256: row.sha256,
+    isVoice: row.is_voice,
+    extractionStatus: row.extraction_status,
+    extractedText: row.extracted_text,
+    extractionMethod: row.extraction_method,
+    detectedLanguage: row.detected_language,
+    reasonCode: row.reason_code,
+  }));
 }
 
 function parseModelPersist(input: unknown): PersistModelDecisionInput {
@@ -425,9 +513,11 @@ export class PostgresReplyDraftStore implements ReplyDecisionStore, ModelReplySt
       if (source.messageText === null) {
         return { status: 'policy_blocked', reasonCode: 'content_purged' };
       }
+      const attachments = await loadWebhookAttachments(client, command.webhookEventId);
       return {
         status: 'claimed',
         source: {
+          ...(attachments.length === 0 ? {} : { attachments, channel: source.channel }),
           conversationId: source.conversationId,
           messageText: source.messageText,
           occurredAt: source.occurredAt,
@@ -476,11 +566,21 @@ export class PostgresReplyDraftStore implements ReplyDecisionStore, ModelReplySt
       if (source.messageText === null) {
         return { status: 'policy_blocked', reasonCode: 'content_purged' };
       }
+      const attachments = await loadWebhookAttachments(client, command.webhookEventId);
+      if (attachments.some((item) => item.extractionStatus !== 'extracted')) {
+        return { status: 'not_processable' };
+      }
+      const effectiveMessageText = [
+        source.messageText,
+        ...attachments.map((item) => item.extractedText ?? ''),
+      ]
+        .filter((part) => part.trim().length > 0)
+        .join(' ');
       return {
         status: 'claimed',
         source: {
           conversationId: source.conversationId,
-          messageText: source.messageText,
+          messageText: effectiveMessageText,
           occurredAt: source.occurredAt,
           webhookEventId: command.webhookEventId,
         },
@@ -739,6 +839,29 @@ export class PostgresReplyDraftStore implements ReplyDecisionStore, ModelReplySt
       if (blocked !== undefined) return { status: 'policy_blocked', reasonCode: blocked };
       if (source.messageText === null) {
         return { status: 'policy_blocked', reasonCode: 'content_purged' };
+      }
+
+      for (const attachmentOutcome of command.attachmentOutcomes ?? []) {
+        await client.query(
+          `update webhook_event_attachments
+           set extraction_status = $2,
+               extracted_text = case when $2 = 'extracted' then $3 else null end,
+               extraction_method = $4,
+               detected_language = $5,
+               reason_code = $6,
+               updated_at = $7
+           where id = $1 and webhook_event_id = $8`,
+          [
+            attachmentOutcome.attachmentId,
+            attachmentOutcome.extractionStatus,
+            attachmentOutcome.extractedText,
+            attachmentOutcome.extractionMethod,
+            attachmentOutcome.detectedLanguage,
+            attachmentOutcome.reasonCode,
+            command.evaluatedAt,
+            command.webhookEventId,
+          ],
+        );
       }
 
       const retention = await client.query<RetentionDeadlineRow>(

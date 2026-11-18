@@ -181,7 +181,7 @@ function optionalSecrets(role: RuntimeRole): readonly SecretName[] {
     return ['MODEL_GATEWAY_ENCRYPTION_KEY', 'PRIVACY_HMAC_KEYRING'];
   }
   if (role === 'reply') {
-    return ['MODEL_GATEWAY_ENCRYPTION_KEY'];
+    return ['MODEL_GATEWAY_ENCRYPTION_KEY', 'META_WHATSAPP_ACCESS_TOKEN', 'META_PAGE_ACCESS_TOKEN'];
   }
   return [];
 }

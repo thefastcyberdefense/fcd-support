@@ -415,7 +415,7 @@ describe('PostgreSQL recoverable reply runtime', () => {
     await fixture.event();
     await db.pool.query(
       `insert into operations_deployments (git_revision,schema_revision,recorded_at,status)
-      values ($1,'000018',$2,'started')`,
+      values ($1,'000019',$2,'started')`,
       ['c'.repeat(40), at],
     );
     const runtime = await createReplyRuntime({
@@ -432,7 +432,7 @@ describe('PostgreSQL recoverable reply runtime', () => {
           ],
         }),
         OPS_GIT_REVISION: 'c'.repeat(40),
-        OPS_SCHEMA_REVISION: '000018',
+        OPS_SCHEMA_REVISION: '000019',
         REPLY_FAQ_POLICY_JSON: JSON.stringify({
           ambiguityMargin: 0.05,
           minimumSimilarity: 0.7,

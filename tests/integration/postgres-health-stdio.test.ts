@@ -139,7 +139,7 @@ describe.runIf(native)(
         ...operationsEnvironment(),
         NODE_ENV: 'production',
         OPS_GIT_REVISION: revision,
-        OPS_SCHEMA_REVISION: '000018',
+        OPS_SCHEMA_REVISION: '000019',
         OPS_DATABASE_SYSTEM_IDENTIFIER: systemIdentifier,
         OPS_DATABASE_NAME: 'fcd_support_test',
         OPS_DATABASE_SCHEMA: activeDatabase().schema,

@@ -1,15 +1,44 @@
 import { z } from 'zod';
 
-import type { NormalizedMetaEvent, NormalizedMessageStatus } from './normalized-event.js';
+import type {
+  NormalizedMediaAttachment,
+  NormalizedMetaEvent,
+  NormalizedMessageStatus,
+} from './normalized-event.js';
+
+const mediaItemSchema = z
+  .object({
+    caption: z.string().optional(),
+    filename: z.string().optional(),
+    id: z.string().min(1),
+    mime_type: z.string().optional(),
+    sha256: z.string().optional(),
+    voice: z.boolean().optional(),
+  })
+  .loose();
+
+const unsupportedMediaItemSchema = z
+  .object({
+    caption: z.string().optional(),
+    id: z.string().min(1).optional(),
+    mime_type: z.string().optional(),
+    sha256: z.string().optional(),
+  })
+  .loose();
 
 const messageSchema = z
   .object({
+    audio: mediaItemSchema.optional(),
+    document: mediaItemSchema.optional(),
     from: z.string().min(1).optional(),
     from_user_id: z.string().min(1).optional(),
     id: z.string(),
+    image: mediaItemSchema.optional(),
+    sticker: unsupportedMediaItemSchema.optional(),
     text: z.object({ body: z.string() }).optional(),
     timestamp: z.string(),
     type: z.string(),
+    video: unsupportedMediaItemSchema.optional(),
   })
   .loose();
 
@@ -57,6 +86,72 @@ const supportedStatuses = new Set<NormalizedMessageStatus['status']>([
   'read',
   'sent',
 ]);
+
+function buildWhatsAppAttachment(
+  kind: NormalizedMediaAttachment['kind'],
+  rawType: string,
+  item: {
+    readonly caption?: string | undefined;
+    readonly filename?: string | undefined;
+    readonly id?: string | undefined;
+    readonly mime_type?: string | undefined;
+    readonly sha256?: string | undefined;
+    readonly voice?: boolean | undefined;
+  },
+): NormalizedMediaAttachment {
+  return {
+    kind,
+    rawType,
+    ...(item.id === undefined ? {} : { mediaId: item.id }),
+    ...(item.mime_type === undefined ? {} : { mimeType: item.mime_type }),
+    ...(item.filename === undefined ? {} : { filename: item.filename }),
+    ...(item.caption === undefined ? {} : { caption: item.caption }),
+    ...(item.sha256 === undefined ? {} : { sha256: item.sha256 }),
+    ...(item.voice === undefined ? {} : { voice: item.voice }),
+  };
+}
+
+function normalizeWhatsAppContent(message: z.infer<typeof messageSchema>):
+  | {
+      readonly attachments?: readonly NormalizedMediaAttachment[];
+      readonly text: string;
+    }
+  | undefined {
+  if (message.type === 'text' && message.text !== undefined) {
+    return { text: message.text.body };
+  }
+  if (message.type === 'image' && message.image !== undefined) {
+    return {
+      text: message.image.caption ?? '',
+      attachments: [buildWhatsAppAttachment('image', 'image', message.image)],
+    };
+  }
+  if (message.type === 'document' && message.document !== undefined) {
+    return {
+      text: message.document.caption ?? '',
+      attachments: [buildWhatsAppAttachment('document', 'document', message.document)],
+    };
+  }
+  if (message.type === 'audio' && message.audio !== undefined) {
+    return {
+      text: '',
+      attachments: [buildWhatsAppAttachment('audio', 'audio', message.audio)],
+    };
+  }
+  if (message.type === 'video' && message.video !== undefined) {
+    return {
+      text: message.video.caption ?? '',
+      attachments: [buildWhatsAppAttachment('unsupported', 'video', message.video)],
+    };
+  }
+  if (message.type === 'sticker' && message.sticker !== undefined) {
+    return {
+      text: message.sticker.caption ?? '',
+      attachments: [buildWhatsAppAttachment('unsupported', 'sticker', message.sticker)],
+    };
+  }
+  return undefined;
+}
 
 function parseWhatsAppTimestamp(timestamp: string): Date | undefined {
   const seconds = Number(timestamp);
@@ -145,7 +240,8 @@ export function normalizeWhatsAppWebhook(payload: unknown): readonly NormalizedM
           });
           continue;
         }
-        if (message.type !== 'text' || message.text === undefined) {
+        const content = normalizeWhatsAppContent(message);
+        if (content === undefined) {
           events.push({
             kind: 'unsupported',
             channel: 'whatsapp',
@@ -172,7 +268,8 @@ export function normalizeWhatsAppWebhook(payload: unknown): readonly NormalizedM
           externalMessageId: message.id,
           idempotencyKey: `whatsapp:message:${message.id}`,
           occurredAt,
-          text: message.text.body,
+          text: content.text,
+          ...(content.attachments === undefined ? {} : { attachments: content.attachments }),
         });
       }
 
