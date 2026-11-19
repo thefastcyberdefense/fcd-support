@@ -114,7 +114,8 @@ export async function writeRuntimeHostFixture(
       checkpoint,
       restore: {
         ...checkpointBounds,
-        CHECKPOINT_MAX_AGE_MS: profile === 'ci-recovery' ? '600000' : '60000',
+        CHECKPOINT_MAX_AGE_MS:
+          profile === 'ci-recovery' || profile === 'v1-enabled' ? '600000' : '60000',
         RESTORE_BATCH_LIMIT: '10',
         RESTORE_MAX_BATCHES: '100',
         PROMOTION_HOST_CHECK_TIMEOUT_MS: common.OPS_MAX_CALL_MS,

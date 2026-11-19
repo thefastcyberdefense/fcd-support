@@ -151,22 +151,25 @@ test.each(['backup', 'verify-backup', 'checkpoint', 'restore'])(
   },
 );
 
-test('CI recovery fixture explicitly budgets checkpoint freshness without changing the standard fixture', async () => {
-  const parent = await mkdtemp(join(tmpdir(), 'fcd-host-fixture-test-'));
-  const root = join(parent, 'fcd-support-host-test-synthetic');
-  try {
-    await writeRuntimeHostFixture(
-      root,
-      'fcd-support-host-test-synthetic',
-      'b'.repeat(40),
-      'ci-recovery',
-    );
-    const settings = environment(await readFile(join(root, 'config/restore.env'), 'utf8'));
-    expect(settings.CHECKPOINT_MAX_AGE_MS).toBe('600000');
-    const common = environment(await readFile(join(root, 'config/common.env'), 'utf8'));
-    expect(common.OPS_MAX_CALL_MS).toBe('20000');
-    expect(settings.PROMOTION_HOST_CHECK_TIMEOUT_MS).toBe(common.OPS_MAX_CALL_MS);
-  } finally {
-    await rm(parent, { recursive: true, force: true });
-  }
-});
+test.each(['ci-recovery', 'v1-enabled'] as const)(
+  '%s fixture explicitly budgets checkpoint freshness without changing the standard fixture',
+  async (profile) => {
+    const parent = await mkdtemp(join(tmpdir(), 'fcd-host-fixture-test-'));
+    const root = join(parent, 'fcd-support-host-test-synthetic');
+    try {
+      await writeRuntimeHostFixture(
+        root,
+        'fcd-support-host-test-synthetic',
+        'b'.repeat(40),
+        profile,
+      );
+      const settings = environment(await readFile(join(root, 'config/restore.env'), 'utf8'));
+      expect(settings.CHECKPOINT_MAX_AGE_MS).toBe('600000');
+      const common = environment(await readFile(join(root, 'config/common.env'), 'utf8'));
+      expect(common.OPS_MAX_CALL_MS).toBe('20000');
+      expect(settings.PROMOTION_HOST_CHECK_TIMEOUT_MS).toBe(common.OPS_MAX_CALL_MS);
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
+  },
+);
