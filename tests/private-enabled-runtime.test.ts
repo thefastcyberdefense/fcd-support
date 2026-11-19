@@ -678,12 +678,14 @@ operations_collect_health_host
     await writeRuntimeHostFixture(root, 'fcd-support-host-test-v1env', revision, 'v1-enabled');
     const opsEnv = await readFile(join(root, 'config/operations.env'), 'utf8');
     const modelEnv = await readFile(join(root, 'config/model.env'), 'utf8');
+    const restoreEnv = await readFile(join(root, 'config/restore.env'), 'utf8');
     const manifestKey = await readFile(join(root, 'secrets/reply/manifest-key'), 'utf8');
     const waToken = await readFile(join(root, 'secrets/outbound/meta-whatsapp-token'), 'utf8');
     expect(opsEnv).toContain('FCD_MODEL_NETWORK=');
     expect(opsEnv).toContain('FCD_MAINTENANCE_SLOT_SECONDS=');
     expect(opsEnv).toContain('FCD_BACKUP_CALENDAR=');
     expect(modelEnv).toContain('MANIFEST_BASE_URL=');
+    expect(restoreEnv).toContain('CHECKPOINT_MAX_AGE_MS=600000');
     expect(manifestKey.length).toBeGreaterThan(10);
     expect(waToken.length).toBeGreaterThan(10);
   });
