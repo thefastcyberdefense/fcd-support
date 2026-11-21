@@ -138,18 +138,24 @@ operations_drain_checked() {
           fcd-support-admin) command='["node","dist/admin-main.js"]' ;;
           *) command="[\"node\",\"dist/worker-main.js\",\"${role#fcd-support-}\"]" ;;
         esac ;;
+      fcd-support-ocr|fcd-support-stt)
+        [[ "$mode" == managed ]] || return 1
+        [[ "$image" =~ ^sha256:[a-f0-9]{64}$ && "$rev" == "$revision" && ( "$status/$running" == running/true || "$status/$running" == exited/false ) ]] || return 1
+        expected_user='^(node|1000|1000:1000)$'
+        entrypoint='["docker-entrypoint.sh"]'
+        command="[\"node\",\"${role#fcd-support-}-server.ts\"]" ;;
       *) return 1 ;;
     esac
     [[ "$user" =~ $expected_user && "$(operations_docker container inspect --format '{{json .Config.Cmd}}' "$id")" == "$command" && "$(operations_docker container inspect --format '{{json (index .Config "Entrypoint")}}' "$id")" == "$entrypoint" && "$(operations_docker container inspect --format '{{len .HostConfig.PortBindings}}/{{.HostConfig.Privileged}}' "$id")" == 0/false ]] || return 1
     OPS_DRAIN_ROLES[$role]="$id"; OPS_DRAIN_EXPECTED[$id]="$meta"
   done <<<"$ids"
-  [[ -n "${OPS_DRAIN_ROLES[postgres]:-}" && ${#OPS_DRAIN_ROLES[@]} -le 6 ]] || return 1
+  [[ -n "${OPS_DRAIN_ROLES[postgres]:-}" && ${#OPS_DRAIN_ROLES[@]} -le 8 ]] || return 1
   operations_drain_boundaries || return 1
   system="$(operations_read_database_control_identifier "${OPS_DRAIN_ROLES[postgres]}")" || return 1
   [[ "$system" == "${OPS_SELECTION[STATE_SYSTEM_IDENTIFIER]}" ]] || return 1
   operations_drain_actor_set || return 1
   grace="$(( (${OPS_CONFIG[FCD_STOP_GRACE_MS]} + 999) / 1000 ))"
-  for role in fcd-support-reply fcd-support-outbound fcd-support-notification fcd-support-admin fcd-support-api; do
+  for role in fcd-support-reply fcd-support-ocr fcd-support-stt fcd-support-outbound fcd-support-notification fcd-support-admin fcd-support-api; do
     id="${OPS_DRAIN_ROLES[$role]:-}"; [[ -n "$id" ]] || continue
     operations_drain_actor_set || return 1
     old="${OPS_DRAIN_EXPECTED[$id]}"; stopped="${old/\/running\/true\//\/exited\/false\/}"
@@ -159,7 +165,7 @@ operations_drain_checked() {
     operations_drain_actor_set || return 1
   done
   [[ ! -e "${OPS_CONFIG[FCD_ADMIN_SOCKET_ROOT]}/admin.sock" && ! -L "${OPS_CONFIG[FCD_ADMIN_SOCKET_ROOT]}/admin.sock" ]] || return 1
-  for role in fcd-support-reply fcd-support-outbound fcd-support-notification fcd-support-admin fcd-support-api; do
+  for role in fcd-support-reply fcd-support-ocr fcd-support-stt fcd-support-outbound fcd-support-notification fcd-support-admin fcd-support-api; do
     id="${OPS_DRAIN_ROLES[$role]:-}"; [[ -n "$id" ]] || continue
     operations_drain_actor_set || return 1
     # No force, volume removal, image removal or automatic socket recovery.

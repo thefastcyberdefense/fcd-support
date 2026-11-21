@@ -11,13 +11,25 @@ export function parseRuntimeHostCliArguments(rawArgs: readonly string[]) {
   const bootstrap = rawArgs[0] === 'bootstrap';
   const mode = bootstrap
     ? ('private-disabled' as const)
-    : rawArgs.length === 8 && rawArgs[6] === '--mode'
+    : (rawArgs.length === 8 || rawArgs.length === 9) && rawArgs[6] === '--mode'
       ? z.enum(['private-disabled', 'private-enabled']).parse(rawArgs[7])
       : rawArgs.length === 6
         ? ('private-disabled' as const)
         : (() => {
             throw new Error('invalid');
           })();
+  const mediaEnabled =
+    !bootstrap && mode === 'private-enabled' && rawArgs.length === 9
+      ? rawArgs[8] === '--media'
+        ? true
+        : (() => {
+            throw new Error('invalid');
+          })()
+      : rawArgs.length === 9
+        ? (() => {
+            throw new Error('invalid');
+          })()
+        : false;
   const args = z
     .tuple([z.string(), z.string(), z.string(), z.string(), z.string(), z.string()])
     .parse(rawArgs.slice(0, 6));
@@ -27,6 +39,7 @@ export function parseRuntimeHostCliArguments(rawArgs: readonly string[]) {
   return Object.freeze({
     bootstrap,
     mode,
+    mediaEnabled,
     revision,
     adminSocketRoot,
     configRoot,
@@ -42,6 +55,7 @@ export async function runRuntimeHostMain(): Promise<void> {
     const {
       bootstrap,
       mode,
+      mediaEnabled,
       revision,
       adminSocketRoot,
       configRoot,
@@ -82,6 +96,7 @@ export async function runRuntimeHostMain(): Promise<void> {
           ...options,
           ingressPeerId,
           mode,
+          mediaEnabled,
         });
     process.stdout.write(JSON.stringify(result) + '\n');
   } catch (error) {

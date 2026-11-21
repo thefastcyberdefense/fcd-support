@@ -14,6 +14,15 @@ operations_controller_images() {
     [[ "$id" =~ ^sha256:[a-f0-9]{64}$ && "$metadata" == "$id/${OPS_CONFIG[FCD_SUPPORT_REVISION]}/linux/amd64" ]] || return 1
     OPS_CONFIG[$field]="$id"
   done
+  if [[ "${OPS_RUNTIME_MODE:-private-disabled}" == private-enabled && "${OPS_CONFIG[FCD_MEDIA_ENABLED]:-false}" == true ]]; then
+    for field in FCD_OCR_IMAGE FCD_STT_IMAGE; do
+      [[ -n "${OPS_CONFIG[$field]:-}" ]] && operations_config_field "$field" "${OPS_CONFIG[$field]}" || return 1
+      metadata="$(operations_docker image inspect --format '{{.Id}}/{{index .Config.Labels "org.opencontainers.image.revision"}}/{{.Os}}/{{.Architecture}}' "${OPS_CONFIG[$field]}")" || return 1
+      id="${metadata%%/*}"
+      [[ "$id" =~ ^sha256:[a-f0-9]{64}$ && "$metadata" == "$id/${OPS_CONFIG[FCD_SUPPORT_REVISION]}/linux/amd64" ]] || return 1
+      OPS_CONFIG[$field]="$id"
+    done
+  fi
   OPS_CONTROLLER_APPLICATION="${OPS_CONFIG[FCD_SUPPORT_IMAGE]}"
   OPS_CONTROLLER_OPERATIONS="${OPS_CONFIG[FCD_OPERATIONS_IMAGE]}"
   OPS_CONTROLLER_POSTGRES="${OPS_CONFIG[FCD_POSTGRES_IMAGE]}"

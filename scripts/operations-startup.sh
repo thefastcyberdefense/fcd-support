@@ -52,6 +52,15 @@ operations_startup_checked() {
     else [[ "${meta##*/}" =~ ^(node|1000|1000:1000)$ ]] || return 1; fi
     OPS_CONFIG[$field]="$expected"
   done
+  if [[ "${OPS_RUNTIME_MODE:-private-disabled}" == private-enabled && "${OPS_CONFIG[FCD_MEDIA_ENABLED]:-false}" == true ]]; then
+    for field in FCD_OCR_IMAGE FCD_STT_IMAGE; do
+      operations_config_field "$field" "${OPS_CONFIG[$field]:-}" || return 1
+      meta="$(operations_docker image inspect --format '{{.Id}}/{{index .Config.Labels "org.opencontainers.image.revision"}}/{{.Os}}/{{.Architecture}}/{{.Config.User}}' "${OPS_CONFIG[$field]}")" || return 1
+      expected="${meta%%/*}"
+      [[ "$expected" =~ ^sha256:[a-f0-9]{64}$ && "$meta" == "$expected/${OPS_CONFIG[FCD_SUPPORT_REVISION]}/linux/amd64/"* && "${meta##*/}" =~ ^(node|1000|1000:1000)$ ]] || return 1
+      OPS_CONFIG[$field]="$expected"
+    done
+  fi
   # SQL readiness probes also use the durable executor in this private scope.
   # No legacy run--rm owner/migrator job can outlive the journal unnoticed.
   operations_job() { operations_execute_job "$@"; }
@@ -73,9 +82,15 @@ operations_startup_checked() {
   operations_startup_selection starting || return 1
   operations_socket_root || return 1
   if [[ "${OPS_RUNTIME_MODE:-private-disabled}" == private-enabled ]]; then
-    operations_compose runtime --profile model-execution --profile outbound-execution \
-      up --detach --wait --wait-timeout "${OPS_CONFIG[FCD_READY_TIMEOUT_SECONDS]}" \
-      --no-deps --no-build --pull never fcd-support-api fcd-support-admin fcd-support-reply fcd-support-outbound >/dev/null 2>&1 || true
+    if [[ "${OPS_CONFIG[FCD_MEDIA_ENABLED]:-false}" == true ]]; then
+      operations_compose runtime --profile model-execution --profile outbound-execution --profile media-execution \
+        up --detach --wait --wait-timeout "${OPS_CONFIG[FCD_READY_TIMEOUT_SECONDS]}" \
+        --no-deps --no-build --pull never fcd-support-api fcd-support-admin fcd-support-reply fcd-support-outbound fcd-support-ocr fcd-support-stt >/dev/null 2>&1 || true
+    else
+      operations_compose runtime --profile model-execution --profile outbound-execution \
+        up --detach --wait --wait-timeout "${OPS_CONFIG[FCD_READY_TIMEOUT_SECONDS]}" \
+        --no-deps --no-build --pull never fcd-support-api fcd-support-admin fcd-support-reply fcd-support-outbound >/dev/null 2>&1 || true
+    fi
   else
     operations_compose runtime up --detach --wait --wait-timeout "${OPS_CONFIG[FCD_READY_TIMEOUT_SECONDS]}" \
       --no-deps --no-build --pull never fcd-support-api fcd-support-admin fcd-support-reply >/dev/null 2>&1 || true

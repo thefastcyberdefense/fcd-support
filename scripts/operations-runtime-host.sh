@@ -29,15 +29,21 @@ operations_runtime_id() {
   printf '%s' "$value"
 }
 
+operations_runtime_media_enabled() {
+  [[ "${OPS_RUNTIME_MODE:-private-disabled}" == private-enabled && "${OPS_CONFIG[FCD_MEDIA_ENABLED]:-false}" == true ]]
+}
+
 operations_runtime_snapshot() {
   local mode="${1:-runtime}" runtime_mode="${OPS_RUNTIME_MODE:-private-disabled}" count=4
   [[ "$#" -le 1 && ( "$mode" == runtime || "$mode" == bootstrap ) ]] || return 1
   local project="${OPS_CONFIG[FCD_RUNTIME_PROJECT]}" root="${OPS_CONFIG[FCD_ADMIN_SOCKET_ROOT]}"
-  local ids id container containers='' separator='' role network members metadata networks='' pg_image runtime_image volume users
+  local ids id container containers='' separator='' role network members metadata networks='' pg_image runtime_image ocr_image='' stt_image='' images_json volume users
   local host_binds='' mounts source canonical socket root_stat device inode uid gid mode rdevice rinode ruid rgid rmode
   local -a list=() listing=(--all) data_roles=(webhook admin reply outbound notification operations ingress)
   if [[ "$mode" == bootstrap ]]; then
     listing=(); count=1; data_roles=(webhook admin reply outbound notification operations)
+  elif operations_runtime_media_enabled; then
+    count=7; data_roles=(webhook admin reply outbound notification operations ingress provider-egress model media-internal)
   elif [[ "$runtime_mode" == private-enabled ]]; then
     count=5; data_roles=(webhook admin reply outbound notification operations ingress provider-egress model)
   fi
@@ -54,7 +60,8 @@ operations_runtime_snapshot() {
     network="$project-$role-data"
     if [[ "$role" == ingress ]]; then network="${OPS_CONFIG[FCD_INGRESS_NETWORK]}";
     elif [[ "$role" == provider-egress ]]; then network="$project-provider-egress";
-    elif [[ "$role" == model ]]; then network="${OPS_CONFIG[FCD_MODEL_NETWORK]}"; fi
+    elif [[ "$role" == model ]]; then network="${OPS_CONFIG[FCD_MODEL_NETWORK]}";
+    elif [[ "$role" == media-internal ]]; then network="$project-media-internal"; fi
     members="$(operations_docker network inspect --format '{{range $id,$member := .Containers}}{{println $id}}{{end}}' "$network")" || return 1
     members="$(operations_runtime_ids "$members")" || return 1
     metadata="$(operations_docker network inspect --format "$OPERATIONS_RUNTIME_NETWORK_FORMAT" "$network")" || return 1
@@ -66,6 +73,12 @@ operations_runtime_snapshot() {
   volume+=",\"users\":$users}"
   pg_image="$(operations_docker image inspect --format "$OPERATIONS_RUNTIME_IMAGE_FORMAT" "${OPS_CONFIG[FCD_POSTGRES_IMAGE]}")" || return 1
   runtime_image="$(operations_docker image inspect --format "$OPERATIONS_RUNTIME_IMAGE_FORMAT" "${OPS_CONFIG[FCD_SUPPORT_IMAGE]}")" || return 1
+  images_json="\"postgres\":$pg_image,\"runtime\":$runtime_image"
+  if [[ "$mode" != bootstrap ]] && operations_runtime_media_enabled; then
+    ocr_image="$(operations_docker image inspect --format "$OPERATIONS_RUNTIME_IMAGE_FORMAT" "${OPS_CONFIG[FCD_OCR_IMAGE]}")" || return 1
+    stt_image="$(operations_docker image inspect --format "$OPERATIONS_RUNTIME_IMAGE_FORMAT" "${OPS_CONFIG[FCD_STT_IMAGE]}")" || return 1
+    images_json+=",\"ocr\":$ocr_image,\"stt\":$stt_image"
+  fi
   ids="$(operations_docker ps --all --quiet --no-trunc)" || return 1
   ids="${ids//$'\n'/ }"; read -r -a list <<<"$ids"
   (( ${#list[@]} > 0 && ${#list[@]} <= 256 )) || return 1
@@ -87,8 +100,8 @@ operations_runtime_snapshot() {
   socket="$root/admin.sock"
   if [[ "$mode" == bootstrap ]]; then
     [[ ! -e "$socket" && ! -L "$socket" ]] || return 1
-    printf '{"images":{"postgres":%s,"runtime":%s},"containers":[%s],"networks":[%s],"volume":%s,"hostBinds":[%s],"socket":null}' \
-      "$pg_image" "$runtime_image" "$containers" "$networks" "$volume" "$host_binds"
+    printf '{"images":{%s},"containers":[%s],"networks":[%s],"volume":%s,"hostBinds":[%s],"socket":null}' \
+      "$images_json" "$containers" "$networks" "$volume" "$host_binds"
     return 0
   fi
   [[ -S "$socket" && ! -L "$socket" ]] || return 1
@@ -97,12 +110,12 @@ operations_runtime_snapshot() {
   [[ "$socket" =~ ^[0-9]{1,20}:[0-9]{1,20}:1000:1000:600$ && "$root_stat" =~ ^[0-9]{1,20}:[0-9]{1,20}:1000:1000:700$ ]] || return 1
   IFS=: read -r device inode uid gid mode <<<"$socket"
   IFS=: read -r rdevice rinode ruid rgid rmode <<<"$root_stat"
-  printf '{"images":{"postgres":%s,"runtime":%s},"containers":[%s],"networks":[%s],"volume":%s,"hostBinds":[%s],"socket":{"device":"%s","inode":"%s","uid":%s,"gid":%s,"mode":%s,"rootDevice":"%s","rootInode":"%s","rootUid":%s,"rootGid":%s,"rootMode":%s}}' \
-    "$pg_image" "$runtime_image" "$containers" "$networks" "$volume" "$host_binds" "$device" "$inode" "$uid" "$gid" "$((8#$mode))" "$rdevice" "$rinode" "$ruid" "$rgid" "$((8#$rmode))"
+  printf '{"images":{%s},"containers":[%s],"networks":[%s],"volume":%s,"hostBinds":[%s],"socket":{"device":"%s","inode":"%s","uid":%s,"gid":%s,"mode":%s,"rootDevice":"%s","rootInode":"%s","rootUid":%s,"rootGid":%s,"rootMode":%s}}' \
+    "$images_json" "$containers" "$networks" "$volume" "$host_binds" "$device" "$inode" "$uid" "$gid" "$((8#$mode))" "$rdevice" "$rinode" "$ruid" "$rgid" "$((8#$rmode))"
 }
 
 operations_runtime_probes() {
-  local api admin reply outbound timeout="${OPS_CONFIG[FCD_HEALTH_TIMEOUT_MS]}"
+  local api admin reply outbound ocr stt timeout="${OPS_CONFIG[FCD_HEALTH_TIMEOUT_MS]}"
   api="$(operations_runtime_id fcd-support-api)" || return 1
   admin="$(operations_runtime_id fcd-support-admin)" || return 1
   reply="$(operations_runtime_id fcd-support-reply)" || return 1
@@ -116,6 +129,12 @@ operations_runtime_probes() {
   if [[ "${OPS_RUNTIME_MODE:-private-disabled}" == private-enabled ]]; then
     outbound="$(operations_runtime_id fcd-support-outbound)" || return 1
     operations_docker exec "$outbound" node --input-type=module -e 'import {readRuntimeHeartbeat} from "./dist/operations/role-runtime.js";process.exit(readRuntimeHeartbeat("/run/fcd-support/heartbeat.json",new Date(),Number(process.env.OPS_HEALTH_STALE_MS))?0:1)' >/dev/null || return 1
+  fi
+  if operations_runtime_media_enabled; then
+    ocr="$(operations_runtime_id fcd-support-ocr)" || return 1
+    stt="$(operations_runtime_id fcd-support-stt)" || return 1
+    operations_docker exec "$ocr" node --input-type=module -e 'try {const r=await fetch("http://127.0.0.1:8091/health",{redirect:"error",signal:AbortSignal.timeout(Number(process.argv[1]))});await r.body?.cancel();process.exit(r.ok?0:1)}catch{process.exit(1)}' "$timeout" >/dev/null || return 1
+    operations_docker exec "$stt" node --input-type=module -e 'try {const r=await fetch("http://127.0.0.1:8092/health",{redirect:"error",signal:AbortSignal.timeout(Number(process.argv[1]))});await r.body?.cancel();process.exit(r.ok?0:1)}catch{process.exit(1)}' "$timeout" >/dev/null || return 1
   fi
 }
 
@@ -158,6 +177,13 @@ operations_inspect_host() {
     done
     if [[ "${OPS_RUNTIME_MODE:-private-disabled}" == private-enabled ]]; then
       [[ -n "${OPS_CONFIG[FCD_MODEL_NETWORK]:-}" ]] && operations_config_field FCD_MODEL_NETWORK "${OPS_CONFIG[FCD_MODEL_NETWORK]}" || operations_fail runtime_host_invalid
+      if operations_runtime_media_enabled; then
+        for field in FCD_OCR_IMAGE FCD_STT_IMAGE; do
+          [[ -n "${OPS_CONFIG[$field]:-}" ]] && operations_config_field "$field" "${OPS_CONFIG[$field]}" || operations_fail runtime_host_invalid
+        done
+      fi
+    elif [[ "${OPS_CONFIG[FCD_MEDIA_ENABLED]:-false}" != false ]]; then
+      operations_fail runtime_host_invalid
     fi
   fi
   (( ${OPS_CONFIG[FCD_HEALTH_TIMEOUT_MS]} <= 300000 )) || operations_fail runtime_host_invalid
@@ -183,6 +209,9 @@ operations_inspect_host() {
   if [[ "$mode" == bootstrap ]]; then
     payload="$(printf '{"compose":%s,"samples":{"before":%s,"after":%s}%s}' "$model" "$before" "$after" "$binding")"
     arguments=(bootstrap "${OPS_CONFIG[FCD_SUPPORT_REVISION]}" "${OPS_CONFIG[FCD_ADMIN_SOCKET_ROOT]}" "${OPS_CONFIG[FCD_CONFIG_ROOT]}" "${OPS_CONFIG[FCD_SECRET_ROOT]}" "$OPS_ROOT")
+  elif operations_runtime_media_enabled; then
+    payload="$(printf '{"compose":%s,"samples":{"before":%s,"after":%s,"probes":{"postgresSql":true,"apiHttp":true,"adminSocket":true,"adminNoTcp":true,"replyHeartbeat":true,"outboundHeartbeat":true,"ocrHttp":true,"sttHttp":true}}%s}' "$model" "$before" "$after" "$binding")"
+    arguments=("${OPS_CONFIG[FCD_SUPPORT_REVISION]}" "${OPS_CONFIG[FCD_ADMIN_SOCKET_ROOT]}" "${OPS_CONFIG[FCD_CONFIG_ROOT]}" "${OPS_CONFIG[FCD_SECRET_ROOT]}" "$OPS_ROOT" "${OPS_CONFIG[FCD_INGRESS_PEER_ID]}" --mode private-enabled --media)
   elif [[ "${OPS_RUNTIME_MODE:-private-disabled}" == private-enabled ]]; then
     payload="$(printf '{"compose":%s,"samples":{"before":%s,"after":%s,"probes":{"postgresSql":true,"apiHttp":true,"adminSocket":true,"adminNoTcp":true,"replyHeartbeat":true,"outboundHeartbeat":true}}%s}' "$model" "$before" "$after" "$binding")"
     arguments=("${OPS_CONFIG[FCD_SUPPORT_REVISION]}" "${OPS_CONFIG[FCD_ADMIN_SOCKET_ROOT]}" "${OPS_CONFIG[FCD_CONFIG_ROOT]}" "${OPS_CONFIG[FCD_SECRET_ROOT]}" "$OPS_ROOT" "${OPS_CONFIG[FCD_INGRESS_PEER_ID]}" --mode private-enabled)
