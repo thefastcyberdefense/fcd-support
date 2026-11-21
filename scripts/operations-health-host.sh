@@ -118,6 +118,51 @@ operations_collect_health_host() (
     [[ "$id" == "${actors[outbound]}" ]] || return 1
     outbound_json="$(printf ',{"component":"outbound","running":%s,"health":"%s","gitRevision":"%s"%s}' "${running[outbound]}" "${health[outbound]}" "${revisions[outbound]}" "$outbound_heartbeat")"
   fi
-  printf '{"checkedAt":"%s","services":[{"component":"webhook","running":%s,"health":"%s","gitRevision":"%s"},{"component":"reply","running":%s,"health":"%s","gitRevision":"%s"%s}%s,{"component":"tunnel","running":%s,"health":"%s","gitRevision":"%s"}],"adminSocket":"%s","manifestAttestation":"not_verified","publicRouteCheck":{"state":"not_verified"}}' \
-    "$checked_at" "${running[api]}" "${health[api]}" "${revisions[api]}" "${running[reply]}" "${health[reply]}" "${revisions[reply]}" "$heartbeat" "$outbound_json" "${running[tunnel]}" "${health[tunnel]}" "$expected" "$admin_socket"
+  local public_route_json='"publicRouteCheck":{"state":"not_verified"}'
+  local state_root="${OPS_CONFIG[FCD_STATE_ROOT]:-}" stale_ms="${OPS_HEALTH_STALE_MS:-60000}"
+  if [[ -n "$state_root" && -d "$state_root" && ! -L "$state_root" && "$stale_ms" =~ ^[1-9][0-9]{0,7}$ ]] && (( 10#$stale_ms >= 500 && 10#$stale_ms <= 86400000 )); then
+    local route_raw='' route_state='' route_at=''
+    if route_raw="$(node --input-type=module -e '
+import { closeSync, constants, fstatSync, lstatSync, openSync, readSync } from "node:fs";
+import { join } from "node:path";
+
+let fd;
+try {
+  const root = process.argv[1];
+  const nowMs = Date.parse(process.argv[2]);
+  const limit = Number(process.argv[3]);
+  const rootStat = lstatSync(root);
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) process.exit(1);
+  const filePath = join(root, "public-route-check");
+  fd = openSync(filePath, constants.O_RDONLY | constants.O_NONBLOCK | (constants.O_NOFOLLOW ?? 0));
+  const stat = fstatSync(fd);
+  if (!stat.isFile() || stat.size < 2 || stat.size > 512) process.exit(1);
+  if (process.platform !== "win32") {
+    if ((stat.mode & 0o077) !== 0) process.exit(1);
+    if (typeof process.getuid === "function" && stat.uid !== process.getuid()) process.exit(1);
+  }
+  const buf = Buffer.alloc(513);
+  const n = readSync(fd, buf, 0, buf.length, 0);
+  if (n < 2 || n > 512) process.exit(1);
+  const parsed = JSON.parse(buf.subarray(0, n).toString("utf8"));
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) process.exit(1);
+  if (!Object.keys(parsed).every((k) => k === "state" || k === "checkedAt")) process.exit(1);
+  if (parsed.state !== "passed" && parsed.state !== "failed") process.exit(1);
+  if (typeof parsed.checkedAt !== "string" || !/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,9})?Z$/u.test(parsed.checkedAt)) process.exit(1);
+  const checkedMs = Date.parse(parsed.checkedAt);
+  const age = nowMs - checkedMs;
+  if (!Number.isFinite(age) || age < 0 || age > limit) process.exit(1);
+  process.stdout.write(`${parsed.state}|${parsed.checkedAt}`);
+} catch {
+  process.exitCode = 1;
+} finally {
+  if (fd !== undefined) closeSync(fd);
+}
+' "$state_root" "$checked_at" "$stale_ms" 2>/dev/null)" && [[ "$route_raw" =~ ^(passed|failed)[|]${stamp}$ ]]; then
+      IFS='|' read -r route_state route_at <<<"$route_raw"
+      public_route_json="\"publicRouteCheck\":{\"state\":\"$route_state\",\"checkedAt\":\"$route_at\"}"
+    fi
+  fi
+  printf '{"checkedAt":"%s","services":[{"component":"webhook","running":%s,"health":"%s","gitRevision":"%s"},{"component":"reply","running":%s,"health":"%s","gitRevision":"%s"%s}%s,{"component":"tunnel","running":%s,"health":"%s","gitRevision":"%s"}],"adminSocket":"%s","manifestAttestation":"not_verified",%s}' \
+    "$checked_at" "${running[api]}" "${health[api]}" "${revisions[api]}" "${running[reply]}" "${health[reply]}" "${revisions[reply]}" "$heartbeat" "$outbound_json" "${running[tunnel]}" "${health[tunnel]}" "$expected" "$admin_socket" "$public_route_json"
 ) 2>/dev/null

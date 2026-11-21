@@ -1,0 +1,43 @@
+[Unit]
+Description=FCD Support public tunnel route and isolation probe
+Documentation=file:@ROOT@/docs/operations/tunnel-route-health-proposal.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=1000
+Group=1000
+WorkingDirectory=@ROOT@
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/bash @ROOT@/scripts/probe-public-route.sh @PUBLIC_WEBHOOK_CHECK_URL@ @STATE_ROOT@ 5000
+TimeoutStartSec=20s
+KillMode=control-group
+Restart=no
+UMask=0077
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=fcd-support-route-probe
+CPUQuota=10%
+MemoryMax=64M
+TasksMax=16
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=@STATE_ROOT@
+ReadOnlyPaths=@ROOT@
+ProtectHome=read-only
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
