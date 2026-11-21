@@ -10,9 +10,21 @@ const execFile = promisify(execFileCallback);
 
 const DEFAULT_MAX_BODY_BYTES = 15 * 1024 * 1024;
 const DEFAULT_MAX_AUDIO_BYTES = 10 * 1024 * 1024;
-const DEFAULT_TIMEOUT_MS = 20_000;
+const DEFAULT_TIMEOUT_MS = 45_000;
+const DEFAULT_THREADS = 2;
 const MINIMUM_ALNUM_CHARS = 3;
 const MINIMUM_CONFIDENCE = 0.55;
+
+function parseBoundedEnvInt(
+  raw: string | undefined,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  if (raw === undefined || !/^[1-9][0-9]*$/u.test(raw)) return fallback;
+  const parsed = Number(raw);
+  return Math.min(max, Math.max(min, parsed));
+}
 
 const STT_NON_SPEECH_MARKERS = new Set([
   'applause',
@@ -123,39 +135,46 @@ export async function runWhisperStt(input: {
   readonly languageHint?: string;
   readonly timeoutMs?: number;
 }): Promise<SttExecutionResult> {
-  const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const modelPath = process.env.WHISPER_MODEL_PATH ?? '/opt/whisper/ggml-base.bin';
+  const timeoutMs =
+    input.timeoutMs ??
+    parseBoundedEnvInt(process.env.STT_TIMEOUT_MS, DEFAULT_TIMEOUT_MS, 1_000, 120_000);
+  const threads = parseBoundedEnvInt(process.env.STT_THREADS, DEFAULT_THREADS, 1, 4);
+  const baseModelPath = process.env.WHISPER_MODEL_PATH ?? '/opt/whisper/ggml-base.bin';
+  const banglaModelRaw = process.env.WHISPER_BANGLA_MODEL_PATH?.trim();
+  const banglaModelPath =
+    banglaModelRaw !== undefined && banglaModelRaw !== '' ? banglaModelRaw : undefined;
   const whisperLang =
     input.languageHint === 'bn' ? 'bn' : input.languageHint === 'en' ? 'en' : 'auto';
   const workDir = await mkdtemp(join(tmpdir(), 'fcd-stt-'));
   const inputPath = join(workDir, 'input.bin');
   const wavPath = join(workDir, 'audio.wav');
-  const outPrefix = join(workDir, 'transcript');
+  const deadline = Date.now() + timeoutMs;
 
-  try {
-    await writeFile(inputPath, input.bytes);
-    await execFile(
-      'ffmpeg',
-      [
-        '-y',
-        '-loglevel',
-        'error',
-        '-i',
-        inputPath,
-        '-ar',
-        '16000',
-        '-ac',
-        '1',
-        '-f',
-        'wav',
-        wavPath,
-      ],
-      { timeout: timeoutMs },
-    );
+  const remainingMs = (): number => Math.max(1_000, deadline - Date.now());
+
+  const executeWhisperModel = async (
+    modelPath: string,
+    lang: 'en' | 'bn' | 'auto',
+    prefixName: string,
+  ): Promise<SttExecutionResult> => {
+    const outPrefix = join(workDir, prefixName);
     await execFile(
       'whisper-cli',
-      ['-m', modelPath, '-f', wavPath, '-l', whisperLang, '-ojf', '-of', outPrefix, '--no-prints'],
-      { timeout: timeoutMs },
+      [
+        '-m',
+        modelPath,
+        '-f',
+        wavPath,
+        '-l',
+        lang,
+        '-t',
+        String(threads),
+        '-ojf',
+        '-of',
+        outPrefix,
+        '--no-prints',
+      ],
+      { timeout: remainingMs() },
     );
     const parsed = JSON.parse(await readFile(`${outPrefix}.json`, 'utf8')) as {
       readonly transcription?: readonly {
@@ -206,6 +225,48 @@ export async function runWhisperStt(input: {
       ...(measuredConfidence === undefined ? {} : { confidence: measuredConfidence }),
       ...(detectedLanguage === undefined ? {} : { detectedLanguage }),
     };
+  };
+
+  try {
+    await writeFile(inputPath, input.bytes);
+    await execFile(
+      'ffmpeg',
+      [
+        '-y',
+        '-loglevel',
+        'error',
+        '-i',
+        inputPath,
+        '-ar',
+        '16000',
+        '-ac',
+        '1',
+        '-f',
+        'wav',
+        wavPath,
+      ],
+      { timeout: remainingMs() },
+    );
+    if (whisperLang === 'bn' && banglaModelPath !== undefined) {
+      return await executeWhisperModel(banglaModelPath, 'bn', 'transcript-bn');
+    }
+    const primary = await executeWhisperModel(baseModelPath, whisperLang, 'transcript');
+    const shouldRetryBangla =
+      whisperLang === 'auto' &&
+      banglaModelPath !== undefined &&
+      banglaModelPath !== baseModelPath &&
+      deadline - Date.now() > 5_000 &&
+      (primary.detectedLanguage !== 'en' ||
+        /\p{Script=Arabic}|\p{Script=Devanagari}/u.test(primary.text) ||
+        primary.text.length === 0 ||
+        (primary.confidence !== undefined && primary.confidence < MINIMUM_CONFIDENCE));
+    if (shouldRetryBangla) {
+      const bangla = await executeWhisperModel(banglaModelPath, 'bn', 'transcript-bn');
+      if (/\p{Script=Bengali}/u.test(bangla.text)) {
+        return bangla;
+      }
+    }
+    return primary;
   } finally {
     await rm(workDir, { recursive: true, force: true });
   }

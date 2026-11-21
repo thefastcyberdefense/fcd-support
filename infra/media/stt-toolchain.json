@@ -1,13 +1,39 @@
 {
-  "platform": "linux/amd64",
   "whisperCpp": {
     "version": "1.9.5",
     "sourceUrl": "https://github.com/ggml-org/whisper.cpp/archive/refs/tags/v1.9.5.tar.gz",
-    "releaseSha256": "ff1a9053feb509ff9d7729703355541ae9690073a6b1c40eb692c962e0dc1720"
+    "releaseSha256": "ff1a9053feb509ff9d7729703355541ae9690073a6b1c40eb692c962e0dc1720",
+    "license": "MIT"
   },
   "model": {
     "name": "ggml-base.bin",
-    "sourceUrl": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",
-    "modelSha256": "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe"
+    "sourceUrl": "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-base.bin",
+    "modelSha256": "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe",
+    "license": "MIT"
+  },
+  "banglaModel": {
+    "name": "ggml-banglaasr-small-q5_0.bin",
+    "upstreamRepo": "https://huggingface.co/bangla-speech-processing/BanglaASR",
+    "revision": "89c3a1b9585be48d9527cd8964c150fe2eebdbaa",
+    "license": "MIT",
+    "quantization": "q5_0",
+    "outputSha256": "e0b683fd0a516b28348310a965a964abcfab391b5a20ba2e619b720b75327d39",
+    "melFilters": {
+      "sourceUrl": "https://raw.githubusercontent.com/openai/whisper/ba3f3cd54b0e5b8ce1ab3de13e32122d0d5f98ab/whisper/assets/mel_filters.npz",
+      "sha256": "7450ae70723a5ef9d341e3cee628c7cb0177f36ce42c44b7ed2bf3325f0f6d4c",
+      "license": "MIT"
+    },
+    "files": {
+      "README.md": "f4a9774bff40fde5a600228a416695c820e009e0eb04f7b8810804b985bb2196",
+      "added_tokens.json": "ce949fe720c14311cb6c446e69cfe340dc669d7b006077a6feed6ae571dd7e88",
+      "config.json": "349dbae8c9444cab7b045c28b9dcbfa26c3fa94d8982df31deead5cb03c7e208",
+      "generation_config.json": "f40d2d87a69e766f09cc3c911521260012f28df87446e96309440b2d8564f894",
+      "merges.txt": "78f27f801feb4283ae969d4cadacb28fc051b655647402b1a252c7079ea11c46",
+      "model.safetensors": "66ce5ed8464509bf11957b442f7724c9cdf5c7d612926c2c19f36c9f5bbe2e53",
+      "normalizer.json": "bf1c507dc8724ca9cf9903640dacfb69dae2f00edee4f21ceba106a7392f26dd",
+      "special_tokens_map.json": "b0aac6950381c4ae2f60b3f0fab04bcfe399a6a320cb3e4c7aee2d52924d733e",
+      "tokenizer_config.json": "14f84bdf4b9ecdbd4738ddc81c17a1baedfc02bb93c6e049c951e15a1b40b70d",
+      "vocab.json": "50d6a919f0a0601d56a04eb583c780d18553aa388254ba3158eb6a00f13e2c1a"
+    }
   }
 }

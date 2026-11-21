@@ -56,6 +56,11 @@ services:
     environment:
       NODE_ENV: production
       STT_PORT: '8092'
+      STT_ENABLE_BANGLA: 'true'
+      WHISPER_MODEL_PATH: /opt/whisper/ggml-base.bin
+      WHISPER_BANGLA_MODEL_PATH: /opt/whisper/ggml-banglaasr-small-q5_0.bin
+      STT_THREADS: '2'
+      STT_TIMEOUT_MS: '45000'
       TMPDIR: /tmp
     healthcheck:
       test:

@@ -491,7 +491,14 @@ describe('private OCR and STT service contracts and compose overlay', () => {
     expect(ocrDockerfile).toContain('tesseract-ocr-ben');
     expect(ocrDockerfile).toContain('USER node');
     expect(sttDockerfile).toContain('sha256sum --check');
+    expect(sttDockerfile).toContain(
+      'WHISPER_BANGLA_MODEL_PATH=/opt/whisper/ggml-banglaasr-small-q5_0.bin',
+    );
     expect(sttDockerfile).toContain('USER node');
+    expect(composeText).toContain("STT_ENABLE_BANGLA: 'true'");
+    expect(composeText).toContain(
+      'WHISPER_BANGLA_MODEL_PATH: /opt/whisper/ggml-banglaasr-small-q5_0.bin',
+    );
 
     const baseMediaService = (port: number, tmpMiB: number, cpus: number, mem: string) => ({
       image: `fcd-support-media:${rev}`,
@@ -550,5 +557,82 @@ describe('private OCR and STT service contracts and compose overlay', () => {
     expect(() => {
       assertMediaCompose(invalidEgress, rev);
     }).toThrow('compose_contract_invalid');
+  });
+
+  test('bangla ASR handler safely escalates silence, script mismatch, low confidence, and extraction failure without false transcripts', async () => {
+    const oggHeader = Buffer.from([0x4f, 0x67, 0x67, 0x53, 0, 2, 0, 0, 1, 2, 3, 4]);
+    const sttUrl = await startHttpServer(
+      createSttRequestHandler({
+        allowBanglaStt: true,
+        runStt: ({ bytes }) => {
+          if (bytes[8] === 1) {
+            return Promise.resolve({ text: '[BLANK_AUDIO] (silence)', detectedLanguage: 'bn' });
+          }
+          if (bytes[8] === 2) {
+            return Promise.resolve({
+              text: 'আপনারা কি ধরনের সেবা দেন',
+              detectedLanguage: 'bn',
+              confidence: 0.41,
+            });
+          }
+          if (bytes[8] === 3) {
+            return Promise.resolve({
+              text: 'Wrong Latin hallucination',
+              detectedLanguage: 'bn',
+              confidence: 0.91,
+            });
+          }
+          if (bytes[8] === 4) {
+            return Promise.reject(new Error('whisper_timeout'));
+          }
+          return Promise.resolve({
+            text: 'আপনারা কী কী ধরনের সাইবার নিরাপত্তা সেবা প্রদান করেন?',
+            detectedLanguage: 'bn',
+            confidence: 0.91,
+          });
+        },
+      }),
+    );
+
+    const post = async (marker: number) => {
+      const buf = Buffer.from(oggHeader);
+      buf[8] = marker;
+      const res = await globalThis.fetch(`${sttUrl}/transcribe`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          mediaBase64: buf.toString('base64'),
+          mimeType: 'audio/ogg',
+          languageHint: 'bn',
+        }),
+      });
+      return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+    };
+
+    expect(await post(1)).toEqual({
+      status: 200,
+      body: { status: 'unclear', reasonCode: 'stt_empty_text' },
+    });
+    expect(await post(2)).toEqual({
+      status: 200,
+      body: { status: 'unclear', reasonCode: 'stt_low_confidence' },
+    });
+    expect(await post(3)).toEqual({
+      status: 200,
+      body: { status: 'unclear', reasonCode: 'stt_script_mismatch' },
+    });
+    expect(await post(4)).toEqual({
+      status: 500,
+      body: { status: 'failed', reasonCode: 'stt_execution_failed' },
+    });
+    expect(await post(5)).toEqual({
+      status: 200,
+      body: {
+        status: 'extracted',
+        text: 'আপনারা কী কী ধরনের সাইবার নিরাপত্তা সেবা প্রদান করেন?',
+        language: 'bn',
+        confidence: 0.91,
+      },
+    });
   });
 });
