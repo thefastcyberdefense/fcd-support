@@ -603,6 +603,7 @@ export async function configureRuntimeGrants(
     ]);
     await health('health');
     await grant('health', 'select(state,created_at)', ['outbound_intents']);
+    await grant('health', 'select(source_epoch,revision)', ['deletion_checkpoint_clock']);
     await grant('health', 'select(id,state,created_at,updated_at)', [
       'runtime_processing_work',
       'notification_delivery_work',

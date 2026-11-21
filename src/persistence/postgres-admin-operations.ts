@@ -57,8 +57,8 @@ const metadataSql = `select
       order by sequence desc,snapshot_at desc,checkpoint_ref desc
       limit 1
     ) as latest
-    join deletion_checkpoint_clock as clock on clock.singleton
-    where latest.source_epoch = clock.source_epoch and latest.sequence = clock.revision
+    join deletion_checkpoint_clock as clock
+      on latest.source_epoch = clock.source_epoch and latest.sequence = clock.revision
   )) as checkpoint_watermark_current`;
 const aggregateSql = `with work as (
   select 'reply' as component,state,created_at from runtime_processing_work
