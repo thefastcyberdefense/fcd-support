@@ -13,7 +13,11 @@ import {
 import { assertMediaCompose } from '../src/operations/compose-contract.js';
 import { inspectSensitiveText } from '../src/safety/sensitive-data-gate.js';
 import { createOcrRequestHandler, parseTesseractTsv } from '../src/media/ocr-server.js';
-import { createSttRequestHandler, stripSttEngineMarkers } from '../src/media/stt-server.js';
+import {
+  createSttRequestHandler,
+  isSilentPcmWav,
+  stripSttEngineMarkers,
+} from '../src/media/stt-server.js';
 
 const servers: Server[] = [];
 
@@ -491,7 +495,14 @@ describe('private OCR and STT service contracts and compose overlay', () => {
     expect(ocrDockerfile).toContain('tesseract-ocr-ben');
     expect(ocrDockerfile).toContain('USER node');
     expect(sttDockerfile).toContain('sha256sum --check');
+    expect(sttDockerfile).toContain(
+      'WHISPER_BANGLA_MODEL_PATH=/opt/whisper/ggml-banglaasr-small-q5_0.bin',
+    );
     expect(sttDockerfile).toContain('USER node');
+    expect(composeText).toContain("STT_ENABLE_BANGLA: 'true'");
+    expect(composeText).toContain(
+      'WHISPER_BANGLA_MODEL_PATH: /opt/whisper/ggml-banglaasr-small-q5_0.bin',
+    );
 
     const baseMediaService = (port: number, tmpMiB: number, cpus: number, mem: string) => ({
       image: `fcd-support-media:${rev}`,
@@ -550,5 +561,100 @@ describe('private OCR and STT service contracts and compose overlay', () => {
     expect(() => {
       assertMediaCompose(invalidEgress, rev);
     }).toThrow('compose_contract_invalid');
+  });
+
+  test('bangla ASR handler safely escalates silence, script mismatch, low confidence, and extraction failure without false transcripts', async () => {
+    const samples = 320;
+    const silentWav = Buffer.alloc(44 + samples * 2);
+    silentWav.write('RIFF', 0, 'ascii');
+    silentWav.writeUInt32LE(36 + samples * 2, 4);
+    silentWav.write('WAVEfmt ', 8, 'ascii');
+    silentWav.writeUInt32LE(16, 16);
+    silentWav.writeUInt16LE(1, 20);
+    silentWav.writeUInt16LE(1, 22);
+    silentWav.writeUInt32LE(16000, 24);
+    silentWav.writeUInt32LE(32000, 28);
+    silentWav.writeUInt16LE(2, 32);
+    silentWav.writeUInt16LE(16, 34);
+    silentWav.write('data', 36, 'ascii');
+    silentWav.writeUInt32LE(samples * 2, 40);
+    expect(isSilentPcmWav(silentWav)).toBe(true);
+    silentWav.writeInt16LE(12000, 44);
+    expect(isSilentPcmWav(silentWav)).toBe(false);
+
+    const oggHeader = Buffer.from([0x4f, 0x67, 0x67, 0x53, 0, 2, 0, 0, 1, 2, 3, 4]);
+    const sttUrl = await startHttpServer(
+      createSttRequestHandler({
+        allowBanglaStt: true,
+        runStt: ({ bytes }) => {
+          if (bytes[8] === 1) {
+            return Promise.resolve({ text: '[BLANK_AUDIO] (silence)', detectedLanguage: 'bn' });
+          }
+          if (bytes[8] === 2) {
+            return Promise.resolve({
+              text: 'আপনারা কি ধরনের সেবা দেন',
+              detectedLanguage: 'bn',
+              confidence: 0.41,
+            });
+          }
+          if (bytes[8] === 3) {
+            return Promise.resolve({
+              text: 'Wrong Latin hallucination',
+              detectedLanguage: 'bn',
+              confidence: 0.91,
+            });
+          }
+          if (bytes[8] === 4) {
+            return Promise.reject(new Error('whisper_timeout'));
+          }
+          return Promise.resolve({
+            text: 'আপনারা কী কী ধরনের সাইবার নিরাপত্তা সেবা প্রদান করেন?',
+            detectedLanguage: 'bn',
+            confidence: 0.91,
+          });
+        },
+      }),
+    );
+
+    const post = async (marker: number) => {
+      const buf = Buffer.from(oggHeader);
+      buf[8] = marker;
+      const res = await globalThis.fetch(`${sttUrl}/transcribe`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          mediaBase64: buf.toString('base64'),
+          mimeType: 'audio/ogg',
+          languageHint: 'bn',
+        }),
+      });
+      return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+    };
+
+    expect(await post(1)).toEqual({
+      status: 200,
+      body: { status: 'unclear', reasonCode: 'stt_empty_text' },
+    });
+    expect(await post(2)).toEqual({
+      status: 200,
+      body: { status: 'unclear', reasonCode: 'stt_low_confidence' },
+    });
+    expect(await post(3)).toEqual({
+      status: 200,
+      body: { status: 'unclear', reasonCode: 'stt_script_mismatch' },
+    });
+    expect(await post(4)).toEqual({
+      status: 500,
+      body: { status: 'failed', reasonCode: 'stt_execution_failed' },
+    });
+    expect(await post(5)).toEqual({
+      status: 200,
+      body: {
+        status: 'extracted',
+        text: 'আপনারা কী কী ধরনের সাইবার নিরাপত্তা সেবা প্রদান করেন?',
+        language: 'bn',
+        confidence: 0.91,
+      },
+    });
   });
 });

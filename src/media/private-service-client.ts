@@ -9,6 +9,7 @@ import type { MediaExtractionOutcome } from './media-types.js';
 import { detectExtractedLanguage } from './pdf-extractor.js';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
+const DEFAULT_STT_TIMEOUT_MS = 45_000;
 const DEFAULT_MAX_RESPONSE_BYTES = 128 * 1024;
 const MINIMUM_CONFIDENCE = 0.55;
 
@@ -185,10 +186,14 @@ export function createPrivateOcrExtractor(options: PrivateMediaServiceOptions = 
 }
 
 export function createPrivateSttExtractor(options: PrivateMediaServiceOptions = {}) {
+  const effectiveOptions: PrivateMediaServiceOptions = {
+    ...options,
+    timeoutMs: options.timeoutMs ?? DEFAULT_STT_TIMEOUT_MS,
+  };
   return (input: {
     readonly bytes: Uint8Array;
     readonly languageHint: KnowledgeLanguage;
     readonly mimeType?: string;
     readonly voice?: boolean;
-  }) => callPrivateService('stt', options, input);
+  }) => callPrivateService('stt', effectiveOptions, input);
 }

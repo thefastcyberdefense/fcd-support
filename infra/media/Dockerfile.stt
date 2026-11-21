@@ -15,9 +15,41 @@ RUN node --input-type=module -e 'import { readFile, writeFile } from "node:fs/pr
     && mkdir -p /tmp/whisper-src /opt/whisper \
     && tar -xzf /tmp/whisper.tar.gz --strip-components=1 -C /tmp/whisper-src \
     && cmake -S /tmp/whisper-src -B /tmp/whisper-build -DBUILD_SHARED_LIBS=OFF -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON \
-    && cmake --build /tmp/whisper-build --target whisper-cli -j2 \
+    && cmake --build /tmp/whisper-build --target whisper-cli whisper-quantize -j2 \
     && install -m 0755 /tmp/whisper-build/bin/whisper-cli /usr/local/bin/whisper-cli \
+    && install -m 0755 /tmp/whisper-build/bin/whisper-quantize /usr/local/bin/whisper-quantize \
     && install -m 0644 /tmp/ggml-base.bin /opt/whisper/ggml-base.bin
+
+FROM python:3.11-bookworm@sha256:726d304906fa5eb468e5531e366548d1903286352f5adb54ef508ac01fbd80c6 AS bangla-build
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates libgomp1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch==2.5.1+cpu \
+    && pip install --no-cache-dir transformers==4.46.3 safetensors==0.4.5 numpy==1.26.4
+
+COPY --from=build /tmp/stt-toolchain.json /tmp/stt-toolchain.json
+COPY --from=build /tmp/whisper-src/models/convert-h5-to-ggml.py /tmp/convert-h5-to-ggml.py
+COPY --from=build /usr/local/bin/whisper-quantize /usr/local/bin/whisper-quantize
+
+RUN python3 -c '\
+import hashlib, json, pathlib, subprocess, urllib.request;\
+t = json.loads(pathlib.Path("/tmp/stt-toolchain.json").read_text())["banglaModel"];\
+hf = pathlib.Path("/tmp/hf"); hf.mkdir(parents=True, exist_ok=True);\
+wh = pathlib.Path("/tmp/whisper-repo/whisper/assets"); wh.mkdir(parents=True, exist_ok=True);\
+mf = wh / "mel_filters.npz";\
+mf.write_bytes(urllib.request.urlopen(t["melFilters"]["sourceUrl"], timeout=120).read());\
+checks = [(t["melFilters"]["sha256"], str(mf))];\
+base = t["upstreamRepo"] + "/resolve/" + t["revision"];\
+[(hf / name).write_bytes(urllib.request.urlopen(base + "/" + name, timeout=300).read()) or checks.append((digest, str(hf / name))) for name, digest in t["files"].items()];\
+subprocess.run(["sha256sum", "--check", "--status"], input="\n".join(h + "  " + p for h, p in checks), text=True, check=True);\
+assert "license: mit" in (hf / "README.md").read_text();\
+out = pathlib.Path("/tmp/ggml-out"); out.mkdir(parents=True, exist_ok=True);\
+subprocess.run(["python3", "/tmp/convert-h5-to-ggml.py", str(hf), "/tmp/whisper-repo", str(out)], check=True);\
+quant_path = "/opt/whisper/" + t["name"]; pathlib.Path("/opt/whisper").mkdir(parents=True, exist_ok=True);\
+subprocess.run(["whisper-quantize", str(out / "ggml-model.bin"), quant_path, t["quantization"]], check=True);\
+assert hashlib.sha256(pathlib.Path(quant_path).read_bytes()).hexdigest() == t["outputSha256"], "bangla_quant_sha_mismatch"\
+'
 
 FROM node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS runtime
 
@@ -34,12 +66,16 @@ RUN apt-get update \
 
 COPY --from=build /usr/local/bin/whisper-cli /usr/local/bin/whisper-cli
 COPY --from=build --chown=node:node /opt/whisper/ggml-base.bin /opt/whisper/ggml-base.bin
+COPY --from=bangla-build --chown=node:node /opt/whisper/ggml-banglaasr-small-q5_0.bin /opt/whisper/ggml-banglaasr-small-q5_0.bin
 COPY --from=build /tmp/stt-toolchain.json /usr/local/share/fcd-support/stt-toolchain.json
 RUN whisper-cli --help >/dev/null
 
 ENV NODE_ENV=production \
     STT_PORT=8092 \
     WHISPER_MODEL_PATH=/opt/whisper/ggml-base.bin \
+    WHISPER_BANGLA_MODEL_PATH=/opt/whisper/ggml-banglaasr-small-q5_0.bin \
+    STT_THREADS=2 \
+    STT_TIMEOUT_MS=45000 \
     TMPDIR=/tmp
 
 WORKDIR /app
