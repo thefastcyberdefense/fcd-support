@@ -35,6 +35,7 @@ export interface HealthCommandPorts {
 export interface HealthCommandLimits {
   readonly maximumCallMilliseconds: number;
   readonly backupStaleMilliseconds: number;
+  readonly deletionCheckpointStaleMilliseconds: number;
   readonly maximumOutageGapMilliseconds: number;
 }
 export interface HealthCommandOptions {
@@ -62,11 +63,16 @@ function healthCommandLimits(
       .regex(/^[1-9][0-9]*$/u)
       .transform(Number)
       .pipe(z.number().int().min(1).max(maximum));
+  const backupStaleMilliseconds = milliseconds(604_800_000).parse(
+    environment.OPS_HEALTH_BACKUP_STALE_MS ?? '129600000',
+  );
   return Object.freeze({
     maximumCallMilliseconds,
-    backupStaleMilliseconds: milliseconds(604_800_000).parse(
-      environment.OPS_HEALTH_BACKUP_STALE_MS ?? '129600000',
-    ),
+    backupStaleMilliseconds,
+    deletionCheckpointStaleMilliseconds:
+      environment.OPS_HEALTH_CHECKPOINT_STALE_MS === undefined
+        ? backupStaleMilliseconds
+        : milliseconds(604_800_000).parse(environment.OPS_HEALTH_CHECKPOINT_STALE_MS),
     maximumOutageGapMilliseconds: milliseconds(86_400_000).parse(
       environment.OPS_HEALTH_MAX_OUTAGE_GAP_MS ?? '86400000',
     ),
@@ -216,6 +222,7 @@ export async function runHealthCommand(options: HealthCommandOptions): Promise<0
       staleMilliseconds: config.healthStaleMilliseconds,
       maximumOutageGapMilliseconds: limits.maximumOutageGapMilliseconds,
       backupStaleMilliseconds: limits.backupStaleMilliseconds,
+      deletionCheckpointStaleMilliseconds: limits.deletionCheckpointStaleMilliseconds,
       expectedSchemaRevision: schemaRevision,
       expectedGitRevision: gitRevision,
       modelEnabled: config.modelExecutionEnabled,

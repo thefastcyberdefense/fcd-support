@@ -26,6 +26,8 @@ interface Metadata {
   readonly restore_state: OperationsView['restore']['state'] | null;
   readonly restore_recorded_at: Date | null;
   readonly checkpoint_at: Date | null;
+  readonly checkpoint_valid_until?: Date | null;
+  readonly checkpoint_watermark_current?: boolean | null;
 }
 interface Aggregate {
   readonly component: HealthQueueAggregate['component'];
@@ -45,7 +47,19 @@ const metadataSql = `select
   (select max(recorded_at) from operations_backup_events where state in ('verified','restore_verified')) as backup_verified_at,
   (select state from operations_restore_runs order by recorded_at desc,id desc limit 1) as restore_state,
   (select recorded_at from operations_restore_runs order by recorded_at desc,id desc limit 1) as restore_recorded_at,
-  (select max(snapshot_at) from deletion_checkpoints) as checkpoint_at`;
+  (select snapshot_at from deletion_checkpoints order by sequence desc,snapshot_at desc,checkpoint_ref desc limit 1) as checkpoint_at,
+  (select valid_until from deletion_checkpoints order by sequence desc,snapshot_at desc,checkpoint_ref desc limit 1) as checkpoint_valid_until,
+  (select exists(
+    select 1
+    from (
+      select source_epoch,sequence
+      from deletion_checkpoints
+      order by sequence desc,snapshot_at desc,checkpoint_ref desc
+      limit 1
+    ) as latest
+    join deletion_checkpoint_clock as clock on clock.singleton
+    where latest.source_epoch = clock.source_epoch and latest.sequence = clock.revision
+  )) as checkpoint_watermark_current`;
 const aggregateSql = `with work as (
   select 'reply' as component,state,created_at from runtime_processing_work
   union all select 'outbound',state,created_at from outbound_intents
@@ -102,6 +116,13 @@ export function postgresHealthDatabase(
             backupVerified:
               metadata.backup_state === 'verified' || metadata.backup_state === 'restore_verified',
             deletionCheckpointAt: metadata.checkpoint_at,
+            ...(metadata.checkpoint_valid_until === undefined
+              ? {}
+              : { deletionCheckpointValidUntil: metadata.checkpoint_valid_until }),
+            ...(metadata.checkpoint_watermark_current === undefined ||
+            metadata.checkpoint_watermark_current === null
+              ? {}
+              : { deletionCheckpointWatermarkCurrent: metadata.checkpoint_watermark_current }),
             queues,
           };
         },

@@ -190,6 +190,7 @@ test('custom health limits reach the ports and govern backup staleness and outag
   expect(resolved).toEqual({
     maximumCallMilliseconds: 6000,
     backupStaleMilliseconds: 1000,
+    deletionCheckpointStaleMilliseconds: 1000,
     maximumOutageGapMilliseconds: 5000,
   });
   expect(checks[0]).toMatchObject({
@@ -243,6 +244,9 @@ test.each([
   { OPS_HEALTH_BACKUP_STALE_MS: '0' },
   { OPS_HEALTH_BACKUP_STALE_MS: '604800001' },
   { OPS_HEALTH_BACKUP_STALE_MS: '1.5' },
+  { OPS_HEALTH_CHECKPOINT_STALE_MS: '0' },
+  { OPS_HEALTH_CHECKPOINT_STALE_MS: '604800001' },
+  { OPS_HEALTH_CHECKPOINT_STALE_MS: '1.5' },
   { OPS_HEALTH_MAX_OUTAGE_GAP_MS: '0' },
   { OPS_HEALTH_MAX_OUTAGE_GAP_MS: '86400001' },
   { OPS_HEALTH_MAX_OUTAGE_GAP_MS: '01' },
@@ -305,6 +309,7 @@ test('stdin receives the validated call deadline and health-only policy defaults
   expect(resolved).toEqual({
     maximumCallMilliseconds: 6000,
     backupStaleMilliseconds: 129600000,
+    deletionCheckpointStaleMilliseconds: 129600000,
     maximumOutageGapMilliseconds: 86400000,
   });
   expect(checks.find((value) => value.component === 'backup')).toMatchObject({
