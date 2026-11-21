@@ -286,6 +286,25 @@ test('calendar analyzer failure and resource bounds refuse before rendering', ()
   }
 });
 
+test.each([
+  ['1', '100%'],
+  ['0.5', '50%'],
+  ['0.125', '12.5%'],
+  ['0.001', '0.1%'],
+  ['999.999', '99999.9%'],
+] as const)(
+  'renderer formats FCD_TIMER_CPUS=%s as CPUQuota=%s for systemd',
+  (cpus, expectedQuota) => {
+    const result = shell(
+      `${config}\nOPS_ROOT=$TASK_WORKSPACE\nOPS_CONFIG_FILE=$TASK_WORKSPACE/host.conf\nOPS_CONFIG[FCD_TIMER_CPUS]=$TASK_CPUS\noperations_timers_emit fcd-support-operation@.service`,
+      'render-systemd-units.sh',
+      { TASK_CPUS: cpus, TASK_WORKSPACE: process.cwd() },
+    );
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain(`CPUQuota=${expectedQuota}`);
+  },
+);
+
 test('scripts contain no installation, unjournalled jobs or shell evaluation', () => {
   for (const file of ['run-operation.sh', 'render-systemd-units.sh']) {
     const script = readFileSync(`scripts/${file}`, 'utf8');
@@ -372,7 +391,8 @@ test.runIf(native)(
       expect(unit).toContain(
         `ExecStart=/usr/bin/bash ${process.cwd()}/scripts/run-operation.sh %i ${revision} ${root}/host.conf`,
       );
-      expect(unit).toContain('CPUQuota=100.000%');
+      expect(unit).toContain('CPUQuota=100%');
+      expect(diagnostics).not.toMatch(/Invalid CPU quota/i);
       expect(unit).not.toMatch(/@[A-Z_]+@/u);
       const repeated = shell(body, 'render-systemd-units.sh', extra);
       expect(repeated.status).toBe(1);
