@@ -14,20 +14,66 @@ const DEFAULT_TIMEOUT_MS = 20_000;
 const MINIMUM_ALNUM_CHARS = 3;
 const MINIMUM_CONFIDENCE = 0.55;
 
-const STT_NON_SPEECH_MARKER_PATTERN =
-  /\[(?:blank[_\s-]*audio|silence|quiet|pause|inaudible|unintelligible|music|singing|noise|static|applause|laughter|chuckle|cough|throat[_\s-]*clearing|sigh|gasp|yawn|snore|groan|panting|crying|cheering|bell|beep|ringing|buzz|hum|click|wind|rain|thunder|speaking\s+[^[\]]+|_[a-z0-9_]+_)\]|\((?:blank[_\s-]*audio|silence|quiet|pause|inaudible|unintelligible|music|singing|noise|static|applause|laughter|chuckle|cough|throat[_\s-]*clearing|sigh|gasp|yawn|snore|groan|panting|crying|cheering|bell|beep|ringing|buzz|hum|click|wind|rain|thunder|speaking\s+[^()]+)\)|[♪♫♬]+/giu;
+const STT_NON_SPEECH_MARKERS = new Set([
+  'applause',
+  'beep',
+  'bell',
+  'blank audio',
+  'buzz',
+  'cheering',
+  'chuckle',
+  'click',
+  'cough',
+  'crying',
+  'gasp',
+  'groan',
+  'hum',
+  'inaudible',
+  'laughter',
+  'music',
+  'noise',
+  'panting',
+  'pause',
+  'quiet',
+  'rain',
+  'ringing',
+  'sigh',
+  'silence',
+  'singing',
+  'snore',
+  'static',
+  'throat clearing',
+  'thunder',
+  'unintelligible',
+  'wind',
+  'yawn',
+]);
+
+const STT_TAG_PATTERN = /\[[^[\]\r\n]{1,64}\]|\([^()\r\n]{1,64}\)/gu;
+
+function isNonSpeechTag(tag: string): boolean {
+  const inner = tag
+    .slice(1, -1)
+    .toLowerCase()
+    .replaceAll(/[_\s-]+/gu, ' ')
+    .trim();
+  if (inner === '') return true;
+  if (tag.startsWith('[') && tag.endsWith(']') && tag.slice(1, -1).trim().startsWith('_')) {
+    return true;
+  }
+  if (inner.startsWith('speaking ')) return true;
+  return STT_NON_SPEECH_MARKERS.has(inner);
+}
 
 export function stripSttEngineMarkers(rawText: string): string {
   const withoutKnownMarkers = rawText
     .normalize('NFKC')
-    .replaceAll(STT_NON_SPEECH_MARKER_PATTERN, ' ')
+    .replaceAll(/[♪♫♬]+/gu, ' ')
+    .replaceAll(STT_TAG_PATTERN, (match) => (isNonSpeechTag(match) ? ' ' : match))
     .replaceAll(/\s+/gu, ' ')
     .trim();
-  if (
-    /^(?:[\s.,!?;:-]*(?:\[[^[\]\r\n]{1,64}\]|\([^()\r\n]{1,64}\))[\s.,!?;:-]*)+$/u.test(
-      withoutKnownMarkers,
-    )
-  ) {
+  const withoutBracketedTags = withoutKnownMarkers.replaceAll(STT_TAG_PATTERN, ' ');
+  if (!/[\p{L}\p{N}]/u.test(withoutBracketedTags)) {
     return '';
   }
   return withoutKnownMarkers;
