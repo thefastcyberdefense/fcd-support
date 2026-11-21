@@ -13,7 +13,11 @@ import {
 import { assertMediaCompose } from '../src/operations/compose-contract.js';
 import { inspectSensitiveText } from '../src/safety/sensitive-data-gate.js';
 import { createOcrRequestHandler, parseTesseractTsv } from '../src/media/ocr-server.js';
-import { createSttRequestHandler, stripSttEngineMarkers } from '../src/media/stt-server.js';
+import {
+  createSttRequestHandler,
+  isSilentPcmWav,
+  stripSttEngineMarkers,
+} from '../src/media/stt-server.js';
 
 const servers: Server[] = [];
 
@@ -560,6 +564,24 @@ describe('private OCR and STT service contracts and compose overlay', () => {
   });
 
   test('bangla ASR handler safely escalates silence, script mismatch, low confidence, and extraction failure without false transcripts', async () => {
+    const samples = 320;
+    const silentWav = Buffer.alloc(44 + samples * 2);
+    silentWav.write('RIFF', 0, 'ascii');
+    silentWav.writeUInt32LE(36 + samples * 2, 4);
+    silentWav.write('WAVEfmt ', 8, 'ascii');
+    silentWav.writeUInt32LE(16, 16);
+    silentWav.writeUInt16LE(1, 20);
+    silentWav.writeUInt16LE(1, 22);
+    silentWav.writeUInt32LE(16000, 24);
+    silentWav.writeUInt32LE(32000, 28);
+    silentWav.writeUInt16LE(2, 32);
+    silentWav.writeUInt16LE(16, 34);
+    silentWav.write('data', 36, 'ascii');
+    silentWav.writeUInt32LE(samples * 2, 40);
+    expect(isSilentPcmWav(silentWav)).toBe(true);
+    silentWav.writeInt16LE(12000, 44);
+    expect(isSilentPcmWav(silentWav)).toBe(false);
+
     const oggHeader = Buffer.from([0x4f, 0x67, 0x67, 0x53, 0, 2, 0, 0, 1, 2, 3, 4]);
     const sttUrl = await startHttpServer(
       createSttRequestHandler({

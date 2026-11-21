@@ -130,6 +130,40 @@ export function detectSttLanguage(
   return hint === 'bn' ? 'bn' : 'en';
 }
 
+export function isSilentPcmWav(wavBytes: Buffer, minimumNormalizedPeak = 0.002): boolean {
+  if (
+    wavBytes.length < 44 ||
+    wavBytes.subarray(0, 4).toString('ascii') !== 'RIFF' ||
+    wavBytes.subarray(8, 12).toString('ascii') !== 'WAVE'
+  ) {
+    return false;
+  }
+  let offset = 12;
+  let dataStart = -1;
+  let dataEnd = -1;
+  while (offset + 8 <= wavBytes.length) {
+    const chunkId = wavBytes.subarray(offset, offset + 4).toString('ascii');
+    const chunkSize = wavBytes.readUInt32LE(offset + 4);
+    const bodyStart = offset + 8;
+    const bodyEnd = Math.min(wavBytes.length, bodyStart + chunkSize);
+    if (chunkId === 'data') {
+      dataStart = bodyStart;
+      dataEnd = bodyEnd;
+      break;
+    }
+    offset = bodyStart + chunkSize + (chunkSize % 2);
+  }
+  if (dataStart < 0 || dataEnd - dataStart < 2) {
+    return true;
+  }
+  let peak = 0;
+  for (let i = dataStart; i + 1 < dataEnd; i += 2) {
+    const abs = Math.abs(wavBytes.readInt16LE(i));
+    if (abs > peak) peak = abs;
+  }
+  return peak / 32768 < minimumNormalizedPeak;
+}
+
 export async function runWhisperStt(input: {
   readonly bytes: Buffer;
   readonly languageHint?: string;
@@ -247,6 +281,13 @@ export async function runWhisperStt(input: {
       ],
       { timeout: remainingMs() },
     );
+    const wavBytes = await readFile(wavPath);
+    if (isSilentPcmWav(wavBytes)) {
+      return {
+        text: '',
+        ...(whisperLang === 'auto' ? {} : { detectedLanguage: whisperLang }),
+      };
+    }
     if (whisperLang === 'bn' && banglaModelPath !== undefined) {
       return await executeWhisperModel(banglaModelPath, 'bn', 'transcript-bn');
     }
