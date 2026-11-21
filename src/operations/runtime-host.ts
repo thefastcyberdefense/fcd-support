@@ -31,7 +31,16 @@ const enabledRoles = [
   'fcd-support-reply',
   'fcd-support-outbound',
 ] as const;
-type RuntimeServiceRole = (typeof enabledRoles)[number];
+const mediaRoles = [
+  'postgres',
+  'fcd-support-api',
+  'fcd-support-admin',
+  'fcd-support-reply',
+  'fcd-support-outbound',
+  'fcd-support-ocr',
+  'fcd-support-stt',
+] as const;
+type RuntimeServiceRole = (typeof mediaRoles)[number];
 const image = z.strictObject({
   id: imageId,
   revision,
@@ -50,7 +59,7 @@ const mount = z.strictObject({
 const container = z.strictObject({
   id,
   project: name,
-  service: z.enum(enabledRoles),
+  service: z.enum(mediaRoles),
   revision,
   imageId,
   running: z.literal(true),
@@ -94,8 +103,13 @@ const container = z.strictObject({
   mounts: z.array(mount).min(1).max(16),
 });
 const snapshot = z.strictObject({
-  images: z.strictObject({ postgres: image, runtime: image }),
-  containers: z.array(container).min(1).max(5),
+  images: z.strictObject({
+    postgres: image,
+    runtime: image,
+    ocr: image.optional(),
+    stt: image.optional(),
+  }),
+  containers: z.array(container).min(1).max(7),
   networks: z
     .array(
       z.strictObject({
@@ -110,7 +124,7 @@ const snapshot = z.strictObject({
       }),
     )
     .min(6)
-    .max(9),
+    .max(10),
   volume: z.strictObject({
     name,
     driver: z.literal('local'),
@@ -149,6 +163,7 @@ export interface RuntimeHostOptions {
   readonly ingressPeerId: string;
   readonly volumeIdentity?: RuntimeVolumeIdentity;
   readonly mode?: 'private-disabled' | 'private-enabled' | undefined;
+  readonly mediaEnabled?: boolean | undefined;
 }
 export interface RuntimeVolumeIdentity {
   readonly name: string;
@@ -168,7 +183,17 @@ const commands: Readonly<Record<RuntimeServiceRole, readonly string[]>> = {
   'fcd-support-admin': ['node', 'dist/admin-main.js'],
   'fcd-support-reply': ['node', 'dist/worker-main.js', 'reply'],
   'fcd-support-outbound': ['node', 'dist/worker-main.js', 'outbound'],
+  'fcd-support-ocr': ['node', 'ocr-server.ts'],
+  'fcd-support-stt': ['node', 'stt-server.ts'],
 };
+function composeDurationMs(value: string): number {
+  const factors: Readonly<Record<string, number>> = { h: 3600000, m: 60000, s: 1000, ms: 1 };
+  let total = 0;
+  for (const match of value.matchAll(/([0-9]+)(ms|h|m|s)/gu)) {
+    total += Number(match[1]) * (factors[match[2] ?? ''] ?? 0);
+  }
+  return total;
+}
 const flags = ['MODEL_EXECUTION_ENABLED', 'OUTBOUND_EXECUTION_ENABLED', 'N8N_EXECUTION_ENABLED'];
 const credentialName =
   /(?:^|_)(?:SECRET|TOKEN|PASSWORD|API_KEY|ACCESS_KEY|PRIVATE_KEY|DATABASE_URL|SESSION_KEY|HMAC_KEY)(?:_|$)/u;
@@ -209,6 +234,10 @@ const diagnosticFields = new Set([
   'adminNoTcp',
   'replyHeartbeat',
   'outboundHeartbeat',
+  'ocrHttp',
+  'sttHttp',
+  'ocr',
+  'stt',
   'driver',
   'scope',
   'internal',
@@ -300,25 +329,30 @@ function inspectHostSamples(
     const mode = z
       .enum(['private-disabled', 'private-enabled'])
       .parse(options.mode ?? 'private-disabled');
+    if (options.mediaEnabled === true && (bootstrap || mode !== 'private-enabled')) invalid();
     const enabled = !bootstrap && mode === 'private-enabled';
+    const mediaEnabled = enabled && options.mediaEnabled === true;
     const roles: readonly RuntimeServiceRole[] = bootstrap
       ? ['postgres']
-      : enabled
-        ? enabledRoles
-        : activeRoles;
+      : mediaEnabled
+        ? mediaRoles
+        : enabled
+          ? enabledRoles
+          : activeRoles;
     stage = 'compose';
     const config = readPrivateRuntimeCompose(
       renderedCompose,
       options.revision,
       options.paths,
       enabled,
+      mediaEnabled,
     );
     stage = 'paths';
     for (const p of Object.values(options.paths)) path.parse(p);
     const runtimeSamples = z.strictObject({
       before: snapshot,
       after: snapshot,
-      probes: enabled
+      probes: mediaEnabled
         ? z.strictObject({
             postgresSql: z.literal(true),
             apiHttp: z.literal(true),
@@ -326,14 +360,25 @@ function inspectHostSamples(
             adminNoTcp: z.literal(true),
             replyHeartbeat: z.literal(true),
             outboundHeartbeat: z.literal(true),
+            ocrHttp: z.literal(true),
+            sttHttp: z.literal(true),
           })
-        : z.strictObject({
-            postgresSql: z.literal(true),
-            apiHttp: z.literal(true),
-            adminSocket: z.literal(true),
-            adminNoTcp: z.literal(true),
-            replyHeartbeat: z.literal(true),
-          }),
+        : enabled
+          ? z.strictObject({
+              postgresSql: z.literal(true),
+              apiHttp: z.literal(true),
+              adminSocket: z.literal(true),
+              adminNoTcp: z.literal(true),
+              replyHeartbeat: z.literal(true),
+              outboundHeartbeat: z.literal(true),
+            })
+          : z.strictObject({
+              postgresSql: z.literal(true),
+              apiHttp: z.literal(true),
+              adminSocket: z.literal(true),
+              adminNoTcp: z.literal(true),
+              replyHeartbeat: z.literal(true),
+            }),
     });
     stage = 'samples';
     const samples = (
@@ -372,9 +417,15 @@ function inspectHostSamples(
       )
         invalid();
       stage = 'images';
+      if (
+        mediaEnabled
+          ? actual.images.ocr === undefined || actual.images.stt === undefined
+          : actual.images.ocr !== undefined || actual.images.stt !== undefined
+      )
+        invalid();
       for (const [role, img] of Object.entries(actual.images)) {
         if (
-          img.revision !== options.revision ||
+          img?.revision !== options.revision ||
           !(
             role === 'postgres' ? ['postgres', '999', '999:999'] : ['node', '1000', '1000:1000']
           ).includes(img.user)
@@ -438,13 +489,24 @@ function inspectHostSamples(
       for (const c of actual.containers) {
         stage = 'container_policy';
         const expected = config.services[c.service];
+        const expectedImageId =
+          c.service === 'postgres'
+            ? actual.images.postgres.id
+            : c.service === 'fcd-support-ocr'
+              ? (actual.images.ocr?.id ?? '')
+              : c.service === 'fcd-support-stt'
+                ? (actual.images.stt?.id ?? '')
+                : actual.images.runtime.id;
+        const isMediaSidecar = c.service === 'fcd-support-ocr' || c.service === 'fcd-support-stt';
+        const expectedStopTimeout = isMediaSidecar
+          ? Math.ceil(composeDurationMs(expected?.stop_grace_period ?? '') / 1000)
+          : Math.ceil(Number(expected?.environment.OPS_STOP_GRACE_MS) / 1000);
         if (
           expected === undefined ||
           c.project !== config.name ||
           c.revision !== options.revision ||
           (expected.image.startsWith('sha256:') && c.imageId !== expected.image) ||
-          c.imageId !==
-            (c.service === 'postgres' ? actual.images.postgres.id : actual.images.runtime.id) ||
+          c.imageId !== expectedImageId ||
           !(
             c.service === 'postgres'
               ? ['postgres', '999', '999:999']
@@ -461,29 +523,33 @@ function inspectHostSamples(
           c.nanoCpus !== Math.round(expected.cpus * 1e9) ||
           c.memory !== bytes(expected.mem_limit) ||
           c.pidsLimit !== expected.pids_limit ||
-          c.stopTimeout !== Math.ceil(Number(expected.environment.OPS_STOP_GRACE_MS) / 1000) ||
+          c.stopTimeout !== expectedStopTimeout ||
           JSON.stringify(c.command) !== JSON.stringify(commands[c.service]) ||
           JSON.stringify(c.entrypoint) !==
             JSON.stringify(
               c.service === 'postgres'
                 ? ['/usr/local/bin/fcd-postgres-entrypoint.sh']
-                : ['/usr/local/bin/container-entrypoint.sh', 'application'],
+                : isMediaSidecar
+                  ? ['docker-entrypoint.sh']
+                  : ['/usr/local/bin/container-entrypoint.sh', 'application'],
             ) ||
           !same(
             c.executionFlags,
-            enabled && c.service === 'fcd-support-reply'
-              ? [
-                  'MODEL_EXECUTION_ENABLED=true',
-                  'OUTBOUND_EXECUTION_ENABLED=false',
-                  'N8N_EXECUTION_ENABLED=false',
-                ]
-              : enabled && c.service === 'fcd-support-outbound'
+            isMediaSidecar
+              ? []
+              : enabled && c.service === 'fcd-support-reply'
                 ? [
-                    'MODEL_EXECUTION_ENABLED=false',
-                    'OUTBOUND_EXECUTION_ENABLED=true',
+                    'MODEL_EXECUTION_ENABLED=true',
+                    'OUTBOUND_EXECUTION_ENABLED=false',
                     'N8N_EXECUTION_ENABLED=false',
                   ]
-                : flags.map((f) => `${f}=false`),
+                : enabled && c.service === 'fcd-support-outbound'
+                  ? [
+                      'MODEL_EXECUTION_ENABLED=false',
+                      'OUTBOUND_EXECUTION_ENABLED=true',
+                      'N8N_EXECUTION_ENABLED=false',
+                    ]
+                  : flags.map((f) => `${f}=false`),
           ) ||
           new Set(c.environmentNames).size !== c.environmentNames.length ||
           c.environmentNames.some((key) => !key.endsWith('_FILE') && credentialName.test(key))

@@ -284,6 +284,44 @@ function checkResourceSettings(name: string, s: Service): void {
       invalid();
   }
 }
+const mediaSidecarRoles = ['fcd-support-ocr', 'fcd-support-stt'] as const;
+function isMediaSidecar(name: string): name is (typeof mediaSidecarRoles)[number] {
+  return (mediaSidecarRoles as readonly string[]).includes(name);
+}
+function checkMediaSidecar(name: (typeof mediaSidecarRoles)[number], s: Service): void {
+  const mem = memoryBytes(s.mem_limit);
+  if (
+    s.cpus < 0.1 ||
+    s.cpus > 4 ||
+    mem < 64 * 1048576 ||
+    mem > 4096 * 1048576 ||
+    s.pids_limit < 8 ||
+    s.pids_limit > 256 ||
+    s.secrets.length !== 0 ||
+    s.volumes.length !== 0 ||
+    s.ports.length !== 0 ||
+    s.restart !== 'unless-stopped' ||
+    !same(s.profiles, ['media-execution']) ||
+    !same(Object.keys(s.networks), ['media_internal']) ||
+    s.environment.NODE_ENV !== 'production' ||
+    s.environment.TMPDIR !== '/tmp' ||
+    (name === 'fcd-support-ocr'
+      ? s.environment.OCR_PORT !== '8091'
+      : s.environment.STT_PORT !== '8092')
+  )
+    invalid();
+  if (s.tmpfs.length !== 1) invalid();
+  const mount = s.tmpfs[0] ?? '';
+  const [path, optionsText] = mount.split(':');
+  if (path !== '/tmp') invalid();
+  const options = (optionsText ?? '').split(',');
+  for (const flag of ['rw', 'noexec', 'nosuid', 'nodev', 'uid=1000', 'gid=1000'])
+    if (!options.includes(flag)) invalid();
+  if (!options.some((opt) => /^mode=0?700$/u.test(opt))) invalid();
+  const size = options.find((value) => value.startsWith('size='))?.slice(5);
+  const sizeBytes = size === undefined ? NaN : memoryBytes(size);
+  if (!Number.isFinite(sizeBytes) || sizeBytes < 16 * 1048576 || sizeBytes >= mem) invalid();
+}
 function checkCommon(config: Compose, revision: string): void {
   if (!/^[a-f0-9]{40}$/u.test(revision)) invalid();
   for (const [name, s] of Object.entries(config.services)) {
@@ -292,7 +330,11 @@ function checkCommon(config: Compose, revision: string): void {
       s.labels['org.opencontainers.image.revision'] !== revision
     )
       invalid();
-    checkResourceSettings(name, s);
+    if (isMediaSidecar(name)) {
+      checkMediaSidecar(name, s);
+    } else {
+      checkResourceSettings(name, s);
+    }
     if (s.user !== (name === 'postgres' ? 'postgres' : 'node')) invalid();
     if (!same(s.cap_drop, ['ALL']) || !same(s.security_opt, ['no-new-privileges:true'])) invalid();
     if (
@@ -332,6 +374,7 @@ function checkCommon(config: Compose, revision: string): void {
       invalid();
     if (
       name !== 'postgres' &&
+      !isMediaSidecar(name) &&
       !s.tmpfs.some(
         (v) =>
           v.startsWith('/run/fcd-support:') &&
@@ -412,18 +455,32 @@ export function assertRuntimeCompose(
   revision: string,
   modelEnabled: boolean,
   paths: RuntimeComposePaths,
+  mediaEnabled = false,
 ): void {
   try {
+    if (mediaEnabled && !modelEnabled) invalid();
     const config = composeSchema.parse(input);
     const socketRoot = validateSocketRoot(paths);
     checkCommon(config, revision);
-    if (!same(Object.keys(config.services), Object.keys(runtimeContracts))) invalid();
+    const expectedServices = [
+      ...Object.keys(runtimeContracts),
+      ...(mediaEnabled ? mediaSidecarRoles : []),
+    ];
+    if (!same(Object.keys(config.services), expectedServices)) invalid();
     for (const [name, base] of Object.entries(runtimeContracts)) {
       const contract =
         name === 'fcd-support-reply' && modelEnabled
           ? {
-              networks: [...base.networks, 'model'],
-              secrets: [...base.secrets, 'manifest-key'],
+              networks: [
+                ...base.networks,
+                'model',
+                ...(mediaEnabled ? ['media_internal', 'provider_egress'] : []),
+              ],
+              secrets: [
+                ...base.secrets,
+                'manifest-key',
+                ...(mediaEnabled ? ['reply-meta-whatsapp-token', 'reply-meta-page-token'] : []),
+              ],
               profile: 'model-execution',
             }
           : base;
@@ -474,13 +531,26 @@ export function assertRuntimeCompose(
       invalid();
     const reply = config.services['fcd-support-reply'];
     if (reply?.environment.MODEL_EXECUTION_ENABLED !== (modelEnabled ? 'true' : 'false')) invalid();
+    if (
+      mediaEnabled &&
+      (reply.environment.PRIVATE_MEDIA_OCR_URL !== 'http://fcd-support-ocr:8091/extract' ||
+        reply.environment.PRIVATE_MEDIA_STT_URL !== 'http://fcd-support-stt:8092/transcribe' ||
+        reply.environment.META_WHATSAPP_ACCESS_TOKEN_FILE !==
+          '/run/secrets/reply-meta-whatsapp-token' ||
+        reply.environment.META_PAGE_ACCESS_TOKEN_FILE !== '/run/secrets/reply-meta-page-token')
+    )
+      invalid();
     const expectedNetworks = [
       ...new Set(Object.values(runtimeContracts).flatMap((c) => c.networks)),
       ...(modelEnabled ? ['model'] : []),
+      ...(mediaEnabled ? ['media_internal'] : []),
     ];
     if (!same(Object.keys(config.networks), expectedNetworks)) invalid();
     for (const [name, network] of Object.entries(config.networks)) {
-      if (name.endsWith('_data') && (network.internal !== true || network.external === true))
+      if (
+        (name.endsWith('_data') || name === 'media_internal') &&
+        (network.internal !== true || network.external === true)
+      )
         invalid();
       if (['ingress', 'notification', 'model'].includes(name) && network.external !== true)
         invalid();
@@ -550,8 +620,9 @@ export function readPrivateRuntimeCompose(
   revision: string,
   paths: RuntimeComposePaths,
   modelEnabled = false,
+  mediaEnabled = false,
 ) {
-  assertRuntimeCompose(input, revision, modelEnabled, paths);
+  assertRuntimeCompose(input, revision, modelEnabled, paths, mediaEnabled);
   return composeSchema.parse(input);
 }
 export function assertRestoreCompose(
@@ -714,6 +785,87 @@ export function assertRestoreCompose(
     invalid();
   }
 }
+export function assertMediaCompose(input: unknown, revision: string): void {
+  try {
+    if (!/^[a-f0-9]{40}$/u.test(revision)) invalid();
+    const mediaServiceSchema = z.object({
+      image: z.string().min(1),
+      labels: z.record(z.string(), z.string()),
+      user: z.literal('node'),
+      init: z.literal(true),
+      read_only: z.literal(true),
+      cap_drop: z.array(z.string()),
+      security_opt: z.array(z.string()),
+      pids_limit: z.number().int().positive(),
+      cpus: z.number().positive(),
+      mem_limit: z.union([z.number().positive(), z.string().regex(/^[1-9][0-9]*(?:[kmgKMG])?$/u)]),
+      stop_grace_period: z.string().min(1),
+      restart: z.literal('unless-stopped'),
+      profiles: z.array(z.string()),
+      tmpfs: z.array(z.string()).length(1),
+      environment: z.record(z.string(), z.string()),
+      healthcheck: z.object({
+        test: z.array(z.string()).min(2),
+        interval: z.string().min(1),
+        timeout: z.string().min(1),
+        retries: z.number().int().positive(),
+      }),
+      networks: z.array(z.string()),
+      ports: z.never().optional(),
+      secrets: z.never().optional(),
+      privileged: z.literal(false).optional(),
+    });
+    const overlaySchema = z.object({
+      services: z.strictObject({
+        'fcd-support-ocr': mediaServiceSchema,
+        'fcd-support-stt': mediaServiceSchema,
+        'fcd-support-reply': z.strictObject({
+          environment: z.strictObject({
+            PRIVATE_MEDIA_OCR_URL: z.literal('http://fcd-support-ocr:8091/extract'),
+            PRIVATE_MEDIA_STT_URL: z.literal('http://fcd-support-stt:8092/transcribe'),
+            META_WHATSAPP_ACCESS_TOKEN_FILE: z.literal('/run/secrets/reply-meta-whatsapp-token'),
+            META_PAGE_ACCESS_TOKEN_FILE: z.literal('/run/secrets/reply-meta-page-token'),
+          }),
+          secrets: z.array(z.string()),
+          depends_on: z.record(z.string(), z.unknown()),
+          networks: z.record(z.string(), z.unknown()),
+        }),
+      }),
+      networks: z.strictObject({
+        media_internal: z.strictObject({
+          name: z.string().min(1),
+          internal: z.literal(true),
+        }),
+      }),
+    });
+    const parsed = overlaySchema.parse(input);
+    for (const name of ['fcd-support-ocr', 'fcd-support-stt'] as const) {
+      const s = parsed.services[name];
+      if (
+        (!s.image.endsWith(`:${revision}`) && !/^sha256:[a-f0-9]{64}$/u.test(s.image)) ||
+        s.labels['org.opencontainers.image.revision'] !== revision ||
+        !same(s.cap_drop, ['ALL']) ||
+        !same(s.security_opt, ['no-new-privileges:true']) ||
+        !same(s.profiles, ['media-execution']) ||
+        !same(s.networks, ['media_internal']) ||
+        !s.tmpfs[0]?.startsWith('/tmp:') ||
+        !s.tmpfs[0].includes('noexec')
+      ) {
+        invalid();
+      }
+    }
+    const reply = parsed.services['fcd-support-reply'];
+    if (
+      !same(reply.secrets, ['reply-meta-whatsapp-token', 'reply-meta-page-token']) ||
+      !same(Object.keys(reply.networks), ['media_internal', 'provider_egress'])
+    ) {
+      invalid();
+    }
+  } catch {
+    invalid();
+  }
+}
+
 export function assertExternalNetworkParticipants(
   input: unknown,
   expectedNames: readonly string[],

@@ -1,0 +1,102 @@
+# Explicit opt-in overlay for private EN/BN OCR, STT, and scoped reply media download.
+services:
+  fcd-support-ocr:
+    image: ${FCD_OCR_IMAGE:?FCD_OCR_IMAGE must be set}
+    labels:
+      org.opencontainers.image.revision: ${FCD_SUPPORT_REVISION:?FCD_SUPPORT_REVISION must be set}
+    user: node
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    stop_grace_period: ${FCD_STOP_GRACE_MS:?FCD_STOP_GRACE_MS must be set}ms
+    restart: unless-stopped
+    profiles: [media-execution]
+    cpus: ${FCD_OCR_CPUS:-0.5}
+    mem_limit: ${FCD_OCR_MEMORY_MIB:-512}m
+    pids_limit: ${FCD_OCR_PIDS:-64}
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0700,size=${FCD_OCR_TMPFS_MIB:-64}m
+    environment:
+      NODE_ENV: production
+      OCR_PORT: '8091'
+      TMPDIR: /tmp
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '--input-type=module',
+          '-e',
+          "const r=await fetch('http://127.0.0.1:8091/health',{signal:AbortSignal.timeout(2000)});process.exit(r.ok?0:1);",
+        ]
+      interval: ${FCD_HEALTH_INTERVAL_MS:?FCD_HEALTH_INTERVAL_MS must be set}ms
+      timeout: ${FCD_HEALTH_TIMEOUT_MS:?FCD_HEALTH_TIMEOUT_MS must be set}ms
+      retries: ${FCD_HEALTH_RETRIES:?FCD_HEALTH_RETRIES must be set}
+      start_period: ${FCD_HEALTH_START_MS:?FCD_HEALTH_START_MS must be set}ms
+    networks: [media_internal]
+
+  fcd-support-stt:
+    image: ${FCD_STT_IMAGE:?FCD_STT_IMAGE must be set}
+    labels:
+      org.opencontainers.image.revision: ${FCD_SUPPORT_REVISION:?FCD_SUPPORT_REVISION must be set}
+    user: node
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    stop_grace_period: ${FCD_STOP_GRACE_MS:?FCD_STOP_GRACE_MS must be set}ms
+    restart: unless-stopped
+    profiles: [media-execution]
+    cpus: ${FCD_STT_CPUS:-1.5}
+    mem_limit: ${FCD_STT_MEMORY_MIB:-1024}m
+    pids_limit: ${FCD_STT_PIDS:-64}
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0700,size=${FCD_STT_TMPFS_MIB:-128}m
+    environment:
+      NODE_ENV: production
+      STT_PORT: '8092'
+      TMPDIR: /tmp
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '--input-type=module',
+          '-e',
+          "const r=await fetch('http://127.0.0.1:8092/health',{signal:AbortSignal.timeout(2000)});process.exit(r.ok?0:1);",
+        ]
+      interval: ${FCD_HEALTH_INTERVAL_MS:?FCD_HEALTH_INTERVAL_MS must be set}ms
+      timeout: ${FCD_HEALTH_TIMEOUT_MS:?FCD_HEALTH_TIMEOUT_MS must be set}ms
+      retries: ${FCD_HEALTH_RETRIES:?FCD_HEALTH_RETRIES must be set}
+      start_period: ${FCD_HEALTH_START_MS:?FCD_HEALTH_START_MS must be set}ms
+    networks: [media_internal]
+
+  fcd-support-reply:
+    environment:
+      PRIVATE_MEDIA_OCR_URL: http://fcd-support-ocr:8091/extract
+      PRIVATE_MEDIA_STT_URL: http://fcd-support-stt:8092/transcribe
+      META_WHATSAPP_ACCESS_TOKEN_FILE: /run/secrets/reply-meta-whatsapp-token
+      META_PAGE_ACCESS_TOKEN_FILE: /run/secrets/reply-meta-page-token
+    secrets:
+      - reply-meta-whatsapp-token
+      - reply-meta-page-token
+    depends_on:
+      fcd-support-ocr:
+        condition: service_healthy
+      fcd-support-stt:
+        condition: service_healthy
+    networks:
+      media_internal: {}
+      provider_egress: {}
+
+networks:
+  media_internal:
+    name: ${FCD_RUNTIME_PROJECT:?FCD_RUNTIME_PROJECT must be set}-media-internal
+    internal: true
+
+secrets:
+  reply-meta-whatsapp-token:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/reply/reply-meta-whatsapp-token
+  reply-meta-page-token:
+    file: ${FCD_SECRET_ROOT:?FCD_SECRET_ROOT must be set}/reply/reply-meta-page-token

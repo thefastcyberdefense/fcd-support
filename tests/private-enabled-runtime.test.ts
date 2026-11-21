@@ -818,4 +818,324 @@ operations_inspect_host bootstrap
     expect(loadReplySettings(base, true).attestation?.verified).toBe(true);
     expect(loadOutboundConfig(base).allowLoopbackFake).toBe(false);
   });
+
+  test('media overlay integrates cleanly into compose contract, runtime-host validation, and private-enabled startup', async () => {
+    const { compose, samples } = enabledHostFixture();
+    const baseReply = compose.services['fcd-support-reply'];
+    const mediaSidecar = (port: '8091' | '8092', cpus: number, mem: string, tmpMiB: number) => ({
+      image: `fcd-support-media:${revision}`,
+      labels: { 'org.opencontainers.image.revision': revision },
+      user: 'node',
+      read_only: true,
+      cap_drop: ['ALL'],
+      security_opt: ['no-new-privileges:true'],
+      init: true,
+      pids_limit: 64,
+      cpus,
+      mem_limit: mem,
+      stop_grace_period: '30s',
+      restart: 'unless-stopped',
+      profiles: ['media-execution'],
+      healthcheck: {
+        test: ['CMD', 'node', '--version'],
+        interval: '10s',
+        timeout: '3s',
+        retries: 3,
+      },
+      networks: { media_internal: {} },
+      environment: {
+        NODE_ENV: 'production',
+        TMPDIR: '/tmp',
+        ...(port === '8091' ? { OCR_PORT: '8091' } : { STT_PORT: '8092' }),
+      },
+      tmpfs: [`/tmp:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0700,size=${String(tmpMiB)}m`],
+    });
+
+    const mediaCompose = {
+      ...compose,
+      services: {
+        ...compose.services,
+        'fcd-support-reply': {
+          ...baseReply,
+          networks: { ...baseReply.networks, media_internal: {}, provider_egress: {} },
+          secrets: [
+            ...baseReply.secrets,
+            {
+              source: 'reply-meta-whatsapp-token',
+              target: '/run/secrets/reply-meta-whatsapp-token',
+            },
+            { source: 'reply-meta-page-token', target: '/run/secrets/reply-meta-page-token' },
+          ],
+          environment: {
+            ...baseReply.environment,
+            PRIVATE_MEDIA_OCR_URL: 'http://fcd-support-ocr:8091/extract',
+            PRIVATE_MEDIA_STT_URL: 'http://fcd-support-stt:8092/transcribe',
+            META_WHATSAPP_ACCESS_TOKEN_FILE: '/run/secrets/reply-meta-whatsapp-token',
+            META_PAGE_ACCESS_TOKEN_FILE: '/run/secrets/reply-meta-page-token',
+          },
+        },
+        'fcd-support-ocr': mediaSidecar('8091', 0.5, '512m', 64),
+        'fcd-support-stt': mediaSidecar('8092', 1.5, '1024m', 128),
+      },
+      networks: {
+        ...compose.networks,
+        media_internal: { name: 'fcd-support-media-internal', internal: true },
+      },
+      secrets: {
+        ...compose.secrets,
+        'reply-meta-whatsapp-token': {
+          file: `${paths.secretRoot}/reply/reply-meta-whatsapp-token`,
+        },
+        'reply-meta-page-token': { file: `${paths.secretRoot}/reply/reply-meta-page-token` },
+      },
+    };
+
+    expect(() => {
+      assertRuntimeCompose(mediaCompose, revision, true, paths, true);
+    }).not.toThrow();
+    expect(() => {
+      assertRuntimeCompose(mediaCompose, revision, false, paths, true);
+    }).toThrow('compose_contract_invalid');
+
+    expect(
+      parseRuntimeHostCliArguments([
+        revision,
+        paths.adminSocketRoot,
+        paths.configRoot,
+        paths.secretRoot,
+        paths.workspaceRoot,
+        peerId,
+        '--mode',
+        'private-enabled',
+        '--media',
+      ]).mediaEnabled,
+    ).toBe(true);
+    expect(() =>
+      parseRuntimeHostCliArguments([
+        revision,
+        paths.adminSocketRoot,
+        paths.configRoot,
+        paths.secretRoot,
+        paths.workspaceRoot,
+        peerId,
+        '--mode',
+        'private-disabled',
+        '--media',
+      ]),
+    ).toThrow();
+
+    const makeMediaContainer = (
+      role: 'fcd-support-ocr' | 'fcd-support-stt',
+      cid: string,
+      memBytes: number,
+      cpus: number,
+    ) => ({
+      id: cid,
+      project: 'fcd-support',
+      service: role,
+      revision,
+      imageId: `sha256:${'d'.repeat(64)}`,
+      running: true,
+      paused: false,
+      restarting: false,
+      dead: false,
+      healthy: true,
+      startedAt: '2030-01-01T00:00:00.000Z',
+      restartCount: 0,
+      readOnlyRootfs: true,
+      privileged: false,
+      init: true,
+      user: 'node',
+      networkMode: 'fcd-support-media-internal',
+      networks: [{ name: 'fcd-support-media-internal', id: 'f'.repeat(64) }],
+      hostPortBindings: 0,
+      publishedPortBindings: 0,
+      publishAllPorts: false,
+      pidMode: '',
+      ipcMode: 'private',
+      utsMode: '',
+      capAdd: null,
+      capDrop: ['ALL'],
+      securityOpt: ['no-new-privileges:true'],
+      devices: 0,
+      deviceRequests: 0,
+      groupAdd: null,
+      volumesFrom: null,
+      extraHosts: null,
+      sysctls: null,
+      nanoCpus: Math.round(cpus * 1e9),
+      memory: memBytes,
+      pidsLimit: 64,
+      stopTimeout: 30,
+      restartPolicy: 'unless-stopped',
+      tmpfs: {
+        '/tmp': `rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0700,size=${role === 'fcd-support-ocr' ? '64m' : '128m'}`,
+      },
+      command: ['node', role === 'fcd-support-ocr' ? 'ocr-server.ts' : 'stt-server.ts'],
+      entrypoint: ['docker-entrypoint.sh'],
+      environmentNames: [
+        'NODE_ENV',
+        'TMPDIR',
+        role === 'fcd-support-ocr' ? 'OCR_PORT' : 'STT_PORT',
+      ],
+      executionFlags: [],
+      mounts: [
+        {
+          type: 'tmpfs',
+          name: '',
+          source: '',
+          destination: '/tmp',
+          readWrite: true,
+          propagation: '',
+        },
+      ],
+    });
+
+    const ocrId = '6'.repeat(64);
+    const sttId = '7'.repeat(64);
+    const baseSnapshot = samples.before;
+    const replyContainer = baseSnapshot.containers.find((c) => c.service === 'fcd-support-reply');
+    const mediaSnapshot = {
+      ...baseSnapshot,
+      images: {
+        ...baseSnapshot.images,
+        ocr: { ...baseSnapshot.images.runtime, id: `sha256:${'d'.repeat(64)}` },
+        stt: { ...baseSnapshot.images.runtime, id: `sha256:${'d'.repeat(64)}` },
+      },
+      containers: [
+        ...baseSnapshot.containers.map((c) =>
+          c.service === 'fcd-support-reply'
+            ? {
+                ...c,
+                networks: [
+                  ...c.networks,
+                  { name: 'fcd-support-media-internal', id: 'f'.repeat(64) },
+                  { name: 'fcd-support-provider_egress', id: '8'.repeat(64) },
+                ],
+                mounts: [
+                  ...c.mounts,
+                  {
+                    type: 'bind',
+                    name: '',
+                    source: `${paths.secretRoot}/reply/reply-meta-whatsapp-token`,
+                    destination: '/run/secrets/reply-meta-whatsapp-token',
+                    readWrite: false,
+                    propagation: 'rprivate',
+                  },
+                  {
+                    type: 'bind',
+                    name: '',
+                    source: `${paths.secretRoot}/reply/reply-meta-page-token`,
+                    destination: '/run/secrets/reply-meta-page-token',
+                    readWrite: false,
+                    propagation: 'rprivate',
+                  },
+                ],
+              }
+            : c,
+        ),
+        makeMediaContainer('fcd-support-ocr', ocrId, 512 * 1048576, 0.5),
+        makeMediaContainer('fcd-support-stt', sttId, 1024 * 1048576, 1.5),
+      ],
+      networks: [
+        ...baseSnapshot.networks.map((n) =>
+          n.name === 'fcd-support-provider_egress' && replyContainer !== undefined
+            ? { ...n, members: [...n.members, replyContainer.id] }
+            : n,
+        ),
+        {
+          id: 'f'.repeat(64),
+          name: 'fcd-support-media-internal',
+          driver: 'bridge',
+          scope: 'local',
+          internal: true,
+          project: 'fcd-support',
+          logicalName: 'media_internal',
+          members:
+            replyContainer === undefined ? [ocrId, sttId] : [replyContainer.id, ocrId, sttId],
+        },
+      ],
+      hostBinds: [
+        ...baseSnapshot.hostBinds,
+        ...(replyContainer === undefined
+          ? []
+          : [
+              {
+                containerId: replyContainer.id,
+                source: `${paths.secretRoot}/reply/reply-meta-whatsapp-token`,
+                canonicalSource: `${paths.secretRoot}/reply/reply-meta-whatsapp-token`,
+              },
+              {
+                containerId: replyContainer.id,
+                source: `${paths.secretRoot}/reply/reply-meta-page-token`,
+                canonicalSource: `${paths.secretRoot}/reply/reply-meta-page-token`,
+              },
+            ]),
+      ],
+    };
+
+    expect(
+      inspectRuntimeHostSamples(
+        {
+          before: mediaSnapshot,
+          after: mediaSnapshot,
+          probes: { ...samples.probes, ocrHttp: true, sttHttp: true },
+        },
+        mediaCompose,
+        { revision, paths, ingressPeerId: peerId, mode: 'private-enabled', mediaEnabled: true },
+      ),
+    ).toEqual({ status: 'verified' });
+
+    const root = await mkdtemp(join(tmpdir(), 'fcd-private-media-startup-'));
+    tempRoots.push(root);
+    const app = `sha256:${'d'.repeat(64)}`;
+    const operations = `sha256:${'e'.repeat(64)}`;
+    const postgres = `sha256:${'f'.repeat(64)}`;
+    const startupResult = spawnSync(
+      bash,
+      [
+        '--noprofile',
+        '--norc',
+        '-c',
+        `
+source "$TASK_COMMON"
+source "$TASK_STARTUP"
+OPS_ROOT="$TASK_ROOT"
+OPS_RUNTIME_MODE=private-enabled
+declare -A OPS_CONFIG=([FCD_RUNTIME_PROJECT]=fcd-support [FCD_SUPPORT_REVISION]=${revision} [FCD_SCHEMA_REVISION]=000019 [FCD_POSTGRES_DB]=fcd_support [FCD_DATABASE_SCHEMA]=public [FCD_DATABASE_ROLE_PREFIX]=fcd_support [FCD_POSTGRES_VOLUME]=fcd-support-selected [FCD_SUPPORT_IMAGE]=${app} [FCD_OPERATIONS_IMAGE]=${operations} [FCD_POSTGRES_IMAGE]=${postgres} [FCD_MEDIA_ENABLED]=true [FCD_OCR_IMAGE]=${app} [FCD_STT_IMAGE]=${app} [FCD_READY_TIMEOUT_SECONDS]=5 [FCD_COMMAND_TIMEOUT_SECONDS]=5 [FCD_STOP_GRACE_MS]=1000 [FCD_MODEL_NETWORK]=manifest_net)
+printf quiescent > "$TASK_ROOT/phase"; printf no > "$TASK_ROOT/writes"; printf 000018 > "$TASK_ROOT/schema"
+operations_job_state_root() { OPS_JOB_STATE_FILE="$TASK_ROOT/active-job"; }
+operations_selection_read() { declare -gA OPS_SELECTION=([STATE_REF]=selection_${'c'.repeat(32)} [STATE_PHASE]="$(<"$TASK_ROOT/phase")" [STATE_VOLUME]=fcd-support-selected [STATE_SYSTEM_IDENTIFIER]=1111111111111111111 [STATE_REVISION]=${revision} [STATE_SCHEMA_REVISION]="$(<"$TASK_ROOT/schema")" [STATE_WRITES_POSSIBLE]="$(<"$TASK_ROOT/writes")" [STATE_DATABASE_NAME]=fcd_support [STATE_SCHEMA_NAME]=public); }
+operations_selection_starting() { printf starting > "$TASK_ROOT/phase"; printf yes > "$TASK_ROOT/writes"; printf 000019 > "$TASK_ROOT/schema"; }
+operations_selection_ready() { printf ready > "$TASK_ROOT/phase"; }
+operations_selection_uncertain() { printf uncertain > "$TASK_ROOT/phase"; }
+operations_retain_revision() { :; }
+operations_socket_root() { :; }
+operations_docker() { local ref="\${!#}" role=node; [[ "$ref" != '${postgres}' ]] || role=postgres; printf '%s/${revision}/linux/amd64/%s\\n' "$ref" "$role"; }
+operations_inspect_bootstrap_database() { :; }
+operations_read_database_identity() { printf '1111111111111111111\\n'; }
+operations_upgrade_database() { OPS_DATABASE_SYSTEM_IDENTIFIER=1111111111111111111; OPS_PRE_MIGRATION_BACKUP_REF=backup_${'b'.repeat(32)}; }
+operations_execute_job() { :; }
+operations_compose() { printf '%s\\n' "$*" > "$TASK_ROOT/compose-args"; }
+operations_inspect_runtime_host() { :; }
+operations_start_private_runtime ${app} ${operations} ${postgres}
+`,
+      ],
+      {
+        encoding: 'utf8',
+        timeout: 5000,
+        env: {
+          PATH: process.env.PATH,
+          SystemRoot: process.env.SystemRoot,
+          TASK_ROOT: root.replaceAll('\\', '/'),
+          TASK_COMMON: resolve('scripts/operations-common.sh').replaceAll('\\', '/'),
+          TASK_STARTUP: resolve('scripts/operations-startup.sh').replaceAll('\\', '/'),
+        },
+      },
+    );
+    expect(startupResult.status, startupResult.stderr).toBe(0);
+    const args = await readFile(join(root, 'compose-args'), 'utf8');
+    expect(args).toContain('--profile media-execution');
+    expect(args).toContain('fcd-support-ocr fcd-support-stt');
+  });
 });

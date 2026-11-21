@@ -30,14 +30,19 @@ operations_containment_checked() {
     IFS=/ read -r actual project role revision actual_image status running paused restarting dead user started extra <<<"$row"
     if [[ "$actual" != "$id" || "$project" != "${OPS_CONFIG[FCD_RUNTIME_PROJECT]}" ]]; then failed=1; continue; fi
     [[ "$role" != postgres ]] || continue
+    local role_image="$image" role_entrypoint="$entrypoint"
     case "$role" in
       fcd-support-api) command='["node","dist/main.js"]' ;;
       fcd-support-admin) command='["node","dist/admin-main.js"]' ;;
       fcd-support-reply|fcd-support-outbound|fcd-support-notification) command="[\"node\",\"dist/worker-main.js\",\"${role#fcd-support-}\"]" ;;
+      fcd-support-ocr)
+        role_image="${OPS_CONFIG[FCD_OCR_IMAGE]:-$actual_image}"; role_entrypoint='["docker-entrypoint.sh"]'; command='["node","ocr-server.ts"]' ;;
+      fcd-support-stt)
+        role_image="${OPS_CONFIG[FCD_STT_IMAGE]:-$actual_image}"; role_entrypoint='["docker-entrypoint.sh"]'; command='["node","stt-server.ts"]' ;;
       *) failed=1; continue ;;
     esac
-    if [[ "$revision" != "${OPS_CONFIG[FCD_SUPPORT_REVISION]}" || "$actual_image" != "$image" || ! "$user" =~ ^(node|1000|1000:1000)$ || "$paused/$restarting/$dead" != false/false/false || -n "$extra" || ! "$started" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,9})?Z$ || ( "$status/$running" != running/true && "$status/$running" != exited/false ) ]]; then failed=1; continue; fi
-    if [[ "$(operations_docker container inspect --format '{{json .Config.Cmd}}' "$id")" != "$command" || "$(operations_docker container inspect --format '{{json (index .Config "Entrypoint")}}' "$id")" != "$entrypoint" ]]; then failed=1; continue; fi
+    if [[ "$revision" != "${OPS_CONFIG[FCD_SUPPORT_REVISION]}" || "$actual_image" != "$role_image" || ! "$user" =~ ^(node|1000|1000:1000)$ || "$paused/$restarting/$dead" != false/false/false || -n "$extra" || ! "$started" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,9})?Z$ || ( "$status/$running" != running/true && "$status/$running" != exited/false ) ]]; then failed=1; continue; fi
+    if [[ "$(operations_docker container inspect --format '{{json .Config.Cmd}}' "$id")" != "$command" || "$(operations_docker container inspect --format '{{json (index .Config "Entrypoint")}}' "$id")" != "$role_entrypoint" ]]; then failed=1; continue; fi
     if [[ "$role" == fcd-support-admin ]]; then
       metadata="$(operations_docker container inspect --format "{{range .Mounts}}{{if eq .Source \"${OPS_CONFIG[FCD_ADMIN_SOCKET_ROOT]}\"}}{{if and (eq .Type \"bind\") (eq .Destination \"/run/fcd-support-admin\") .RW}}valid{{else}}invalid{{end}}{{end}}{{end}}" "$id")" || { failed=1; continue; }
       if [[ "$metadata" != valid ]]; then failed=1; continue; fi
@@ -45,7 +50,7 @@ operations_containment_checked() {
     rows[$id]="$row"; roles[$id]="$role"
   done <<<"$ids"
   grace="$(( (${OPS_CONFIG[FCD_STOP_GRACE_MS]} + 999) / 1000 ))"
-  for role in fcd-support-reply fcd-support-outbound fcd-support-notification fcd-support-api fcd-support-admin; do
+  for role in fcd-support-reply fcd-support-ocr fcd-support-stt fcd-support-outbound fcd-support-notification fcd-support-api fcd-support-admin; do
     for id in "${!rows[@]}"; do
       [[ "${roles[$id]}" == "$role" ]] || continue
       row="${rows[$id]}"

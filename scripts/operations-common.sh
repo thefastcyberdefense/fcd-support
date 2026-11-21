@@ -49,8 +49,9 @@ operations_config_field() {
     FCD_SCHEMA_REVISION) [[ "$value" =~ ^[0-9]{6}$ ]] ;;
     FCD_DATABASE_SCHEMA) [[ "$value" =~ ^[a-z][a-z0-9_]{0,62}$ ]] ;;
     FCD_DATABASE_ROLE_PREFIX) [[ "$value" =~ ^fcd_[a-z0-9_]{1,28}$ ]] ;;
-    FCD_SUPPORT_IMAGE|FCD_OPERATIONS_IMAGE|FCD_POSTGRES_IMAGE)
+    FCD_SUPPORT_IMAGE|FCD_OPERATIONS_IMAGE|FCD_POSTGRES_IMAGE|FCD_OCR_IMAGE|FCD_STT_IMAGE)
       [[ "$value" =~ ^[a-z0-9][a-z0-9./:@_-]{1,255}$ && "$value" != *..* ]] ;;
+    FCD_MEDIA_ENABLED) [[ "$value" == true || "$value" == false ]] ;;
     FCD_RUNTIME_PROJECT)
       [[ "$value" == fcd-support || "$value" =~ ^fcd-support[-a-z0-9_]{1,100}$ ]] ;;
     FCD_RESTORE_PROJECT|FCD_POSTGRES_VOLUME|FCD_RESTORE_VOLUME|FCD_BACKUP_VOLUME|FCD_INGRESS_NETWORK|FCD_NOTIFICATION_NETWORK)
@@ -81,9 +82,9 @@ operations_config_field() {
     FCD_STOP_GRACE_MS|FCD_HEALTH_INTERVAL_MS|FCD_HEALTH_TIMEOUT_MS|FCD_HEALTH_START_MS|FCD_HEALTH_RETRIES)
       [[ "$value" =~ ^[1-9][0-9]{0,8}$ ]] && (( 10#$value <= 900000 )) ;;
     *)
-      if [[ "$key" =~ ^FCD_(WEBHOOK|ADMIN|REPLY|OUTBOUND|NOTIFICATION|POSTGRES|BACKUP|VERIFY_BACKUP|MAINTENANCE|HEALTH|MIGRATE|RESTORE|CHECKPOINT)_(MEMORY_MIB|PIDS|TMPFS_MIB)$ ]]; then
+      if [[ "$key" =~ ^FCD_(WEBHOOK|ADMIN|REPLY|OUTBOUND|NOTIFICATION|OCR|STT|POSTGRES|BACKUP|VERIFY_BACKUP|MAINTENANCE|HEALTH|MIGRATE|RESTORE|CHECKPOINT)_(MEMORY_MIB|PIDS|TMPFS_MIB)$ ]]; then
         [[ "$value" =~ ^[1-9][0-9]{0,7}$ ]] && (( 10#$value <= 16777216 ))
-      elif [[ "$key" =~ ^FCD_(WEBHOOK|ADMIN|REPLY|OUTBOUND|NOTIFICATION|POSTGRES|BACKUP|VERIFY_BACKUP|MAINTENANCE|HEALTH|MIGRATE|RESTORE|CHECKPOINT)_CPUS$ ]]; then
+      elif [[ "$key" =~ ^FCD_(WEBHOOK|ADMIN|REPLY|OUTBOUND|NOTIFICATION|OCR|STT|POSTGRES|BACKUP|VERIFY_BACKUP|MAINTENANCE|HEALTH|MIGRATE|RESTORE|CHECKPOINT)_CPUS$ ]]; then
         [[ "$value" =~ ^[0-9]{1,3}(\.[0-9]{1,3})?$ && "$value" =~ [1-9] ]]
       else return 1
       fi ;;
@@ -173,8 +174,13 @@ operations_compose() {
       if [[ "$mode" == private-enabled ]]; then
         [[ -n "${OPS_CONFIG[FCD_MODEL_NETWORK]:-}" ]] && operations_config_field FCD_MODEL_NETWORK "${OPS_CONFIG[FCD_MODEL_NETWORK]}" || operations_fail operations_config_invalid
         files+=(--file "$OPS_ROOT/infra/compose.model.yml")
+        if [[ "${OPS_CONFIG[FCD_MEDIA_ENABLED]:-false}" == true ]]; then
+          [[ -n "${OPS_CONFIG[FCD_OCR_IMAGE]:-}" && -n "${OPS_CONFIG[FCD_STT_IMAGE]:-}" ]] && operations_config_field FCD_OCR_IMAGE "${OPS_CONFIG[FCD_OCR_IMAGE]}" && operations_config_field FCD_STT_IMAGE "${OPS_CONFIG[FCD_STT_IMAGE]}" || operations_fail operations_config_invalid
+          files+=(--file "$OPS_ROOT/infra/compose.media.yml")
+        fi
         flags=(MODEL_EXECUTION_ENABLED=true OUTBOUND_EXECUTION_ENABLED=true N8N_EXECUTION_ENABLED=false)
       else
+        [[ "${OPS_CONFIG[FCD_MEDIA_ENABLED]:-false}" == false ]] || operations_fail operations_config_invalid
         flags=(MODEL_EXECUTION_ENABLED=false OUTBOUND_EXECUTION_ENABLED=false N8N_EXECUTION_ENABLED=false)
       fi ;;
     operations)
