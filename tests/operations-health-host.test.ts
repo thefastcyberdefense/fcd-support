@@ -247,6 +247,7 @@ function collectWithStateRoot(
         '-c',
         `
 declare -A OPS_CONFIG=([FCD_RUNTIME_PROJECT]=fcd-support-test [FCD_SUPPORT_REVISION]=$TASK_REVISION [FCD_INGRESS_PEER_ID]=$TASK_TUNNEL [FCD_HEALTH_TIMEOUT_MS]=6000 [FCD_STATE_ROOT]="$TASK_STATE")
+node() { return 127; }
 date() { printf '%s\\n' '2030-01-01T00:00:00.000Z'; }
 operations_docker() {
   local last; for last; do :; done
@@ -454,6 +455,12 @@ test('probe-public-route rejects non-https or query-bearing URLs and systemd AF_
     expect(probeUnit).toContain('RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6');
     expect(probeUnit).toContain('User=1000');
     expect(probeUnit).not.toMatch(/docker\.sock/u);
+    const probeScript = readFileSync('scripts/probe-public-route.sh', 'utf8');
+    expect(probeScript).toContain('curl');
+    expect(probeScript).not.toMatch(/\bnode\s+--input-type/u);
+    const healthHostScript = readFileSync('scripts/operations-health-host.sh', 'utf8');
+    const hostTail = healthHostScript.slice(healthHostScript.indexOf('public_route_json='));
+    expect(hostTail).not.toMatch(/\bnode\b/u);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

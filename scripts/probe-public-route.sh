@@ -1,23 +1,15 @@
 #!/usr/bin/env bash
 # Bounded host probe checking external webhook reachability and private-route isolation.
-# Writes only $STATE_ROOT/public-route-check without touching secrets or Docker.
+# Writes only $STATE_ROOT/public-route-check using host curl/coreutils (no host Node).
 set -Eeuo pipefail
 
 if ! declare -F operations_probe_fetch_status >/dev/null; then
   operations_probe_fetch_status() {
-    local url="$1" timeout_ms="$2"
-    node --input-type=module -e '
-try {
-  const response = await fetch(process.argv[1], {
-    method: "GET",
-    redirect: "error",
-    signal: AbortSignal.timeout(Number(process.argv[2])),
-  });
-  await response.body?.cancel();
-  process.stdout.write(String(response.status));
-} catch {
-  process.exit(1);
-}' "$url" "$timeout_ms" 2>/dev/null
+    local url="$1" timeout_ms="$2" timeout_s
+    timeout_s="$(( (10#$timeout_ms + 999) / 1000 ))"
+    curl -sS -o /dev/null -w '%{http_code}' \
+      --connect-timeout "$timeout_s" --max-time "$timeout_s" \
+      --proto '=https' --tlsv1.2 -- "$url" 2>/dev/null
   }
 fi
 
@@ -53,44 +45,30 @@ operations_probe_public_route_main() {
     state='passed'
   fi
 
-  local payload
+  local payload tmp=''
   payload="$(printf '{"state":"%s","checkedAt":"%s"}' "$state" "$checked_at")"
 
-  node --input-type=module -e '
-import { closeSync, constants, fchmodSync, fsyncSync, lstatSync, openSync, renameSync, unlinkSync, writeSync } from "node:fs";
-import { randomBytes } from "node:crypto";
-import { join } from "node:path";
-
-const stateRoot = process.argv[1];
-const payload = process.argv[2];
-const rootStat = lstatSync(stateRoot);
-if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
-  throw new Error("state_root_invalid");
-}
-const tmpPath = join(stateRoot, `.public-route-check.${process.pid}.${randomBytes(6).toString("hex")}`);
-const finalPath = join(stateRoot, "public-route-check");
-let fd;
-try {
-  fd = openSync(tmpPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0), 0o600);
-  if (process.platform !== "win32") {
-    fchmodSync(fd, 0o600);
-  }
-  writeSync(fd, payload, 0, "utf8");
-  fsyncSync(fd);
-  closeSync(fd);
-  fd = undefined;
-  renameSync(tmpPath, finalPath);
-} catch (error) {
-  if (fd !== undefined) {
-    try { closeSync(fd); } catch {}
-  }
-  try { unlinkSync(tmpPath); } catch {}
-  throw error;
-}
-' "$state_root" "$payload" >/dev/null 2>&1 || {
+  tmp="$(umask 077 && mktemp -- "$state_root/.public-route-check.XXXXXXXX")" 2>/dev/null || {
     printf 'public_route_probe_write_failed\n' >&2
     return 1
   }
+  if [[ -L "$tmp" || ! -f "$tmp" ]]; then
+    rm -f -- "$tmp" 2>/dev/null || true
+    printf 'public_route_probe_write_failed\n' >&2
+    return 1
+  fi
+  chmod 0600 -- "$tmp" 2>/dev/null || true
+  if ! printf '%s' "$payload" >"$tmp"; then
+    rm -f -- "$tmp" 2>/dev/null || true
+    printf 'public_route_probe_write_failed\n' >&2
+    return 1
+  fi
+  sync "$tmp" 2>/dev/null || true
+  if ! mv -f -T -- "$tmp" "$state_root/public-route-check"; then
+    rm -f -- "$tmp" 2>/dev/null || true
+    printf 'public_route_probe_write_failed\n' >&2
+    return 1
+  fi
 
   printf '%s\n' "$payload"
 }
