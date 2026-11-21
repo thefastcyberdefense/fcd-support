@@ -73,6 +73,12 @@ describe('private OCR and STT service contracts and compose overlay', () => {
           if (bytes[8] === 9) {
             return Promise.resolve({ text: '  ', confidence: 0 });
           }
+          if (bytes[8] === 8) {
+            return Promise.resolve({ text: 'garbled low confidence', confidence: 0.41 });
+          }
+          if (bytes[8] === 7) {
+            return Promise.reject(new Error('corrupt_png'));
+          }
           return Promise.resolve({
             text: 'How do I update login when OTP: 987654 fails?',
             confidence: 0.95,
@@ -86,6 +92,13 @@ describe('private OCR and STT service contracts and compose overlay', () => {
         runStt: ({ bytes }) => {
           if (bytes[8] === 9) {
             return Promise.resolve({ text: '', detectedLanguage: 'bn', confidence: 0 });
+          }
+          if (bytes[8] === 8) {
+            return Promise.resolve({
+              text: 'اپنا رکی کی تھوڑنے',
+              detectedLanguage: 'bn',
+              confidence: 0.9,
+            });
           }
           return Promise.resolve({
             text: 'আপনাদের সেবাগুলো কী কী?',
@@ -113,6 +126,20 @@ describe('private OCR and STT service contracts and compose overlay', () => {
               mimeType: 'image/png',
             });
           }
+          if (attachment.mediaId === 'IMG_LOW_CONF') {
+            return Promise.resolve({
+              status: 'downloaded',
+              bytes: Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 8, 0, 0, 0]),
+              mimeType: 'image/png',
+            });
+          }
+          if (attachment.mediaId === 'IMG_ERR') {
+            return Promise.resolve({
+              status: 'downloaded',
+              bytes: Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 7, 0, 0, 0]),
+              mimeType: 'image/png',
+            });
+          }
           if (attachment.mediaId === 'AUD_BN') {
             return Promise.resolve({
               status: 'downloaded',
@@ -120,9 +147,16 @@ describe('private OCR and STT service contracts and compose overlay', () => {
               mimeType: 'audio/ogg',
             });
           }
+          if (attachment.mediaId === 'AUD_SCRIPT_MISMATCH') {
+            return Promise.resolve({
+              status: 'downloaded',
+              bytes: Uint8Array.from([0x4f, 0x67, 0x67, 0x53, 0, 2, 0, 0, 8, 2, 3, 4]),
+              mimeType: 'audio/ogg',
+            });
+          }
           return Promise.resolve({
             status: 'downloaded',
-            bytes: Uint8Array.from([0x00, 0x01, 0x02, 0x03]),
+            bytes: Uint8Array.from([0x4f, 0x67, 0x67, 0x53, 0, 2, 0, 0, 9, 0, 0, 0]),
             mimeType: 'audio/ogg',
           });
         },
@@ -252,6 +286,81 @@ describe('private OCR and STT service contracts and compose overlay', () => {
     expect(badAudioResult).toMatchObject({
       kind: 'escalate',
       escalationReasonCode: 'unclear_media',
+    });
+
+    const lowConfOcr = await processor.process({
+      attachments: [
+        {
+          ...attachmentBase,
+          id: 'att-low-ocr',
+          kind: 'image',
+          rawType: 'image',
+          mediaId: 'IMG_LOW_CONF',
+          mediaUrl: null,
+          mimeType: 'image/png',
+          filename: 'blur.png',
+          isVoice: null,
+        },
+      ],
+      channel: 'whatsapp',
+      evaluatedAt: new Date('2026-11-21T10:00:00.000Z'),
+      language: 'en',
+      messageText: '',
+    });
+    expect(lowConfOcr).toMatchObject({
+      kind: 'escalate',
+      escalationReasonCode: 'unclear_media',
+      attachmentOutcomes: [{ extractionStatus: 'unclear', reasonCode: 'ocr_low_confidence' }],
+    });
+
+    const failedOcr = await processor.process({
+      attachments: [
+        {
+          ...attachmentBase,
+          id: 'att-err-ocr',
+          kind: 'image',
+          rawType: 'image',
+          mediaId: 'IMG_ERR',
+          mediaUrl: null,
+          mimeType: 'image/png',
+          filename: 'corrupt.png',
+          isVoice: null,
+        },
+      ],
+      channel: 'whatsapp',
+      evaluatedAt: new Date('2026-11-21T10:00:00.000Z'),
+      language: 'en',
+      messageText: '',
+    });
+    expect(failedOcr).toMatchObject({
+      kind: 'escalate',
+      escalationReasonCode: 'media_extraction_failed',
+      attachmentOutcomes: [{ extractionStatus: 'failed', reasonCode: 'ocr_http_500' }],
+    });
+
+    const mismatchStt = await processor.process({
+      attachments: [
+        {
+          ...attachmentBase,
+          id: 'att-mismatch-stt',
+          kind: 'audio',
+          rawType: 'audio',
+          mediaId: 'AUD_SCRIPT_MISMATCH',
+          mediaUrl: null,
+          mimeType: 'audio/ogg',
+          filename: null,
+          isVoice: true,
+        },
+      ],
+      channel: 'whatsapp',
+      evaluatedAt: new Date('2026-11-21T10:00:00.000Z'),
+      language: 'bn',
+      messageText: '',
+    });
+    expect(mismatchStt).toMatchObject({
+      kind: 'escalate',
+      escalationReasonCode: 'unclear_media',
+      attachmentOutcomes: [{ extractionStatus: 'unclear', reasonCode: 'stt_script_mismatch' }],
     });
   });
 

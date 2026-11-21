@@ -82,10 +82,12 @@ export function parseTesseractTsv(tsvText: string): {
 
 export async function runTesseractOcr(input: {
   readonly bytes: Buffer;
+  readonly languageHint?: string;
   readonly timeoutMs?: number;
 }): Promise<OcrExecutionResult> {
+  const langArg = input.languageHint === 'bn' ? 'ben+eng' : 'eng+ben';
   const stdout = await new Promise<string>((resolvePromise, rejectPromise) => {
-    const child = spawn('tesseract', ['stdin', 'stdout', '-l', 'eng+ben', '--psm', '3', 'tsv'], {
+    const child = spawn('tesseract', ['stdin', 'stdout', '-l', langArg, '--psm', '3', 'tsv'], {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     const chunks: Buffer[] = [];
@@ -232,6 +234,13 @@ export function createOcrRequestHandler(
           status: 'visual_only',
           hasVisualContent: true,
           reasonCode: 'visual_interpretation_deferred',
+        });
+        return;
+      }
+      if (extracted.confidence !== undefined && extracted.confidence < 0.55) {
+        sendJson(res, 200, {
+          status: 'unclear',
+          reasonCode: 'ocr_low_confidence',
         });
         return;
       }

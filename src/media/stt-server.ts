@@ -53,10 +53,13 @@ export function detectSttLanguage(
 
 export async function runWhisperStt(input: {
   readonly bytes: Buffer;
+  readonly languageHint?: string;
   readonly timeoutMs?: number;
 }): Promise<SttExecutionResult> {
   const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const modelPath = process.env.WHISPER_MODEL_PATH ?? '/opt/whisper/ggml-base.bin';
+  const whisperLang =
+    input.languageHint === 'bn' ? 'bn' : input.languageHint === 'en' ? 'en' : 'auto';
   const workDir = await mkdtemp(join(tmpdir(), 'fcd-stt-'));
   const inputPath = join(workDir, 'input.bin');
   const wavPath = join(workDir, 'audio.wav');
@@ -84,7 +87,7 @@ export async function runWhisperStt(input: {
     );
     await execFile(
       'whisper-cli',
-      ['-m', modelPath, '-f', wavPath, '-l', 'auto', '-oj', '-of', outPrefix, '--no-prints'],
+      ['-m', modelPath, '-f', wavPath, '-l', whisperLang, '-oj', '-of', outPrefix, '--no-prints'],
       { timeout: timeoutMs },
     );
     const parsed = JSON.parse(await readFile(`${outPrefix}.json`, 'utf8')) as {
@@ -210,6 +213,16 @@ export function createSttRequestHandler(
       const lettersOrDigits = text.match(/[\p{L}\p{N}]/gu) ?? [];
       if (lettersOrDigits.length < MINIMUM_ALNUM_CHARS) {
         sendJson(res, 200, { status: 'unclear', reasonCode: 'stt_empty_text' });
+        return;
+      }
+      const hasBengali = /\p{Script=Bengali}/u.test(text);
+      const hasLatin = /[A-Za-z]/u.test(text);
+      const hasUnsupportedScript = /\p{Script=Arabic}|\p{Script=Devanagari}/u.test(text);
+      if (
+        (hasUnsupportedScript && !hasBengali && !hasLatin) ||
+        ((transcribed.detectedLanguage === 'bn' || languageHint === 'bn') && !hasBengali)
+      ) {
+        sendJson(res, 200, { status: 'unclear', reasonCode: 'stt_script_mismatch' });
         return;
       }
       sendJson(res, 200, {
