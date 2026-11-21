@@ -285,4 +285,98 @@ describe('content-free health collector', () => {
       { component: 'postgres', state: 'healthy', checkedAt: at },
     ]);
   });
+  test('deletion_checkpoint uses its own export-schedule freshness, validUntil boundary, and watermark currency policy', async () => {
+    const f = fixture();
+    // 2 hours old: older than 60s worker heartbeat staleMilliseconds, but well within 36h export schedule
+    const twoHoursOld = new Date(at.getTime() - 2 * 60 * 60 * 1000);
+    const healthyReport = await collectHealth({
+      ...f.options,
+      staleMilliseconds: 60_000,
+      database: {
+        read: () =>
+          Promise.resolve({
+            schemaRevision: '000016',
+            gitRevision: revision,
+            backupCreatedAt: twoHoursOld,
+            backupVerified: true,
+            deletionCheckpointAt: twoHoursOld,
+            deletionCheckpointValidUntil: new Date(at.getTime() + 60_000),
+            deletionCheckpointWatermarkCurrent: true,
+            queues: [],
+          }),
+      },
+    });
+    expect(healthyReport.find((v) => v.component === 'deletion_checkpoint')).toMatchObject({
+      state: 'healthy',
+      reasonCode: 'ok',
+    });
+
+    // Expired validUntil boundary requires re-export before restore
+    const expiredBoundaryReport = await collectHealth({
+      ...f.options,
+      staleMilliseconds: 60_000,
+      database: {
+        read: () =>
+          Promise.resolve({
+            schemaRevision: '000016',
+            gitRevision: revision,
+            backupCreatedAt: twoHoursOld,
+            backupVerified: true,
+            deletionCheckpointAt: twoHoursOld,
+            deletionCheckpointValidUntil: new Date(at.getTime() - 1000),
+            deletionCheckpointWatermarkCurrent: true,
+            queues: [],
+          }),
+      },
+    });
+    expect(expiredBoundaryReport.find((v) => v.component === 'deletion_checkpoint')).toMatchObject({
+      state: 'degraded',
+      reasonCode: 'stale',
+    });
+
+    // Watermark advanced past last exported checkpoint
+    const staleWatermarkReport = await collectHealth({
+      ...f.options,
+      staleMilliseconds: 60_000,
+      database: {
+        read: () =>
+          Promise.resolve({
+            schemaRevision: '000016',
+            gitRevision: revision,
+            backupCreatedAt: twoHoursOld,
+            backupVerified: true,
+            deletionCheckpointAt: twoHoursOld,
+            deletionCheckpointValidUntil: null,
+            deletionCheckpointWatermarkCurrent: false,
+            queues: [],
+          }),
+      },
+    });
+    expect(staleWatermarkReport.find((v) => v.component === 'deletion_checkpoint')).toMatchObject({
+      state: 'degraded',
+      reasonCode: 'stale',
+    });
+
+    // Exceeds custom deletionCheckpointStaleMilliseconds
+    const staleScheduleReport = await collectHealth({
+      ...f.options,
+      staleMilliseconds: 60_000,
+      deletionCheckpointStaleMilliseconds: 3_600_000,
+      database: {
+        read: () =>
+          Promise.resolve({
+            schemaRevision: '000016',
+            gitRevision: revision,
+            backupCreatedAt: twoHoursOld,
+            backupVerified: true,
+            deletionCheckpointAt: twoHoursOld,
+            queues: [],
+          }),
+      },
+    });
+    expect(staleScheduleReport.find((v) => v.component === 'deletion_checkpoint')).toMatchObject({
+      state: 'degraded',
+      reasonCode: 'stale',
+    });
+  });
 });

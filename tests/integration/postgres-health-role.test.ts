@@ -94,6 +94,57 @@ test('health principal reads real queue aggregates while customer columns and ad
     await expect(
       health.query('select message_text from webhook_events limit 1'),
     ).rejects.toMatchObject({ code: '42501' });
+    await expect(
+      health.query('select singleton from deletion_checkpoint_clock limit 1'),
+    ).rejects.toMatchObject({ code: '42501' });
+    await expect(
+      health.query('update deletion_checkpoint_clock set revision=0'),
+    ).rejects.toMatchObject({ code: '42501' });
+    const clockRow = (
+      await health.query<{ source_epoch: string; revision: string }>(
+        'select source_epoch::text,revision::text from deletion_checkpoint_clock',
+      )
+    ).rows[0];
+    expect(clockRow).toBeDefined();
+    await database.pool.query(
+      `insert into deletion_checkpoints(
+        checkpoint_ref,source_epoch,sequence,source_revision,schema_revision,
+        snapshot_at,valid_until,row_count,required_key_versions,
+        ciphertext_bytes,ciphertext_sha256,signature
+      ) values ($1,$2,$3,$4,'000019','2029-12-31T23:55:00.000Z','2030-01-01T12:00:00.000Z',1,array['v1'],64,$5,$6)`,
+      [
+        `checkpoint_${'a'.repeat(32)}`,
+        clockRow?.source_epoch,
+        Number(clockRow?.revision ?? '0'),
+        'a'.repeat(40),
+        'b'.repeat(64),
+        'c'.repeat(64),
+      ],
+    );
+    const withCurrentCheckpoint = await postgresHealthDatabase(
+      health,
+      () => new Date('2030-01-01T00:00:00.000Z'),
+    ).read();
+    expect(withCurrentCheckpoint.deletionCheckpointValidUntil).toEqual(
+      new Date('2030-01-01T12:00:00.000Z'),
+    );
+    expect(withCurrentCheckpoint.deletionCheckpointWatermarkCurrent).toBe(true);
+    await database.pool.query(
+      `revoke select(source_epoch,revision) on deletion_checkpoint_clock from "${prefix}_health"`,
+    );
+    await configureRuntimeGrants(database.pool, {
+      schema: database.schema,
+      database: 'fcd_support_test',
+      rolePrefix: prefix,
+      passwordFiles: files,
+      phase: 'converge',
+    });
+    await database.pool.query('update deletion_checkpoint_clock set revision=revision+1');
+    const afterAdvance = await postgresHealthDatabase(
+      health,
+      () => new Date('2030-01-01T00:00:00.000Z'),
+    ).read();
+    expect(afterAdvance.deletionCheckpointWatermarkCurrent).toBe(false);
   } finally {
     await health?.end();
     const cleanup = new pg.Pool({ connectionString: database.connectionString, max: 1 });
