@@ -18,7 +18,7 @@ operations_timers_validate() {
 operations_timers_emit() {
   local template="$1" calendar="${2:-}" data quota
   data="$(cat -- "$OPS_ROOT/infra/systemd/$template")" || return 1
-  quota="$(awk -v cpus="${OPS_CONFIG[FCD_TIMER_CPUS]}" 'BEGIN { printf "%.3f", cpus * 100 }')" || return 1
+  quota="$(awk -v cpus="${OPS_CONFIG[FCD_TIMER_CPUS]}" 'BEGIN { q = sprintf("%.2f", cpus * 100); sub(/\.?0+$/, "", q); printf "%s", q }')" || return 1
   data="${data//@ROOT@/$OPS_ROOT}"; data="${data//@REVISION@/$OPS_REVISION}"
   data="${data//@CONFIG@/$OPS_CONFIG_FILE}"; data="${data//@STATE_ROOT@/${OPS_CONFIG[FCD_STATE_ROOT]}}"
   data="${data//@TIMEOUT_SECONDS@/${OPS_CONFIG[FCD_TIMER_TIMEOUT_SECONDS]}}"
