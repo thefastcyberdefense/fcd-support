@@ -223,3 +223,245 @@ test.each([
   expect(result.stderr).toBe('');
   expect(result.stdout).not.toContain('synthetic_private');
 });
+
+function collectWithStateRoot(
+  setup: (stateRoot: string) => void,
+  extraEnv: Record<string, string> = {},
+) {
+  const root = mkdtempSync(join(tmpdir(), 'fcd-health-route-test-'));
+  const stateRoot = join(root, 'state');
+  const scriptDir = root.replaceAll('\\', '/');
+  const stateUnix = stateRoot.replaceAll('\\', '/');
+  try {
+    spawnSync('node', [
+      '-e',
+      'require("node:fs").mkdirSync(process.argv[1], { mode: 0o700 })',
+      stateRoot,
+    ]);
+    setup(stateRoot);
+    const result = spawnSync(
+      bash,
+      [
+        '--noprofile',
+        '--norc',
+        '-c',
+        `
+declare -A OPS_CONFIG=([FCD_RUNTIME_PROJECT]=fcd-support-test [FCD_SUPPORT_REVISION]=$TASK_REVISION [FCD_INGRESS_PEER_ID]=$TASK_TUNNEL [FCD_HEALTH_TIMEOUT_MS]=6000 [FCD_STATE_ROOT]="$TASK_STATE")
+node() { return 127; }
+date() { printf '%s\\n' '2030-01-01T00:00:00.000Z'; }
+operations_docker() {
+  local last; for last; do :; done
+  if [[ "$1" == ps ]]; then
+    case "$last" in
+      *fcd-support-api) printf '%s\\n' "$TASK_API" ;;
+      *fcd-support-admin) printf '%s\\n' "$TASK_ADMIN" ;;
+      *fcd-support-reply) printf '%s\\n' "$TASK_REPLY" ;;
+      *) return 1 ;;
+    esac
+    return 0
+  fi
+  if [[ "$1 $2" == 'container inspect' ]]; then
+    case "$last" in
+      "$TASK_API") printf '%s|fcd-support-test|fcd-support-api|%s|true|false|false|false|healthy|2029-12-31T23:00:00.000Z\\n' "$last" "$TASK_REVISION" ;;
+      "$TASK_ADMIN") printf '%s|fcd-support-test|fcd-support-admin|%s|true|false|false|false|healthy|2029-12-31T23:00:00.000Z\\n' "$last" "$TASK_REVISION" ;;
+      "$TASK_REPLY") printf '%s|fcd-support-test|fcd-support-reply|%s|true|false|false|false|healthy|2029-12-31T23:00:00.000Z\\n' "$last" "$TASK_REVISION" ;;
+      "$TASK_TUNNEL") printf '%s|true|false|false|false|healthy|2029-12-31T23:00:00.000Z\\n' "$last" ;;
+      *) return 1 ;;
+    esac
+    return 0
+  fi
+  if [[ "$1" == exec ]]; then
+    [[ "$2" != "$TASK_REPLY" ]] || printf 'healthy|2029-12-31T23:59:59.000Z\\n'
+    return 0
+  fi
+  return 1
+}
+source "$TASK_LIBRARY"
+operations_collect_health_host
+`,
+      ],
+      {
+        encoding: 'utf8',
+        timeout: 6000,
+        env: {
+          PATH: process.env.PATH,
+          SystemRoot: process.env.SystemRoot,
+          TASK_LIBRARY: resolve('scripts/operations-health-host.sh').replaceAll('\\', '/'),
+          TASK_STATE: stateUnix,
+          TASK_ROOT: scriptDir,
+          TASK_REVISION: revision,
+          TASK_API: ids.api,
+          TASK_ADMIN: ids.admin,
+          TASK_REPLY: ids.reply,
+          TASK_TUNNEL: ids.tunnel,
+          ...extraEnv,
+        },
+      },
+    );
+    return result;
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+test('reads fresh passed or failed publicRouteCheck from state root without network calls', () => {
+  for (const [state, checkedAt] of [
+    ['passed', '2029-12-31T23:59:30.000Z'],
+    ['failed', '2029-12-31T23:59:45.000Z'],
+  ] as const) {
+    const result = collectWithStateRoot((stateRoot) => {
+      spawnSync('node', [
+        '-e',
+        'require("node:fs").writeFileSync(process.argv[1], process.argv[2], { mode: 0o600 })',
+        join(stateRoot, 'public-route-check'),
+        JSON.stringify({ state, checkedAt }),
+      ]);
+    });
+    expect(result.status, result.stderr).toBe(0);
+    const host = parseHostHealthSnapshot(JSON.parse(result.stdout));
+    expect(host?.publicRouteCheck).toEqual({ state, checkedAt });
+  }
+});
+
+test.each([
+  ['missing', () => undefined],
+  [
+    'stale',
+    (stateRoot: string) => {
+      spawnSync('node', [
+        '-e',
+        'require("node:fs").writeFileSync(process.argv[1], process.argv[2], { mode: 0o600 })',
+        join(stateRoot, 'public-route-check'),
+        JSON.stringify({ state: 'passed', checkedAt: '2029-12-31T23:58:00.000Z' }),
+      ]);
+    },
+  ],
+  [
+    'future-skew',
+    (stateRoot: string) => {
+      spawnSync('node', [
+        '-e',
+        'require("node:fs").writeFileSync(process.argv[1], process.argv[2], { mode: 0o600 })',
+        join(stateRoot, 'public-route-check'),
+        JSON.stringify({ state: 'passed', checkedAt: '2030-01-01T00:05:00.000Z' }),
+      ]);
+    },
+  ],
+  [
+    'malformed-json',
+    (stateRoot: string) => {
+      spawnSync('node', [
+        '-e',
+        'require("node:fs").writeFileSync(process.argv[1], "not-json", { mode: 0o600 })',
+        join(stateRoot, 'public-route-check'),
+      ]);
+    },
+  ],
+  [
+    'unknown-field',
+    (stateRoot: string) => {
+      spawnSync('node', [
+        '-e',
+        'require("node:fs").writeFileSync(process.argv[1], process.argv[2], { mode: 0o600 })',
+        join(stateRoot, 'public-route-check'),
+        JSON.stringify({ state: 'passed', checkedAt: '2029-12-31T23:59:30.000Z', extra: true }),
+      ]);
+    },
+  ],
+] as const)('falls back to publicRouteCheck not_verified when file is %s', (_caseName, setup) => {
+  const result = collectWithStateRoot(setup, { OPS_HEALTH_STALE_MS: '60000' });
+  expect(result.status, result.stderr).toBe(0);
+  const host = parseHostHealthSnapshot(JSON.parse(result.stdout));
+  expect(host?.publicRouteCheck).toEqual({ state: 'not_verified' });
+});
+
+test('probe-public-route checks webhook reachability and private-route isolation atomically', () => {
+  const cases = [
+    { statuses: '403,404,404', expected: 'passed' },
+    { statuses: '502,404,404', expected: 'failed' },
+    { statuses: '403,200,404', expected: 'failed' },
+    { statuses: '403,404,302', expected: 'failed' },
+  ] as const;
+
+  for (const item of cases) {
+    const root = mkdtempSync(join(tmpdir(), 'fcd-route-probe-test-'));
+    try {
+      const [wh = '', hl = '', lg = ''] = item.statuses.split(',');
+      const res = spawnSync(
+        bash,
+        [
+          '--noprofile',
+          '--norc',
+          '-c',
+          `
+date() { printf '%s\\n' '2030-01-01T00:00:00.000Z'; }
+operations_probe_fetch_status() {
+  case "$1" in
+    https://meta.example.invalid/webhooks/meta) printf '%s' '${wh}' ;;
+    https://meta.example.invalid/health) printf '%s' '${hl}' ;;
+    https://meta.example.invalid/login) printf '%s' '${lg}' ;;
+    *) return 1 ;;
+  esac
+}
+source "$TASK_PROBE"
+operations_probe_public_route_main https://meta.example.invalid/webhooks/meta "$TASK_STATE" 5000
+`,
+        ],
+        {
+          encoding: 'utf8',
+          timeout: 6000,
+          env: {
+            PATH: process.env.PATH,
+            SystemRoot: process.env.SystemRoot,
+            TASK_PROBE: resolve('scripts/probe-public-route.sh').replaceAll('\\', '/'),
+            TASK_STATE: root.replaceAll('\\', '/'),
+          },
+        },
+      );
+      expect(res.status, res.stderr).toBe(0);
+      expect(JSON.parse(readFileSync(join(root, 'public-route-check'), 'utf8'))).toEqual({
+        state: item.expected,
+        checkedAt: '2030-01-01T00:00:00.000Z',
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test('probe-public-route rejects non-https or query-bearing URLs and systemd AF_UNIX stays intact', () => {
+  const root = mkdtempSync(join(tmpdir(), 'fcd-route-probe-reject-'));
+  try {
+    for (const badUrl of [
+      'http://meta.example.invalid/webhooks/meta',
+      'https://meta.example.invalid/webhooks/meta?hub.verify_token=secret',
+      'https://meta.example.invalid/health',
+    ]) {
+      const res = spawnSync(
+        bash,
+        [
+          resolve('scripts/probe-public-route.sh').replaceAll('\\', '/'),
+          badUrl,
+          root.replaceAll('\\', '/'),
+          '5000',
+        ],
+        { encoding: 'utf8', timeout: 6000 },
+      );
+      expect(res.status).toBe(1);
+    }
+    const opUnit = readFileSync('infra/systemd/fcd-support-operation@.service', 'utf8');
+    expect(opUnit).toContain('RestrictAddressFamilies=AF_UNIX');
+    const probeUnit = readFileSync('infra/systemd/fcd-support-route-probe.service', 'utf8');
+    expect(probeUnit).toContain('RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6');
+    expect(probeUnit).toContain('User=1000');
+    expect(probeUnit).not.toMatch(/docker\.sock/u);
+    const probeScript = readFileSync('scripts/probe-public-route.sh', 'utf8');
+    expect(probeScript).toContain('curl');
+    expect(probeScript).not.toMatch(/\bnode\s+--input-type/u);
+    const healthHostScript = readFileSync('scripts/operations-health-host.sh', 'utf8');
+    const hostTail = healthHostScript.slice(healthHostScript.indexOf('public_route_json='));
+    expect(hostTail).not.toMatch(/\bnode\b/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

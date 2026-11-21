@@ -1,0 +1,13 @@
+[Unit]
+Description=Schedule FCD Support public tunnel route probe
+Documentation=file:@ROOT@/docs/operations/tunnel-route-health-proposal.md
+
+[Timer]
+Unit=fcd-support-route-probe.service
+OnCalendar=@CALENDAR@
+AccuracySec=1s
+RandomizedDelaySec=0s
+Persistent=false
+
+[Install]
+WantedBy=timers.target

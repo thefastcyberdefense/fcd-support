@@ -118,6 +118,46 @@ operations_collect_health_host() (
     [[ "$id" == "${actors[outbound]}" ]] || return 1
     outbound_json="$(printf ',{"component":"outbound","running":%s,"health":"%s","gitRevision":"%s"%s}' "${running[outbound]}" "${health[outbound]}" "${revisions[outbound]}" "$outbound_heartbeat")"
   fi
-  printf '{"checkedAt":"%s","services":[{"component":"webhook","running":%s,"health":"%s","gitRevision":"%s"},{"component":"reply","running":%s,"health":"%s","gitRevision":"%s"%s}%s,{"component":"tunnel","running":%s,"health":"%s","gitRevision":"%s"}],"adminSocket":"%s","manifestAttestation":"not_verified","publicRouteCheck":{"state":"not_verified"}}' \
-    "$checked_at" "${running[api]}" "${health[api]}" "${revisions[api]}" "${running[reply]}" "${health[reply]}" "${revisions[reply]}" "$heartbeat" "$outbound_json" "${running[tunnel]}" "${health[tunnel]}" "$expected" "$admin_socket"
+  local public_route_json='"publicRouteCheck":{"state":"not_verified"}'
+  local state_root="${OPS_CONFIG[FCD_STATE_ROOT]:-}" stale_ms="${OPS_HEALTH_STALE_MS:-60000}"
+  if [[ -n "$state_root" && -d "$state_root" && ! -L "$state_root" && "$stale_ms" =~ ^[1-9][0-9]{0,7}$ ]] && (( 10#$stale_ms >= 500 && 10#$stale_ms <= 86400000 )); then
+    local route_file="$state_root/public-route-check" route_body='' stat_meta='' route_state='' route_at='' now_ms='' route_ms=''
+    if [[ -f "$route_file" && ! -L "$route_file" ]]; then
+      local readable=true
+      if [[ "$(uname -s)" == Linux ]]; then
+        stat_meta="$(stat -c '%u:%a:%s' -- "$route_file" 2>/dev/null || true)"
+        if [[ "$stat_meta" =~ ^([0-9]+):600:([0-9]+)$ && "${BASH_REMATCH[1]}" == "$(id -u)" ]] && (( 10#${BASH_REMATCH[2]} >= 2 && 10#${BASH_REMATCH[2]} <= 512 )); then
+          route_body="$(dd if="$route_file" iflag=nofollow bs=513 count=1 status=none 2>/dev/null || true)"
+        else
+          readable=false
+        fi
+      else
+        local byte_count
+        byte_count="$(wc -c <"$route_file" 2>/dev/null || printf 999)"
+        if [[ "${byte_count//[[:space:]]/}" =~ ^[0-9]+$ ]] && (( 10#${byte_count//[[:space:]]/} >= 2 && 10#${byte_count//[[:space:]]/} <= 512 )); then
+          route_body="$(head -c 513 "$route_file" 2>/dev/null || true)"
+        else
+          readable=false
+        fi
+      fi
+      if [[ "$readable" == true ]]; then
+        route_body="${route_body%$'\n'}"
+        route_body="${route_body%$'\r'}"
+        if (( ${#route_body} <= 512 )) && [[ "$route_body" =~ ^\{\"state\":\"(passed|failed)\",\"checkedAt\":\"(${stamp})\"\}$ ]]; then
+          route_state="${BASH_REMATCH[1]}"
+          route_at="${BASH_REMATCH[2]}"
+          now_ms="$(command date -u -d "$checked_at" '+%s%3N' 2>/dev/null || true)"
+          route_ms="$(command date -u -d "$route_at" '+%s%3N' 2>/dev/null || true)"
+          if [[ "$now_ms" =~ ^[0-9]+$ && "$route_ms" =~ ^[0-9]+$ ]]; then
+            local age_ms=$(( now_ms - route_ms ))
+            if (( age_ms >= 0 && age_ms <= 10#$stale_ms )); then
+              public_route_json="\"publicRouteCheck\":{\"state\":\"$route_state\",\"checkedAt\":\"$route_at\"}"
+            fi
+          fi
+        fi
+      fi
+    fi
+  fi
+  printf '{"checkedAt":"%s","services":[{"component":"webhook","running":%s,"health":"%s","gitRevision":"%s"},{"component":"reply","running":%s,"health":"%s","gitRevision":"%s"%s}%s,{"component":"tunnel","running":%s,"health":"%s","gitRevision":"%s"}],"adminSocket":"%s","manifestAttestation":"not_verified",%s}' \
+    "$checked_at" "${running[api]}" "${health[api]}" "${revisions[api]}" "${running[reply]}" "${health[reply]}" "${revisions[reply]}" "$heartbeat" "$outbound_json" "${running[tunnel]}" "${health[tunnel]}" "$expected" "$admin_socket" "$public_route_json"
 ) 2>/dev/null
