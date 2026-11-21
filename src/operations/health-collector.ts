@@ -47,6 +47,8 @@ export interface HealthDatabaseSnapshot {
   readonly backupCreatedAt: Date | null;
   readonly backupVerified: boolean;
   readonly deletionCheckpointAt: Date | null;
+  readonly deletionCheckpointValidUntil?: Date | null;
+  readonly deletionCheckpointWatermarkCurrent?: boolean;
   readonly queues: readonly HealthQueueAggregate[];
 }
 export interface HealthJournalEvent {
@@ -77,6 +79,7 @@ export interface HealthCollectorOptions {
   readonly notificationsEnabled: boolean;
   readonly outboundEnabled?: boolean;
   readonly backupStaleMilliseconds?: number;
+  readonly deletionCheckpointStaleMilliseconds?: number;
   readonly hostSnapshot?: unknown;
   /** Availability only. Ports must obey AbortSignal and never perform provider actions. */
   readonly manifestProbe?: (signal: AbortSignal) => Promise<'healthy' | 'unavailable'>;
@@ -122,6 +125,15 @@ export async function collectHealth(
     options.maximumOutageGapMilliseconds,
   ])
     if (!Number.isSafeInteger(value) || value < 1 || value > 86_400_000)
+      throw new TypeError('health_configuration_invalid');
+  for (const optionalWindow of [
+    options.backupStaleMilliseconds,
+    options.deletionCheckpointStaleMilliseconds,
+  ])
+    if (
+      optionalWindow !== undefined &&
+      (!Number.isSafeInteger(optionalWindow) || optionalWindow < 1 || optionalWindow > 604_800_000)
+    )
       throw new TypeError('health_configuration_invalid');
   if (
     options.timeoutMilliseconds > 300_000 ||
@@ -215,18 +227,26 @@ export async function collectHealth(
             : 'not_verified',
     ),
   );
+  const checkpointStaleMs =
+    options.deletionCheckpointStaleMilliseconds ?? options.backupStaleMilliseconds ?? 129_600_000;
+  const checkpointAgeFresh =
+    database.deletionCheckpointAt !== null &&
+    fresh(database.deletionCheckpointAt, checkedAt, checkpointStaleMs);
+  const checkpointValidUntilOk =
+    database.deletionCheckpointAt !== null &&
+    (database.deletionCheckpointValidUntil === undefined ||
+      database.deletionCheckpointValidUntil === null ||
+      (new Date(database.deletionCheckpointValidUntil).getTime() >
+        new Date(database.deletionCheckpointAt).getTime() &&
+        checkedAt.getTime() < new Date(database.deletionCheckpointValidUntil).getTime()));
+  const checkpointWatermarkCurrent = database.deletionCheckpointWatermarkCurrent ?? true;
+  const checkpointFresh =
+    checkpointAgeFresh && checkpointValidUntilOk && checkpointWatermarkCurrent;
   result.push(
     observation(
       'deletion_checkpoint',
-      database.deletionCheckpointAt !== null &&
-        fresh(database.deletionCheckpointAt, checkedAt, options.staleMilliseconds)
-        ? 'healthy'
-        : 'degraded',
-      database.deletionCheckpointAt === null
-        ? 'not_verified'
-        : fresh(database.deletionCheckpointAt, checkedAt, options.staleMilliseconds)
-          ? 'ok'
-          : 'stale',
+      checkpointFresh ? 'healthy' : 'degraded',
+      database.deletionCheckpointAt === null ? 'not_verified' : checkpointFresh ? 'ok' : 'stale',
     ),
   );
   const parsedHost = parseHostHealthSnapshot(options.hostSnapshot);
