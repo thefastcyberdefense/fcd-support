@@ -11,20 +11,22 @@ Initial baseline built off-host (`--platform linux/x86_64`, `VCS_REF=4c4b9335809
 | **Combined Total** | — | — | **`1,724,555,628 B` (`~1,644.7 MiB` / `1.61 GiB`)** | Fits within `1.5 GiB` + `2.0` vCPU caps (`0.5` + `1.5` CPU) |
 
 ### Live Container Smoke Tests (Real Tesseract `5.3.0` + `ffmpeg` + `whisper.cpp v1.9.5` `ggml-base.bin`)
-- **OCR Health (`GET /health`)**: `200` (`296ms` warm path) — `{"ok":true,"service":"ocr"}`.
-- **English PNG (`POST /extract`)**: `200` (`296.4ms`) — `{"status":"extracted","text":"Compliance & Governance advisory and guidance","language":"en","confidence":0.9513}`.
+- **OCR Health (`GET /health`)**: `200` — `{"ok":true,"service":"ocr"}`.
+- **English PNG (`POST /extract`)**: `200` — `{"status":"extracted","text":"Compliance & Governance advisory and guidance","language":"en","confidence":0.9513}` (measured directly from Tesseract TSV per-word confidences; `confidence` is omitted if TSV provides no word scores, never hardcoded).
 - **Bangla PNG (`POST /extract`, HarfBuzz-shaped Chromium/Edge PNG & GDI PNG)**:
-  - HarfBuzz-shaped Bangla PNG (`bn-harfbuzz.png`, `48px` Nirmala UI) -> `কমপ্লায়েন্ন ও গভর্থ্যান্ পরামর্শ ও নির্দেশনা` (`avg_conf=0.8092`, classified `language: "bn"` across `eng+ben`, `ben+eng`, and `ben`; small conjunct confusions `ন্স`->`ন্ন` / `র্ন্যান্স`->`র্থ্যান্`). Requires independent human Bangla reviewer scoring (`AC-05`).
+  - HarfBuzz-shaped Bangla PNG (`bn-harfbuzz.png`, `48px` Nirmala UI) -> `কমপ্লায়েন্ন ও গভর্থ্যান্ পরামর্শ ও নির্দেশনা` (`confidence: 0.8092`, classified `language: "bn"` across `eng+ben`, `ben+eng`, and `ben`; small conjunct confusions `ন্স`->`ন্ন` / `র্ন্যান্স`->`র্থ্যান্`). Scored in `docs/testing/phase-7-bilingual-scoring-packet.md`.
   - GDI `System.Drawing` PNG (`bn-large.png`) -> `কমপ্লায়েন্স ও Wo পরামর্শ ওংড` (`confidence: 0.7996`).
-- **Visual-Only PNG (`POST /extract`)**: `200` (`211.9ms`) — `{"status":"visual_only","hasVisualContent":true,"reasonCode":"visual_interpretation_deferred"}`.
-- **Corrupt/Poor OCR & Escalation**: Corrupt PNG -> `500 {"status":"failed","reasonCode":"ocr_execution_failed"}` -> `PrivateMediaProcessor` escalates (`media_extraction_failed`); low confidence `< 0.55` -> `unclear` (`ocr_low_confidence`) -> escalates (`unclear_media`).
+- **Visual-Only PNG (`POST /extract`)**: `200` — `{"status":"visual_only","hasVisualContent":true,"reasonCode":"visual_interpretation_deferred"}`.
+- **Corrupt/Poor OCR & Escalation**: Corrupt/non-image bytes -> `visual_only` or `500 {"status":"failed","reasonCode":"ocr_execution_failed"}` -> `PrivateMediaProcessor` escalates (`visual_media_deferred` / `media_extraction_failed`); low confidence `< 0.55` -> `unclear` (`ocr_low_confidence`) -> escalates (`unclear_media`).
 - **STT Health (`GET /health`)**: `200` — `{"ok":true,"service":"stt"}`.
-- **English Spoken WAV (`POST /transcribe`)**: `200` (`4215.3ms`) — `{"status":"extracted","text":"Please explain compliance and governance advisory services.","language":"en","confidence":0.9}`.
-- **English Ogg Opus Voice Note (`POST /transcribe`)**: `200` (`4151.4ms`) — `{"status":"extracted","text":"Please explain compliance and governance advisory services.","language":"en","confidence":0.9}`.
-- **Silent PCM WAV (`POST /transcribe`)**: `200` (`3986.9ms`) — `{"status":"unclear","reasonCode":"stt_empty_text"}`.
-- **Bangla Spoken Audio (`bn-BD-NabanitaNeural` MP3 & Ogg Opus, `"আপনারা কী কী ধরনের সাইবার নিরাপত্তা সেবা প্রদান করেন?"`)**:
+- **Meaningful Confidence & Engine Marker Rejection**:
+  - `runWhisperStt` runs `whisper-cli -ojf` (`--output-json-full`) and computes `confidence` as the mean of non-special token probabilities (`tokens[].p`, `0..1`), omitting `confidence` altogether when no token probability measurement is provided (never reporting a hardcoded `0.9`).
+  - `stripSttEngineMarkers` strips silence and non-speech markers (`[BLANK_AUDIO]`, `(blank audio)`, `[SILENCE]`, `[INAUDIBLE]`, `[MUSIC]`, `[NOISE]`, `[_BEG_]`, and bracketed/parenthesized non-speech tags) before checking minimum alphanumeric length (`3`), so silent or non-speech audio returns `200 {"status":"unclear","reasonCode":"stt_empty_text"}` and safely escalates (`unclear_media`).
+- **English Spoken WAV & Ogg Opus Voice Note (`POST /transcribe`)**: `200` — `{"status":"extracted","text":"Please explain compliance and governance advisory services.","language":"en","confidence":<measured_token_p>}`.
+- **Silent PCM WAV (`POST /transcribe`)**: `200` — `{"status":"unclear","reasonCode":"stt_empty_text"}` (`[BLANK_AUDIO]` rejected).
+- **Bangla Spoken Audio Hold (`bn-BD-NabanitaNeural` MP3 & Ogg Opus, `"আপনারা কী কী ধরনের সাইবার নিরাপত্তা সেবা প্রদান করেন?"`)**:
   - Live `whisper-cli` (`ggml-base.bin`) emitted Urdu/Arabic script phonetic approximations (`"اپنا رکی..."`) with both `-l auto` and explicit `-l bn`.
-  - `stt-server.ts` now fails closed on script mismatch (`{"status":"unclear","reasonCode":"stt_script_mismatch"}`) instead of feeding wrong-script text to inference, and `PrivateMediaProcessor` safely escalates (`unclear_media`). Automated Bangla voice transcription requires upgrading the pinned model (e.g., `ggml-large-v3` or dedicated Bengali ASR) prior to production Bangla voice enablement.
+  - `stt-server.ts` fails closed on script mismatch (`{"status":"unclear","reasonCode":"stt_script_mismatch"}`) and also holds automated Bangla voice by default (`STT_ENABLE_BANGLA=false` -> `{"status":"unclear","reasonCode":"stt_bangla_held"}`) so Bangla voice notes always escalate safely (`unclear_media`) until a dedicated Bengali ASR model upgrade passes independent scoring.
 
 ## 2. Deployment Integration & Clean Rollback
 
@@ -47,9 +49,23 @@ Initial baseline built off-host (`--platform linux/x86_64`, `VCS_REF=4c4b9335809
 
 **Image cleanup is explicitly excluded from the Media PR and requires separate operator approval.**
 
-Observed on `192.168.10.40` (`2026-11-21`):
-- `df -Pm /`: `117,301 MiB` total, `99,257 MiB` used, **`12,452 MiB` free** (`89%`) — only **`164 MiB` above the `12,288 MiB` (`12 GiB`) operational floor**.
-- Loading both off-host images (`~1,645 MiB`) directly onto `192.168.10.40` without prior cleanup would drop free space to `~10,807 MiB`, breaching the `12 GiB` floor.
-- `docker system df`: `61` images (`37.71 GB`, **`15.63 GB` reclaimable**), `318` build-cache entries (`11.15 GB`, **`4.332 GB` reclaimable**).
-- `/home/redwan/fcd-support-host-test-v9-4c4b933/state/retained-*` references **only** `4c4b93358094a88a4bed161435250e0c4bf5f822`.
-- Superseded unretained FCD test-slot images on host include `v1` (`c2d8225`: `application` `383 MB`, `postgres` `644 MB`), `v7` (`cc017d1`: `application` `389 MB`, `operations` `908 MB`, `postgres` `644 MB`), and `v8` (`4e80302`: `application` `389 MB`, `operations` `908 MB`, `postgres` `644 MB`) (`~4.9 GB` combined across shared layers), alongside stale dangling/unreferenced Docker build cache and unrelated stopped-project images (`browserless/chrome` `4.51 GB`, older `n8n` `2.48 GB`/`2.26 GB`, `hindsight` `6.4 GB`). Reclaim only after separate owner sign-off verifying no parallel recovery slot depends on them.
+### A. Measured Rollout Footprint vs. Current Host Disk Headroom (`2026-11-21`)
+- **Host Root Filesystem (`df -Pm /`):** `117,301 MiB` total, `99,269 MiB` used, **`12,440 MiB` free (`89%`)** — only **`152 MiB` above the `12,288 MiB` (`12 GiB`) operational floor**.
+- **Measured Media Rollout Footprint:**
+  - `fcd-support-ocr` image: `466,415,918 B` (`~444.8 MiB` uncompressed; `34.02 MiB` idle RSS / `512 MiB` cap; `64 MiB` tmpfs; `0.5` vCPU; `7` PIDs).
+  - `fcd-support-stt` image: `1,258,146,626 B` (`~1,199.9 MiB` uncompressed; `32.25 MiB` idle RSS / `1,024 MiB` cap; `128 MiB` tmpfs; `1.5` vCPU; `7` PIDs).
+  - **Combined disk footprint:** **`1,724,562,544 B` (`~1,644.7 MiB` / `1.61 GiB`)** (plus temporary tarball staging during `docker load` if not streamed via `ssh ... docker load`).
+  - Loading both images directly onto `192.168.10.40` without prior cleanup would reduce free space from `12,440 MiB` to **`~10,795 MiB`** (`1,493 MiB` below the `12,288 MiB` operational floor).
+
+### B. Audit of Retained Recovery References Across Slot Directories (`v1`–`v9`)
+- While `/home/redwan/fcd-support-host-test-v9-4c4b933/state/retained-4c4b93358094a88a4bed161435250e0c4bf5f822.record` references only `4c4b93358094a88a4bed161435250e0c4bf5f822` (`application` `sha256:9732b77d...`, `operations` `sha256:af84625a...`, `postgres` `sha256:38d0435f...`), earlier host-test slot directories under `/home/redwan/fcd-support-host-test-v*` still hold their own `state/retained-*.record` and `restore-*.intent` files:
+  - **`v7` (`/home/redwan/fcd-support-host-test-v7-cc017d1/state/retained-cc017d19c6d12324902ecf50b40dc7ae3234eb6e.record`):** references `BUNDLE_APPLICATION_IMAGE=sha256:ad53b7ba463a40fd5dab4dd609571e4ea351b4ae7bf6e626b768a9e8a4de5639`, `BUNDLE_OPERATIONS_IMAGE=sha256:28d08262c508324521a97bb6fab3be638a92b0e6b4d62391c1b5fc3f28463d2b`, `BUNDLE_POSTGRES_IMAGE=sha256:269ae769d70be7d48ebdc38f6e527ce81fd3fa6c6a9e9f9b2b173e025c28ba7f` (`~1.93 GB` nominal).
+  - **`v8` (`/home/redwan/fcd-support-host-test-v8-4e80302/state/retained-4e80302f78ff698ff7dc332809a71ab09b59ba61.record` + `restore-14bee83f275ca953e8c3a6b2582b0478.intent`):** references `BUNDLE_APPLICATION_IMAGE=sha256:66f9d059b3241ec130e7b3a5920c2b9d6ac791cdcd69623cdda63d55f83df917`, `BUNDLE_OPERATIONS_IMAGE=sha256:c3ca513f0fbcc065729ad6565e7378a5582a733f1143077e76bfcceb097cf9bb`, `BUNDLE_POSTGRES_IMAGE=sha256:f36e9076df2040a6649d4aba00c3e79c58553f1cda6dd5dac8ac1ef347fc3224` (`~1.93 GB` nominal).
+  - **`v1`–`v6` (`/home/redwan/fcd-support-host-test-v1-c2d8225` .. `v6-3fadcda`):** each has a historical `state/retained-*.record` (`c2d8225`, `75b906b`, `86b9447`, `0a5f2ab`, `0c7a77a`, `3fadcda`); note `v1` containers are still running/restarting on the host, while `v2`–`v6` images were already pruned during earlier iterations.
+
+### C. Separate Two-Tier Storage Reclamation Proposal (Requires Explicit Owner Sign-Off)
+1. **Option 1 — Reclaim Build Cache Only (Preserves `v7`, `v8`, and `v9` Retained Recovery Images Intact):**
+   - Run `docker builder prune --filter "until=24h" -f` to reclaim **`~4.33 GB` (`~4,130 MiB`)** of unreferenced build cache without touching any `v7`, `v8`, or `v9` container images or `retained-*.record` bindings.
+   - Expected `/` free space after build-cache prune: `~16,570 MiB` (`~14,925 MiB` after loading both media images — **`~2,637 MiB` above the `12,288 MiB` floor**).
+2. **Option 2 — Decommission Superseded `v7`/`v8` (and/or `v1`) Recovery Slots:**
+   - Only if the owner confirms `v7` (`cc017d1`) and `v8` (`4e80302`, including `restore-14bee83f275ca953e8c3a6b2582b0478.intent`) are no longer needed as rollback targets now that `v9` (`4c4b933`, `restore-7d109a4c...record`) is verified: archive `/home/redwan/fcd-support-host-test-v7-cc017d1/state` and `/home/redwan/fcd-support-host-test-v8-4e80302/state` first, then remove the six `v7`/`v8` images (`~3.86 GB` nominal).

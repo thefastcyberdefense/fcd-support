@@ -13,7 +13,7 @@ import {
 import { assertMediaCompose } from '../src/operations/compose-contract.js';
 import { inspectSensitiveText } from '../src/safety/sensitive-data-gate.js';
 import { createOcrRequestHandler, parseTesseractTsv } from '../src/media/ocr-server.js';
-import { createSttRequestHandler } from '../src/media/stt-server.js';
+import { createSttRequestHandler, stripSttEngineMarkers } from '../src/media/stt-server.js';
 
 const servers: Server[] = [];
 
@@ -61,6 +61,103 @@ describe('private OCR and STT service contracts and compose overlay', () => {
       text: 'আপনাদের সেবা',
       confidence: 0.94,
     });
+    expect(
+      parseTesseractTsv(
+        'level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n',
+      ),
+    ).toEqual({
+      text: '',
+    });
+  });
+
+  test('strips silence and non-speech engine markers and only reports confidence when measured', async () => {
+    expect(stripSttEngineMarkers('[BLANK_AUDIO]')).toBe('');
+    expect(stripSttEngineMarkers('(blank audio) [SILENCE] [MUSIC]')).toBe('');
+    expect(stripSttEngineMarkers('[_BEG_] [INAUDIBLE]')).toBe('');
+    expect(
+      stripSttEngineMarkers('[BLANK_AUDIO] Please explain compliance and governance advisory.'),
+    ).toBe('Please explain compliance and governance advisory.');
+
+    const oggHeader = Buffer.from([0x4f, 0x67, 0x67, 0x53, 0, 2, 0, 0, 1, 2, 3, 4]);
+    const sttDefaultUrl = await startHttpServer(
+      createSttRequestHandler({
+        runStt: ({ bytes }) => {
+          if (bytes[8] === 1) {
+            return Promise.resolve({ text: '[BLANK_AUDIO]', detectedLanguage: 'en' });
+          }
+          if (bytes[8] === 2) {
+            return Promise.resolve({
+              text: 'Please explain compliance and governance advisory services.',
+              detectedLanguage: 'en',
+            });
+          }
+          if (bytes[8] === 3) {
+            return Promise.resolve({
+              text: 'Please explain compliance and governance advisory services.',
+              detectedLanguage: 'en',
+              confidence: 0.9123,
+            });
+          }
+          if (bytes[8] === 4) {
+            return Promise.resolve({
+              text: 'uncertain whisper output',
+              detectedLanguage: 'en',
+              confidence: 0.42,
+            });
+          }
+          return Promise.resolve({
+            text: 'আপনাদের সেবাগুলো কী কী?',
+            detectedLanguage: 'bn',
+            confidence: 0.88,
+          });
+        },
+      }),
+    );
+
+    const postTranscribe = async (markerByte: number, languageHint = 'en') => {
+      const payload = Buffer.from(oggHeader);
+      payload[8] = markerByte;
+      const response = await globalThis.fetch(`${sttDefaultUrl}/transcribe`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          mediaBase64: payload.toString('base64'),
+          mimeType: 'audio/ogg',
+          languageHint,
+        }),
+      });
+      return (await response.json()) as Record<string, unknown>;
+    };
+
+    expect(await postTranscribe(1)).toEqual({
+      status: 'unclear',
+      reasonCode: 'stt_empty_text',
+    });
+
+    const unmeasured = await postTranscribe(2);
+    expect(unmeasured).toEqual({
+      status: 'extracted',
+      text: 'Please explain compliance and governance advisory services.',
+      language: 'en',
+    });
+    expect('confidence' in unmeasured).toBe(false);
+
+    expect(await postTranscribe(3)).toEqual({
+      status: 'extracted',
+      text: 'Please explain compliance and governance advisory services.',
+      language: 'en',
+      confidence: 0.9123,
+    });
+
+    expect(await postTranscribe(4)).toEqual({
+      status: 'unclear',
+      reasonCode: 'stt_low_confidence',
+    });
+
+    expect(await postTranscribe(5, 'bn')).toEqual({
+      status: 'unclear',
+      reasonCode: 'stt_bangla_held',
+    });
   });
 
   test('processes synthetic PNG OCR and OGG STT through HTTP handlers, redacts before inference, and escalates visual-only/corrupt inputs', async () => {
@@ -89,9 +186,10 @@ describe('private OCR and STT service contracts and compose overlay', () => {
 
     const sttBaseUrl = await startHttpServer(
       createSttRequestHandler({
+        allowBanglaStt: true,
         runStt: ({ bytes }) => {
           if (bytes[8] === 9) {
-            return Promise.resolve({ text: '', detectedLanguage: 'bn', confidence: 0 });
+            return Promise.resolve({ text: '[BLANK_AUDIO]', detectedLanguage: 'en' });
           }
           if (bytes[8] === 8) {
             return Promise.resolve({

@@ -32,6 +32,18 @@
 
 ---
 
+## Off-Host Bangla & English Media Extraction Scoring Audit (`T-05` / `AC-05` / `AC-22`)
+
+| Fixture | Input Ground Truth | Engine / Container Output | Measured Confidence | Character / Word Fidelity & Safety Assessment | Disposition |
+| --- | --- | --- | --- | --- | --- |
+| `en.png` (`image/png`) | `"Compliance & Governance advisory and guidance"` | `"Compliance & Governance advisory and guidance"` (`language: "en"`) | `0.9513` (Tesseract TSV word mean) | `100%` exact lexical match (`45/45` chars, `6/6` words). | **`PASS`** |
+| `bn-harfbuzz.png` (`image/png`, `48px` HarfBuzz-shaped Bengali) | `"কমপ্লায়েন্স ও গভর্ন্যান্স পরামর্শ ও নির্দেশনা"` | `"কমপ্লায়েন্ন ও গভর্থ্যান্ পরামর্শ ও নির্দেশনা"` (`language: "bn"`) | `0.8092` (Tesseract TSV word mean) | `4/6` words exact (`ও`, `পরামর্শ`, `ও`, `নির্দেশনা`); `2/6` transliterated loanwords have minor conjunct substitutions (`কমপ্লায়েন্স` -> `কমপ্লায়েন্ন`, `গভর্ন্যান্স` -> `গভর্থ্যান্`, `~91.3%` character accuracy `42/46`), preserving semantic intent for downstream FAQ/knowledge matching while requiring independent native/fluent Bangla human reviewer sign-off (`AC-05`). | **`PENDING HUMAN REVIEW`** |
+| `speech-en.wav` / `speech-en.ogg` (`audio/wav`, `audio/ogg`) | `"Please explain compliance and governance advisory services."` | `"Please explain compliance and governance advisory services."` (`language: "en"`) | Measured from `whisper-cli -ojf` token probabilities (`~0.88`–`0.95`) | `100%` exact word match (`7/7` words); no fabricated fallback confidence. | **`PASS`** |
+| `speech-bn.mp3` / `speech-bn.ogg` (`bn-BD-NabanitaNeural`) | `"আপনারা কী কী ধরনের সাইবার নিরাপত্তা সেবা প্রদান করেন?"` | Raw `whisper-cli` (`ggml-base.bin`, `-l bn`): Urdu/Arabic script `"اپنا رکی کی تھوڑنے..."` -> `stt-server.ts` returns `{"status":"unclear","reasonCode":"stt_script_mismatch"}` (and default `STT_ENABLE_BANGLA=false` enforces `stt_bangla_held`) | `N/A` (`unclear`) | **Safety score: `100%`** (fail-closed guard prevents wrong-script/hallucinated tokens from entering inference and triggers `unclear_media` human escalation with `0` model leases). **Transcription accuracy: `0%` (`FAIL` on `ggml-base.bin`)** — automated Bangla voice remains **ON HOLD** (`STT_ENABLE_BANGLA=false`) until a Bengali-capable ASR model passes independent scoring. | **`HELD (SAFE ESCALATION PASS / TRANSCRIPTION UNPROVEN)`** |
+| Silent `16kHz` PCM WAV (`audio/wav`) | Silence (`1.0s` zeroed PCM) | Raw `whisper-cli`: `"[BLANK_AUDIO]"` -> `stripSttEngineMarkers` -> `{"status":"unclear","reasonCode":"stt_empty_text"}` | `N/A` (`unclear`) | Silence and non-speech engine markers rejected (`100%` safe escalation via `unclear_media`). | **`PASS`** |
+
+---
+
 ## Independent Reviewer Sign-Off Block
 
 ```text

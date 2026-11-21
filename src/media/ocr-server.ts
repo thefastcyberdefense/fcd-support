@@ -57,7 +57,7 @@ export function detectOcrLanguage(text: string, hint?: string): 'en' | 'bn' {
 
 export function parseTesseractTsv(tsvText: string): {
   readonly text: string;
-  readonly confidence: number;
+  readonly confidence?: number;
 } {
   const words: string[] = [];
   const confidences: number[] = [];
@@ -75,9 +75,12 @@ export function parseTesseractTsv(tsvText: string): {
   const text = words.join(' ').normalize('NFKC').replaceAll(/\s+/gu, ' ').trim();
   const confidence =
     confidences.length === 0
-      ? 0
+      ? undefined
       : Number((confidences.reduce((sum, v) => sum + v, 0) / confidences.length).toFixed(4));
-  return { text, confidence };
+  return {
+    text,
+    ...(confidence === undefined ? {} : { confidence }),
+  };
 }
 
 export async function runTesseractOcr(input: {
@@ -237,7 +240,14 @@ export function createOcrRequestHandler(
         });
         return;
       }
-      if (extracted.confidence !== undefined && extracted.confidence < 0.55) {
+      const measuredConfidence =
+        typeof extracted.confidence === 'number' &&
+        Number.isFinite(extracted.confidence) &&
+        extracted.confidence >= 0 &&
+        extracted.confidence <= 1
+          ? extracted.confidence
+          : undefined;
+      if (measuredConfidence !== undefined && measuredConfidence < 0.55) {
         sendJson(res, 200, {
           status: 'unclear',
           reasonCode: 'ocr_low_confidence',
@@ -248,7 +258,9 @@ export function createOcrRequestHandler(
         status: 'extracted',
         text,
         language: detectOcrLanguage(text, languageHint),
-        confidence: extracted.confidence ?? 0.9,
+        ...(measuredConfidence === undefined
+          ? {}
+          : { confidence: Number(measuredConfidence.toFixed(4)) }),
       });
     } catch {
       sendJson(res, 500, { status: 'failed', reasonCode: 'ocr_execution_failed' });
