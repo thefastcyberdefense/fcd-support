@@ -607,13 +607,33 @@ describe('PostgreSQL outbound work store', () => {
       }),
     ]);
     expect(decisions.filter(({ status }) => status === 'authorized')).toHaveLength(1);
-    expect(decisions.filter(({ status }) => status === 'denied')).toEqual([
-      { reason: 'limit_exhausted', status: 'denied' },
+    expect(decisions.filter(({ status }) => status === 'deferred')).toEqual([
+      {
+        nextAttemptAt: new Date(workAt.getTime() + 15 * 60_000),
+        reason: 'limit_exhausted',
+        status: 'deferred',
+      },
     ]);
     await expect(
       pool.query('select count(*)::int as count from outbound_attempts'),
     ).resolves.toMatchObject({
       rows: [{ count: 1 }],
+    });
+    await expect(
+      pool.query(
+        `select state, next_attempt_at, lease_ref, attempt_count, terminal_reason
+         from outbound_intents where state = 'pending'`,
+      ),
+    ).resolves.toMatchObject({
+      rows: [
+        {
+          attempt_count: 0,
+          lease_ref: null,
+          next_attempt_at: new Date(workAt.getTime() + 15 * 60_000),
+          state: 'pending',
+          terminal_reason: null,
+        },
+      ],
     });
   });
 
@@ -711,7 +731,11 @@ describe('PostgreSQL outbound work store', () => {
         intentRef: whatsapp[1]?.intentRef ?? '',
         leaseRef: whatsapp[1]?.leaseRef ?? '',
       }),
-    ).resolves.toEqual({ reason: 'limit_exhausted', status: 'denied' });
+    ).resolves.toEqual({
+      nextAttemptAt: new Date(workAt.getTime() + 60_000),
+      reason: 'limit_exhausted',
+      status: 'deferred',
+    });
     await expect(
       store.authorizeAttempt({
         evaluatedAt: workAt,
@@ -725,7 +749,11 @@ describe('PostgreSQL outbound work store', () => {
         intentRef: messenger[1]?.intentRef ?? '',
         leaseRef: messenger[1]?.leaseRef ?? '',
       }),
-    ).resolves.toEqual({ reason: 'limit_exhausted', status: 'denied' });
+    ).resolves.toEqual({
+      nextAttemptAt: new Date(workAt.getTime() + 60_000),
+      reason: 'limit_exhausted',
+      status: 'deferred',
+    });
   });
 
   test('enforces global minute capacity and opens it at the exact boundary', async () => {
@@ -750,7 +778,11 @@ describe('PostgreSQL outbound work store', () => {
         intentRef: second.intentRef,
         leaseRef: second.leaseRef,
       }),
-    ).resolves.toEqual({ reason: 'limit_exhausted', status: 'denied' });
+    ).resolves.toEqual({
+      nextAttemptAt: new Date(workAt.getTime() + 60_000),
+      reason: 'limit_exhausted',
+      status: 'deferred',
+    });
     const boundary = new Date(workAt.getTime() + 60_000);
     const third = await claimOne(store, boundary, 'WORKER_TEST_boundary');
     await expect(
@@ -838,5 +870,73 @@ describe('PostgreSQL outbound work store', () => {
         leaseRef: claimed.leaseRef,
       }),
     ).resolves.toMatchObject({ status: 'authorized' });
+  });
+
+  test('rejects stale pre-deferral leases and refuses deferral past expiry or window close', async () => {
+    const limits = { ...generous, global1Minute: 1, perContact15Minute: 1, workerBatchSize: 1 };
+    await seedPolicy(limits);
+    const sharedContact = 'CONTACT_TEST_outbound_work_defer_expiry';
+    const first = await seedIntent('defer_first', { externalContactId: sharedContact });
+    const deferred = await seedIntent('defer_second', { externalContactId: sharedContact });
+    const store = workStore(limits);
+
+    const firstClaim = await claimOne(store, workAt, 'WORKER_TEST_defer_first');
+    expect(firstClaim.intentRef).toBe(first.intentRef);
+    await expect(
+      store.authorizeAttempt({
+        evaluatedAt: workAt,
+        intentRef: firstClaim.intentRef,
+        leaseRef: firstClaim.leaseRef,
+      }),
+    ).resolves.toMatchObject({ status: 'authorized' });
+
+    const secondClaim = await claimOne(store, workAt, 'WORKER_TEST_defer_second');
+    expect(secondClaim.intentRef).toBe(deferred.intentRef);
+    await expect(
+      store.authorizeAttempt({
+        evaluatedAt: workAt,
+        intentRef: secondClaim.intentRef,
+        leaseRef: secondClaim.leaseRef,
+      }),
+    ).resolves.toEqual({
+      nextAttemptAt: new Date(workAt.getTime() + 15 * 60_000),
+      reason: 'limit_exhausted',
+      status: 'deferred',
+    });
+
+    // Stale lease captured before deferral is rejected without disturbing pending next_attempt_at.
+    await expect(
+      store.authorizeAttempt({
+        evaluatedAt: new Date(workAt.getTime() + 15 * 60_000),
+        intentRef: secondClaim.intentRef,
+        leaseRef: secondClaim.leaseRef,
+      }),
+    ).resolves.toEqual({ reason: 'lease_invalid', status: 'denied' });
+
+    // An intent whose retention deadline arrives before the 15-minute slot fails immediately.
+    const expiring = await seedIntent('defer_expiring', { externalContactId: sharedContact });
+    await pool.query(
+      `update conversation_retention_states set expires_at = $2 where conversation_id = $1`,
+      [expiring.conversationId, new Date(workAt.getTime() + 10 * 60_000)],
+    );
+    const expiringClaim = await claimOne(store, workAt, 'WORKER_TEST_defer_expiring');
+    expect(expiringClaim.intentRef).toBe(expiring.intentRef);
+    await expect(
+      store.authorizeAttempt({
+        evaluatedAt: workAt,
+        intentRef: expiringClaim.intentRef,
+        leaseRef: expiringClaim.leaseRef,
+      }),
+    ).resolves.toEqual({ reason: 'limit_exhausted', status: 'denied' });
+    await expect(
+      pool.query(
+        `select state, terminal_reason, next_attempt_at from outbound_intents where intent_ref = $1`,
+        [expiring.intentRef],
+      ),
+    ).resolves.toMatchObject({
+      rows: [
+        { next_attempt_at: null, state: 'terminal_failed', terminal_reason: 'limit_exhausted' },
+      ],
+    });
   });
 });

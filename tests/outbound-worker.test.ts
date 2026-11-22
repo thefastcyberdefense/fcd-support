@@ -423,4 +423,33 @@ describe('OutboundWorker', () => {
       result: { reasonCode: 'network_failure', status: 'delivery_unknown' },
     });
   });
+
+  test('counts temporary rate-limit deferrals without starting dispatch or calling provider', async () => {
+    const store = baseStore();
+    store.authorizeAttempt.mockResolvedValue({
+      nextAttemptAt: new Date('2026-09-17T01:15:00.000Z'),
+      reason: 'limit_exhausted',
+      status: 'deferred',
+    });
+    const provider = { send: vi.fn(async () => accepted('unexpected')) };
+    const worker = new OutboundWorker({
+      maximumResponseBytes: 4096,
+      provider,
+      store,
+      now: () => evaluatedAt,
+    });
+
+    await expect(
+      worker.runBatch({ evaluatedAt, workerRef: 'WORKER_TEST_deferred_rate' }),
+    ).resolves.toEqual({
+      accepted: 0,
+      canceled: 0,
+      claimed: 1,
+      deferred: 1,
+      failed: 0,
+      unknown: 0,
+    });
+    expect(store.markDispatchStarted).not.toHaveBeenCalled();
+    expect(provider.send).not.toHaveBeenCalled();
+  });
 });
