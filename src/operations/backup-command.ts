@@ -9,6 +9,7 @@ import {
   type BackupManifest,
   type BackupOptions,
 } from './backup.js';
+import { validateCheckpointArchiveEntry } from './deletion-checkpoint.js';
 
 export function parseBackupCommand(args: readonly string[]) {
   try {
@@ -180,6 +181,14 @@ export async function runScheduledBackup(
     await requireBackupDirectory(options.archiveDirectory);
     let manifest: BackupManifest | undefined;
     for (const ref of await readdir(options.archiveDirectory)) {
+      if (/^checkpoint_[a-f0-9]{32}$/u.test(ref)) {
+        try {
+          await validateCheckpointArchiveEntry(options.archiveDirectory, ref);
+        } catch {
+          throw new Error('backup_archive_invalid');
+        }
+        continue;
+      }
       if (!/^backup_[a-f0-9]{32}$/u.test(ref)) throw new Error('backup_archive_invalid');
       const entry = await readBackupManifest(
         options.archiveDirectory,

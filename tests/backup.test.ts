@@ -24,11 +24,12 @@ import {
   type BackupProcessPort,
 } from '../src/operations/backup.js';
 import { pruneEncryptedBackups } from '../src/operations/backup-retention.js';
-import { parseBackupCommand } from '../src/operations/backup-command.js';
+import { parseBackupCommand, runScheduledBackup } from '../src/operations/backup-command.js';
 import {
   bindOperationConnectionString,
   operationApplicationName,
 } from '../src/operations/operation-reference.js';
+import type pg from 'pg';
 
 const collision = vi.hoisted(() => ({ uuid: undefined as string | undefined }));
 vi.mock('node:crypto', async (load) => {
@@ -685,5 +686,158 @@ test('a reference collision preserves the preexisting archive directory', async 
   await expect(createEncryptedBackup(f.options)).rejects.toThrow('backup_failed');
   expect(await readFile(join(existing, 'synthetic-owned-file'), 'utf8')).toBe(
     'Synthetic preexisting archive marker',
+  );
+});
+
+async function writeSyntheticCheckpoint(
+  archiveDirectory: string,
+  checkpointRef = `checkpoint_${'c'.repeat(32)}`,
+) {
+  const cipher = Buffer.from('synthetic_checkpoint_ciphertext_fixture_only');
+  const material = {
+    checkpointRef,
+    sourceRevision: '4c4b93358094a88a4bed161435250e0c4bf5f822',
+    schemaRevision: '000019',
+    snapshotAt: '2026-11-21T11:51:18.922Z',
+    validUntil: null,
+    watermark: {
+      sourceEpoch: 'f7dd9743-e2d3-455a-a662-5fa71b3a050c',
+      sequence: '3',
+    },
+    rowCount: 1,
+    requiredKeyVersions: ['TEST_v1'],
+    ciphertextBytes: cipher.length,
+    ciphertextSha256: createHash('sha256').update(cipher).digest('hex'),
+  };
+  const signature = createHmac(
+    'sha256',
+    Buffer.from('synthetic_separate_checkpoint_key_'.repeat(2)),
+  )
+    .update('fcd-support:deletion-checkpoint:v1\n')
+    .update(JSON.stringify(material))
+    .digest('hex');
+  const directory = join(archiveDirectory, checkpointRef);
+  await mkdir(directory, { mode: 0o700 });
+  await writeFile(join(directory, 'archive.age'), cipher, { mode: 0o600 });
+  await writeFile(join(directory, 'manifest.json'), JSON.stringify({ ...material, signature }), {
+    mode: 0o600,
+  });
+  return { directory, manifest: { ...material, signature } };
+}
+
+function scheduledPoolMock(): pg.Pool {
+  return {
+    connect: () =>
+      Promise.resolve({
+        query: (sql: string) =>
+          Promise.resolve(sql.includes('returning id') ? { rows: [{ id: '1' }] } : { rows: [] }),
+        release: () => undefined,
+      }),
+  } as unknown as pg.Pool;
+}
+
+test('scheduled backup recognizes valid deletion checkpoints beside existing backups', async () => {
+  const f = await fixture();
+  const priorBackup = await createEncryptedBackup({
+    ...f.options,
+    backupClass: 'pre_migration',
+  });
+  const checkpoint = await writeSyntheticCheckpoint(f.options.archiveDirectory);
+  const daily = await runScheduledBackup(scheduledPoolMock(), {
+    ...f.options,
+    backupClass: 'daily',
+    now: new Date('2030-01-02T02:00:00.000Z'),
+  });
+  expect(daily.status).toBe('created');
+  expect(daily.manifest?.backupRef).toMatch(/^backup_[a-f0-9]{32}$/u);
+  const entries = await readdir(f.options.archiveDirectory);
+  expect(entries).toContain(priorBackup.backupRef);
+  expect(entries).toContain(checkpoint.manifest.checkpointRef);
+  expect(entries).toContain(daily.manifest?.backupRef);
+});
+
+test('scheduled backup rejects unexpected archive entries, corrupt checkpoints, and invalid backup manifests', async () => {
+  for (const setup of [
+    async (dir: string) => {
+      await mkdir(join(dir, 'unexpected_dir'), { mode: 0o700 });
+    },
+    async (dir: string) => {
+      await writeFile(join(dir, 'checkpoint_notahex'), 'synthetic', { mode: 0o600 });
+    },
+    async (dir: string) => {
+      await writeFile(join(dir, `checkpoint_${'d'.repeat(32)}`), 'synthetic_file', {
+        mode: 0o600,
+      });
+    },
+    async (dir: string) => {
+      const cp = await writeSyntheticCheckpoint(dir, `checkpoint_${'e'.repeat(32)}`);
+      await writeFile(join(cp.directory, 'archive.age'), 'tampered_bytes', { mode: 0o600 });
+    },
+    async (dir: string) => {
+      const cp = await writeSyntheticCheckpoint(dir, `checkpoint_${'f'.repeat(32)}`);
+      await writeFile(join(cp.directory, 'manifest.partial'), 'partial', { mode: 0o600 });
+    },
+    async (dir: string, options: BackupOptions) => {
+      const created = await createEncryptedBackup(options);
+      await writeFile(join(dir, created.backupRef, 'manifest.json'), '{"corrupt":true}', {
+        mode: 0o600,
+      });
+    },
+  ]) {
+    const f = await fixture();
+    await writeSyntheticCheckpoint(f.options.archiveDirectory);
+    await setup(f.options.archiveDirectory, f.options);
+    await expect(runScheduledBackup(scheduledPoolMock(), f.options)).rejects.toThrow(
+      'backup_schedule_failed',
+    );
+  }
+});
+
+test('pruning excess backups preserves adjacent valid deletion checkpoints', async () => {
+  const f = await fixture();
+  const checkpoint = await writeSyntheticCheckpoint(f.options.archiveDirectory);
+  const manifests = [];
+  const cipher = Buffer.from('synthetic_ciphertext_fixture_only');
+  const hmac = await readFile(f.options.manifestHmacFile);
+  for (let index = 0; index < 53; index++) {
+    const material = {
+      backupRef: `backup_${index.toString(16).padStart(32, '0')}`,
+      createdAt: (index < 46
+        ? new Date(Date.UTC(2030, 6, 31 - index))
+        : new Date(Date.UTC(2030, 6 - (index - 46), 1))
+      ).toISOString(),
+      class: index < 46 ? ('daily' as const) : ('monthly' as const),
+      gitRevision: 'a'.repeat(40),
+      schemaRevision: '000014',
+      ciphertextBytes: cipher.length,
+      ciphertextSha256: createHash('sha256').update(cipher).digest('hex'),
+      state: 'created' as const,
+    };
+    const signature = createHmac('sha256', hmac)
+      .update('fcd-support:backup:v1\n')
+      .update(JSON.stringify(material))
+      .digest('hex');
+    const disk = { ...material, signature };
+    const directory = join(f.options.archiveDirectory, material.backupRef);
+    await mkdir(directory, { mode: 0o700 });
+    await writeFile(join(directory, 'archive.age'), cipher, { mode: 0o600 });
+    await writeFile(join(directory, 'manifest.json'), JSON.stringify(disk), { mode: 0o600 });
+    manifests.push({
+      ...disk,
+      state: index === 44 ? ('restore_verified' as const) : ('verified' as const),
+    });
+  }
+  const candidates = await pruneEncryptedBackups({
+    ...f.options,
+    manifests,
+    policy: { daily: 45, monthly: 6 },
+    evaluatedAt: new Date('2030-08-01T00:00:00.000Z'),
+  });
+  expect(candidates).toHaveLength(2);
+  const remaining = await readdir(f.options.archiveDirectory);
+  expect(remaining).toHaveLength(52);
+  expect(remaining).toContain(checkpoint.manifest.checkpointRef);
+  expect(await readdir(checkpoint.directory)).toEqual(
+    expect.arrayContaining(['archive.age', 'manifest.json']),
   );
 });
