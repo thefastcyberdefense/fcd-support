@@ -164,15 +164,104 @@ describe('tool-free Manifest HTTP client', () => {
     ['not-json', 'malformed_body'],
     [JSON.stringify({ choices: [] }), 'malformed_body'],
     [
+      JSON.stringify({
+        choices: [
+          {
+            finish_reason: 'length',
+            message: {
+              content: '',
+              role: 'assistant',
+              tool_calls: [{ function: { name: 'forbidden' } }],
+            },
+          },
+        ],
+      }),
+      'malformed_body',
+    ],
+    [
       completionBody(assistantContent({ answer: 'Unsupported synthetic refund.' })),
       'invalid_envelope',
     ],
-  ] as const)('fails closed for malformed or invalid response data', async (body, reasonCode) => {
-    server.enqueueResponse({ body, statusCode: 200 });
+  ] as const)(
+    'fails closed with distinct reason and log events for malformed or invalid response data',
+    async (body, reasonCode) => {
+      const lines: string[] = [];
+      server.enqueueResponse({ body, statusCode: 200 });
+
+      await expect(
+        client({ logger: createSafeLogger({ write: (line) => lines.push(line) }) }).complete({
+          logicalRequestId: 'VERSION_TEST_invalid',
+          request: request(),
+        }),
+      ).resolves.toEqual({ status: 'failed', reasonCode });
+      expect(JSON.parse(lines[0] ?? '{}')).toMatchObject({
+        event: 'manifest_request_failed',
+        reason: reasonCode,
+        requestId: 'VERSION_TEST_invalid',
+        statusCode: 200,
+      });
+    },
+  );
+
+  test('records finish_reason length as truncated_completion distinctly from malformed_body and accepts stop with reasoning metadata', async () => {
+    const lines: string[] = [];
+    const sensitiveReasoning = 'SYNTHETIC_REASONING_TRACE_MUST_NOT_LEAK';
+    const truncatedBody = JSON.stringify({
+      choices: [
+        {
+          finish_reason: 'length',
+          message: {
+            content: '{"decision":"answer"',
+            reasoning: sensitiveReasoning,
+            reasoning_content: sensitiveReasoning,
+            role: 'assistant',
+          },
+        },
+      ],
+      usage: { completion_tokens: 512, prompt_tokens: 748, total_tokens: 1260 },
+    });
+    server.enqueueResponse({ body: truncatedBody, statusCode: 200 });
+
+    const truncatedResult = await client({
+      logger: createSafeLogger({ write: (line) => lines.push(line) }),
+    }).complete({ logicalRequestId: 'VERSION_TEST_truncated_reasoning', request: request() });
+
+    expect(truncatedResult).toEqual({ status: 'failed', reasonCode: 'truncated_completion' });
+    expect(JSON.parse(lines[0] ?? '{}')).toMatchObject({
+      event: 'manifest_request_failed',
+      reason: 'truncated_completion',
+      requestId: 'VERSION_TEST_truncated_reasoning',
+      statusCode: 200,
+    });
+    expect(lines.join('')).not.toContain(sensitiveReasoning);
+    expect(lines.join('')).not.toContain('{"decision":"answer"');
+
+    const stopWithReasoning = JSON.stringify({
+      choices: [
+        {
+          finish_reason: 'stop',
+          message: {
+            content: assistantContent(),
+            reasoning: 'Synthetic reasoning summary.',
+            reasoning_content: 'Synthetic reasoning summary.',
+            role: 'assistant',
+          },
+        },
+      ],
+      usage: { completion_tokens: 326, prompt_tokens: 659, total_tokens: 985 },
+    });
+    server.enqueueResponse({ body: stopWithReasoning, statusCode: 200 });
 
     await expect(
-      client().complete({ logicalRequestId: 'VERSION_TEST_invalid', request: request() }),
-    ).resolves.toEqual({ status: 'failed', reasonCode });
+      client().complete({
+        logicalRequestId: 'VERSION_TEST_stop_with_reasoning',
+        request: request(),
+      }),
+    ).resolves.toMatchObject({
+      status: 'completed',
+      usage: { completionTokens: 326, promptTokens: 659 },
+      value: { decision: 'answer' },
+    });
   });
 
   test('times out one attempt without retrying', async () => {

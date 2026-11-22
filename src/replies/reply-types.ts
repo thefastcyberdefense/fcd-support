@@ -200,7 +200,10 @@ export interface ModelAllowancePort {
     readonly completedAt: Date;
     readonly logicalCallKey: string;
     readonly outcomeCode:
-      ManifestClientFailureReason | 'completed' | 'database_failure' | 'guard_blocked';
+      | Exclude<ManifestClientFailureReason, 'truncated_completion'>
+      | 'completed'
+      | 'database_failure'
+      | 'guard_blocked';
     readonly usage?: CompleteModelLeaseUsageInput;
   }): Promise<{ readonly status: 'applied' | 'duplicate' }>;
 }

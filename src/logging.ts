@@ -39,6 +39,7 @@ export type SafeLogReason =
   | 'provider_exhausted'
   | 'receipt_unavailable'
   | 'timeout'
+  | 'truncated_completion'
   | 'unauthorized'
   | 'model_or_endpoint_rejected'
   | 'invalid_gateway_configuration'
@@ -107,6 +108,7 @@ const safeReasons = new Set<SafeLogReason>([
   'provider_exhausted',
   'receipt_unavailable',
   'timeout',
+  'truncated_completion',
   'unauthorized',
   'model_or_endpoint_rejected',
   'invalid_gateway_configuration',
