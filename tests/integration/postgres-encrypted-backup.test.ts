@@ -5,7 +5,18 @@ import { basename, join } from 'node:path';
 import { expect, test } from 'vitest';
 import { createEncryptedBackup, verifyEncryptedBackup } from '../../src/operations/backup.js';
 import { PostgresOperationsStore } from '../../src/persistence/postgres-operations-store.js';
-import { runScheduledBackup } from '../../src/operations/backup-command.js';
+import {
+  listCatalogManifests,
+  registerBackup,
+  runScheduledBackup,
+} from '../../src/operations/backup-command.js';
+import { pruneEncryptedBackups } from '../../src/operations/backup-retention.js';
+import { AdminSecretBytes } from '../../src/admin/admin-types.js';
+import {
+  exportDeletionCheckpoint,
+  validateCheckpointArchiveEntry,
+  validateCheckpointManifest,
+} from '../../src/operations/deletion-checkpoint.js';
 import { operationsEnvironment } from '../helpers/operations-fixtures.js';
 import { createIsolatedTestDatabase, requireIsolatedTestDatabaseUrl } from './test-database.js';
 import { withVerifiedDatabaseSnapshot } from '../../src/operations/database-identity.js';
@@ -499,6 +510,182 @@ test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-too
           await cleanup.end();
         }
       }
+    }
+  },
+);
+
+test.skipIf(process.env.RUN_ENCRYPTED_BACKUP_TESTS !== 'synthetic-operations-toolchain-only')(
+  'shared archive volume supports exported deletion checkpoint beside daily/monthly schedules, verification, idempotency, pruning, and negative checks',
+  async () => {
+    const archiveRoot = process.env.BACKUP_TEST_ARCHIVE_ROOT;
+    if (archiveRoot !== undefined && archiveRoot !== '/var/lib/fcd-support/backups')
+      throw new Error('synthetic_archive_root_invalid');
+    const base = requireIsolatedTestDatabaseUrl(process.env);
+    const database = await createIsolatedTestDatabase('shared_archive_checkpoint');
+    const root = await mkdtemp(join(tmpdir(), 'fcd-shared-archive-test-'));
+    await chmod(root, 0o700);
+    const archiveDirectory = join(archiveRoot ?? root, `archives_${basename(root)}`);
+    const temporaryDirectory = join(root, 'work');
+    const identityFile = join(root, 'identity');
+    const recipientFile = join(root, 'recipient');
+    const manifestHmacFile = join(root, 'hmac');
+    try {
+      await mkdir(archiveDirectory, { mode: 0o700 });
+      await mkdir(temporaryDirectory, { mode: 0o700 });
+      await generateIdentity(identityFile);
+      await writeFile(recipientFile, await recipient(identityFile), { mode: 0o600 });
+      const hmacBytes = Buffer.from('synthetic_shared_archive_hmac_'.repeat(3));
+      await writeFile(manifestHmacFile, hmacBytes, { mode: 0o600 });
+      const observed = (
+        await database.pool.query<{ id: string; name: string }>(
+          'select system_identifier::text as id,current_database() as name from pg_catalog.pg_control_system()',
+        )
+      ).rows[0];
+      if (observed === undefined) throw new Error('synthetic_cluster_missing');
+      const expectedDatabaseIdentity = {
+        systemIdentifier: observed.id,
+        databaseName: observed.name,
+      };
+      const checkpointAt = new Date('2030-06-01T11:51:00.000Z');
+      await database.pool.query(
+        `insert into privacy_suppressions
+        (identity_hmac,channel,category,reason_code,effective_at,key_version)
+        values($1,'whatsapp','deletion_tombstone','customer_deletion',$2,'TEST_v1')`,
+        ['c'.repeat(64), checkpointAt],
+      );
+      const signingKey = new AdminSecretBytes(Buffer.from(hmacBytes));
+      const checkpoint = await exportDeletionCheckpoint({
+        expectedDatabaseIdentity,
+        sourcePool: database.pool,
+        recipientFile,
+        signingKey,
+        archiveDirectory,
+        sourceRevision: 'a'.repeat(40),
+        schemaRevision: '000019',
+        now: checkpointAt,
+        timeoutMilliseconds: 10000,
+        maximumRows: 100,
+        maximumPayloadBytes: 1048576,
+      });
+      const baseUrl = new URL(base);
+      baseUrl.search = '';
+      const sharedOptions = {
+        expectedDatabaseIdentity,
+        connectionString: baseUrl.toString(),
+        schemas: [database.schema],
+        archiveDirectory,
+        temporaryDirectory,
+        recipientFile,
+        manifestHmacFile,
+        gitRevision: 'a'.repeat(40),
+        schemaRevision: '000019',
+        timeoutMilliseconds: 10000,
+      };
+      const dailyFirst = await runScheduledBackup(database.pool, {
+        ...sharedOptions,
+        backupClass: 'daily',
+        now: new Date('2030-06-02T02:00:00.000Z'),
+      });
+      expect(dailyFirst.status).toBe('created');
+      const dailyManifest = dailyFirst.manifest;
+      if (dailyManifest === undefined) throw new Error('synthetic_daily_missing');
+      await verifyEncryptedBackup({
+        ...sharedOptions,
+        identityFile,
+        expectedManifest: dailyManifest,
+      });
+      await registerBackup(database.pool, dailyManifest, 'verified');
+      expect(
+        await runScheduledBackup(database.pool, {
+          ...sharedOptions,
+          backupClass: 'daily',
+          now: new Date('2030-06-02T12:00:00.000Z'),
+        }),
+      ).toMatchObject({ status: 'skipped', manifest: { backupRef: dailyManifest.backupRef } });
+
+      const monthlyFirst = await runScheduledBackup(database.pool, {
+        ...sharedOptions,
+        backupClass: 'monthly',
+        now: new Date('2030-06-02T02:05:00.000Z'),
+      });
+      expect(monthlyFirst.status).toBe('created');
+      const monthlyManifest = monthlyFirst.manifest;
+      if (monthlyManifest === undefined) throw new Error('synthetic_monthly_missing');
+      await verifyEncryptedBackup({
+        ...sharedOptions,
+        identityFile,
+        expectedManifest: monthlyManifest,
+      });
+      await registerBackup(database.pool, monthlyManifest, 'verified');
+      expect(
+        await runScheduledBackup(database.pool, {
+          ...sharedOptions,
+          backupClass: 'monthly',
+          now: new Date('2030-06-15T02:05:00.000Z'),
+        }),
+      ).toMatchObject({ status: 'skipped', manifest: { backupRef: monthlyManifest.backupRef } });
+
+      const manifests = await listCatalogManifests(
+        database.pool,
+        archiveDirectory,
+        manifestHmacFile,
+      );
+      expect(manifests.map((entry) => entry.backupRef).sort()).toEqual(
+        [dailyManifest.backupRef, monthlyManifest.backupRef].sort(),
+      );
+      const pruned = await pruneEncryptedBackups({
+        archiveDirectory,
+        manifestHmacFile,
+        manifests,
+        policy: { daily: 45, monthly: 6 },
+        evaluatedAt: new Date('2030-06-15T03:00:00.000Z'),
+      });
+      expect(pruned).toEqual([]);
+      expect(await readdir(archiveDirectory)).toEqual(
+        expect.arrayContaining([
+          checkpoint.checkpointRef,
+          dailyManifest.backupRef,
+          monthlyManifest.backupRef,
+        ]),
+      );
+      const validatedCheckpoint = await validateCheckpointArchiveEntry(
+        archiveDirectory,
+        checkpoint.checkpointRef,
+      );
+      expect(
+        validateCheckpointManifest(validatedCheckpoint, {
+          signingKey: new AdminSecretBytes(Buffer.from(hmacBytes)),
+          expectedWatermark: checkpoint.watermark,
+          evaluatedAt: new Date('2030-06-01T11:52:00.000Z'),
+          maximumAgeMilliseconds: 120000,
+        }).checkpointRef,
+      ).toBe(checkpoint.checkpointRef);
+
+      await writeFile(join(archiveDirectory, 'unexpected_entry'), 'synthetic', { mode: 0o600 });
+      await expect(
+        runScheduledBackup(database.pool, {
+          ...sharedOptions,
+          backupClass: 'daily',
+          now: new Date('2030-06-03T02:00:00.000Z'),
+        }),
+      ).rejects.toThrow('backup_schedule_failed');
+      await rm(join(archiveDirectory, 'unexpected_entry'));
+
+      const priorManifestPath = join(archiveDirectory, dailyManifest.backupRef, 'manifest.json');
+      const savedManifest = await readFile(priorManifestPath);
+      await writeFile(priorManifestPath, '{"invalid":true}', { mode: 0o600 });
+      await expect(
+        runScheduledBackup(database.pool, {
+          ...sharedOptions,
+          backupClass: 'daily',
+          now: new Date('2030-06-03T02:00:00.000Z'),
+        }),
+      ).rejects.toThrow('backup_schedule_failed');
+      await writeFile(priorManifestPath, savedManifest, { mode: 0o600 });
+    } finally {
+      await rm(archiveDirectory, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true });
+      await database.dispose();
     }
   },
 );

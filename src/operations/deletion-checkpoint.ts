@@ -1,6 +1,6 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
-import { mkdir, rename, rm } from 'node:fs/promises';
+import { mkdir, readdir, rename, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import type pg from 'pg';
@@ -552,5 +552,47 @@ export async function importDeletionCheckpoint(
     );
   } catch {
     throw new Error('checkpoint_import_failed');
+  }
+}
+
+/** Validate a stored checkpoint archive directory without rejecting historical keys or watermarks. */
+export async function validateCheckpointArchiveEntry(
+  archiveDirectory: string,
+  checkpointRef: string,
+): Promise<CheckpointManifest> {
+  try {
+    z.string()
+      .regex(/^checkpoint_[a-f0-9]{32}$/u)
+      .parse(checkpointRef);
+    await requireBackupDirectory(archiveDirectory);
+    const directory = join(archiveDirectory, checkpointRef);
+    await requireBackupDirectory(directory);
+    const files = (await readdir(directory)).sort();
+    if (files.length !== 2 || files[0] !== 'archive.age' || files[1] !== 'manifest.json')
+      throw new Error('invalid');
+    const sidecar = await readSecretFile(join(directory, 'manifest.json'));
+    const manifest = manifestSchema.parse(
+      JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(sidecar)),
+    );
+    if (
+      manifest.checkpointRef !== checkpointRef ||
+      (manifest.rowCount === 0) !== (manifest.requiredKeyVersions.length === 0) ||
+      (manifest.validUntil !== null &&
+        new Date(manifest.validUntil) <= new Date(manifest.snapshotAt))
+    )
+      throw new Error('invalid');
+    const digest = await archiveCipherDigest(join(directory, 'archive.age'));
+    if (
+      digest.ciphertextBytes !== manifest.ciphertextBytes ||
+      digest.ciphertextSha256 !== manifest.ciphertextSha256
+    )
+      throw new Error('invalid');
+    return Object.freeze({
+      ...manifest,
+      watermark: Object.freeze(manifest.watermark),
+      requiredKeyVersions: Object.freeze(manifest.requiredKeyVersions),
+    });
+  } catch {
+    throw new Error('checkpoint_invalid');
   }
 }
