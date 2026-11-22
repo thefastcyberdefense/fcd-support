@@ -199,4 +199,22 @@ describe('Manifest request contract', () => {
       }),
     ).toThrow('Manifest request limits are invalid');
   });
+
+  test('explicitly specifies decision enum literals and verbatim wording reuse in system policy', () => {
+    const req = buildManifestRequest({
+      currentRequest: prepared('Do you offer synthetic security reviews?'),
+      language: 'en',
+      limits: {
+        maximumContextItems: 2,
+        maximumInputCodePoints: 1000,
+        maximumOutputTokens: 512,
+      },
+      publishedKnowledge: [],
+      recentContext: [],
+    });
+    expect(req.messages[0].content).toContain('"answer" or "escalate"');
+    expect(req.messages[0].content).toContain('decision="answer"');
+    expect(req.messages[0].content).toContain('decision="escalate"');
+    expect(req.messages[0].content).toContain('reuse exact wording from publishedKnowledge');
+  });
 });
