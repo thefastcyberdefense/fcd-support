@@ -6,6 +6,7 @@ import { z } from 'zod';
 import {
   consentCategoryForOutboundPurpose,
   evaluateOutboundEligibility,
+  META_RESPONSE_WINDOW_MS,
   type FixedTemplateEligibilitySource,
   type OutboundEligibility,
   type OutboundEligibilityReason,
@@ -116,6 +117,11 @@ export type AuthorizeAttemptResult =
       readonly status: 'authorized';
     }
   | { readonly attemptNumber: number; readonly attemptRef: string; readonly status: 'duplicate' }
+  | {
+      readonly nextAttemptAt: Date;
+      readonly reason: 'limit_exhausted';
+      readonly status: 'deferred';
+    }
   | {
       readonly reason:
         Exclude<OutboundEligibilityReason, 'allowed'> | 'lease_invalid' | 'limit_exhausted';
@@ -242,6 +248,24 @@ interface RateScope {
   readonly windowEndedAt: Date;
   readonly windowStartedAt: Date;
 }
+
+interface IntentDeadlineContext {
+  readonly activeClientReviewAt: Date | null;
+  readonly lastCustomerMessageAt: Date | null;
+  readonly retentionDeadline: Date;
+}
+
+interface EvaluatedIntent {
+  readonly eligibility: OutboundEligibility;
+  readonly limits: IntentDeadlineContext;
+}
+
+const temporaryRateWindowKinds = new Set<RateScope['kind']>([
+  'contact_15_minute',
+  'whatsapp_account_1_minute',
+  'messenger_account_1_minute',
+  'global_1_minute',
+]);
 
 const escalationReasons = new Set([
   'active_review_overdue',
@@ -388,7 +412,12 @@ export class PostgresOutboundWorkStore {
         return { reason: 'policy_unavailable', status: 'denied' };
       }
       const authority = await this.lockAuthority(client, intent);
-      const eligibility = await this.evaluateIntent(client, intent, authority, input.evaluatedAt);
+      const { eligibility, limits } = await this.evaluateIntent(
+        client,
+        intent,
+        authority,
+        input.evaluatedAt,
+      );
       if (!eligibility.eligible) {
         await this.cancelForEligibility(client, intent, input.evaluatedAt, eligibility.reason);
         return { reason: eligibility.reason, status: 'denied' };
@@ -408,12 +437,34 @@ export class PostgresOutboundWorkStore {
           [scope.lockKey],
         );
       }
+      const blockedScopes: { readonly scope: RateScope; readonly used: number }[] = [];
       for (const scope of scopes) {
         const used = await this.rateCount(client, scope, input.evaluatedAt);
         if (used >= scope.limit) {
-          await this.failForLimit(client, intent, input.evaluatedAt);
-          return { reason: 'limit_exhausted', status: 'denied' };
+          blockedScopes.push({ scope, used });
         }
+      }
+      if (blockedScopes.length > 0) {
+        const nextAttemptAt = await this.resolveTemporaryRateDeferral(
+          client,
+          blockedScopes,
+          input.evaluatedAt,
+        );
+        if (
+          nextAttemptAt !== null &&
+          this.canDeferUntil(nextAttemptAt, intent.message_kind, limits)
+        ) {
+          await this.returnIntentToPending(
+            client,
+            { attempt_count: intent.attempt_count, intent_id: intent.id },
+            nextAttemptAt,
+            false,
+            input.evaluatedAt,
+          );
+          return { nextAttemptAt, reason: 'limit_exhausted', status: 'deferred' };
+        }
+        await this.failForLimit(client, intent, input.evaluatedAt);
+        return { reason: 'limit_exhausted', status: 'denied' };
       }
       for (const scope of scopes) {
         await client.query(
@@ -531,7 +582,10 @@ export class PostgresOutboundWorkStore {
       const policy = await this.loadEffectivePolicy(client, input.startedAt);
       if (policy?.id !== row.policy_version_id) throw new PolicyIdempotencyConflictError();
       const authority = await this.lockAuthority(client, intent);
-      if (!(await this.evaluateIntent(client, intent, authority, input.startedAt)).eligible)
+      if (
+        !(await this.evaluateIntent(client, intent, authority, input.startedAt)).eligibility
+          .eligible
+      )
         throw new PolicyIdempotencyConflictError();
       await client.query(
         `update outbound_attempts set state = 'dispatch_started', dispatch_started_at = $2
@@ -845,8 +899,17 @@ export class PostgresOutboundWorkStore {
     intent: IntentRow,
     authority: AuthorityRow,
     evaluatedAt: Date,
-  ): Promise<OutboundEligibility> {
-    if (await recoveryHeld(client)) return { eligible: false, reason: 'restore_quarantined' };
+  ): Promise<EvaluatedIntent> {
+    if (await recoveryHeld(client)) {
+      return {
+        eligibility: { eligible: false, reason: 'restore_quarantined' },
+        limits: {
+          activeClientReviewAt: null,
+          lastCustomerMessageAt: null,
+          retentionDeadline: intent.retention_deadline,
+        },
+      };
+    }
     const retention = await client.query<RetentionRow>(
       `select lifecycle_class, relationship_status, expires_at, next_active_review_at
        from conversation_retention_states where conversation_id = $1`,
@@ -941,6 +1004,11 @@ export class PostgresOutboundWorkStore {
       retentionDeadline: minimumDate(intent.retention_deadline, currentRetentionDeadline),
       scopedSuppressed: suppression.scopedSuppressed,
     } as const;
+    const limits: IntentDeadlineContext = {
+      activeClientReviewAt,
+      lastCustomerMessageAt: common.lastCustomerMessageAt,
+      retentionDeadline: common.retentionDeadline,
+    };
     if (intent.message_kind === 'support_text') {
       const supportSource: SupportTextEligibilitySource = {
         contentErased:
@@ -953,16 +1021,20 @@ export class PostgresOutboundWorkStore {
         requestedLocale: 'en_US',
         source: supportSource,
       });
-      if (!eligibility.eligible) return eligibility;
+      if (!eligibility.eligible) return { eligibility, limits };
       const maximumCodePoints =
         intent.channel === 'messenger'
           ? MESSENGER_TEXT_MAX_CODE_POINTS
           : WHATSAPP_TEXT_MAX_CODE_POINTS;
-      return source?.answer_text !== null &&
-        source?.answer_text !== undefined &&
-        Array.from(source.answer_text).length <= maximumCodePoints
-        ? eligibility
-        : { eligible: false, reason: 'template_required' };
+      return {
+        eligibility:
+          source?.answer_text !== null &&
+          source?.answer_text !== undefined &&
+          Array.from(source.answer_text).length <= maximumCodePoints
+            ? eligibility
+            : { eligible: false, reason: 'template_required' },
+        limits,
+      };
     }
     const templateSource: FixedTemplateEligibilitySource = {
       active: source?.source_state === 'active',
@@ -975,11 +1047,14 @@ export class PostgresOutboundWorkStore {
       ready: source !== undefined,
       variableCount: source?.variable_count ?? -1,
     };
-    return evaluateOutboundEligibility({
-      ...common,
-      requestedLocale: templateSource.locale,
-      source: templateSource,
-    });
+    return {
+      eligibility: evaluateOutboundEligibility({
+        ...common,
+        requestedLocale: templateSource.locale,
+        source: templateSource,
+      }),
+      limits,
+    };
   }
 
   private async loadDispatchMaterial(
@@ -1154,6 +1229,63 @@ export class PostgresOutboundWorkStore {
         : [scope.kind, scope.scopeKey, lowerBound, evaluatedAt],
     );
     return selected.rows[0]?.count ?? 0;
+  }
+
+  private canDeferUntil(
+    nextAttemptAt: Date,
+    messageKind: OutboundMessageKind,
+    limits: IntentDeadlineContext,
+  ): boolean {
+    const nextMs = nextAttemptAt.getTime();
+    if (nextMs >= limits.retentionDeadline.getTime()) return false;
+    if (limits.activeClientReviewAt !== null && nextMs >= limits.activeClientReviewAt.getTime()) {
+      return false;
+    }
+    if (messageKind === 'support_text') {
+      if (limits.lastCustomerMessageAt === null) return false;
+      if (nextMs - limits.lastCustomerMessageAt.getTime() > META_RESPONSE_WINDOW_MS) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private async resolveTemporaryRateDeferral(
+    client: pg.PoolClient,
+    blockedScopes: readonly { readonly scope: RateScope; readonly used: number }[],
+    evaluatedAt: Date,
+  ): Promise<Date | null> {
+    let latestUnlockMs = 0;
+    for (const { scope, used } of blockedScopes) {
+      if (!temporaryRateWindowKinds.has(scope.kind)) return null;
+      const duration = scope.windowEndedAt.getTime() - scope.windowStartedAt.getTime();
+      const lowerBound = addMilliseconds(evaluatedAt, -duration);
+      const excess = used - scope.limit + 1;
+      if (excess <= 0) continue;
+      const selected = await client.query<{
+        readonly reservation_count: number;
+        readonly window_started_at: Date;
+      }>(
+        `select window_started_at, reservation_count
+         from outbound_rate_windows
+         where window_kind = $1 and scope_key is not distinct from $2
+           and window_started_at > $3 and window_started_at <= $4
+         order by window_started_at asc, id asc`,
+        [scope.kind, scope.scopeKey, lowerBound, evaluatedAt],
+      );
+      let freed = 0;
+      let unlockAt: Date | null = null;
+      for (const row of selected.rows) {
+        freed += row.reservation_count;
+        if (freed >= excess) {
+          unlockAt = addMilliseconds(row.window_started_at, duration);
+          break;
+        }
+      }
+      if (unlockAt === null || unlockAt.getTime() <= evaluatedAt.getTime()) return null;
+      if (unlockAt.getTime() > latestUnlockMs) latestUnlockMs = unlockAt.getTime();
+    }
+    return latestUnlockMs > evaluatedAt.getTime() ? new Date(latestUnlockMs) : null;
   }
 
   private async failForLimit(

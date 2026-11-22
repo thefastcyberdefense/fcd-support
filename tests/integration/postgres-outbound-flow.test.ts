@@ -97,6 +97,7 @@ beforeEach(async () => {
   await pool.query(`
     truncate table
       contacts, webhook_receipts, privacy_suppressions, privacy_requests,
+      runtime_restore_quarantine, runtime_recovery_reviews, runtime_recovery_holds,
       outbound_echo_correlation_holds, outbound_status_events,
       outbound_escalation_outcomes, outbound_attempts, outbound_intents,
       outbound_rate_windows, outbound_template_review_events,
@@ -608,12 +609,12 @@ describe('PostgreSQL outbound worker flow', () => {
     expect(fake.contexts).toHaveLength(1);
   });
 
-  test('applies customized global limits before provider I/O', async () => {
+  test('applies customized global limits before provider I/O and sends when the slot opens', async () => {
     const limits = { ...generous, global1Minute: 1 };
     await seedPolicy(limits);
     await seedIntent('limited_one');
     await seedIntent('limited_two');
-    const firstFake = providerFrom([accepted('limited')]);
+    const firstFake = providerFrom([accepted('limited'), accepted('limited_deferred')]);
     const firstStore = workStore(limits);
 
     await expect(
@@ -623,13 +624,28 @@ describe('PostgreSQL outbound worker flow', () => {
       }),
     ).resolves.toEqual({
       accepted: 1,
-      canceled: 1,
+      canceled: 0,
       claimed: 2,
-      deferred: 0,
+      deferred: 1,
       failed: 0,
       unknown: 0,
     });
     expect(firstFake.contexts).toHaveLength(1);
+
+    await expect(
+      worker(firstFake.provider, firstStore).runBatch({
+        evaluatedAt: new Date(workAt.getTime() + 60_000),
+        workerRef: 'WORKER_TEST_limited_reopen',
+      }),
+    ).resolves.toEqual({
+      accepted: 1,
+      canceled: 0,
+      claimed: 1,
+      deferred: 0,
+      failed: 0,
+      unknown: 0,
+    });
+    expect(firstFake.contexts).toHaveLength(2);
   });
 
   test('retries only definite rejection and stops at the customized retry maximum', async () => {
@@ -1027,5 +1043,231 @@ describe('PostgreSQL outbound worker flow', () => {
       state: 'canceled',
       terminal_reason: 'restore_quarantined',
     });
+  });
+
+  test('defers temporary per-contact 15-minute limits and automatically sends when the slot opens without duplicates', async () => {
+    const limits = { ...generous, perContact15Minute: 1, perContact24Hour: 5 };
+    await seedPolicy(limits);
+    const first = await seedIntent('defer_auto_one');
+    const firstConvContact = (
+      await pool.query<{ readonly external_contact_id: string }>(
+        `select external_contact_id from channel_identities where channel_account_id = $1 limit 1`,
+        [first.identity.channelAccountId],
+      )
+    ).rows[0]?.external_contact_id;
+    expect(firstConvContact).toBe(first.identity.externalContactId);
+
+    const secondSource = await insertSyntheticAppliedCustomerEvent(pool, {
+      fixtureKey: 'defer_auto_two',
+      identity: first.identity,
+      messageText: 'Synthetic second question in same 15m window.',
+      occurredAt: new Date(workAt.getTime() + 1000),
+    });
+    await pool.query(
+      `insert into support_reply_drafts
+         (draft_ref, source_webhook_event_id, conversation_id, decision_type,
+          language, answer_text, state, retention_deadline, request_key, created_at)
+       values ('DRAFT_TEST_defer_auto_two',$1,$2,'safe_failure','en',
+               'Synthetic deferred reply.','ready',$3,'REQUEST_TEST_defer_auto_draft_2',$4)`,
+      [
+        secondSource.eventId,
+        secondSource.conversationId,
+        new Date(workAt.getTime() + 7 * 86_400_000),
+        new Date(workAt.getTime() + 2000),
+      ],
+    );
+    const secondCreated = await new PostgresOutboundIntentStore(
+      pool,
+      syntheticPrivacyKeyring,
+      generous,
+    ).createSupportIntent({
+      draftRef: 'DRAFT_TEST_defer_auto_two',
+      evaluatedAt: new Date(workAt.getTime() + 3000),
+      requestKey: 'REQUEST_TEST_defer_auto_intent_2',
+    });
+    if (secondCreated.status !== 'created') throw new Error('Second intent was not created');
+
+    const store = workStore(limits);
+    const fake = providerFrom([accepted('auto_one'), accepted('auto_two')]);
+
+    // First send passes, second defers to +15m with 0 attempts & 0 escalations.
+    await expect(
+      worker(fake.provider, store).runBatch({
+        evaluatedAt: new Date(workAt.getTime() + 4000),
+        workerRef: 'WORKER_TEST_defer_initial',
+      }),
+    ).resolves.toEqual({
+      accepted: 1,
+      canceled: 0,
+      claimed: 2,
+      deferred: 1,
+      failed: 0,
+      unknown: 0,
+    });
+    expect(fake.contexts).toHaveLength(1);
+
+    const reopenAt = new Date(workAt.getTime() + 4000 + 15 * 60_000);
+    await expect(
+      pool.query(
+        `select state, attempt_count, next_attempt_at, terminal_reason
+         from outbound_intents where intent_ref = $1`,
+        [secondCreated.intentRef],
+      ),
+    ).resolves.toMatchObject({
+      rows: [
+        {
+          attempt_count: 0,
+          next_attempt_at: reopenAt,
+          state: 'pending',
+          terminal_reason: null,
+        },
+      ],
+    });
+    await expect(
+      pool.query(`select count(*)::int as count from outbound_escalation_outcomes`),
+    ).resolves.toMatchObject({ rows: [{ count: 0 }] });
+
+    // Before slot reopens: nothing claimed or sent.
+    await expect(
+      worker(fake.provider, store).runBatch({
+        evaluatedAt: new Date(reopenAt.getTime() - 1),
+        workerRef: 'WORKER_TEST_defer_early',
+      }),
+    ).resolves.toEqual({
+      accepted: 0,
+      canceled: 0,
+      claimed: 0,
+      deferred: 0,
+      failed: 0,
+      unknown: 0,
+    });
+    expect(fake.contexts).toHaveLength(1);
+
+    // Racing two concurrent workers right as the slot opens sends exactly once.
+    const concurrentResults = await Promise.all([
+      worker(fake.provider, store).runBatch({
+        evaluatedAt: reopenAt,
+        workerRef: 'WORKER_TEST_defer_race_a',
+      }),
+      worker(fake.provider, store).runBatch({
+        evaluatedAt: reopenAt,
+        workerRef: 'WORKER_TEST_defer_race_b',
+      }),
+    ]);
+    expect(concurrentResults.reduce((sum, item) => sum + item.accepted, 0)).toBe(1);
+    expect(concurrentResults.reduce((sum, item) => sum + item.claimed, 0)).toBe(1);
+    expect(fake.contexts).toHaveLength(2);
+    await expect(
+      pool.query(
+        `select state, attempt_count, next_attempt_at
+         from outbound_intents where intent_ref = $1`,
+        [secondCreated.intentRef],
+      ),
+    ).resolves.toMatchObject({
+      rows: [{ attempt_count: 1, next_attempt_at: null, state: 'provider_accepted' }],
+    });
+    await expect(
+      pool.query(`select count(*)::int as count from outbound_attempts`),
+    ).resolves.toMatchObject({ rows: [{ count: 2 }] });
+  });
+
+  test('cancels a deferred reply on expiry, human takeover, or privacy change before dispatch', async () => {
+    const limits = { ...generous, global1Minute: 1 };
+    await seedPolicy(limits);
+    const holder = await seedIntent('defer_cancel_holder');
+    const paused = await seedIntent('defer_cancel_pause');
+    const deleted = await seedIntent('defer_cancel_delete');
+    const optedOut = await seedMarketingIntent('defer_cancel_optout');
+    const expired = await seedIntent('defer_cancel_expire');
+
+    const store = workStore(limits);
+    const fake = providerFrom([accepted('holder'), accepted('never')]);
+
+    // Consume global 1-minute slot on holder; the next four defer cleanly to workAt + 60s.
+    const batch1 = await worker(fake.provider, store).runBatch({
+      evaluatedAt: workAt,
+      workerRef: 'WORKER_TEST_defer_cancel_1',
+    });
+    expect(batch1).toEqual({
+      accepted: 1,
+      canceled: 0,
+      claimed: 5,
+      deferred: 4,
+      failed: 0,
+      unknown: 0,
+    });
+    expect(holder.intentRef).toBeDefined();
+
+    // While deferred: (1) human takeover pause on paused conversation,
+    await pool.query(`update conversations set ai_paused_until = $2 where id = $1`, [
+      paused.conversationId,
+      new Date(workAt.getTime() + 86_400_000),
+    ]);
+    // (2) deletion tombstone on deleted contact + marketing opt-out suppression on optedOut contact,
+    const key = syntheticPrivacyKeyring.keys.get(syntheticPrivacyKeyring.activeVersion);
+    if (key === undefined) throw new Error('Synthetic privacy key is missing');
+    await pool.query(
+      `insert into privacy_suppressions
+         (identity_hmac, channel, category, reason_code, effective_at, key_version)
+       values
+         ($1,$2,'deletion_tombstone','customer_deletion',$5,$6),
+         ($3,$4,'marketing_opt_out','customer_opt_out',$5,$6)`,
+      [
+        createIdentityHmac(deleted.identity, {
+          key,
+          version: syntheticPrivacyKeyring.activeVersion,
+        }),
+        deleted.identity.channel,
+        createIdentityHmac(optedOut.identity, {
+          key,
+          version: syntheticPrivacyKeyring.activeVersion,
+        }),
+        optedOut.identity.channel,
+        new Date(workAt.getTime() + 10_000),
+        syntheticPrivacyKeyring.activeVersion,
+      ],
+    );
+    // (3) retention expiry on expired conversation before the 60s slot opens.
+    await pool.query(
+      `update conversation_retention_states
+       set anchor_at = $2, expires_at = $3 where conversation_id = $1`,
+      [
+        expired.conversationId,
+        new Date(workAt.getTime() - 8 * 86_400_000),
+        new Date(workAt.getTime() + 30_000),
+      ],
+    );
+
+    const reopenAt = new Date(workAt.getTime() + 60_000);
+    const batch2 = await worker(fake.provider, store).runBatch({
+      evaluatedAt: reopenAt,
+      workerRef: 'WORKER_TEST_defer_cancel_2',
+    });
+    expect(batch2).toEqual({
+      accepted: 0,
+      canceled: 4,
+      claimed: 4,
+      deferred: 0,
+      failed: 0,
+      unknown: 0,
+    });
+    expect(fake.contexts).toHaveLength(1);
+
+    const reasons = await pool.query<{
+      readonly intent_ref: string;
+      readonly terminal_reason: string;
+    }>(
+      `select intent_ref, terminal_reason from outbound_intents
+       where intent_ref = any($1::text[])`,
+      [[paused.intentRef, deleted.intentRef, optedOut.intentRef, expired.intentRef]],
+    );
+    expect(new Map(reasons.rows.map((r) => [r.intent_ref, r.terminal_reason]))).toEqual(
+      new Map([
+        [paused.intentRef, 'pause_active'],
+        [deleted.intentRef, 'identity_deleted'],
+        [optedOut.intentRef, 'suppressed'],
+        [expired.intentRef, 'retention_expired'],
+      ]),
+    );
   });
 });

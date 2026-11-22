@@ -208,7 +208,7 @@ export class OutboundWorker {
       counts.canceled += 1;
       return;
     }
-    if (authorization.status === 'duplicate') {
+    if (authorization.status === 'duplicate' || authorization.status === 'deferred') {
       counts.deferred += 1;
       return;
     }
