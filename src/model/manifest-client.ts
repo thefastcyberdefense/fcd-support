@@ -23,7 +23,8 @@ export type ManifestClientFailureReason =
   | 'non_2xx'
   | 'oversized_body'
   | 'provider_exhausted'
-  | 'timeout';
+  | 'timeout'
+  | 'truncated_completion';
 
 export interface ModelTokenUsage {
   readonly completionTokens: number;
@@ -170,6 +171,10 @@ interface ParsedChoiceBody {
   readonly usage?: ModelTokenUsage;
 }
 
+type ChoiceBodyResult =
+  | { readonly status: 'ok'; readonly value: ParsedChoiceBody }
+  | { readonly reasonCode: 'malformed_body' | 'truncated_completion'; readonly status: 'failed' };
+
 function readTokenUsage(decoded: Record<string, unknown>): ModelTokenUsage | undefined {
   const usage = decoded.usage;
   if (typeof usage !== 'object' || usage === null) return undefined;
@@ -192,41 +197,63 @@ function readTokenUsage(decoded: Record<string, unknown>): ModelTokenUsage | und
 function readChoiceBody(
   rawBody: string,
   allowedFinishReasons: readonly ('length' | 'stop')[] = ['stop'],
-): ParsedChoiceBody | undefined {
+): ChoiceBodyResult {
   let decoded: unknown;
   try {
     decoded = JSON.parse(rawBody);
   } catch {
-    return undefined;
+    return { status: 'failed', reasonCode: 'malformed_body' };
   }
-  if (typeof decoded !== 'object' || decoded === null) return undefined;
+  if (typeof decoded !== 'object' || decoded === null) {
+    return { status: 'failed', reasonCode: 'malformed_body' };
+  }
   const decodedRecord = decoded as Record<string, unknown>;
   const choices = decodedRecord.choices;
-  if (!Array.isArray(choices) || choices.length !== 1) return undefined;
+  if (!Array.isArray(choices) || choices.length !== 1) {
+    return { status: 'failed', reasonCode: 'malformed_body' };
+  }
   const choice: unknown = (choices as unknown[])[0];
-  if (typeof choice !== 'object' || choice === null) return undefined;
+  if (typeof choice !== 'object' || choice === null) {
+    return { status: 'failed', reasonCode: 'malformed_body' };
+  }
   const choiceRecord = choice as Record<string, unknown>;
   const finishReason = choiceRecord.finish_reason;
   if (
     (finishReason !== 'stop' && finishReason !== 'length') ||
-    !allowedFinishReasons.includes(finishReason) ||
     'tool_calls' in choiceRecord ||
     'function_call' in choiceRecord
   ) {
-    return undefined;
+    return { status: 'failed', reasonCode: 'malformed_body' };
   }
   const message = choiceRecord.message;
-  if (typeof message !== 'object' || message === null) return undefined;
+  if (typeof message !== 'object' || message === null) {
+    return { status: 'failed', reasonCode: 'malformed_body' };
+  }
   const messageRecord = message as Record<string, unknown>;
-  if ('tool_calls' in messageRecord || 'function_call' in messageRecord) return undefined;
-  if (messageRecord.role !== 'assistant' || typeof messageRecord.content !== 'string') {
-    return undefined;
+  if ('tool_calls' in messageRecord || 'function_call' in messageRecord) {
+    return { status: 'failed', reasonCode: 'malformed_body' };
+  }
+  if (messageRecord.role !== 'assistant') {
+    return { status: 'failed', reasonCode: 'malformed_body' };
+  }
+  // Check token truncation only after verifying the envelope itself has no tool calls or invalid role.
+  if (finishReason === 'length' && !allowedFinishReasons.includes('length')) {
+    if (typeof messageRecord.content === 'string' || messageRecord.content === null) {
+      return { status: 'failed', reasonCode: 'truncated_completion' };
+    }
+    return { status: 'failed', reasonCode: 'malformed_body' };
+  }
+  if (typeof messageRecord.content !== 'string') {
+    return { status: 'failed', reasonCode: 'malformed_body' };
   }
   const usage = readTokenUsage(decodedRecord);
   return {
-    content: messageRecord.content,
-    finishReason,
-    ...(usage === undefined ? {} : { usage }),
+    status: 'ok',
+    value: {
+      content: messageRecord.content,
+      finishReason,
+      ...(usage === undefined ? {} : { usage }),
+    },
   };
 }
 
@@ -371,14 +398,17 @@ function buildValidatedClient(
         totalTimeoutMs,
       });
       if (result.status === 'failed') return logFailure(result.reasonCode, result.statusCode);
-      const choice = readChoiceBody(result.body, ['stop']);
-      if (choice === undefined) return logFailure('malformed_body');
+      const choiceResult = readChoiceBody(result.body, ['stop']);
+      if (choiceResult.status === 'failed') {
+        return logFailure(choiceResult.reasonCode, result.statusCode);
+      }
+      const choice = choiceResult.value;
       const parsed = parseManifestOutput(choice.content, {
         knowledge: requestContext.knowledge,
         maximumResponseBytes,
         requiredLanguage: requestContext.requiredLanguage,
       });
-      if (parsed.status === 'rejected') return logFailure('invalid_envelope');
+      if (parsed.status === 'rejected') return logFailure('invalid_envelope', result.statusCode);
 
       logger.info('manifest_request_completed', {
         requestId: input.logicalRequestId,
@@ -498,8 +528,8 @@ export async function probeGatewayConnection(options: {
     });
   }
 
-  const choice = readChoiceBody(result.body, ['stop', 'length']);
-  if (choice === undefined || choice.content.trim().length === 0) {
+  const choiceResult = readChoiceBody(result.body, ['stop', 'length']);
+  if (choiceResult.status === 'failed' || choiceResult.value.content.trim().length === 0) {
     logger.warn('gateway_connection_test_failed', { reason: 'malformed_body', statusCode: 200 });
     return Object.freeze({
       httpStatus: result.statusCode,

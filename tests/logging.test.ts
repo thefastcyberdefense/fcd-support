@@ -54,12 +54,23 @@ describe('privacy-safe structured logging', () => {
       requestId: 'VERSION_TEST_manifest_log',
       statusCode: 429,
     });
+    logger.warn('manifest_request_failed', {
+      reason: 'truncated_completion',
+      requestId: 'VERSION_TEST_manifest_truncated',
+      statusCode: 200,
+    });
 
     expect(JSON.parse(lines[0] ?? '{}')).toMatchObject({
       event: 'manifest_request_failed',
       reason: 'provider_exhausted',
       requestId: 'VERSION_TEST_manifest_log',
       statusCode: 429,
+    });
+    expect(JSON.parse(lines[1] ?? '{}')).toMatchObject({
+      event: 'manifest_request_failed',
+      reason: 'truncated_completion',
+      requestId: 'VERSION_TEST_manifest_truncated',
+      statusCode: 200,
     });
   });
 });

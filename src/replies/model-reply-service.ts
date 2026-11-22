@@ -70,19 +70,43 @@ export function createModelLogicalCallKey(webhookEventId: string): string {
 
 function failureReason(reason: ManifestClientFailureReason): {
   readonly escalation: ModelEscalationReasonCode;
+  readonly leaseOutcome: Exclude<ManifestClientFailureReason, 'truncated_completion'>;
   readonly response: SafeResponseReason;
 } {
   switch (reason) {
     case 'timeout':
-      return { escalation: 'timeout', response: 'provider_unavailable' };
+      return { escalation: 'timeout', leaseOutcome: 'timeout', response: 'provider_unavailable' };
     case 'network_failure':
-      return { escalation: 'network_failure', response: 'provider_unavailable' };
+      return {
+        escalation: 'network_failure',
+        leaseOutcome: 'network_failure',
+        response: 'provider_unavailable',
+      };
     case 'provider_exhausted':
-      return { escalation: 'provider_exhausted', response: 'limit_exhausted' };
+      return {
+        escalation: 'provider_exhausted',
+        leaseOutcome: 'provider_exhausted',
+        response: 'limit_exhausted',
+      };
     case 'non_2xx':
-      return { escalation: 'provider_failure', response: 'provider_unavailable' };
+      return {
+        escalation: 'provider_failure',
+        leaseOutcome: 'non_2xx',
+        response: 'provider_unavailable',
+      };
+    case 'truncated_completion':
+      // Preserve schema 000019 model_call_leases_outcome_code_check compatibility while ManifestClient/logs record truncation distinctly.
+      return {
+        escalation: 'invalid_response',
+        leaseOutcome: 'malformed_body',
+        response: 'validation_failed',
+      };
     default:
-      return { escalation: 'invalid_response', response: 'validation_failed' };
+      return {
+        escalation: 'invalid_response',
+        leaseOutcome: reason,
+        response: 'validation_failed',
+      };
   }
 }
 
@@ -277,8 +301,7 @@ export class ModelReplyService {
       await this.options.allowance.completeLease({
         completedAt: this.now(),
         logicalCallKey: callKey,
-        outcomeCode:
-          persisted.status === 'policy_blocked' ? 'guard_blocked' : manifestResult.reasonCode,
+        outcomeCode: persisted.status === 'policy_blocked' ? 'guard_blocked' : mapped.leaseOutcome,
       });
       return persisted;
     }

@@ -201,6 +201,22 @@ describe('model reply composition', () => {
     expect(unsupported.allowance.completeLease).toHaveBeenCalledWith(
       expect.objectContaining({ outcomeCode: 'invalid_envelope' }),
     );
+
+    const truncated = fixture();
+    truncated.manifest.complete.mockResolvedValueOnce({
+      status: 'failed',
+      reasonCode: 'truncated_completion',
+    });
+    await truncated.service.decide(command);
+    expect(truncated.store.persistModelDecision).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'safe_failure',
+        escalationReasonCode: 'invalid_response',
+      }),
+    );
+    expect(truncated.allowance.completeLease).toHaveBeenCalledWith(
+      expect.objectContaining({ outcomeCode: 'malformed_body' }),
+    );
   });
 
   test('duplicate active lease cannot make a second request', async () => {
